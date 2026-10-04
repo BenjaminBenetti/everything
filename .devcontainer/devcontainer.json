@@ -1,5 +1,28 @@
 {
   "name": "Ubuntu",
-  "image": "mcr.microsoft.com/devcontainers/base:ubuntu-24.04",
-  "remoteUser": "vscode"
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu26.04",
+  "remoteUser": "vscode",
+  "features": {
+    // Docker daemon inside the container; minikube uses it as its driver.
+    // v4+ picks the iptables backend at container start: nftables on Fedora
+    // hosts, whose kernels don't load the legacy ip_tables module.
+    "ghcr.io/devcontainers/features/docker-in-docker:4": {
+      "version": "latest"
+    },
+    // kubectl, helm, and minikube.
+    "ghcr.io/devcontainers/features/kubectl-helm-minikube:1": {
+      "version": "latest",
+      "helm": "latest",
+      "minikube": "latest"
+    }
+  },
+  "mounts": [
+    // Host kernel modules, so post-start.sh can load br_netfilter.
+    "source=/lib/modules,target=/lib/modules,type=bind,readonly"
+  ],
+  "postStartCommand": "bash ${containerWorkspaceFolder}/.devcontainer/post-start.sh",
+  "hostRequirements": {
+    "cpus": 2,
+    "memory": "4gb"
+  }
 }
