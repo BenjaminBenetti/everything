@@ -1,6 +1,8 @@
 {
   "name": "Ubuntu",
-  "image": "mcr.microsoft.com/devcontainers/base:ubuntu26.04",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
   "remoteUser": "vscode",
   "features": {
     // Docker daemon inside the container; minikube uses it as its driver.
