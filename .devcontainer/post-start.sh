@@ -26,6 +26,27 @@ this container:
 EOF
 fi
 
+# inotify limits are per user, and root in this container, minikube, and
+# its pods all count as host root. Fedora's default of 128 instances runs
+# out and kube-proxy crash-loops with "too many open files". Raise the
+# limits (never lower them); like br_netfilter, this lasts until reboot.
+raise_sysctl() {
+    local key=$1 want=$2 have
+    have=$(sysctl -n "$key")
+    if [ "$have" -lt "$want" ]; then
+        sudo sysctl -qw "$key=$want" || cat >&2 <<EOF
+WARNING: couldn't raise $key from $have to $want, so kube-proxy and other
+pods may crash with "too many open files". Raise it on the host, then
+restart this container:
+
+  echo '$key = $want' | sudo tee -a /etc/sysctl.d/99-inotify.conf
+  sudo sysctl --system
+EOF
+    fi
+}
+raise_sysctl fs.inotify.max_user_instances 8192
+raise_sysctl fs.inotify.max_user_watches 524288
+
 # Start minikube and make it the current context, so kubectl, kubectx,
 # kubens, and k9s all point at it. The docker-in-docker entrypoint launches
 # dockerd in the background, so it may not be ready yet.
