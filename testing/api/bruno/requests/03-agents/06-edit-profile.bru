@@ -1,0 +1,34 @@
+meta {
+  name: Edit teammate profile
+  type: http
+  seq: 6
+}
+
+patch {
+  url: {{baseUrl}}/v1/agents/{{agentId}}
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+  Authorization: Bearer {{accessToken}}
+}
+
+body:json {
+  {
+    "name": "Bruno edited",
+    "systemPrompt": "Updated description and instructions.",
+    "avatarId": "avatar-64"
+  }
+}
+
+tests {
+  test("Edit every profile field without exposing ownership", () => {
+    expect(res.status).to.equal(200);
+    expect(res.body.name).to.equal("Bruno edited");
+    expect(res.body.systemPrompt).to.equal("Updated description and instructions.");
+    expect(res.body.avatarId).to.equal("avatar-64");
+    expect(res.body).not.to.have.property("ownerId");
+  });
+}

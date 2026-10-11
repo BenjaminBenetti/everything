@@ -4,24 +4,24 @@ export const themes = [
   {
     id: "midnight-dimmed",
     label: "Midnight Dimmed",
-    description: "A softer evening glow",
+    description: "Charcoal & muted amber",
   },
   {
     id: "graphite",
     label: "Graphite",
-    description: "Cool tones & quiet greens",
+    description: "Cool gray & green",
   },
   {
     id: "graphite-dimmed",
     label: "Graphite Dimmed",
-    description: "Low light, gentle contrast",
+    description: "Cool gray & muted green",
   },
   {
     id: "daylight",
     label: "Daylight",
-    description: "Bright & beautifully clear",
+    description: "White & blue",
   },
-  { id: "sand", label: "Sand", description: "Warm paper & earthy tones" },
+  { id: "sand", label: "Sand", description: "Warm neutrals & brown" },
 ] as const;
 export type Theme = (typeof themes)[number]["id"];
 

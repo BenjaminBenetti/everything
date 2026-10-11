@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { defaultAgentAvatarId } from "@everything/agent-contracts/avatar";
 import type { OwnerScope } from "@everything/persistence/repository";
 import type { AgentRepository } from "../interface/agent-repository.js";
 import type { AgentDefinition, CreateAgentInput } from "../model/agent.js";
@@ -18,6 +19,7 @@ function fixture() {
     async create({ ownerId }: OwnerScope, agent: CreateAgentInput) {
       const saved = {
         ...agent,
+        avatarId: agent.avatarId ?? defaultAgentAvatarId,
         id: String(stored.length + 1),
         ownerId,
         createdAt: "",
@@ -46,8 +48,19 @@ test("new agents belong to their creator and are listed only for them", async ()
     systemPrompt: "Help",
   });
   assert.equal(agent.ownerId, "owner");
+  assert.equal(agent.avatarId, "avatar-01");
   assert.deepEqual(await service.list("owner"), [agent]);
   assert.deepEqual(await service.list("someone-else"), []);
+});
+
+test("creation passes the selected avatar to persistence", async () => {
+  const { service } = fixture();
+  const agent = await service.create("owner", {
+    name: "Chosen",
+    systemPrompt: "Help",
+    avatarId: "avatar-64",
+  });
+  assert.equal(agent.avatarId, "avatar-64");
 });
 
 test("foreign and missing agents are indistinguishable and never deleted", async () => {

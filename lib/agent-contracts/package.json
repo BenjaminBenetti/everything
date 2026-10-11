@@ -10,6 +10,10 @@
     ".": {
       "types": "./build/agent/model/agent.d.ts",
       "default": "./build/agent/model/agent.js"
+    },
+    "./avatar": {
+      "types": "./build/agent/model/avatar.d.ts",
+      "default": "./build/agent/model/avatar.js"
     }
   },
   "scripts": {

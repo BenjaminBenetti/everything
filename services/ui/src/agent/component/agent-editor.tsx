@@ -1,12 +1,16 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { agentLimits, type Agent } from "@everything/agent-contracts";
+import type { AgentAvatarId } from "@everything/agent-contracts/avatar";
 import { Button } from "@everything/ui/button";
 import { Dialog } from "@everything/ui/dialog";
 import { useAgentDirectory } from "./agent-directory-provider.js";
 import { useSession } from "../../session/component/session-provider.js";
+import { AvatarPicker } from "./avatar-picker.js";
+import { TeammateAvatar } from "./teammate-avatar.js";
+import { randomTeammateAvatarId } from "../model/teammate-avatars.js";
 
-/** Create definitions or rename an existing one, preserving drafts after API failures. */
+/** Edit a teammate profile as one draft, preserving every field after API failures. */
 export function AgentEditor({
   agent,
   onClose,
@@ -17,22 +21,37 @@ export function AgentEditor({
   onSaved: (message: string) => void;
 }) {
   const [name, setName] = useState(agent?.name ?? "");
-  const [instructions, setInstructions] = useState("");
+  const [description, setDescription] = useState(agent?.systemPrompt ?? "");
+  const [avatarId, setAvatarId] = useState<AgentAvatarId>(
+    () => agent?.avatarId ?? randomTeammateAvatarId(),
+  );
+  const [avatarChoice, setAvatarChoice] = useState(avatarId);
+  const [choosingAvatar, setChoosingAvatar] = useState(false);
+  const formId = useId();
+  const avatarButton = useRef<HTMLButtonElement>(null);
+  const wasChoosingAvatar = useRef(false);
   const directory = useAgentDirectory();
   const cache = useQueryClient();
   const { profile } = useSession();
+  useEffect(() => {
+    if (wasChoosingAvatar.current && !choosingAvatar)
+      avatarButton.current?.focus();
+    wasChoosingAvatar.current = choosingAvatar;
+  }, [choosingAvatar]);
   const save = useMutation({
-    mutationFn: () =>
-      agent
-        ? directory.rename(agent.id, name.trim())
-        : directory.create({
-            name: name.trim(),
-            systemPrompt:
-              instructions.trim() || "Help me with my everyday work.",
-          }),
+    mutationFn: () => {
+      const input = {
+        name: name.trim(),
+        systemPrompt: description.trim() || "Help me with my everyday work.",
+        avatarId,
+      };
+      return agent
+        ? directory.update(agent.id, input)
+        : directory.create(input);
+    },
     onSuccess: async () => {
       await cache.invalidateQueries({ queryKey: ["agents", profile?.subject] });
-      onSaved(agent ? "Agent renamed." : "Your new agent is ready.");
+      onSaved(agent ? "Teammate updated." : "Teammate created.");
       onClose();
     },
   });
@@ -41,59 +60,111 @@ export function AgentEditor({
     event.preventDefault();
     if (name.trim() && !save.isPending) save.mutate();
   }
+  /** Return from artwork selection without discarding the profile draft. */
+  function close(): void {
+    if (save.isPending) return;
+    if (choosingAvatar) setChoosingAvatar(false);
+    else onClose();
+  }
   return (
     <Dialog
-      title={agent ? "Make it yours." : "Someone new."}
-      description="Choose a name for your agent. You can change it whenever you like."
-      onClose={() => {
-        if (!save.isPending) onClose();
-      }}
+      title={
+        choosingAvatar
+          ? "Choose an avatar"
+          : agent
+            ? "Edit teammate"
+            : "Create a new teammate"
+      }
+      description={
+        choosingAvatar
+          ? "Pick a character for your teammate."
+          : "Choose a name, description, and avatar. You can change them later."
+      }
+      className={`teammate-editor ${choosingAvatar ? "choosing-avatar" : ""}`}
+      onClose={close}
+      footer={
+        <div className="dialog-actions teammate-editor-actions">
+          <Button variant="light" disabled={save.isPending} onClick={close}>
+            {choosingAvatar ? "Back" : "Cancel"}
+          </Button>
+          {/* Distinct controls prevent the avatar click from becoming a native form submission after rerender. */}
+          {choosingAvatar ? (
+            <Button
+              key="confirm-avatar"
+              onClick={() => {
+                setAvatarId(avatarChoice);
+                setChoosingAvatar(false);
+              }}
+            >
+              Use avatar
+            </Button>
+          ) : (
+            <Button
+              key="save-profile"
+              form={formId}
+              type="submit"
+              disabled={!name.trim() || save.isPending}
+            >
+              {save.isPending
+                ? "Saving…"
+                : agent
+                  ? "Save changes"
+                  : "Create teammate"}
+            </Button>
+          )}
+        </div>
+      }
     >
-      <form onSubmit={submit}>
-        <label className="field">
-          Agent name
-          <input
-            autoFocus
-            required
-            maxLength={agentLimits.nameLength}
-            placeholder="A name that feels right"
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            disabled={save.isPending}
-          />
-        </label>
-        {!agent && (
+      {choosingAvatar ? (
+        <AvatarPicker value={avatarChoice} onChange={setAvatarChoice} />
+      ) : (
+        <form id={formId} onSubmit={submit} aria-busy={save.isPending}>
+          <div className="teammate-avatar-field">
+            <TeammateAvatar avatarId={avatarId} />
+            <span className="eyebrow">Avatar</span>
+            <Button
+              ref={avatarButton}
+              variant="light"
+              disabled={save.isPending}
+              onClick={() => {
+                setAvatarChoice(avatarId);
+                setChoosingAvatar(true);
+              }}
+            >
+              Change avatar
+            </Button>
+          </div>
           <label className="field">
-            A little about them <span className="muted">(optional)</span>
+            Teammate name
+            <input
+              autoFocus
+              required
+              maxLength={agentLimits.nameLength}
+              placeholder="e.g. Research assistant"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              disabled={save.isPending}
+            />
+          </label>
+          <label className="field">
+            Description <span className="muted">(optional)</span>
             <textarea
               rows={3}
               maxLength={agentLimits.systemPromptLength}
-              placeholder="What will you work on together?"
-              value={instructions}
-              onChange={(event) => setInstructions(event.target.value)}
+              placeholder="Describe what your teammate should help with."
+              value={description}
+              onChange={(event) => setDescription(event.target.value)}
               disabled={save.isPending}
             />
-            <small>These instructions help shape how your agent works.</small>
+            <small>Leave blank for general help with everyday tasks.</small>
           </label>
-        )}
-        {save.isError && (
-          <p className="form-error" role="alert">
-            {save.error.message}
-          </p>
-        )}
-        <div className="dialog-actions">
-          <Button variant="light" disabled={save.isPending} onClick={onClose}>
-            Cancel
-          </Button>
-          <Button type="submit" disabled={!name.trim() || save.isPending}>
-            {save.isPending
-              ? "Saving…"
-              : agent
-                ? "Save changes"
-                : "Create agent"}
-          </Button>
-        </div>
-      </form>
+          {save.isError && (
+            <p className="form-error" role="alert">
+              {save.error.message}
+            </p>
+          )}
+        </form>
+      )}
     </Dialog>
   );
 }

@@ -40,19 +40,19 @@ export function LoginPage() {
         <Brand />
         <div className="welcome-copy">
           <h1>
-            The only app
+            Your work.
             <br />
-            <em>you need.</em>
+            <em>Your team.</em>
           </h1>
           <p>
-            Get everything done in one place.
+            Create teammates, customize their profiles,
             <br />
-            If what you need doesn’t exist yet, Everything can build it.
+            and manage your team in one place.
           </p>
         </div>
         <div className="welcome-bottom">
           <span className="dot" />
-          Your world, a little more together.
+          Your workspace in Everything.
         </div>
         <GridArt />
       </section>
@@ -64,13 +64,9 @@ export function LoginPage() {
           onSubmit={(event) => void submit(event)}
           aria-busy={pending}
         >
-          <div className="eyebrow">Your personal agent</div>
+          <div className="eyebrow">Your workspace</div>
           <h2>Welcome back.</h2>
-          <p className="login-subtitle">
-            Your agents are here.
-            <br />
-            Pick up wherever you left off.
-          </p>
+          <p className="login-subtitle">Sign in to manage your teammates.</p>
           <label className="field" htmlFor="username">
             Username
             <input
@@ -112,8 +108,8 @@ export function LoginPage() {
           )}
         </form>
         <div className="login-foot">
-          <LockKeyhole aria-hidden="true" />A private place for you and your
-          agents.
+          <LockKeyhole aria-hidden="true" />A private workspace for you and your
+          teammates.
         </div>
       </section>
     </main>

@@ -16,6 +16,7 @@ function definition(name: string): AgentDefinition {
     ownerId: "owner",
     name,
     systemPrompt: "Reply deliberately",
+    avatarId: "avatar-01",
     createdAt: "2026-01-01T00:00:00.000Z",
   };
 }
@@ -35,7 +36,10 @@ async function fixture(): Promise<{
     /** Record the validated creation input. */
     async create(ownerId, input) {
       calls.push(`create:${ownerId}:${input.name}`);
-      return definition(input.name);
+      return {
+        ...definition(input.name),
+        avatarId: input.avatarId ?? "avatar-01",
+      };
     },
     /** Resolve any requested identifier. */
     async get(ownerId, id) {
@@ -64,12 +68,26 @@ test("creates a definition and hides its owner", async (context) => {
   });
   assert.equal(response.statusCode, 201);
   assert.deepEqual(Object.keys(response.json()).sort(), [
+    "avatarId",
     "createdAt",
     "id",
     "name",
     "systemPrompt",
   ]);
+  assert.equal(response.json().avatarId, "avatar-01");
   assert.deepEqual(calls, ["create:owner:Chosen"]);
+});
+
+test("creates a definition with a selected built-in avatar", async (context) => {
+  const { app } = await fixture();
+  context.after(() => app.close());
+  const response = await app.inject({
+    method: "POST",
+    url: "/agents",
+    payload: { name: "Chosen", systemPrompt: "Help", avatarId: "avatar-64" },
+  });
+  assert.equal(response.statusCode, 201);
+  assert.equal(response.json().avatarId, "avatar-64");
 });
 
 test("rejects blank, oversized, incomplete, and unexpected definition input", async (context) => {
@@ -82,6 +100,8 @@ test("rejects blank, oversized, incomplete, and unexpected definition input", as
     { name: "Chosen", systemPrompt: "x".repeat(16001) },
     { name: "Chosen" },
     { name: "Chosen", systemPrompt: "Help", ownerId: "someone-else" },
+    { name: "Chosen", systemPrompt: "Help", avatarId: "avatar-65" },
+    { name: "Chosen", systemPrompt: "Help", avatarId: null },
   ]) {
     const response = await app.inject({
       method: "POST",

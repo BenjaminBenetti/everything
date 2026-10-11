@@ -16,6 +16,10 @@
       "types": "./build/dialog/component/dialog.d.ts",
       "default": "./build/dialog/component/dialog.js"
     },
+    "./confirmation-dialog": {
+      "types": "./build/dialog/component/confirmation-dialog.d.ts",
+      "default": "./build/dialog/component/confirmation-dialog.js"
+    },
     "./brand": {
       "types": "./build/brand/component/brand.d.ts",
       "default": "./build/brand/component/brand.js"

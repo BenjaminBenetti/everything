@@ -10,9 +10,9 @@ export function HomePage() {
   return (
     <div className="content-inner dashboard-inner">
       <PageHeading
-        eyebrow="Your space, at a glance"
+        eyebrow="Overview"
         title="Welcome back."
-        description="A little space for you and everything you’ll do."
+        description="Manage your team and view updates."
       />
       <div className="dashboard-grid">
         <section aria-labelledby="updates-heading">
@@ -23,10 +23,10 @@ export function HomePage() {
             </Link>
           </div>
           <div className="updates-feed">
-            <EmptyState icon={Check} title="You’re all caught up.">
-              <p>New messages and shared work will appear here.</p>
+            <EmptyState icon={Check} title="No updates yet">
+              <p>Updates will appear here when conversations are available.</p>
               <Link className="text-link" to="/team">
-                Visit your team <ArrowRight aria-hidden="true" />
+                View your team <ArrowRight aria-hidden="true" />
               </Link>
             </EmptyState>
           </div>
@@ -35,24 +35,24 @@ export function HomePage() {
           <div className="section-heading">
             <h2 id="recent-heading">Recent conversations</h2>
           </div>
-          <p className="recent-intro">Pick up where you left off.</p>
+          <p className="recent-intro">No conversations yet.</p>
           <p className="recent-empty">
-            Conversations will be available in a future update. Your team is
-            ready to take shape.
+            Conversations aren’t available yet. You can create and edit
+            teammates now.
           </p>
           <Link className="team-link" to="/team">
-            See your whole team <ArrowRight aria-hidden="true" />
+            View your team <ArrowRight aria-hidden="true" />
           </Link>
           <div className="dashboard-phone">
             <Smartphone aria-hidden="true" />
             <div>
-              <strong>Take Everything with you.</strong>
-              <p>Make a little room on your Home Screen.</p>
+              <strong>Use Everything on your phone</strong>
+              <p>Add Everything to your Home Screen.</p>
               <button
                 className="text-link"
                 onClick={() => open({ kind: "notifications" })}
               >
-                Set up your phone <ArrowRight aria-hidden="true" />
+                Phone setup <ArrowRight aria-hidden="true" />
               </button>
             </div>
           </div>

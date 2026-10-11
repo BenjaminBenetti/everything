@@ -2,7 +2,7 @@
   "id": "/",
   "name": "Everything",
   "short_name": "Everything",
-  "description": "A private place for you and your agents.",
+  "description": "A private workspace for you and your teammates.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

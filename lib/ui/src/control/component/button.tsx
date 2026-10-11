@@ -1,13 +1,13 @@
-import type { ButtonHTMLAttributes } from "react";
+import type { ComponentProps } from "react";
 
-/** Native button semantics with shared design roles. */
+/** Native button semantics with shared action and danger styles. */
 export function Button({
   className = "",
   variant = "primary",
   type = "button",
   ...props
-}: ButtonHTMLAttributes<HTMLButtonElement> & {
-  variant?: "primary" | "light" | "text";
+}: ComponentProps<"button"> & {
+  variant?: "primary" | "light" | "text" | "danger" | "danger-quiet";
 }) {
   return (
     <button
@@ -24,7 +24,7 @@ export function IconButton({
   className = "",
   type = "button",
   ...props
-}: ButtonHTMLAttributes<HTMLButtonElement> & { label: string }) {
+}: ComponentProps<"button"> & { label: string }) {
   return (
     <button
       type={type}

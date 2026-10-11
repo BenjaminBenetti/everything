@@ -36,48 +36,6 @@ export function Brand({ className = "" }: { className?: string }) {
   );
 }
 
-/** Shared agent artwork, independent of any agent's state or provider. */
-export function AgentAvatar({
-  name,
-  small = false,
-}: {
-  name: string;
-  small?: boolean;
-}) {
-  return (
-    <span className={small ? "mini-avatar" : "avatar"} aria-hidden="true">
-      {small ? (
-        name
-          .trim()
-          .split(/\s+/)
-          .slice(0, 2)
-          .map((part) => Array.from(part)[0])
-          .join("")
-          .toUpperCase()
-      ) : (
-        <svg
-          viewBox="0 0 40 40"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.15"
-        >
-          {[0, 60, 120].map((angle) => (
-            <ellipse
-              key={angle}
-              cx="20"
-              cy="20"
-              rx="6"
-              ry="16"
-              transform={`rotate(${angle} 20 20)`}
-            />
-          ))}
-          <circle cx="20" cy="20" r="3" fill="currentColor" />
-        </svg>
-      )}
-    </span>
-  );
-}
-
 /** Static routed grid artwork; motion is a decoration, never a loading requirement. */
 export function GridArt({ className = "" }: { className?: string }) {
   return (

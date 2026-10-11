@@ -11,7 +11,8 @@ import {
   Plug,
 } from "lucide-react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
-import { AgentAvatar, Brand } from "@everything/ui/brand";
+import { Brand } from "@everything/ui/brand";
+import { TeammateAvatar } from "../../agent/component/teammate-avatar.js";
 import { IconButton } from "@everything/ui/button";
 import { AvatarButton } from "@everything/ui/avatar";
 import { useAgents } from "../../agent/component/agent-directory-provider.js";
@@ -93,7 +94,7 @@ export function WorkspaceShell() {
         <div className="sidebar-section">
           <span className="eyebrow">Your team</span>
           <IconButton
-            label="Create an agent"
+            label="Create a new teammate"
             onClick={() => open({ kind: "editor" })}
           >
             <Plus aria-hidden="true" />
@@ -106,12 +107,12 @@ export function WorkspaceShell() {
               className="side-agent"
               onClick={() => open({ kind: "details", agent })}
             >
-              <AgentAvatar name={agent.name} small />
+              <TeammateAvatar avatarId={agent.avatarId} small />
               <span>{agent.name}</span>
             </button>
           ))}
           {agents.data?.length === 0 && (
-            <p className="sidebar-empty">A little room for your first agent.</p>
+            <p className="sidebar-empty">No teammates yet.</p>
           )}
           {agents.isError && (
             <p className="sidebar-empty">
@@ -122,7 +123,7 @@ export function WorkspaceShell() {
         <div className="sidebar-bottom">
           <div className="space-card">
             <span className="dot" />
-            Your space. Your possibilities.
+            Your personal workspace
           </div>
           <div className="profile">
             <AvatarButton
@@ -133,7 +134,7 @@ export function WorkspaceShell() {
             />
             <span>
               {profile?.displayName}
-              <small>Just for you</small>
+              <small>Your account</small>
             </span>
             <IconButton label="Sign out" onClick={() => void signOut()}>
               <LogOut aria-hidden="true" />
@@ -149,9 +150,7 @@ export function WorkspaceShell() {
             <span>{label}</span>
           </div>
           <div className="topbar-right">
-            <span className="topbar-caption">
-              A little space to get things done.
-            </span>
+            <span className="topbar-caption">Your team, in one place.</span>
             <IconButton
               label="Model providers — connection not available yet"
               className="provider-button"
@@ -179,6 +178,7 @@ export function WorkspaceShell() {
         </header>
         <main
           id="workspace-content"
+          data-dialog-fallback=""
           ref={content}
           tabIndex={-1}
           className={`content ${pathname === "/" ? "dashboard-content" : ""}`}

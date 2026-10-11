@@ -1,0 +1,24 @@
+meta {
+  name: Read edited teammate profile
+  type: http
+  seq: 7
+}
+
+get {
+  url: {{baseUrl}}/v1/agents/{{agentId}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+tests {
+  test("All profile changes are persisted", () => {
+    expect(res.status).to.equal(200);
+    expect(res.body.name).to.equal("Bruno edited");
+    expect(res.body.systemPrompt).to.equal("Updated description and instructions.");
+    expect(res.body.avatarId).to.equal("avatar-64");
+  });
+}

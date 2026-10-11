@@ -2,6 +2,7 @@ import type {
   Agent,
   AgentList,
   CreateAgentInput,
+  UpdateAgentInput,
 } from "@everything/agent-contracts";
 import type { JsonTransport } from "../../http/interface/json-transport.js";
 import type { AgentDirectory } from "../interface/agent-directory.js";
@@ -36,11 +37,19 @@ export class HttpAgentDirectory implements AgentDirectory {
     });
   }
 
-  /** Rename without submitting instructions or triggering work. */
-  rename(id: string, name: string): Promise<Agent> {
+  /** Persist editable profile fields without triggering work. */
+  update(id: string, input: UpdateAgentInput): Promise<Agent> {
     return this.transport.request(`/v1/agents/${encodeURIComponent(id)}`, {
       method: "PATCH",
-      body: JSON.stringify({ name }),
+      body: JSON.stringify(input),
     });
+  }
+
+  /** Delegate removal to the API's ownership-scoped lifecycle. */
+  delete(id: string): Promise<void> {
+    return this.transport.request<void>(
+      `/v1/agents/${encodeURIComponent(id)}`,
+      { method: "DELETE" },
+    );
   }
 }

@@ -5,8 +5,8 @@ import { Dialog } from "@everything/ui/dialog";
 export function NotificationDialog({ onClose }: { onClose: () => void }) {
   return (
     <Dialog
-      title="Stay in the loop."
-      description="Keep Everything close, even when you’re away from your desk."
+      title="Phone setup"
+      description="Add Everything to your Home Screen for quick access."
       onClose={onClose}
     >
       <ol className="steps">
@@ -26,12 +26,11 @@ export function NotificationDialog({ onClose }: { onClose: () => void }) {
         </li>
         <li>
           <span className="step-number">3</span>
-          <span>Sign in to find your team, right where you left it.</span>
+          <span>Sign in to access your team.</span>
         </li>
       </ol>
       <p className="availability-note">
-        Push notifications aren’t available yet. You’ll be able to enable them
-        here when they’re ready.
+        Push notifications aren’t available yet.
       </p>
       <div className="dialog-actions">
         <Button onClick={onClose}>Got it</Button>

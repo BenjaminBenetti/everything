@@ -1,5 +1,5 @@
 meta {
-  name: Reject foreign renaming
+  name: Reject foreign profile editing
   type: http
   seq: 6
 }
@@ -17,12 +17,14 @@ headers {
 
 body:json {
   {
-    "name": "Unauthorized rename"
+    "name": "Unauthorized rename",
+    "systemPrompt": "Unauthorized description",
+    "avatarId": "avatar-64"
   }
 }
 
 tests {
-  test("Hide the foreign definition from renaming", () => {
+  test("Hide the foreign definition from profile editing", () => {
     expect(res.status).to.equal(404);
     expect(res.body.code).to.equal("AGENT_NOT_FOUND");
   });

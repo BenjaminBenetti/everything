@@ -7,7 +7,7 @@ export class ProviderUnavailableError extends ApplicationError {
     super(
       503,
       "PROVIDER_UNAVAILABLE",
-      "Connect a model provider to power your agents.",
+      "Connect a model provider to use your teammates.",
     );
   }
 }

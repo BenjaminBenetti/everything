@@ -1,5 +1,6 @@
 # Repository conventions
 
+- Use “teammate” in all product copy, including labels, dialogs, notifications, errors, accessibility text, and app metadata. Write in a plain, friendly tone: name the action, explain what happens, and avoid vague or decorative phrasing. Technical identifiers and API contracts may retain `agent`.
 - Organize deployable services under `services/<service>` and shared workspace libraries under `lib/<library>`.
 - Keep source files in `src/<domain>/<type>/<file>` within either kind of package. Use `interface` for contracts.
 - Import shared code through a declared `workspace:*` dependency and the library's public package exports. Libraries must not import service code; services must not import another service's internals.

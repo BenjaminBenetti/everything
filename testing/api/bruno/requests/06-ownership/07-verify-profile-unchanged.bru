@@ -1,5 +1,5 @@
 meta {
-  name: Preserve owned name after foreign rename
+  name: Preserve owned profile after foreign edit
   type: http
   seq: 7
 }
@@ -15,8 +15,10 @@ headers {
 }
 
 tests {
-  test("Foreign renaming cannot change the owner's definition", () => {
+  test("Foreign editing cannot change any profile field", () => {
     expect(res.status).to.equal(200);
     expect(res.body.name).to.equal("Bruno owned agent");
+    expect(res.body.systemPrompt).to.equal("Use send_message to reply to the user.");
+    expect(res.body.avatarId).to.equal("avatar-01");
   });
 }

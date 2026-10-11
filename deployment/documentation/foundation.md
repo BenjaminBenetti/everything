@@ -106,10 +106,10 @@ Requests and assertions are executable in [the Bruno collection](../../testing/a
 | --- | --- |
 | `01-health` | Liveness and database readiness, without authentication. |
 | `02-authentication` | Missing, invalid, and wrong-audience tokens are rejected; obtains the test identities' tokens for the folders after it. |
-| `03-agents` | Definition validation, creation, listing, reading, and deletion. |
+| `03-agents` | Definition validation, creation, listing, reading, profile edits, avatar selection, and deletion. |
 | `04-agent-capacity` | Several agents exist at once; the number is not limited by storage. |
 | `05-conversation` | Message validation, an empty conversation, the unloaded runtime, and interrupting an idle agent. |
-| `06-ownership` | Another identity cannot read, message, or delete an agent. |
+| `06-ownership` | Another identity cannot read, edit, message, or delete a teammate. |
 
 After authentication, each folder creates the agents it needs and deletes them at its end, so a folder can be run on its own once `02-authentication` has run. `restart/before` and `restart/after` hold the restart phases that `pnpm test:restart` runs around replacing the pods. The `Local` environment holds the development test clients' secrets from `values.dev.yaml`. `pnpm test:api` invokes `bru run` directly with the same collection; there is no custom runner or HTTP client.
 
@@ -119,9 +119,9 @@ After authentication, each folder creates the agents it needs and deletes them a
 | GET | `/health/ready` | Database readiness. |
 | GET | `/v1/me` | Verified subject. |
 | GET | `/v1/agents` | Caller-owned agent definitions. |
-| POST | `/v1/agents` | Create `{ "name": "Chosen by the user", "systemPrompt": "..." }`. |
+| POST | `/v1/agents` | Create `{ "name": "Chosen by the user", "systemPrompt": "...", "avatarId": "avatar-01" }`. Avatar selection is optional. |
 | GET | `/v1/agents/:agentId` | Read a definition. |
-| PATCH | `/v1/agents/:agentId` | Rename with `{ "name": "New name" }`, without changing instructions or runtime state. |
+| PATCH | `/v1/agents/:agentId` | Edit any supplied `name`, `systemPrompt`, or `avatarId` field; omitted fields keep their saved values. |
 | DELETE | `/v1/agents/:agentId` | Stop execution, delete the agent's files, and remove application records. |
 | GET | `/v1/agents/:agentId/messages` | Latest 100 visible messages, chronologically ordered. |
 | POST | `/v1/agents/:agentId/messages` | Persist `{ "text": "..." }`, interrupt prior work, and return 202 with message/run IDs. |
@@ -130,9 +130,13 @@ After authentication, each folder creates the agents it needs and deletes them a
 
 Request schemas reject unexpected properties, invalid IDs, empty messages, and excessive input. Bodies are bounded to 64 KiB. Rate limits and security headers are applied; authorization headers are redacted from logs. Public runtime errors do not contain provider responses or credentials.
 
+Profile edits require at least one field and accept only the 64 built-in avatar IDs (`avatar-01` through `avatar-64`). The shared `@everything/agent-contracts` package defines the inputs and public response; its `/avatar` export defines stable IDs independently of artwork or animation states. Every definition response includes `avatarId`; creation without a selection defaults to `avatar-01`. The profile service depends on `AgentProfileStore`, and the PostgreSQL update includes the verified owner in its predicate. Missing and inaccessible IDs both return the same 404 response. Existing name-only PATCH requests remain valid.
+
 ## Persistence and execution
 
 PostgreSQL has its own PVC and separate database roles/databases for Keycloak and Everything. Everything stores user-named agent definitions and visible conversation messages there. Pi's native JSONL history remains on disk. TypeORM owns database connections and runs tracked migrations through `everything_migrations`. Schema synchronization and automatic dropping are disabled. The initial migration creates the constrained schema; later schema changes add new migrations.
+
+The avatar migration adds the constrained, non-null `agents.avatar_id` column and backfills existing definitions with `avatar-01`. The UI's Description field edits the existing `systemPrompt`; it does not introduce separate descriptive metadata. Saving a profile never starts or interrupts execution. A loaded Pi session retains its prompt snapshot until it is unloaded and reopened; newly loaded sessions use the saved instructions. Live prompt changes belong to the future conversation workflow.
 
 Agents are created at runtime and are not limited in number, so their files share one volume (`everything-agents`, mounted at `/agents`), each agent in a directory named by its ID. A volume per agent, as the architecture page describes, would require redeploying the pod for every new agent, because a running pod cannot gain volume mounts. A second volume (`everything-state`) stores shared Pi provider configuration, credentials, and catalog state. The Everything container requests 3 GiB of memory with a 4 GiB limit, since every active agent's session runs in it; PostgreSQL requests 512 MiB with a 1 GiB limit.
 

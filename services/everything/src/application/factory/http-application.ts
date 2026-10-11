@@ -11,8 +11,8 @@ import rateLimit from "@fastify/rate-limit";
 import { requireAuthentication } from "@everything/security/fastify";
 import type { TokenVerifier } from "@everything/security/token-verifier";
 import { agentController } from "../../agent/controller/agent-controller.js";
-import { agentNamingController } from "../../agent/controller/agent-naming-controller.js";
-import type { AgentNaming } from "../../agent/interface/agent-naming.js";
+import { agentEditingController } from "../../agent/controller/agent-editing-controller.js";
+import type { AgentEditing } from "../../agent/interface/agent-editing.js";
 import type { AgentCatalog } from "../../agent/interface/agent-catalog.js";
 import type { AgentRemoval } from "../../agent/interface/agent-removal.js";
 import { conversationController } from "../../conversation/controller/conversation-controller.js";
@@ -31,7 +31,7 @@ export interface HttpDependencies {
   readonly sessions: SessionOperations;
   readonly publicOrigin: string;
   readonly agents: Omit<AgentCatalog, "delete">;
-  readonly names: AgentNaming;
+  readonly profiles: AgentEditing;
   readonly removal: AgentRemoval;
   readonly conversations: ConversationOperations;
   readonly readiness: ReadinessCheck;
@@ -92,6 +92,6 @@ function protectedApi(
     await identityController(scope);
     await conversationController(scope, dependencies.conversations);
     await agentController(scope, dependencies.agents, dependencies.removal);
-    await agentNamingController(scope, dependencies.names);
+    await agentEditingController(scope, dependencies.profiles);
   };
 }

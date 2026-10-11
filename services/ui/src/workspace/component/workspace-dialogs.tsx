@@ -8,13 +8,15 @@ import {
 import type { Agent } from "@everything/agent-contracts";
 import { AgentEditor } from "../../agent/component/agent-editor.js";
 import { AgentDetails } from "../../agent/component/agent-details.js";
+import { AgentDeletionDialog } from "../../agent/component/agent-deletion-dialog.js";
 import { NotificationDialog } from "../../notification/component/notification-dialog.js";
 import { PreferencesDialog } from "../../preferences/component/preferences-dialog.js";
 import { ProviderDialog } from "../../provider/component/provider-dialog.js";
 
 type WorkspaceDialog =
   | { kind: "editor"; agent?: Agent }
-  | { kind: "details"; agent: Agent }
+  | { kind: "details"; agent: Agent; focusDelete?: boolean }
+  | { kind: "deletion"; agent: Agent }
   | { kind: "notifications" }
   | { kind: "provider" }
   | { kind: "preferences" };
@@ -64,7 +66,25 @@ export function WorkspaceDialogsProvider({
         <AgentDetails
           agent={dialog.agent}
           onClose={close}
-          onRename={() => setDialog({ kind: "editor", agent: dialog.agent })}
+          onEdit={() => setDialog({ kind: "editor", agent: dialog.agent })}
+          onDelete={() => setDialog({ kind: "deletion", agent: dialog.agent })}
+          focusDelete={dialog.focusDelete ?? false}
+        />
+      )}
+      {dialog?.kind === "deletion" && (
+        <AgentDeletionDialog
+          agent={dialog.agent}
+          onCancel={() =>
+            setDialog({
+              kind: "details",
+              agent: dialog.agent,
+              focusDelete: true,
+            })
+          }
+          onDeleted={() => {
+            setNotice("Teammate deleted.");
+            close();
+          }}
         />
       )}
       {dialog?.kind === "notifications" && (

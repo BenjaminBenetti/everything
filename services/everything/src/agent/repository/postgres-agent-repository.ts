@@ -1,18 +1,23 @@
 import { randomUUID } from "node:crypto";
+import { defaultAgentAvatarId } from "@everything/agent-contracts/avatar";
 import type { DataSource, FindOptionsWhere } from "typeorm";
 import {
   BaseRepository,
   type OwnerScope,
 } from "@everything/persistence/repository";
 import type { AgentRepository } from "../interface/agent-repository.js";
-import type { AgentNameStore } from "../interface/agent-name-store.js";
-import type { AgentDefinition, CreateAgentInput } from "../model/agent.js";
+import type { AgentProfileStore } from "../interface/agent-profile-store.js";
+import type {
+  AgentDefinition,
+  CreateAgentInput,
+  UpdateAgentInput,
+} from "../model/agent.js";
 import { AgentEntity } from "../schema/agent-entity.js";
 
 /** Persist mapped agent definitions, scoped to their owner. */
 export class PostgresAgentRepository
   extends BaseRepository<AgentDefinition, OwnerScope>
-  implements AgentRepository, AgentNameStore
+  implements AgentRepository, AgentProfileStore
 {
   // ===========================================
   // Construction
@@ -40,21 +45,22 @@ export class PostgresAgentRepository
         ownerId,
         name: agent.name,
         systemPrompt: agent.systemPrompt,
+        avatarId: agent.avatarId ?? defaultAgentAvatarId,
       }),
     );
   }
 
-  /** Apply ownership in the update itself; never touch prompt or runtime state. */
-  async rename(
+  /** Apply ownership to the update itself and leave omitted fields untouched. */
+  async update(
     scope: OwnerScope,
     id: string,
-    name: string,
+    input: UpdateAgentInput,
   ): Promise<AgentDefinition | undefined> {
     if (!scope.ownerId || !id)
-      throw new Error("Renaming requires an owner and agent identifier");
+      throw new Error("Editing requires an owner and agent identifier");
     const result = await this.orm.update(
       { ...this.scopeWhere(scope), id },
-      { name },
+      input,
     );
     return result.affected ? this.getById(scope, id) : undefined;
   }

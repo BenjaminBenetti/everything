@@ -7,7 +7,7 @@ import { createKeycloakTokenVerifier } from "@everything/security/keycloak";
 import { PostgresAgentRepository } from "../../agent/repository/postgres-agent-repository.js";
 import { AgentEntity } from "../../agent/schema/agent-entity.js";
 import { AgentService } from "../../agent/service/agent-service.js";
-import { AgentNamingService } from "../../agent/service/agent-naming-service.js";
+import { AgentEditingService } from "../../agent/service/agent-editing-service.js";
 import { PostgresMessageRepository } from "../../conversation/repository/postgres-message-repository.js";
 import { ConversationService } from "../../conversation/service/conversation-service.js";
 import { createApplicationDatabase } from "../../persistence/factory/application-database.js";
@@ -41,7 +41,7 @@ async function main(): Promise<void> {
   );
   const app = await createHttpApplication({
     agents,
-    names: new AgentNamingService(agentRepository),
+    profiles: new AgentEditingService(agentRepository),
     removal: conversations,
     conversations,
     verifier,

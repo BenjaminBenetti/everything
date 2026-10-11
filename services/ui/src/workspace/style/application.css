@@ -1,6 +1,7 @@
 @import "tailwindcss";
 @import "@everything/ui/tokens.css";
 @import "@everything/ui/styles.css";
+@import "../../agent/style/teammate-profile.css";
 @source "../../../../../lib/ui/src";
 @theme inline {
   --color-page: var(--surface-page);
@@ -416,12 +417,12 @@
   border-color: var(--border-active);
   transform: translateY(-2px);
 }
-.agent-card .rename {
+.agent-card .edit-teammate {
   position: absolute;
   right: 13px;
   top: 13px;
 }
-.agent-card .rename svg {
+.agent-card .edit-teammate svg {
   width: 16px;
   height: 16px;
 }
@@ -896,10 +897,6 @@
     border-radius: 14px;
     margin-bottom: 0;
   }
-  .agent-open .avatar svg {
-    width: 29px;
-    height: 29px;
-  }
   .agent-open h2 {
     font-size: 16px;
     align-self: end;
@@ -1014,21 +1011,6 @@
    =========================================== */
 .preferences-dialog {
   width: 590px;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-.preferences-dialog .dialog-head,
-.preferences-dialog .dialog-copy,
-.preferences-dialog .dialog-footer {
-  flex-shrink: 0;
-}
-.preferences-dialog .dialog-body {
-  min-height: 0;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  padding: 5px;
-  margin: -5px;
 }
 .preferences-section-heading {
   display: flex;

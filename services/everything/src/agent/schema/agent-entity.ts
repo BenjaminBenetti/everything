@@ -1,5 +1,9 @@
 import { EntitySchema } from "typeorm";
 import { baseColumns } from "@everything/persistence/schema";
+import {
+  agentAvatarIds,
+  defaultAgentAvatarId,
+} from "@everything/agent-contracts/avatar";
 import { agentLimits, type AgentDefinition } from "../model/agent.js";
 
 /** Map definitions to the existing table without changing stored records. */
@@ -11,6 +15,11 @@ export const AgentEntity = new EntitySchema<AgentDefinition>({
     ownerId: { name: "owner_id", type: "text" },
     name: { type: "text" },
     systemPrompt: { name: "system_prompt", type: "text" },
+    avatarId: {
+      name: "avatar_id",
+      type: "text",
+      default: defaultAgentAvatarId,
+    },
   },
   indices: [{ name: "agents_owner", columns: ["ownerId"] }],
   checks: [
@@ -21,6 +30,10 @@ export const AgentEntity = new EntitySchema<AgentDefinition>({
     {
       name: "agents_system_prompt_check",
       expression: `length(system_prompt) BETWEEN 1 AND ${agentLimits.systemPromptLength}`,
+    },
+    {
+      name: "agents_avatar_id_check",
+      expression: `avatar_id IN (${agentAvatarIds.map((id) => `'${id}'`).join(", ")})`,
     },
   ],
 });

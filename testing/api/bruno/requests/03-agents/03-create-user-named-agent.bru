@@ -26,6 +26,7 @@ tests {
   test("Create user named agent", () => {
     expect(res.status).to.equal(201);
     expect(res.body.name).to.equal("Bruno review");
+    expect(res.body.avatarId).to.equal("avatar-01");
     expect(res.body).not.to.have.property("ownerId");
     bru.setVar("agentId", res.body.id);
   });

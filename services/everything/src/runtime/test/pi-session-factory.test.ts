@@ -14,6 +14,7 @@ const agent: AgentDefinition = {
   ownerId: "owner",
   name: "Chosen",
   systemPrompt: "Help",
+  avatarId: "avatar-01",
   createdAt: "",
 };
 

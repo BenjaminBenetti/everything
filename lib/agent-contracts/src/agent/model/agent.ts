@@ -1,3 +1,5 @@
+import type { AgentAvatarId } from "./avatar.js";
+
 /** Public agent field limits shared by HTTP validation and browser forms. */
 export const agentLimits = {
   nameLength: 80,
@@ -8,17 +10,21 @@ export const agentLimits = {
 export interface CreateAgentInput {
   readonly name: string;
   readonly systemPrompt: string;
+  readonly avatarId?: AgentAvatarId;
 }
 
 /** Public representation; ownership and storage details remain in the API. */
 export interface Agent extends CreateAgentInput {
   readonly id: string;
+  readonly avatarId: AgentAvatarId;
   readonly createdAt: string;
 }
 
-/** Rename input deliberately excludes runtime and prompt changes. */
-export interface RenameAgentInput {
-  readonly name: string;
+/** Partial changes to a saved profile; omitted fields retain their values. */
+export interface UpdateAgentInput {
+  readonly name?: string;
+  readonly systemPrompt?: string;
+  readonly avatarId?: AgentAvatarId;
 }
 
 /** Envelope returned by the agent directory endpoint. */

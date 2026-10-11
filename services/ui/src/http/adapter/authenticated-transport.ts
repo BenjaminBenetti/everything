@@ -5,7 +5,7 @@ export function createAuthenticatedTransport(
   fetcher: typeof fetch = fetch,
 ): JsonTransport {
   return {
-    /** Restrict credentials to the application's API, never a supplied external URL. */
+    /** Restrict credentials to the application's API and accept JSON or a successful empty response. */
     async request<T>(path: string, options: RequestInit = {}): Promise<T> {
       if (
         !path.startsWith("/v1/") ||
@@ -30,16 +30,15 @@ export function createAuthenticatedTransport(
           );
         if (response.status === 404)
           throw new Error(
-            "This agent is no longer available. Refresh your team and try again.",
+            "This teammate is no longer available. Refresh your team and try again.",
           );
         if (response.status === 429)
           throw new Error(
             "Too many requests. Please wait a moment and try again.",
           );
-        throw new Error(
-          "We couldn’t save or load your team. Please try again.",
-        );
+        throw new Error("We couldn’t complete that request. Please try again.");
       }
+      if (response.status === 204) return undefined as T;
       return (await response.json()) as T;
     },
   };

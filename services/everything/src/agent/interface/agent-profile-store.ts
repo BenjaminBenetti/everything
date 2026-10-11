@@ -1,12 +1,12 @@
 import type { OwnerScope } from "@everything/persistence/repository";
-import type { AgentDefinition } from "../model/agent.js";
+import type { AgentDefinition, UpdateAgentInput } from "../model/agent.js";
 
-/** Narrow persistence contract for changing only a saved agent's name. */
-export interface AgentNameStore {
+/** Narrow persistence contract for changing a saved profile. */
+export interface AgentProfileStore {
   /** Update the scoped record and return it, or undefined when inaccessible. */
-  rename(
+  update(
     scope: OwnerScope,
     id: string,
-    name: string,
+    input: UpdateAgentInput,
   ): Promise<AgentDefinition | undefined>;
 }

@@ -18,13 +18,15 @@ headers {
 body:json {
   {
     "name": "Restart verification",
-    "systemPrompt": "Reply only through send_message."
+    "systemPrompt": "Reply only through send_message.",
+    "avatarId": "avatar-18"
   }
 }
 
 tests {
   test("Create restart agent", () => {
     expect(res.status).to.equal(201);
+    expect(res.body.avatarId).to.equal("avatar-18");
     bru.setEnvVar("restartAgentId", res.body.id);
   });
 }

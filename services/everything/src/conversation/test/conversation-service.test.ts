@@ -28,6 +28,7 @@ function fixture() {
         ownerId,
         name: "User chosen name",
         systemPrompt: "Reply deliberately",
+        avatarId: "avatar-01",
         createdAt: "",
       };
     },

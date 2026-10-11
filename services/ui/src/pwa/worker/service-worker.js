@@ -1,5 +1,5 @@
 /* Only public offline assets enter the cache. Auth, API, and private pages never do. */
-const offlineCache = "everything-offline-v1";
+const offlineCache = "everything-offline-v2";
 
 /** Install a generic offline screen without caching any user data. */
 async function installOffline() {

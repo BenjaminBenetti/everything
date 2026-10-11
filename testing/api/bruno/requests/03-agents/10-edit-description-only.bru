@@ -1,0 +1,31 @@
+meta {
+  name: Preserve fields during a description-only edit
+  type: http
+  seq: 10
+}
+
+patch {
+  url: {{baseUrl}}/v1/agents/{{agentId}}
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+  Authorization: Bearer {{accessToken}}
+}
+
+body:json {
+  {
+    "systemPrompt": "Final description and instructions."
+  }
+}
+
+tests {
+  test("A description-only edit preserves the name and avatar", () => {
+    expect(res.status).to.equal(200);
+    expect(res.body.name).to.equal("Bruno renamed");
+    expect(res.body.systemPrompt).to.equal("Final description and instructions.");
+    expect(res.body.avatarId).to.equal("avatar-32");
+  });
+}

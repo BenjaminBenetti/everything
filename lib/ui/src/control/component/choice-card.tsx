@@ -10,18 +10,20 @@ export function ChoiceCard({
   checked,
   onChange,
   children,
+  className = "",
 }: {
   name: string;
   value: string;
   label: string;
-  description: string;
+  description?: string;
   checked: boolean;
   onChange: () => void;
   children: ReactNode;
+  className?: string;
 }) {
   const id = useId();
   return (
-    <label className="choice-card">
+    <label className={`choice-card ${className}`}>
       <input
         className="choice-card-input"
         type="radio"
@@ -30,7 +32,7 @@ export function ChoiceCard({
         checked={checked}
         onChange={onChange}
         aria-labelledby={id + "-label"}
-        aria-describedby={id + "-description"}
+        aria-describedby={description ? id + "-description" : undefined}
       />
       <span className="choice-card-surface">
         {children}
@@ -40,9 +42,11 @@ export function ChoiceCard({
             <Check />
           </span>
         </span>
-        <span className="choice-card-description" id={id + "-description"}>
-          {description}
-        </span>
+        {description && (
+          <span className="choice-card-description" id={id + "-description"}>
+            {description}
+          </span>
+        )}
       </span>
     </label>
   );

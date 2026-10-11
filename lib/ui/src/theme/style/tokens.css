@@ -6,6 +6,11 @@
   --radius-panel: 12px;
   --status-connected: #79c99d;
   --status-disconnected: #ee9994;
+  --text-danger: #f0a39f;
+  --surface-danger: #b53d38;
+  --surface-danger-hover: #9d2f2b;
+  --surface-danger-subtle: #382624;
+  --text-on-danger: #ffffff;
   /* Approved SIWC branding follows the application theme. */
   --brand-chatgpt-background: #000000;
   --brand-chatgpt-foreground: #ffffff;
@@ -157,6 +162,8 @@
 [data-theme="sand"] {
   --status-connected: #247247;
   --status-disconnected: #ad3939;
+  --text-danger: #aa3332;
+  --surface-danger-subtle: #fae8e5;
   --brand-chatgpt-background: #ffffff;
   --brand-chatgpt-foreground: #000000;
   --brand-chatgpt-logo: url("/brand/chatgpt-logo-black.svg");

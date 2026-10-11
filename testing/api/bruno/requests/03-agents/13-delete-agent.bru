@@ -1,7 +1,7 @@
 meta {
   name: Delete test agent
   type: http
-  seq: 6
+  seq: 13
 }
 
 delete {
@@ -16,7 +16,6 @@ headers {
 
 tests {
   test("Delete test agent", () => {
-    expect(res.status).to.equal(204);
     expect(res.status).to.equal(204);
   });
 }

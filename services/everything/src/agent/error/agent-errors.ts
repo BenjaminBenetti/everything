@@ -4,6 +4,6 @@ import { ApplicationError } from "@everything/errors";
 export class AgentNotFoundError extends ApplicationError {
   /** Report the agent as absent. */
   constructor() {
-    super(404, "AGENT_NOT_FOUND", "Agent not found.");
+    super(404, "AGENT_NOT_FOUND", "Teammate not found.");
   }
 }

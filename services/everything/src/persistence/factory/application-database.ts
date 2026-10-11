@@ -1,5 +1,6 @@
 import { SessionEntity } from "../../session/schema/session-entity.js";
 import { BrowserSessions1791763200000 } from "../migration/1791763200000-browser-sessions.js";
+import { AgentAvatars1791849600000 } from "../migration/1791849600000-agent-avatars.js";
 import { DataSource } from "typeorm";
 import { AgentEntity } from "../../agent/schema/agent-entity.js";
 import { MessageEntity } from "../../conversation/schema/message-entity.js";
@@ -27,7 +28,11 @@ export function createApplicationDatabase(
     poolSize: 5,
     extra: { connectionTimeoutMillis: 5000 },
     entities: [AgentEntity, MessageEntity, SessionEntity],
-    migrations: [InitialSchema1791676800000, BrowserSessions1791763200000],
+    migrations: [
+      InitialSchema1791676800000,
+      BrowserSessions1791763200000,
+      AgentAvatars1791849600000,
+    ],
     migrationsTableName: "everything_migrations",
     migrationsTransactionMode: "all",
     synchronize: false,

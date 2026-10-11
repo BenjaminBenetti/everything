@@ -7,15 +7,12 @@ export function ArtifactsPage() {
   return (
     <div className="content-inner">
       <PageHeading
-        title="Made together."
-        description="A home for the things your agents share with you."
+        title="Artifacts"
+        description="Files and pages shared by your teammates."
       />
       <div className="updates-feed">
-        <EmptyState icon={FolderOpen} title="Room for your next idea.">
-          <p>
-            Pages, research, and other shared work will live here. There are no
-            artifacts yet.
-          </p>
+        <EmptyState icon={FolderOpen} title="No artifacts yet">
+          <p>Shared work will appear here in a future update.</p>
         </EmptyState>
       </div>
     </div>

@@ -1,6 +1,6 @@
 import { ArrowRight, Pencil } from "lucide-react";
 import type { Agent } from "@everything/agent-contracts";
-import { AgentAvatar } from "@everything/ui/brand";
+import { TeammateAvatar } from "./teammate-avatar.js";
 import { IconButton } from "@everything/ui/button";
 import { useWorkspaceDialogs } from "../../workspace/component/workspace-dialogs.js";
 
@@ -10,8 +10,8 @@ export function AgentCard({ agent }: { agent: Agent }) {
   return (
     <article className="agent-card">
       <IconButton
-        className="rename"
-        label={`Rename ${agent.name}`}
+        className="edit-teammate"
+        label={`Edit ${agent.name}`}
         onClick={() => open({ kind: "editor", agent })}
       >
         <Pencil aria-hidden="true" />
@@ -21,13 +21,13 @@ export function AgentCard({ agent }: { agent: Agent }) {
         aria-label={`View ${agent.name}`}
         onClick={() => open({ kind: "details", agent })}
       >
-        <AgentAvatar name={agent.name} />
+        <TeammateAvatar avatarId={agent.avatarId} />
         <h2>{agent.name}</h2>
-        <p className="agent-role">Your everyday collaborator</p>
+        <p className="agent-role">Teammate</p>
         <p className="agent-preview">{agent.systemPrompt}</p>
         <div className="card-bottom">
           <span className="dot" />
-          Agent saved<span className="time">View details</span>
+          Saved<span className="time">View details</span>
           <ArrowRight aria-hidden="true" />
         </div>
       </button>

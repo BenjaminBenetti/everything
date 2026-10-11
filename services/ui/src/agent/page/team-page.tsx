@@ -19,12 +19,12 @@ export function TeamPage() {
   return (
     <div className="content-inner">
       <PageHeading
-        title="Your team."
-        description="One place for whatever’s on your mind."
+        title="Your team"
+        description="Manage your teammates and their profiles."
         action={
           <Button onClick={() => open({ kind: "editor" })}>
             <Plus aria-hidden="true" />
-            New agent
+            New teammate
           </Button>
         }
       />
@@ -34,10 +34,10 @@ export function TeamPage() {
         </h2>
         <label className="search">
           <Search aria-hidden="true" />
-          <span className="sr-only">Search agents</span>
+          <span className="sr-only">Search teammates</span>
           <input
             type="search"
-            placeholder="Find an agent…"
+            placeholder="Find a teammate…"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
           />
@@ -68,21 +68,21 @@ export function TeamPage() {
             >
               <Plus aria-hidden="true" />
               <span>
-                <strong>Make room for someone new</strong>
-                <small>Create and name an agent</small>
+                <strong>Create a new teammate</strong>
+                <small>Choose a name, description, and avatar</small>
               </span>
             </button>
           )}
           {term && filtered.length === 0 && (
             <p className="empty-search" role="status">
-              No matching agents. Try another name.
+              No matching teammates. Try another name.
             </p>
           )}
         </div>
       )}
       <p className="workspace-note">
         <Pencil aria-hidden="true" />
-        These are your agents. Give them names that feel like yours.
+        You can edit a teammate’s name, description, and avatar at any time.
       </p>
     </div>
   );

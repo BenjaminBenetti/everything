@@ -1,0 +1,31 @@
+meta {
+  name: Edit restart teammate profile
+  type: http
+  seq: 3
+}
+
+patch {
+  url: {{baseUrl}}/v1/agents/{{restartAgentId}}
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+  Authorization: Bearer {{accessToken}}
+}
+
+body:json {
+  {
+    "name": "Edited restart verification",
+    "systemPrompt": "Keep this updated description after restarting.",
+    "avatarId": "avatar-52"
+  }
+}
+
+tests {
+  test("Store profile edits before restarting", () => {
+    expect(res.status).to.equal(200);
+    expect(res.body.avatarId).to.equal("avatar-52");
+  });
+}

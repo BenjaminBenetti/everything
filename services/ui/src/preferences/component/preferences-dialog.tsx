@@ -8,7 +8,7 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
   return (
     <Dialog
       title="Preferences"
-      description="A little more you. Make this space your own."
+      description="Customize how Everything looks on this device."
       className="preferences-dialog"
       onClose={onClose}
       footer={
@@ -27,7 +27,7 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
         </span>
         <div>
           <h3>Appearance</h3>
-          <p>Choose a color theme that feels right.</p>
+          <p>Choose a color theme.</p>
         </div>
       </div>
       <ThemePicker />

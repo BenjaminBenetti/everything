@@ -8,17 +8,14 @@ export function UpdatesPage() {
   return (
     <div className="content-inner">
       <PageHeading
-        title="Your updates."
-        description="Messages and shared work from your team."
+        title="Updates"
+        description="Messages and shared work from your teammates."
       />
       <div className="updates-feed">
-        <EmptyState icon={Check} title="You’re all caught up.">
-          <p>
-            There’s nothing to review yet. Updates will arrive here when
-            conversations are available.
-          </p>
+        <EmptyState icon={Check} title="No updates yet">
+          <p>Updates will appear here when conversations are available.</p>
           <Link className="text-link" to="/team">
-            Visit your team →
+            View your team →
           </Link>
         </EmptyState>
       </div>

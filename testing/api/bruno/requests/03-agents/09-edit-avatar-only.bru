@@ -1,0 +1,31 @@
+meta {
+  name: Preserve fields during an avatar-only edit
+  type: http
+  seq: 9
+}
+
+patch {
+  url: {{baseUrl}}/v1/agents/{{agentId}}
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+  Authorization: Bearer {{accessToken}}
+}
+
+body:json {
+  {
+    "avatarId": "avatar-32"
+  }
+}
+
+tests {
+  test("An avatar-only edit preserves the name and description", () => {
+    expect(res.status).to.equal(200);
+    expect(res.body.name).to.equal("Bruno renamed");
+    expect(res.body.systemPrompt).to.equal("Updated description and instructions.");
+    expect(res.body.avatarId).to.equal("avatar-32");
+  });
+}

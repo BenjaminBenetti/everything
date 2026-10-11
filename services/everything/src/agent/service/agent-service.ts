@@ -25,7 +25,11 @@ export class AgentService implements AgentCatalog {
   create(ownerId: string, input: CreateAgentInput): Promise<AgentDefinition> {
     return this.repository.create(
       { ownerId },
-      { name: input.name, systemPrompt: input.systemPrompt },
+      {
+        name: input.name,
+        systemPrompt: input.systemPrompt,
+        ...(input.avatarId !== undefined ? { avatarId: input.avatarId } : {}),
+      },
     );
   }
 

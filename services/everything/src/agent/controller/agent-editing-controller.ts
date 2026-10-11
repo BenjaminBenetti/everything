@@ -1,28 +1,28 @@
 import type { FastifyInstance } from "fastify";
 import { subject } from "@everything/security/fastify";
-import type { AgentNaming } from "../interface/agent-naming.js";
+import type { AgentEditing } from "../interface/agent-editing.js";
 import {
   agentParams,
-  renameAgentBody,
+  updateAgentBody,
   type AgentParams,
-  type RenameAgentBody,
+  type UpdateAgentBody,
 } from "../schema/agent-request.js";
 import { representAgent } from "../presenter/agent-presenter.js";
 
-/** Expose name changes without importing or invoking conversation operations. */
-export async function agentNamingController(
+/** Expose saved profile changes independently of conversation operations. */
+export async function agentEditingController(
   app: FastifyInstance,
-  names: AgentNaming,
+  profiles: AgentEditing,
 ): Promise<void> {
-  app.patch<{ Params: AgentParams; Body: RenameAgentBody }>(
+  app.patch<{ Params: AgentParams; Body: UpdateAgentBody }>(
     "/agents/:agentId",
-    { schema: { params: agentParams, body: renameAgentBody } },
+    { schema: { params: agentParams, body: updateAgentBody } },
     async (request) =>
       representAgent(
-        await names.rename(
+        await profiles.update(
           subject(request),
           request.params.agentId,
-          request.body.name,
+          request.body,
         ),
       ),
   );

@@ -35,20 +35,20 @@ test("real sign-in, all non-chat pages, themes, deep links, and sign-out", async
     (page.viewportSize()?.width ?? 1000) < 650 ? "Team" : "Your team",
   );
   await expect(
-    page.getByRole("heading", { name: "Your team.", exact: true }),
+    page.getByRole("heading", { name: "Your team", exact: true }),
   ).toBeVisible();
   await page.reload();
   await expect(
-    page.getByRole("heading", { name: "Your team.", exact: true }),
+    page.getByRole("heading", { name: "Your team", exact: true }),
   ).toBeVisible();
   await expect(page).toHaveURL(/\/team$/);
   await navigate(page, "Updates");
   await expect(
-    page.getByRole("heading", { name: "Your updates." }),
+    page.getByRole("heading", { name: "Updates", exact: true }),
   ).toBeVisible();
   await navigate(page, "Artifacts");
   await expect(
-    page.getByRole("heading", { name: "Made together." }),
+    page.getByRole("heading", { name: "Artifacts", exact: true }),
   ).toBeVisible();
   await page.locator('button[aria-label="Open preferences"]:visible').click();
   await expect(
@@ -96,7 +96,7 @@ test("real sign-in, all non-chat pages, themes, deep links, and sign-out", async
   await page.reload();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "sand");
   await expect(
-    page.getByRole("heading", { name: "Made together." }),
+    page.getByRole("heading", { name: "Artifacts", exact: true }),
   ).toBeVisible();
   await page.getByRole("button", { name: "Notification settings" }).click();
   await expect(page.getByRole("dialog")).toContainText(
@@ -152,7 +152,7 @@ test("installed shell shows an offline fallback without caching private response
     )
     .toBe(true);
   const cachedPaths = await page.evaluate(async () => {
-    const cache = await caches.open("everything-offline-v1");
+    const cache = await caches.open("everything-offline-v2");
     return (await cache.keys())
       .map((request) => new URL(request.url).pathname)
       .sort();
@@ -165,20 +165,26 @@ test("installed shell shows an offline fallback without caching private response
   await context.setOffline(true);
   await page.goto("/team");
   await expect(
-    page.getByRole("heading", { name: "A moment to reconnect." }),
+    page.getByRole("heading", { name: "You’re offline" }),
   ).toBeVisible();
   await context.setOffline(false);
   await page.getByRole("link", { name: "Try again" }).click();
   await expect(page.locator(".shell")).toBeVisible();
 });
 
-test("creates and renames a durable definition without invoking any chat endpoint", async ({
+test("creates and edits a durable teammate profile without invoking any chat endpoint", async ({
   page,
 }, info) => {
   const chatRequests: string[] = [];
+  const profileMutations: string[] = [];
   page.on("request", (req) => {
     if (/\/v1\/agents\/[^/]+\/(messages|runtime|interrupt)/.test(req.url()))
       chatRequests.push(req.url());
+    if (
+      /\/v1\/agents(?:\/[^/]+)?$/.test(req.url()) &&
+      ["POST", "PATCH"].includes(req.method())
+    )
+      profileMutations.push(req.method());
   });
   await signIn(page);
   await navigate(
@@ -188,51 +194,170 @@ test("creates and renames a durable definition without invoking any chat endpoin
   const name = `UI check ${crypto.randomUUID().slice(0, 8)}`;
   let agentId: string | undefined;
   try {
-    await page.getByRole("button", { name: "New agent", exact: true }).click();
-    await page.getByRole("textbox", { name: "Agent name" }).fill(name);
     await page
-      .getByRole("textbox", { name: "A little about them" })
-      .fill("Keep this saved instruction unchanged.");
+      .getByRole("button", { name: "New teammate", exact: true })
+      .click();
+    await page.getByRole("textbox", { name: "Teammate name" }).fill(name);
+    await page
+      .getByRole("textbox", { name: "Description" })
+      .fill("Research and summarize findings.");
+    await page.getByRole("button", { name: "Change avatar" }).click();
+    await expect(page.getByRole("radio")).toHaveCount(64);
+    await expect(page.locator("select")).toHaveCount(0);
+    await page.getByRole("searchbox", { name: "Search avatars" }).fill("Fox");
+    await page.getByRole("radio", { name: "Fox", exact: true }).focus();
+    await page.keyboard.press("Space");
+    await page.getByRole("button", { name: "Use avatar" }).click();
+    await expect(
+      page.getByRole("textbox", { name: "Teammate name" }),
+    ).toHaveValue(name);
+    await expect(
+      page.getByRole("textbox", { name: "Description" }),
+    ).toHaveValue("Research and summarize findings.");
+    expect(profileMutations).toEqual([]);
     const created = page.waitForResponse(
       (response) =>
         response.request().method() === "POST" &&
         response.url().endsWith("/v1/agents"),
     );
     await page
-      .getByRole("button", { name: "Create agent", exact: true })
+      .getByRole("button", { name: "Create teammate", exact: true })
       .click();
     const response = await created;
     expect(response.status()).toBe(201);
-    agentId = (await response.json()).id;
+    const profile = await response.json();
+    agentId = profile.id;
+    expect(profile.avatarId).toBe("avatar-03");
     await expect(
       page.getByRole("heading", { name, exact: true }),
     ).toBeVisible();
     await page
-      .getByRole("button", { name: `Rename ${name}`, exact: true })
+      .getByRole("button", { name: `View ${name}`, exact: true })
       .click();
-    await page
-      .getByRole("textbox", { name: "Agent name" })
-      .fill(`${name} renamed`);
-    await page.getByRole("button", { name: "Save changes" }).click();
+    await page.getByRole("button", { name: "Edit", exact: true }).click();
     await expect(
-      page.getByRole("heading", { name: `${name} renamed`, exact: true }),
+      page.getByRole("dialog", { name: "Edit teammate", exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("textbox", { name: "Description" }),
+    ).toHaveValue("Research and summarize findings.");
+    await expect(
+      page.locator(".teammate-avatar-field .teammate-avatar"),
+    ).toHaveAttribute("data-avatar-id", "avatar-03");
+    await page
+      .getByRole("textbox", { name: "Teammate name" })
+      .fill(`${name} edited`);
+    await page
+      .getByRole("textbox", { name: "Description" })
+      .fill("Review drafts and suggest clear, concise wording.");
+    await page.getByRole("button", { name: "Change avatar" }).click();
+    await page.getByRole("button", { name: "Creatures", exact: true }).click();
+    await expect(page.getByRole("radio")).toHaveCount(16);
+    await page
+      .locator(".choice-card")
+      .filter({ has: page.getByRole("radio", { name: "Robot", exact: true }) })
+      .click();
+    await expect(
+      page.getByRole("button", { name: "Use avatar" }),
+    ).toBeInViewport();
+    await page.screenshot({ path: info.outputPath("avatar-picker.png") });
+    await page.getByRole("button", { name: "Use avatar" }).click();
+    expect(profileMutations).toEqual(["POST"]);
+    const updated = page.waitForResponse(
+      (reply) =>
+        reply.request().method() === "PATCH" &&
+        reply.url().endsWith(`/v1/agents/${agentId}`),
+    );
+    await page.getByRole("button", { name: "Save changes" }).click();
+    const updateResponse = await updated;
+    expect(updateResponse.status()).toBe(200);
+    expect(await updateResponse.json()).toMatchObject({
+      name: `${name} edited`,
+      systemPrompt: "Review drafts and suggest clear, concise wording.",
+      avatarId: "avatar-41",
+    });
+    await expect(
+      page.getByRole("button", { name: `View ${name} edited`, exact: true }),
+    ).toBeFocused();
+    await expect(
+      page.getByRole("heading", { name: `${name} edited`, exact: true }),
     ).toBeVisible();
     await page.reload();
     await expect(
-      page.getByRole("heading", { name: `${name} renamed`, exact: true }),
+      page.getByRole("heading", { name: `${name} edited`, exact: true }),
     ).toBeVisible();
+    const card = page.locator(".agent-card").filter({
+      has: page.getByRole("heading", { name: `${name} edited`, exact: true }),
+    });
+    await expect(card.locator(".teammate-avatar")).toHaveAttribute(
+      "data-avatar-id",
+      "avatar-41",
+    );
+    await expect(card).toContainText(
+      "Review drafts and suggest clear, concise wording.",
+    );
+    const sidebarItem = page
+      .locator(".side-agent")
+      .filter({ hasText: `${name} edited` });
+    await expect(sidebarItem.locator(".teammate-avatar")).toHaveAttribute(
+      "data-avatar-id",
+      "avatar-41",
+    );
+    await expect
+      .poll(() =>
+        card
+          .locator("img")
+          .evaluate(
+            (image: HTMLImageElement) =>
+              image.complete && image.naturalWidth > 0,
+          ),
+      )
+      .toBe(true);
     await page
-      .getByRole("searchbox", { name: "Search agents" })
+      .getByRole("button", { name: `Edit ${name} edited`, exact: true })
+      .click();
+    await page
+      .getByRole("textbox", { name: "Teammate name" })
+      .fill("Discarded name");
+    await page
+      .getByRole("textbox", { name: "Description" })
+      .fill("Discarded description");
+    await page.getByRole("button", { name: "Change avatar" }).click();
+    await page.getByRole("searchbox", { name: "Search avatars" }).fill("Moon");
+    await page
+      .locator(".choice-card")
+      .filter({ has: page.getByRole("radio", { name: "Moon", exact: true }) })
+      .click();
+    await page.getByRole("button", { name: "Back", exact: true }).click();
+    await expect(
+      page.getByRole("button", { name: "Change avatar" }),
+    ).toBeFocused();
+    await expect(
+      page.getByRole("textbox", { name: "Description" }),
+    ).toHaveValue("Discarded description");
+    await expect(
+      page.locator(".teammate-avatar-field .teammate-avatar"),
+    ).toHaveAttribute("data-avatar-id", "avatar-41");
+    await page.getByRole("button", { name: "Cancel", exact: true }).click();
+    expect(profileMutations).toEqual(["POST", "PATCH"]);
+    const afterCancel = await page.request.get(`/v1/agents/${agentId}`);
+    expect(await afterCancel.json()).toMatchObject({
+      name: `${name} edited`,
+      systemPrompt: "Review drafts and suggest clear, concise wording.",
+      avatarId: "avatar-41",
+    });
+    await page
+      .getByRole("searchbox", { name: "Search teammates" })
       .fill("No matching name at all");
     await expect(
-      page.getByText("No matching agents.", { exact: false }),
+      page.getByText("No matching teammates.", { exact: false }),
     ).toBeVisible();
-    await page.getByRole("searchbox", { name: "Search agents" }).fill(name);
+    await page.getByRole("searchbox", { name: "Search teammates" }).fill(name);
     await page
-      .getByRole("button", { name: `View ${name} renamed`, exact: true })
+      .getByRole("button", { name: `View ${name} edited`, exact: true })
       .click();
     await expect(page.getByRole("dialog")).toContainText(
-      "Keep this saved instruction unchanged.",
+      "Review drafts and suggest clear, concise wording.",
     );
     await page.getByRole("button", { name: "Close", exact: true }).click();
     await expect(page.locator(".route-content")).toHaveCSS("opacity", "1");
@@ -241,6 +366,14 @@ test("creates and renames a durable definition without invoking any chat endpoin
     const storedKeys = await page.evaluate(() => Object.keys(localStorage));
     expect(storedKeys).toEqual(["everything-theme"]);
   } finally {
+    // Clean up even if an unexpected premature submission failed the draft assertions.
+    if (!agentId) {
+      const response = await page.request.get("/v1/agents");
+      const { agents } = await response.json();
+      agentId = agents.find(
+        (candidate: { name: string }) => candidate.name === name,
+      )?.id;
+    }
     if (agentId)
       expect(
         (
@@ -252,7 +385,7 @@ test("creates and renames a durable definition without invoking any chat endpoin
   }
 });
 
-test("API failure offers retry and dialogs preserve the unsaved name", async ({
+test("API failure offers retry and dialogs preserve every unsaved profile field", async ({
   page,
 }) => {
   await signIn(page);
@@ -264,20 +397,188 @@ test("API failure offers retry and dialogs preserve the unsaved name", async ({
   await page.unroute("**/v1/agents");
   await page.getByRole("button", { name: "Try again", exact: true }).click();
   await expect(page.getByRole("alert")).toHaveCount(0);
-  await page.getByRole("button", { name: "New agent", exact: true }).click();
-  await page.getByRole("textbox", { name: "Agent name" }).fill("Unsaved name");
+  await page.getByRole("button", { name: "New teammate", exact: true }).click();
+  await page
+    .getByRole("textbox", { name: "Teammate name" })
+    .fill("Unsaved name");
+  await page
+    .getByRole("textbox", { name: "Description" })
+    .fill("Unsaved description");
+  await page.getByRole("button", { name: "Change avatar" }).click();
+  await page.getByRole("searchbox", { name: "Search avatars" }).fill("Potion");
+  await page
+    .locator(".choice-card")
+    .filter({ has: page.getByRole("radio", { name: "Potion", exact: true }) })
+    .click();
+  await page.getByRole("button", { name: "Use avatar" }).click();
   await page.route("**/v1/agents", (route) =>
     route.fulfill({ status: 503, json: { message: "Internal failure" } }),
   );
-  await page.getByRole("button", { name: "Create agent", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Create teammate", exact: true })
+    .click();
   await expect(page.getByRole("dialog").getByRole("alert")).toBeVisible();
-  await expect(page.getByRole("textbox", { name: "Agent name" })).toHaveValue(
-    "Unsaved name",
+  await expect(
+    page.getByRole("textbox", { name: "Teammate name" }),
+  ).toHaveValue("Unsaved name");
+  await expect(page.getByRole("textbox", { name: "Description" })).toHaveValue(
+    "Unsaved description",
   );
+  await expect(
+    page.locator(".teammate-avatar-field .teammate-avatar"),
+  ).toHaveAttribute("data-avatar-id", "avatar-64");
   await page.keyboard.press("Escape");
   await expect(
-    page.getByRole("button", { name: "New agent", exact: true }),
+    page.getByRole("button", { name: "New teammate", exact: true }),
   ).toBeFocused();
+});
+
+test("deletion requires confirmation, preserves teammates on cancellation or failure, and updates every listing", async ({
+  page,
+}, info) => {
+  await signIn(page);
+  const name = `UI delete ${crypto.randomUUID().slice(0, 8)}`;
+  const origin = new URL(page.url()).origin;
+  const created = await page.request.post("/v1/agents", {
+    headers: { origin },
+    data: {
+      name,
+      systemPrompt: "Temporary deletion check.",
+      avatarId: "avatar-29",
+    },
+  });
+  expect(created.status()).toBe(201);
+  const { id } = await created.json();
+  const endpoint = `/v1/agents/${id}`;
+  const routePattern = `**${endpoint}`;
+  const requests: string[] = [];
+  page.on("request", (request) => {
+    if (request.method() === "DELETE" && request.url().endsWith(endpoint))
+      requests.push(request.url());
+  });
+  let releaseDelete: (() => void) | undefined;
+  try {
+    await page.goto("/team");
+    const card = page.locator(".agent-card").filter({ hasText: name });
+    await expect(card).toBeVisible();
+    await page
+      .getByRole("button", { name: `View ${name}`, exact: true })
+      .click();
+    const deleteButton = page.getByRole("button", {
+      name: "Delete",
+      exact: true,
+    });
+    const editButton = page.getByRole("button", { name: "Edit", exact: true });
+    const deleteBox = await deleteButton.boundingBox();
+    const editBox = await editButton.boundingBox();
+    expect(deleteBox!.x + deleteBox!.width).toBeLessThan(editBox!.x);
+    await page.evaluate(async () => {
+      await Promise.all(
+        document
+          .getAnimations()
+          .map((animation) => animation.finished.catch(() => undefined)),
+      );
+    });
+    await page.screenshot({ path: info.outputPath("teammate-details.png") });
+    await deleteButton.click();
+    const confirmation = page.getByRole("alertdialog", {
+      name: "Delete teammate?",
+    });
+    await expect(confirmation).toContainText(name);
+    await expect(confirmation).toContainText("This can’t be undone.");
+    await expect(
+      confirmation.getByRole("button", { name: "Cancel", exact: true }),
+    ).toBeFocused();
+    expect(requests).toEqual([]);
+    await page.keyboard.press("Enter");
+    await expect(deleteButton).toBeFocused();
+    await deleteButton.click();
+    await page.keyboard.press("Escape");
+    await expect(deleteButton).toBeFocused();
+    expect(requests).toEqual([]);
+
+    await page.route(routePattern, (route) =>
+      route.request().method() === "DELETE"
+        ? route.fulfill({
+            status: 503,
+            json: { message: "Private upstream failure" },
+          })
+        : route.continue(),
+    );
+    await deleteButton.click();
+    await expect(
+      confirmation.getByRole("button", {
+        name: "Delete teammate",
+        exact: true,
+      }),
+    ).toBeInViewport();
+    await page.screenshot({ path: info.outputPath("delete-confirmation.png") });
+    await confirmation
+      .getByRole("button", { name: "Delete teammate", exact: true })
+      .click();
+    await expect(confirmation.getByRole("alert")).toContainText(
+      "Please try again.",
+    );
+    await expect(confirmation.getByRole("alert")).not.toContainText("Private");
+    await expect(card).toHaveCount(1);
+    expect((await page.request.get(endpoint)).status()).toBe(200);
+    await page.unroute(routePattern);
+
+    const gate = new Promise<void>((resolve) => {
+      releaseDelete = resolve;
+    });
+    await page.route(routePattern, async (route) => {
+      if (route.request().method() === "DELETE") await gate;
+      await route.continue();
+    });
+    const completed = page.waitForResponse(
+      (response) =>
+        response.request().method() === "DELETE" &&
+        response.url().endsWith(endpoint),
+    );
+    await confirmation
+      .getByRole("button", { name: "Delete teammate", exact: true })
+      .click();
+    await expect(
+      confirmation.getByRole("button", { name: "Deleting…", exact: true }),
+    ).toBeDisabled();
+    await expect(
+      confirmation.getByRole("button", { name: "Cancel", exact: true }),
+    ).toBeDisabled();
+    await expect(
+      confirmation.getByRole("button", { name: "Close dialog" }),
+    ).toBeDisabled();
+    await page.keyboard.press("Escape");
+    await expect(confirmation).toBeVisible();
+    await expect.poll(() => requests.length).toBe(2);
+    releaseDelete!();
+    expect((await completed).status()).toBe(204);
+    await expect(confirmation).toHaveCount(0);
+    await expect(card).toHaveCount(0);
+    await expect(
+      page.locator(".side-agent").filter({ hasText: name }),
+    ).toHaveCount(0);
+    await expect(page.locator("#workspace-content")).toBeFocused();
+    await expect(
+      page.getByRole("status").filter({ hasText: "Teammate deleted." }),
+    ).toBeVisible();
+    expect((await page.request.get(endpoint)).status()).toBe(404);
+    await page.reload();
+    await expect(
+      page.getByRole("heading", { name: "Your team", exact: true }),
+    ).toBeVisible();
+    await expect(card).toHaveCount(0);
+    await expect(
+      page.locator(".side-agent").filter({ hasText: name }),
+    ).toHaveCount(0);
+  } finally {
+    releaseDelete?.();
+    await page.unroute(routePattern);
+    const cleanup = await page.request.delete(endpoint, {
+      headers: { origin },
+    });
+    expect([204, 404]).toContain(cleanup.status());
+  }
 });
 
 test("inline credential errors, private cookies, deep-link sign-in and revoked-cookie replay", async ({
@@ -323,7 +624,7 @@ test("inline credential errors, private cookies, deep-link sign-in and revoked-c
   expect(response.status()).toBe(200);
   expect(Object.keys(await response.json())).toEqual(["profile"]);
   await expect(
-    page.getByRole("heading", { name: "Your team.", exact: true }),
+    page.getByRole("heading", { name: "Your team", exact: true }),
   ).toBeVisible();
   const cookie = (await context.cookies()).find((item) =>
     item.name.endsWith("everything-session"),
@@ -341,7 +642,7 @@ test("inline credential errors, private cookies, deep-link sign-in and revoked-c
   expect(storage.session).toEqual([]);
   await page.reload();
   await expect(
-    page.getByRole("heading", { name: "Your team.", exact: true }),
+    page.getByRole("heading", { name: "Your team", exact: true }),
   ).toBeVisible();
   await page
     .getByRole("button", { name: "Sign out", exact: true })
