@@ -1,0 +1,49 @@
+{
+  "name": "@everything/security",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "files": [
+    "build"
+  ],
+  "exports": {
+    "./identity": {
+      "types": "./build/auth/model/identity.d.ts",
+      "default": "./build/auth/model/identity.js"
+    },
+    "./token-verifier": {
+      "types": "./build/auth/interface/token-verifier.d.ts",
+      "default": "./build/auth/interface/token-verifier.js"
+    },
+    "./keycloak": {
+      "types": "./build/auth/factory/keycloak-token-verifier.d.ts",
+      "default": "./build/auth/factory/keycloak-token-verifier.js"
+    },
+    "./fastify": {
+      "types": "./build/auth/handler/authentication-hook.d.ts",
+      "default": "./build/auth/handler/authentication-hook.js"
+    }
+  },
+  "scripts": {
+    "build": "rm -rf build && tsc -p tsconfig.build.json",
+    "check": "tsc -p tsconfig.json",
+    "test": "node --import tsx --test \"src/**/*.test.ts\""
+  },
+  "devDependencies": {
+    "typescript": "7.0.2",
+    "@types/node": "^24.0.0",
+    "fastify": "5.12.5",
+    "tsx": "^4.20.0"
+  },
+  "dependencies": {
+    "jose": "6.2.12"
+  },
+  "peerDependencies": {
+    "fastify": "^5.12.5"
+  },
+  "peerDependenciesMeta": {
+    "fastify": {
+      "optional": true
+    }
+  }
+}

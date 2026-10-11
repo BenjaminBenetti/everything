@@ -1,0 +1,9 @@
+node_modules/
+.pnpm-store/
+build/
+.local/
+coverage/
+*.log
+.env
+.env.*
+!.env.example

@@ -1,0 +1,18 @@
+meta {
+  name: Health is live
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/health/live
+  body: none
+  auth: none
+}
+
+tests {
+  test("Health is live", () => {
+    expect(res.status).to.equal(200);
+    expect(res.body.status).to.equal("ok");
+  });
+}

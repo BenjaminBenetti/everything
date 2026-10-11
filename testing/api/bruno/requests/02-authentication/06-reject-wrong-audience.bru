@@ -1,0 +1,22 @@
+meta {
+  name: Reject wrong audience
+  type: http
+  seq: 6
+}
+
+get {
+  url: {{baseUrl}}/v1/agents
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{wrongToken}}
+}
+
+tests {
+  test("Reject wrong audience", () => {
+    expect(res.status).to.equal(401);
+    expect(res.body.code).to.equal("UNAUTHENTICATED");
+  });
+}

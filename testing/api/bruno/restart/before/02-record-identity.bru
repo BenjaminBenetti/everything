@@ -1,0 +1,22 @@
+meta {
+  name: Record identity
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/v1/me
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+tests {
+  test("Record identity", () => {
+    expect(res.status).to.equal(200);
+    bru.setEnvVar("restartSubject", res.body.subject);
+  });
+}

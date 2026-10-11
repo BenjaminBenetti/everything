@@ -1,0 +1,30 @@
+meta {
+  name: Create second team agent
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/v1/agents
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+  Authorization: Bearer {{accessToken}}
+}
+
+body:json {
+  {
+    "name": "Bruno team second",
+    "systemPrompt": "Use send_message to reply to the user."
+  }
+}
+
+tests {
+  test("Create second team agent", () => {
+    expect(res.status).to.equal(201);
+    bru.setVar("teamAgentTwo", res.body.id);
+  });
+}

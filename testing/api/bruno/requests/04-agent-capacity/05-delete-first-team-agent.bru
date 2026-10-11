@@ -1,0 +1,19 @@
+meta {
+  name: Delete first team agent
+  type: http
+  seq: 5
+}
+
+delete {
+  url: {{baseUrl}}/v1/agents/{{teamAgentOne}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+tests {
+  test("Delete first team agent", () => expect(res.status).to.equal(204));
+}

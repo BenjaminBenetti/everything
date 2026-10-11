@@ -1,0 +1,29 @@
+meta {
+  name: Reject foreign send
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/v1/agents/{{ownedAgentId}}/messages
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+  Authorization: Bearer {{outsiderToken}}
+}
+
+body:json {
+  {
+    "text": "Unauthorized"
+  }
+}
+
+tests {
+  test("Reject foreign send", () => {
+    expect(res.status).to.equal(404);
+    expect(res.body.code).to.equal("AGENT_NOT_FOUND");
+  });
+}

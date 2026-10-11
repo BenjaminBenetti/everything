@@ -1,0 +1,22 @@
+meta {
+  name: Interrupt idle agent
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{baseUrl}}/v1/agents/{{conversationAgentId}}/interrupt
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+tests {
+  test("Interrupt idle agent", () => {
+    expect(res.status).to.equal(200);
+    expect(res.body.status).to.equal("idle");
+  });
+}

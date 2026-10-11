@@ -1,0 +1,20 @@
+# Local development credentials and realm seed, passed by cluster:up after values.yaml. These are fixed,
+# public values for a stack reachable only on this machine; never use them for another deployment.
+secrets:
+  database-credentials:
+    admin: dev-postgres-admin
+    keycloak: dev-keycloak-database
+    everything: dev-everything-database
+  keycloak-credentials:
+    admin: admin
+
+keycloakRealm:
+  developmentSeed:
+    enabled: true
+    userPasswords:
+      owner: owner
+    # Also in testing/api/bruno/environments/Local.bru, which uses them to request tokens.
+    clientSecrets:
+      everything-bruno: dev-bruno-secret
+      everything-outsider: dev-outsider-secret
+      wrong-audience: dev-wrong-audience-secret

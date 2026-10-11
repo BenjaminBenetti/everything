@@ -1,0 +1,6 @@
+apiVersion: v2
+name: everything
+description: The Everything API with Keycloak and PostgreSQL. Each entry under `services` in values.yaml becomes a workload.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

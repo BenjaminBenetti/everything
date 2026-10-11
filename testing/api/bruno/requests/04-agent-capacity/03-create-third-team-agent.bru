@@ -1,0 +1,30 @@
+meta {
+  name: Create third team agent
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/v1/agents
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+  Authorization: Bearer {{accessToken}}
+}
+
+body:json {
+  {
+    "name": "Bruno team third",
+    "systemPrompt": "Use send_message to reply to the user."
+  }
+}
+
+tests {
+  test("Agent count is not limited by storage", () => {
+    expect(res.status).to.equal(201);
+    bru.setVar("teamAgentThree", res.body.id);
+  });
+}

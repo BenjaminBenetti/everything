@@ -1,0 +1,19 @@
+meta {
+  name: Delete restart agent
+  type: http
+  seq: 3
+}
+
+delete {
+  url: {{baseUrl}}/v1/agents/{{restartAgentId}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+tests {
+  test("Delete restart agent", () => expect(res.status).to.equal(204));
+}

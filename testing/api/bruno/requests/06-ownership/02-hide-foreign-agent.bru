@@ -1,0 +1,22 @@
+meta {
+  name: Hide foreign agent
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/v1/agents/{{ownedAgentId}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{outsiderToken}}
+}
+
+tests {
+  test("Hide foreign agent", () => {
+    expect(res.status).to.equal(404);
+    expect(res.body.code).to.equal("AGENT_NOT_FOUND");
+  });
+}

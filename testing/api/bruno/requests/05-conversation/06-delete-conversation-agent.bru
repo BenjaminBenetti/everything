@@ -1,0 +1,19 @@
+meta {
+  name: Delete conversation agent
+  type: http
+  seq: 6
+}
+
+delete {
+  url: {{baseUrl}}/v1/agents/{{conversationAgentId}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+tests {
+  test("Delete conversation agent", () => expect(res.status).to.equal(204));
+}

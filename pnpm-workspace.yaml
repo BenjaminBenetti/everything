@@ -1,0 +1,28 @@
+packages:
+  - lib/*
+  - services/*
+  - testing/*
+
+injectWorkspacePackages: true
+syncInjectedDepsAfterScripts:
+  - build
+
+# Keep Bruno-only security fixes out of the service dependency declarations.
+overrides:
+  "@usebruno/cli>@faker-js/faker": "10.6.0"
+  "@usebruno/cli>axios": "1.20.0"
+  "@usebruno/cli>csv-parse": "7.0.3"
+  "@usebruno/cli>form-data": "4.0.6"
+  "@usebruno/cli>js-yaml": "4.3.2"
+  "@usebruno/cli>uuid": "11.1.1"
+  "@usebruno/cli>yaml": "2.9.1"
+  "@usebruno/requests>@faker-js/faker": "10.6.0"
+  "@usebruno/requests>axios": "1.20.0"
+  "@usebruno/js>axios": "1.20.0"
+  "@usebruno/js>uuid": "11.1.1"
+  "@usebruno/js>yaml": "2.9.1"
+  "@usebruno/filestore>yaml": "2.9.1"
+  "@usebruno/converters>js-yaml": "4.3.2"
+
+onlyBuiltDependencies:
+  - esbuild

@@ -1,0 +1,24 @@
+meta {
+  name: List whole team
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/v1/agents
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+tests {
+  test("List whole team", () => {
+    expect(res.status).to.equal(200);
+    const ids = res.body.agents.map((agent) => agent.id);
+    for (const name of ["teamAgentOne", "teamAgentTwo", "teamAgentThree"])
+      expect(ids).to.include(bru.getVar(name));
+  });
+}

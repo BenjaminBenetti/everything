@@ -1,0 +1,27 @@
+{
+  "name": "everything-workspace",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.11.0"
+  },
+  "packageManager": "pnpm@10.34.6",
+  "scripts": {
+    "build": "pnpm -r --if-present build && pnpm check",
+    "build:images": "pnpm -r --workspace-concurrency=1 --if-present build:image",
+    "check": "pnpm -r --if-present check && bash deployment/script/check-stack.sh",
+    "test": "pnpm -r --if-present test",
+    "test:api": "bash deployment/script/test-api.sh",
+    "test:restart": "bash deployment/script/verify-restart.sh",
+    "test:all": "pnpm build && pnpm test && bash deployment/script/verify-restart.sh --with-api",
+    "cluster:up": "bash deployment/script/deploy-local.sh",
+    "cluster:down": "bash deployment/script/remove-local.sh",
+    "cluster:forward": "bash deployment/script/forward-local.sh",
+    "format": "prettier --write \"lib/**/*.{ts,json}\" \"services/**/*.{ts,json,yaml}\" \"testing/**/*.{mjs,json,yaml}\" \"deployment/**/*.{mjs,yaml,json}\" package.json pnpm-workspace.yaml tsconfig.base.json",
+    "format:check": "prettier --check \"lib/**/*.{ts,json}\" \"services/**/*.{ts,json,yaml}\" \"testing/**/*.{mjs,json,yaml}\" \"deployment/**/*.{mjs,yaml,json}\" package.json pnpm-workspace.yaml tsconfig.base.json"
+  },
+  "devDependencies": {
+    "prettier": "3.9.10"
+  }
+}

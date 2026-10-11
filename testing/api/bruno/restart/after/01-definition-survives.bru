@@ -1,0 +1,22 @@
+meta {
+  name: Definition survives restart
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/v1/agents/{{restartAgentId}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+tests {
+  test("Definition survives restart", () => {
+    expect(res.status).to.equal(200);
+    expect(res.body.name).to.equal("Restart verification");
+  });
+}

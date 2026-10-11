@@ -1,0 +1,28 @@
+meta {
+  name: Authenticate other identity
+  type: http
+  seq: 7
+}
+
+post {
+  url: {{tokenUrl}}
+  body: formUrlEncoded
+  auth: none
+}
+
+headers {
+  Content-Type: application/x-www-form-urlencoded
+}
+
+body:form-urlencoded {
+  grant_type: client_credentials
+  client_id: everything-outsider
+  client_secret: {{outsiderSecret}}
+}
+
+tests {
+  test("Authenticate other identity", () => {
+    expect(res.status).to.equal(200);
+    bru.setVar("outsiderToken", res.body.access_token);
+  });
+}

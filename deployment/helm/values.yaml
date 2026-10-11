@@ -1,0 +1,248 @@
+# Development defaults for the local Minikube stack; values.prod.yaml overrides them for remote clusters.
+# Env values, env secret names, and secret volume names are rendered as templates, so they can
+# reference these settings, for example "{{ .Values.global.publicOrigin }}".
+global:
+  # Every service image is <registry>/<image>:<tag>; an empty registry uses local images.
+  image:
+    registry: ""
+    tag: foundation
+    pullPolicy: Never
+  # Origin through which browsers reach the application. Keycloak is served under /auth on it, and
+  # access tokens carry it in their issuer. TLS, when used, terminates at the cluster's ingress.
+  publicOrigin: http://localhost:8080
+  # Realm defined in services/keycloak/config/everything-realm.json.
+  realm: everything
+  # Secret holding the `admin`, `keycloak`, and `everything` database role passwords.
+  databaseCredentialsSecret: database-credentials
+  ingress:
+    # Ingress class to use; empty selects the cluster's default class.
+    className: ""
+    # Host to route; empty matches requests for any host.
+    host: ""
+    # Controller-specific settings, such as a certificate issuer.
+    annotations: {}
+  # Storage class for persistent volumes that do not name one; empty uses the cluster's default class.
+  storageClassName: ""
+
+# Secrets the chart creates, as Secret name to key to value. Supply the values at install time:
+# development uses values.dev.yaml; other environments pass a credentials file kept out of Git.
+# An empty value fails the render.
+secrets:
+  database-credentials:
+    admin: ""
+    keycloak: ""
+    everything: ""
+  keycloak-credentials:
+    admin: ""
+
+# Keycloak's realm import: files/keycloak/everything-realm.json, rendered into the keycloak-realm Secret.
+keycloakRealm:
+  # Development only: merge files/keycloak/everything-realm.dev.json (the owner user and test clients)
+  # into the realm, with these passwords and client secrets. values.dev.yaml turns it on.
+  developmentSeed:
+    enabled: false
+    userPasswords:
+      owner: ""
+    clientSecrets:
+      everything-bruno: ""
+      everything-outsider: ""
+      wrong-audience: ""
+
+# Volumes mounted by more than one service, such as artifacts one service writes and another serves.
+# Each becomes a claim named after its key, kept on uninstall; services mount it with `sharedVolume`.
+# Shared storage needs an access mode and storage class that allow it, such as ReadWriteMany.
+#   artifacts: { size: 10Gi, accessModes: [ReadWriteMany], storageClassName: <class> }
+sharedVolumes: {}
+
+# Defaults merged under every entry in `services`; an entry overrides any of them.
+serviceDefaults:
+  # Set false to render nothing for a service.
+  enabled: true
+  # Image name, combined with the global registry and tag.
+  image: ""
+  # Deployment for stateless services. StatefulSet for a single owner of state, such as a database or
+  # in-process agents: Kubernetes never runs two copies of its pod, even when a node stops responding.
+  workload: Deployment
+  replicas: 1
+  # Deployments only: stop the old pod before its replacement starts.
+  strategy: Recreate
+  # Deploy scripts restart waves in ascending order, waiting for each to become ready.
+  # 0: data stores, 1: identity, 2: applications.
+  rolloutWave: 2
+  # Container name; defaults to the service name.
+  containerName: ""
+  # The namespace enforces the restricted Pod Security Standard.
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    fsGroup: 1000
+    seccompProfile: { type: RuntimeDefault }
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities: { drop: [ALL] }
+  args: []
+  # Variable name to a literal value, or to `{ secretName, key }` for a Secret value.
+  env: {}
+  # Port name to `{ containerPort, servicePort }`; ports with a servicePort are exposed by a Service
+  # named after the service.
+  ports: {}
+  # Route these path prefixes on the public origin to the named exposed port.
+  #   ingress: { port: http, paths: [/v1] }
+  ingress: {}
+  # `startup`, `readiness`, and `liveness` probe specifications.
+  probes: {}
+  resources: {}
+  # Volume name to `mountPath` plus exactly one source:
+  #   persistentVolume: { size, accessModes?, storageClassName? }  claim <service>-<volume>, kept on uninstall
+  #   sharedVolume: <name>                                         an entry in `sharedVolumes`
+  #   secret: <secret name>                                        mounted read-only
+  #   emptyDir: {}                                                 scratch space; the root filesystem is read-only
+  volumes: {}
+
+# Each entry becomes a Deployment or StatefulSet, its persistent volume claims, a Service for exposed ports, and
+# Ingress paths. To add a microservice, add an entry here and a workspace under services/ with a
+# `build:image` script.
+services:
+  postgres:
+    workload: StatefulSet
+    rolloutWave: 0
+    image: everything-postgres
+    podSecurityContext:
+      runAsUser: 999
+      runAsGroup: 999
+      fsGroup: 999
+    args: [-c, hba_file=/docker-entrypoint-initdb.d/pg_hba.conf]
+    env:
+      POSTGRES_USER: postgres
+      POSTGRES_DB: postgres
+      PGDATA: /var/lib/postgresql/data/pgdata
+      POSTGRES_PASSWORD:
+        secretName: "{{ .Values.global.databaseCredentialsSecret }}"
+        key: admin
+      KEYCLOAK_DB_PASSWORD:
+        secretName: "{{ .Values.global.databaseCredentialsSecret }}"
+        key: keycloak
+      EVERYTHING_DB_PASSWORD:
+        secretName: "{{ .Values.global.databaseCredentialsSecret }}"
+        key: everything
+    ports:
+      postgres: { containerPort: 5432, servicePort: 5432 }
+    probes:
+      readiness:
+        exec: { command: [pg_isready, -U, postgres] }
+        periodSeconds: 5
+      liveness:
+        exec: { command: [pg_isready, -U, postgres] }
+        initialDelaySeconds: 30
+    resources:
+      requests: { cpu: 100m, memory: 512Mi }
+      limits: { cpu: "1", memory: 1Gi }
+    volumes:
+      data:
+        mountPath: /var/lib/postgresql/data
+        persistentVolume: { size: 2Gi }
+      tmp: { mountPath: /tmp, emptyDir: {} }
+      run: { mountPath: /var/run/postgresql, emptyDir: {} }
+
+  keycloak:
+    rolloutWave: 1
+    image: everything-keycloak
+    args: [start, --optimized, --import-realm]
+    env:
+      KC_DB: postgres
+      KC_CACHE: local
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD:
+        secretName: "{{ .Values.global.databaseCredentialsSecret }}"
+        key: keycloak
+      # Served under /auth (set when the image is built) behind the ingress, which forwards the
+      # original scheme and host.
+      KC_HOSTNAME: "{{ .Values.global.publicOrigin }}/auth"
+      KC_HTTP_ENABLED: "true"
+      KC_PROXY_HEADERS: xforwarded
+      KC_HEALTH_ENABLED: "true"
+      # Resolved by Keycloak in the realm import's redirect URIs and web origins.
+      EVERYTHING_PUBLIC_ORIGIN: "{{ .Values.global.publicOrigin }}"
+      # Temporary administrator created on first start.
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD:
+        secretName: keycloak-credentials
+        key: admin
+    ports:
+      http: { containerPort: 8080, servicePort: 8080 }
+      management: { containerPort: 9000 }
+    ingress:
+      port: http
+      paths: [/auth]
+    probes:
+      startup:
+        httpGet: { path: /health/started, port: management }
+        failureThreshold: 60
+        periodSeconds: 5
+      readiness:
+        httpGet: { path: /health/ready, port: management }
+        periodSeconds: 5
+      liveness:
+        httpGet: { path: /health/live, port: management }
+        periodSeconds: 15
+    resources:
+      requests: { cpu: 250m, memory: 512Mi }
+      limits: { cpu: "2", memory: 1Gi }
+    volumes:
+      data: { mountPath: /opt/keycloak/data, emptyDir: {} }
+      tmp: { mountPath: /tmp, emptyDir: {} }
+      # Realm import rendered by the chart from keycloakRealm; Keycloak never overwrites an existing realm.
+      realm: { mountPath: /opt/keycloak/data/import, secret: keycloak-realm }
+
+  everything:
+    # Agents run in this process; a second copy would run the same agents on the same files.
+    workload: StatefulSet
+    containerName: api
+    image: everything
+    # Long enough to drain requests and let in-flight Pi tool calls settle.
+    terminationGracePeriodSeconds: 45
+    env:
+      PORT: "8080"
+      OIDC_ISSUER: "{{ .Values.global.publicOrigin }}/auth/realms/{{ .Values.global.realm }}"
+      OIDC_JWKS_URL: "http://keycloak:8080/auth/realms/{{ .Values.global.realm }}/protocol/openid-connect/certs"
+      OIDC_AUDIENCE: everything-api
+      DATABASE_URL: postgresql://everything@postgres:5432/everything
+      DATABASE_PASSWORD:
+        secretName: "{{ .Values.global.databaseCredentialsSecret }}"
+        key: everything
+      PI_STATE_DIRECTORY: /state/pi
+      XDG_CACHE_HOME: /state/cache
+      # Each agent keeps its files in a subdirectory named by its ID.
+      AGENTS_DIRECTORY: /agents
+    ports:
+      http: { containerPort: 8080, servicePort: 8080 }
+    ingress:
+      port: http
+      paths: [/v1, /health]
+    probes:
+      startup:
+        httpGet: { path: /health/live, port: http }
+        failureThreshold: 40
+        periodSeconds: 3
+      readiness:
+        httpGet: { path: /health/ready, port: http }
+        periodSeconds: 5
+      liveness:
+        httpGet: { path: /health/live, port: http }
+        periodSeconds: 10
+    resources:
+      requests: { cpu: 100m, memory: 3Gi }
+      limits: { cpu: "1", memory: 4Gi }
+    volumes:
+      # Pi provider credentials and model catalog.
+      state:
+        mountPath: /state
+        persistentVolume: { size: 1Gi }
+      # Files of every agent; agents are created at runtime, so this volume is shared rather than per agent.
+      agents:
+        mountPath: /agents
+        persistentVolume: { size: 10Gi }
+      tmp: { mountPath: /tmp, emptyDir: {} }

@@ -1,0 +1,19 @@
+meta {
+  name: Delete second team agent
+  type: http
+  seq: 6
+}
+
+delete {
+  url: {{baseUrl}}/v1/agents/{{teamAgentTwo}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+tests {
+  test("Delete second team agent", () => expect(res.status).to.equal(204));
+}

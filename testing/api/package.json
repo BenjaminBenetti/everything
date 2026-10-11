@@ -1,0 +1,15 @@
+{
+  "name": "@everything/api-tests",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "test:api": "cd bruno && bru run requests -r --env Local --bail"
+  },
+  "devDependencies": {
+    "@usebruno/cli": "4.2.1"
+  }
+}

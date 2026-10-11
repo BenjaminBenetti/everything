@@ -1,0 +1,16 @@
+# Remote clusters: images come from a registry, and the cluster's ingress controller exposes the
+# application. Replace the example registry, tag, and host. TLS for the host is configured by the
+# cluster, for example with `global.ingress.annotations` for a certificate issuer.
+#
+# Pass the credentials in a separate values file kept out of Git, with every key under `secrets` in
+# values.yaml set:
+#   helm upgrade everything deployment/helm --install --namespace everything \
+#     --values deployment/helm/values.prod.yaml --values <credentials file>
+global:
+  image:
+    registry: registry.example.com/everything
+    tag: "0.1.0"
+    pullPolicy: IfNotPresent
+  publicOrigin: https://everything.example.com
+  ingress:
+    host: everything.example.com

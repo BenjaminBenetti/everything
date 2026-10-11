@@ -1,0 +1,43 @@
+{
+  "name": "@everything/persistence",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "files": [
+    "build"
+  ],
+  "exports": {
+    "./entity": {
+      "types": "./build/entity/model/base-entity.d.ts",
+      "default": "./build/entity/model/base-entity.js"
+    },
+    "./repository": {
+      "types": "./build/repository/repository/base-repository.d.ts",
+      "default": "./build/repository/repository/base-repository.js"
+    },
+    "./schema": {
+      "types": "./build/entity/schema/base-columns.d.ts",
+      "default": "./build/entity/schema/base-columns.js"
+    },
+    "./transaction": {
+      "types": "./build/transaction/service/serializable-transaction.d.ts",
+      "default": "./build/transaction/service/serializable-transaction.js"
+    }
+  },
+  "scripts": {
+    "build": "rm -rf build && tsc -p tsconfig.build.json",
+    "check": "tsc -p tsconfig.json",
+    "test": "node --import tsx --test \"src/**/*.test.ts\""
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/pg": "^8.15.0",
+    "tsx": "^4.20.0",
+    "typescript": "7.0.2"
+  },
+  "dependencies": {
+    "p-retry": "8.0.1",
+    "pg": "8.23.1",
+    "typeorm": "1.1.2"
+  }
+}

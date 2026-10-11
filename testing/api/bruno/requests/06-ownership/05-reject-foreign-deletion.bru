@@ -1,0 +1,22 @@
+meta {
+  name: Reject foreign deletion
+  type: http
+  seq: 5
+}
+
+delete {
+  url: {{baseUrl}}/v1/agents/{{ownedAgentId}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{outsiderToken}}
+}
+
+tests {
+  test("Reject foreign deletion", () => {
+    expect(res.status).to.equal(404);
+    expect(res.body.code).to.equal("AGENT_NOT_FOUND");
+  });
+}

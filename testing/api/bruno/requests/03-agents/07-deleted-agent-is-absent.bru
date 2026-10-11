@@ -1,0 +1,22 @@
+meta {
+  name: Deleted agent is absent
+  type: http
+  seq: 7
+}
+
+get {
+  url: {{baseUrl}}/v1/agents/{{agentId}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+tests {
+  test("Deleted agent is absent", () => {
+    expect(res.status).to.equal(404);
+    expect(res.body.code).to.equal("AGENT_NOT_FOUND");
+  });
+}

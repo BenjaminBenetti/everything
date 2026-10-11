@@ -1,0 +1,22 @@
+meta {
+  name: Authenticated identity
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/v1/me
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+tests {
+  test("Authenticated identity", () => {
+    expect(res.status).to.equal(200);
+    expect(res.body.subject).to.be.a("string");
+  });
+}

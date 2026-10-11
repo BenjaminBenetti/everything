@@ -1,0 +1,31 @@
+{{- /* Keycloak's realm import: the production realm, merged with the development seed when it is configured. */ -}}
+{{- $realm := include "stack.readJson" (dict "root" $ "path" "files/keycloak/everything-realm.json") | fromJson }}
+{{- if .Values.keycloakRealm.developmentSeed.enabled }}
+{{- $seed := include "stack.readJson" (dict "root" $ "path" "files/keycloak/everything-realm.dev.json") | fromJson }}
+{{- range $client := $seed.clients }}
+{{- $_ := set $client "secret" (required (printf "keycloakRealm.developmentSeed.clientSecrets.%s is required" $client.clientId) (get $.Values.keycloakRealm.developmentSeed.clientSecrets $client.clientId)) }}
+{{- end }}
+{{- range $user := $seed.users }}
+{{- $password := required (printf "keycloakRealm.developmentSeed.userPasswords.%s is required" $user.username) (get $.Values.keycloakRealm.developmentSeed.userPasswords $user.username) }}
+{{- $_ := set $user "credentials" (list (dict "type" "password" "value" $password "temporary" false)) }}
+{{- end }}
+{{- /* Seed settings replace the realm's; seed clients and users are added to the realm's. */}}
+{{- range $key, $value := $seed }}
+{{- $current := get $realm $key }}
+{{- if and (kindIs "slice" $value) (kindIs "slice" $current) }}
+{{- $_ := set $realm $key (concat $current $value) }}
+{{- else }}
+{{- $_ := set $realm $key $value }}
+{{- end }}
+{{- end }}
+{{- end }}
+apiVersion: v1
+kind: Secret
+metadata:
+  # Mounted by the keycloak service's `realm` volume.
+  name: keycloak-realm
+  labels:
+    {{- include "stack.commonLabels" . | nindent 4 }}
+type: Opaque
+data:
+  everything-realm.json: {{ toPrettyJson $realm | b64enc | quote }}

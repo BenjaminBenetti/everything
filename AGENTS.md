@@ -1,0 +1,24 @@
+# Repository conventions
+
+- Organize deployable services under `services/<service>` and shared workspace libraries under `lib/<library>`.
+- Keep source files in `src/<domain>/<type>/<file>` within either kind of package. Use `interface` for contracts.
+- Import shared code through a declared `workspace:*` dependency and the library's public package exports. Libraries must not import service code; services must not import another service's internals.
+- Name libraries for a specific responsibility. Use `lib/persistence`, `lib/security`, and `lib/errors`; do not introduce a catch-all `core`, `common`, or `utils` library.
+- Persisted domain entities extend `BaseEntity` from `@everything/persistence/entity`. Entities with direct ownership extend `OwnedEntity`. Request inputs, runtime status, and authentication claims are separate value types.
+- Domain repository interfaces extend `Repository<TEntity, TScope>` from `@everything/persistence/repository`. PostgreSQL implementations extend the abstract `BaseRepository<TEntity, TScope, TRecord>` and implement their domain interface. Inherit its `getById`, `list`, and `delete` ORM defaults rather than duplicating them.
+- Use TypeORM EntitySchemas and mapped repository operations. Concrete repositories supply a typed `scopeWhere` and project records with `toEntity`; do not create SQL builders or duplicate ORM behavior. Keep schema changes in tracked TypeORM migrations, with `synchronize` disabled.
+- Every repository operation takes an explicit scope and applies it in the database query. Missing and inaccessible IDs have the same lookup/delete behavior. Keep domain-specific creation, ordering, retention, and transactions in the owning service.
+- Give consumers the subset of a repository they need, such as `ConversationMessageStore`, to preserve interface segregation.
+- Reuse `Identity` and `TokenVerifier` from `@everything/security` through its public subpaths. Keycloak verification and the Fastify authentication adapter belong to that library; consuming services supply issuer, audience, and JWKS URL at their composition root. Keep resource ownership checks and authorization decisions in the owning service.
+- Use `ApplicationError` from `@everything/errors` for expected failures safe to expose to callers. Services own their error codes and HTTP error mapping; define each code once as an `ApplicationError` subclass in the owning domain's `error/` folder.
+- Declare HTTP request schemas with TypeBox in `<domain>/schema` and derive route types from them. Share length limits through domain model constants; migrations keep literal values.
+- Prefer established libraries for infrastructure: TypeORM for persistence/migrations, `p-retry` for retry backoff, `env-schema` with TypeBox for environment validation, and `async-lock` for keyed asynchronous coordination. Retain domain policy in application code.
+- Shared foundations own reusable contracts and behavior. Add further base types around shared responsibilities, keeping inheritance shallow and service-specific behavior in the service.
+- TypeScript packages extend `tsconfig.base.json`. `tsconfig.json` type-checks sources and tests (`check`), and `tsconfig.build.json` emits `build/` without tests. Tests live in `src/<domain>/test/*.test.ts` and are discovered by glob.
+- Run single owners of state (databases, the in-process agent runtime) as StatefulSets with one replica, and stateless services as Deployments.
+- Deploy with the single Helm chart in `deployment/helm`. Add a service as an entry under `services` in its `values.yaml`, rendered by the generic templates over `serviceDefaults`; do not add per-service templates or charts. Deployment scripts derive service names, images, certificates, and restart order from the rendered chart through `deployment/script/stack-chart.sh` instead of hard-coding them.
+- Expose services only through the chart's Ingress; TLS terminates at the cluster's ingress, and in-cluster traffic is plain HTTP. Images are `<registry>/<image>:<tag>` from `global.image` and each service's image name; `values.prod.yaml` holds remote-cluster overrides.
+- The chart creates every Secret from values supplied at install time (`values.dev.yaml` holds fixed development values); never commit credentials for any other environment or create Secrets outside the chart. Keep Keycloak test clients and seeded users in `deployment/helm/files/keycloak/everything-realm.dev.json`; the production realm, `everything-realm.json`, contains neither.
+- Build shared libraries before consumers with `pnpm build`, or use `pnpm --filter @everything/everything... build` to include that service's dependencies.
+
+Apply the global SOLID, documentation-comment, and section-comment conventions throughout.

@@ -1,0 +1,19 @@
+meta {
+  name: Delete third team agent
+  type: http
+  seq: 7
+}
+
+delete {
+  url: {{baseUrl}}/v1/agents/{{teamAgentThree}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+tests {
+  test("Delete third team agent", () => expect(res.status).to.equal(204));
+}

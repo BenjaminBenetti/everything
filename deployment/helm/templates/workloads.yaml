@@ -1,0 +1,105 @@
+{{- range $name, $_ := .Values.services }}
+{{- $service := include "stack.service" (dict "root" $ "name" $name) | fromYaml }}
+{{- if $service.enabled }}
+{{- $context := dict "root" $ "name" $name }}
+---
+apiVersion: apps/v1
+kind: {{ $service.workload }}
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "stack.labels" $context | nindent 4 }}
+    # Deploy scripts restart lower waves first and wait for them to become ready.
+    rollout-wave: {{ $service.rolloutWave | quote }}
+spec:
+  replicas: {{ $service.replicas }}
+  {{- if eq $service.workload "StatefulSet" }}
+  # Kubernetes starts a replacement only after the previous pod is confirmed gone, so two copies never
+  # run at once; with one replica, an update stops the old pod before starting the new one.
+  serviceName: {{ $name }}
+  updateStrategy:
+    type: RollingUpdate
+  {{- else }}
+  strategy:
+    type: {{ $service.strategy }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "stack.selectorLabels" $context | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "stack.labels" $context | nindent 8 }}
+    spec:
+      automountServiceAccountToken: false
+      {{- with $service.terminationGracePeriodSeconds }}
+      terminationGracePeriodSeconds: {{ . }}
+      {{- end }}
+      securityContext:
+        {{- toYaml $service.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ $service.containerName | default $name }}
+          image: {{ include "stack.image" (dict "root" $ "name" $name "image" $service.image) }}
+          imagePullPolicy: {{ $.Values.global.image.pullPolicy }}
+          {{- with $service.args }}
+          args:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          securityContext:
+            {{- toYaml $service.containerSecurityContext | nindent 12 }}
+          {{- with $service.env }}
+          env:
+            {{- range $variable, $value := . }}
+            - name: {{ $variable }}
+              {{- if kindIs "map" $value }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ tpl $value.secretName $ }}
+                  key: {{ $value.key }}
+              {{- else }}
+              value: {{ tpl (toString $value) $ | quote }}
+              {{- end }}
+            {{- end }}
+          {{- end }}
+          {{- with $service.ports }}
+          ports:
+            {{- range $portName, $port := . }}
+            - name: {{ $portName }}
+              containerPort: {{ $port.containerPort }}
+            {{- end }}
+          {{- end }}
+          {{- range $probe, $spec := $service.probes }}
+          {{ $probe }}Probe:
+            {{- toYaml $spec | nindent 12 }}
+          {{- end }}
+          {{- with $service.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            {{- range $volumeName, $volume := $service.volumes }}
+            - name: {{ $volumeName }}
+              mountPath: {{ $volume.mountPath }}
+              {{- if $volume.secret }}
+              readOnly: true
+              {{- end }}
+            {{- end }}
+      volumes:
+        {{- range $volumeName, $volume := $service.volumes }}
+        - name: {{ $volumeName }}
+          {{- if $volume.persistentVolume }}
+          persistentVolumeClaim:
+            claimName: {{ include "stack.claimName" (dict "name" $name "volumeName" $volumeName) }}
+          {{- else if $volume.sharedVolume }}
+          persistentVolumeClaim:
+            claimName: {{ include "stack.sharedClaimName" (dict "root" $ "service" $name "sharedVolume" $volume.sharedVolume) }}
+          {{- else if $volume.secret }}
+          secret:
+            secretName: {{ tpl $volume.secret $ }}
+            defaultMode: 288 # 0440: owner and group may read
+          {{- else }}
+          emptyDir: {{ toYaml $volume.emptyDir }}
+          {{- end }}
+        {{- end }}
+{{- end }}
+{{- end }}

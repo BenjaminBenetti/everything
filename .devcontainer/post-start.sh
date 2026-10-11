@@ -61,3 +61,8 @@ else
     minikube start --driver=docker
 fi
 kubectl config use-context minikube
+
+# Traefik is the development cluster's ingress controller. Installing it needs network access, so a
+# failure only warns; rerun the script once the network is available.
+bash "$(dirname "$0")/install-traefik.sh" ||
+    echo "WARNING: Traefik was not installed; rerun .devcontainer/install-traefik.sh." >&2

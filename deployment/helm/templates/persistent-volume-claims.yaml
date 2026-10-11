@@ -1,0 +1,35 @@
+{{- range $name, $_ := .Values.services }}
+{{- $service := include "stack.service" (dict "root" $ "name" $name) | fromYaml }}
+{{- if $service.enabled }}
+{{- range $volumeName, $volume := $service.volumes }}
+{{- with $volume.persistentVolume }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "stack.claimName" (dict "name" $name "volumeName" $volumeName) }}
+  labels:
+    {{- include "stack.labels" (dict "root" $ "name" $name) | nindent 4 }}
+  annotations:
+    # Data outlives the release; delete the claim explicitly to discard it.
+    helm.sh/resource-policy: keep
+spec:
+  {{- include "stack.claimSpec" (dict "root" $ "volume" . "defaultAccessModes" (list "ReadWriteOnce")) | nindent 2 }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- range $name, $volume := .Values.sharedVolumes }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "stack.commonLabels" $ | nindent 4 }}
+  annotations:
+    # Data outlives the release; delete the claim explicitly to discard it.
+    helm.sh/resource-policy: keep
+spec:
+  {{- include "stack.claimSpec" (dict "root" $ "volume" $volume "defaultAccessModes" (list "ReadWriteMany")) | nindent 2 }}
+{{- end }}

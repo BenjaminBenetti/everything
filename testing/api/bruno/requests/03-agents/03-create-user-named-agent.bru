@@ -1,0 +1,32 @@
+meta {
+  name: Create user named agent
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/v1/agents
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+  Authorization: Bearer {{accessToken}}
+}
+
+body:json {
+  {
+    "name": "Bruno review",
+    "systemPrompt": "Use send_message to reply to the user."
+  }
+}
+
+tests {
+  test("Create user named agent", () => {
+    expect(res.status).to.equal(201);
+    expect(res.body.name).to.equal("Bruno review");
+    expect(res.body).not.to.have.property("ownerId");
+    bru.setVar("agentId", res.body.id);
+  });
+}

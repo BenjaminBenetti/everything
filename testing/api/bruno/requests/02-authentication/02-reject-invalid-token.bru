@@ -1,0 +1,22 @@
+meta {
+  name: Reject invalid token
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/v1/agents
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer invalid
+}
+
+tests {
+  test("Reject invalid token", () => {
+    expect(res.status).to.equal(401);
+    expect(res.body.code).to.equal("UNAUTHENTICATED");
+  });
+}

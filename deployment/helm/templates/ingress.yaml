@@ -1,0 +1,43 @@
+{{- $paths := list }}
+{{- range $name, $_ := .Values.services }}
+{{- $service := include "stack.service" (dict "root" $ "name" $name) | fromYaml }}
+{{- if and $service.enabled $service.ingress }}
+{{- range $service.ingress.paths }}
+{{- $paths = append $paths (dict "path" . "service" $name "port" $service.ingress.port) }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- if $paths }}
+{{- $ingress := .Values.global.ingress }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ .Release.Name }}
+  labels:
+    {{- include "stack.commonLabels" . | nindent 4 }}
+  {{- with $ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with $ingress.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  rules:
+    {{- if $ingress.host }}
+    - host: {{ $ingress.host }}
+      http:
+    {{- else }}
+    - http:
+    {{- end }}
+        paths:
+          {{- range $paths }}
+          - path: {{ .path }}
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .service }}
+                port:
+                  name: {{ .port }}
+          {{- end }}
+{{- end }}

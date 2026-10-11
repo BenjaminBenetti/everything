@@ -1,0 +1,30 @@
+meta {
+  name: Create owned agent
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/v1/agents
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+  Authorization: Bearer {{accessToken}}
+}
+
+body:json {
+  {
+    "name": "Bruno owned agent",
+    "systemPrompt": "Use send_message to reply to the user."
+  }
+}
+
+tests {
+  test("Create owned agent", () => {
+    expect(res.status).to.equal(201);
+    bru.setVar("ownedAgentId", res.body.id);
+  });
+}

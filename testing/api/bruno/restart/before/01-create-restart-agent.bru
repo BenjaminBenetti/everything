@@ -1,0 +1,30 @@
+meta {
+  name: Create restart agent
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/v1/agents
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+  Authorization: Bearer {{accessToken}}
+}
+
+body:json {
+  {
+    "name": "Restart verification",
+    "systemPrompt": "Reply only through send_message."
+  }
+}
+
+tests {
+  test("Create restart agent", () => {
+    expect(res.status).to.equal(201);
+    bru.setEnvVar("restartAgentId", res.body.id);
+  });
+}
