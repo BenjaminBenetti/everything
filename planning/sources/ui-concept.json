@@ -1,0 +1,36 @@
+{
+  "archived_at": "2026-10-11T03:47:40.657Z",
+  "original_path": "concepts/main-ui",
+  "reference_path": "planning/ui-concept",
+  "source_commit": "28fb8780b8df250ede3ba82eb1900d230742cfe0",
+  "preview_url": "https://everything-ui-concept.solar-tapir-0156.chatgpt.site",
+  "original_hosting_configuration": {
+    "project_id": "appgprj_6ac9bdbf639c8191967131c6ea8a2d06",
+    "static": {
+      "directory": "dist"
+    }
+  },
+  "file_sha256": {
+    ".gitignore": "cd6926e133d325963b2149c989117d1b3ef9e360413665aa9e6bfe371d3f6b73",
+    "README.md": "b507dbebaf5a0c71d6d9b8b682cf955b5dbbb974db42a2b1709bdc636fcbc008",
+    "dist/app.html": "5cba638794b31b3e8f44231f0bf4b14463a2579254613421d0a95ed4e53b7655",
+    "dist/app.js": "85d2ec78dde580cb99a666101440684ec9d47c688c459706776939b8c5f76bf0",
+    "dist/artifact-panel.js": "c9a8a53a4386c2bcae428646aa24b75b5c0492fc2554dc76e51242569416bc53",
+    "dist/artifact.css": "40b09d69897d880f4667caaaa4bcd3b578636b71d502d963213f581dfd434a93",
+    "dist/artifact.html": "ff46f947fdd16570467001412da544da478cacbd2e80e7341f3b03b86bdc5853",
+    "dist/assets/chatgpt-logo-black.svg": "b8b9aba7ba591f54bf1805f422bc23f32c44ee993643cc378cc77f766061f7a1",
+    "dist/assets/chatgpt-logo-white.svg": "568ce2e8701934856aaafc0ed1c3d0300f6c2ff384d0ae743dd1dea08570e12c",
+    "dist/assets/siwc-inter-medium.ttf": "8c883f63b2c4157d997319f2c8bc6995ed4357ef371940d31ca159004a4aae63",
+    "dist/chatgpt.css": "fd2a6384faa425b032d70c4299a3aa64f92f67e4824c227cb362e10aaa2fdbb0",
+    "dist/dashboard.css": "420ce276aaf40b0c865590f93d38b81573500f71996af5a637027d71e4c0c95c",
+    "dist/index.html": "425571c9a81930ce62a0d0c8b671258d3a825564e7ca7fed6c051e66eab9a4d4",
+    "dist/motion.css": "dc7eb0c010b102c9b75255d25dd543a42bbd076809292d5c499cf55c807477b0",
+    "dist/motion.js": "011a40b51d266cdd61a04ed05cba77663d9b09a92b3b8423257139bc7db268f3",
+    "dist/preview.css": "f55fe83b33a7ffcd17aa960299e07981387f11f579b1dbcd014280836daa066e",
+    "dist/preview.js": "ada04e2b4f287293aefe9dd62b6590b83e76b3db5c30f07a5fd55f03848d0c85",
+    "dist/style.css": "a95e94e7c74246bcd754bc7a3f14ff55da63dbbae6e8cfca179eae72245a8f98",
+    "dist/themes.css": "743975e1e40df3cf00b4a50f1032c1f070037f3d562080e2ed3150c9b7710a1f",
+    "dist/themes.js": "9f990ca39b7f7a3919a73abb6e9275d7fdd98267158c358495388aba9f6bcbca",
+    "dist/tokens.css": "39d699b24b239ee806280b24641717afff16b18e677eb174e4bce1e39f00e760"
+  }
+}

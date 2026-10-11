@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en" data-theme="midnight">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#191919">
+  <title>Everything</title>
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="themes.css">
+  <link rel="stylesheet" href="dashboard.css">
+  <link rel="stylesheet" href="motion.css">
+  <link rel="stylesheet" href="artifact.css">
+  <link rel="stylesheet" href="chatgpt.css">
+  <script src="themes.js"></script>
+</head>
+<body>
+  <div id="workspace" class="workspace">
+    <div id="root"></div>
+    <div id="artifact-divider" class="artifact-divider" role="separator" tabindex="0" aria-label="Resize artifact panel" aria-controls="artifact-panel" aria-orientation="vertical" hidden></div>
+    <aside id="artifact-panel" class="artifact-panel" aria-labelledby="artifact-title" hidden></aside>
+  </div>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <dialog id="dialog" aria-labelledby="dialog-title"></dialog>
+  <script src="motion.js"></script>
+  <script src="artifact-panel.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

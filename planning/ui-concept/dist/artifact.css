@@ -1,0 +1,28 @@
+/* The artifact participates in layout; the conversation stays visible and interactive. */
+.workspace{display:flex;height:100dvh;width:100%;overflow:clip}
+.workspace>#root{flex:1;min-width:0;min-height:0;container-type:inline-size}
+.workspace .shell{height:100%;min-height:0}
+.artifact-panel{display:flex;flex-direction:column;flex:0 0 var(--artifact-size,0px);min-width:0;min-height:0;overflow:hidden;background:var(--surface-page)}
+.artifact-panel[hidden],.artifact-divider[hidden]{display:none}
+.artifact-divider{position:relative;flex:0 0 1px;background:var(--border-default);cursor:col-resize;touch-action:none;outline:none;z-index:2}
+.artifact-divider:before{content:'';position:absolute;inset:0 -6px;cursor:inherit}
+.artifact-divider:hover,.artifact-divider:focus-visible{background:var(--text-accent)}
+.workspace.is-resizing{cursor:col-resize;user-select:none}
+.workspace.is-resizing .artifact-frame{pointer-events:none}
+@container(max-width:850px){.has-artifact .chat-actions .text-button{font-size:0;padding:8px}.has-artifact .chat-topbar{padding-inline:18px}.has-artifact .chat-person h1{max-width:140px}.has-artifact .messages{padding-inline:20px}.has-artifact .composer-area{padding-inline:18px}.has-artifact .content{padding:28px 22px}.has-artifact .topbar-right .date{display:none}}
+@media(max-width:850px){.workspace.has-artifact{flex-direction:column}.has-artifact .artifact-divider{cursor:row-resize}.has-artifact .artifact-divider:before{inset:-9px 0}.workspace.is-resizing{cursor:row-resize}.has-artifact .sidebar{overflow:auto}.has-artifact .suggestions,.has-artifact .composer-footer{display:none}.has-artifact .chat-topbar{height:56px}.has-artifact .composer-area{padding-top:4px;padding-bottom:8px}}
+.artifact-panel-head{display:flex;align-items:center;gap:12px;padding:20px 24px;border-bottom:1px solid var(--border-default);background:var(--surface-subtle);flex-shrink:0}
+.artifact-panel-title{flex:1;min-width:0}
+.artifact-panel-title .eyebrow{font-size:8px;letter-spacing:1.3px;margin-bottom:6px}
+.artifact-panel-title h2{font-size:16px;font-weight:550;letter-spacing:-.25px}
+.artifact-open-tab{font-size:11px;min-height:38px;padding:9px 12px;gap:7px;text-decoration:none;white-space:nowrap;flex-shrink:0}
+.artifact-open-tab svg{width:14px;height:14px}
+.artifact-frame{display:block;width:100%;flex:1;min-height:0;border:0;background:var(--surface-page)}
+.artifact-page{padding:clamp(28px,6vw,68px);max-width:880px;margin:0 auto}
+.artifact-page .artifact-document .eyebrow{margin-top:8px}
+.artifact-page h1{font-family:var(--font-document);font-size:clamp(30px,4.5vw,44px);line-height:1.2;font-weight:400;letter-spacing:-.9px;margin:20px 0 24px}
+.artifact-page .artifact-document p,.artifact-page .artifact-document ol{font-size:14px;line-height:1.9}
+.artifact-page .swatches{margin:30px 0}
+.artifact-page .swatches i{height:68px}
+.artifact-page .prototype-notice{margin-top:36px}
+@media(max-width:650px){.artifact-panel-head{gap:8px;padding:16px}.artifact-panel-title h2{font-size:14px}.artifact-open-tab{font-size:10px;padding:8px;gap:5px}.artifact-panel-head .icon-button{width:34px}.artifact-page{padding:28px 24px max(28px,env(safe-area-inset-bottom))}}

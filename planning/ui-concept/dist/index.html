@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en" data-theme="midnight">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#111111">
+  <title>Everything — A UI concept</title>
+  <meta name="description" content="Explore an interactive concept for Everything: sign in, catch up on updates, and continue a conversation.">
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="preview.css">
+  <script src="themes.js"></script>
+</head>
+<body>
+  <header class="review">
+    <div class="brand">everything<span>Interface concept</span></div>
+    <nav aria-label="Explore the screens">
+      <button class="active" data-screen="login"><small>01</small>Sign in</button>
+      <button data-screen="dashboard"><small>02</small>Dashboard</button>
+      <button data-screen="agents"><small>03</small>Your team</button>
+      <button data-screen="chat"><small>04</small>Conversation</button>
+    </nav>
+    <div class="devices" aria-label="Preview size">
+      <button class="active" id="desktop" aria-label="Desktop preview" aria-pressed="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8m-4-4v4"/></svg></button>
+      <button id="phone" aria-label="iPhone preview" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="6" y="2" width="12" height="20" rx="3"/><path d="M10 18h4"/></svg></button>
+    </div>
+  </header>
+  <div class="theme-picker" id="theme-options" role="group" aria-label="Color theme"></div>
+  <label class="theme-compact"><span>Theme</span><select id="theme-select" aria-label="Color theme"></select></label>
+  <main class="stage"><div class="frame" id="frame"><iframe src="app.html" title="Everything interactive interface concept" id="app"></iframe></div></main>
+  <footer class="foot">Interactive concept · Sign-in and agent replies are simulated.<button id="reset">Reset demo</button></footer>
+  <script src="preview.js"></script>
+</body>
+</html>

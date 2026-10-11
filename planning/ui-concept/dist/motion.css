@@ -1,0 +1,15 @@
+/* The same restrained motion language follows every token palette. */
+.main{position:relative;min-height:0;overflow:clip;isolation:isolate}
+.login{overflow-x:clip}
+.motion-layer{position:fixed;z-index:30;pointer-events:none;overflow:hidden;contain:layout paint;isolation:isolate}
+.motion-copy{width:100%!important;height:100%!important;min-height:0!important;margin:0!important}
+.motion-copy *{animation:none!important;transition:none!important;scroll-behavior:auto!important}
+.motion-outgoing>.motion-copy{background:var(--surface-page)}
+.motion-login{z-index:35;background:transparent}
+.login-route-light{stroke-width:2.5;stroke-dasharray:1;stroke-dashoffset:1;opacity:0;filter:drop-shadow(0 0 3px currentColor)}
+.message-target{position:relative}
+.message-target:before{content:"";position:absolute;top:0;bottom:0;left:-11px;width:2px;border-radius:2px;background:var(--text-accent);animation:message-locator 1.4s ease-out both}
+@keyframes message-locator{0%,35%{opacity:.85}100%{opacity:0}}
+/* Existing conversation history stays still when a message is sent or received. */
+.message{animation:none}
+@media(prefers-reduced-motion:reduce){.motion-layer{display:none}.message-target:before{animation:none;opacity:.6}}

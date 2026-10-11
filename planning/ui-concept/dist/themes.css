@@ -1,0 +1,70 @@
+/* Component roles shared by every theme. Palette values live in tokens.css. */
+:root .welcome{background:var(--surface-hero);color:var(--text-on-hero)}
+:root .welcome h1 em{color:var(--text-hero-accent)}
+:root .welcome-copy>p{color:var(--text-hero-muted);max-width:325px}
+:root .welcome-bottom{color:var(--text-hero-muted)}
+:root .welcome-bottom .dot{background:var(--text-hero-accent)}
+:root .login{background:var(--surface-page)}
+:root .field input,:root .field textarea{border-color:var(--border-field)}
+:root input::placeholder,:root .composer textarea::placeholder{color:var(--text-placeholder)}
+:root .button.primary{background:var(--surface-action);color:var(--text-on-action)}
+:root .button.primary:hover{background:var(--surface-action-hover)}
+:root button:focus-visible,:root a:focus-visible{outline-color:var(--text-accent)}
+:root input:focus,:root textarea:focus{outline-color:var(--border-active)}
+:root .button.light:hover,:root .icon-button:hover{background:var(--surface-selected)}
+:root :is(.login-foot,.icon-button,.nav-item,.breadcrumb,.topbar-right .date,.profile span small,.section-label small,.search,.agent-role,.card-bottom,.card-bottom .time,.new-card,.new-card strong,.workspace-note,.empty-search,.activity-card small,.chat-person p,.day-divider,.message-author,.message .stamp,.artifact-card small,.artifact-card>svg,.composer-caption,.composer-footer,.panel-label,.detail-item small,.panel-artifact small,.prototype-notice){color:var(--text-secondary)}
+:root :is(.agent-preview,.breadcrumb span,.detail-item,.artifact-document p,.artifact-document ol){color:var(--text-secondary)}
+:root .sidebar,:root .sidepanel,:root .mobile-nav{background:var(--surface-subtle);border-color:var(--border-default)}
+:root .nav-item.active,:root .nav-count,:root .side-agent.current,:root .side-agent:hover{background:var(--surface-selected);color:var(--text-selected)}
+:root .nav-item:hover:not(.active){background:var(--surface-selected)}
+:root .space-card{border-color:var(--border-default);color:var(--text-secondary)}
+:root .profile-avatar{background:var(--surface-panel);border-color:var(--border-default)}
+:root .dot{background:var(--status-ready)}
+:root .avatar,:root .mini-avatar{background:var(--surface-avatar);color:var(--text-avatar)}
+:root .avatar.purple,:root .mini-avatar.purple{background:var(--surface-selected);color:var(--text-selected)}
+:root .avatar.blue,:root .mini-avatar.blue{background:var(--surface-subtle);color:var(--text-secondary)}
+:root .quiet-update{background:var(--surface-selected);border-color:var(--border-default);color:var(--text-selected)}
+:root .quiet-update small,:root .quiet-update>svg{color:var(--text-selected)}
+:root .update-icon{background:var(--surface-panel);color:var(--text-accent)}
+:root .agent-card,:root .new-card,:root .card-bottom{border-color:var(--border-default)}
+:root .agent-card:hover,:root .new-card:hover,:root .artifact-card:hover{border-color:var(--border-active)}
+:root .new-card:hover{background:var(--surface-selected)}
+:root .card-bottom svg,:root .detail-item svg{color:var(--text-selected)}
+:root .activity-card,:root .artifact-card,:root .panel-artifact,:root .composer{background:var(--surface-panel);border-color:var(--border-default)}
+:root .conversation,:root dialog{background:var(--surface-page)}
+:root dialog,:root .prototype-notice{border-color:var(--border-default)}
+:root .day-divider:before,:root .day-divider:after{background:var(--border-default)}
+:root .user .bubble{background:var(--surface-selected);color:var(--text-selected);border-color:var(--border-default)}
+:root .artifact-thumbnail{background:var(--surface-avatar);color:var(--text-avatar)}
+:root .artifact-thumbnail:before{background:var(--surface-panel)}
+:root .suggestions button{color:var(--text-secondary);border-color:var(--border-default)}
+:root .suggestions button:hover{background:var(--surface-selected)}
+:root .send{background:var(--surface-action);color:var(--text-on-action)}
+:root .send:hover{background:var(--surface-action-hover)}
+:root .typing i{background:var(--text-accent)}
+:root .notify-note,:root .step-number{background:var(--surface-selected);color:var(--text-selected)}
+:root .notify-note>svg,:root .notify-note .text-button{color:var(--text-selected)}
+:root .mobile-nav button{color:var(--text-secondary)}
+:root .mobile-nav button.active{color:var(--text-accent)}
+:root .mobile-back{color:var(--text-secondary)}
+:root .search input:focus{background:var(--surface-panel)}
+:root #toast{background:var(--text-primary);color:var(--surface-page);border-color:var(--border-default)}
+/* Shared typography; changing a palette never changes the layout. */
+:root .welcome h1{font-family:inherit;font-weight:600;font-size:clamp(40px,4.1vw,63px);line-height:1.1;letter-spacing:-2.7px}
+:root .welcome h1 em{font-style:normal;font-weight:600}
+:root :is(.login-form h2,.page-heading h1,.dialog-head h2){font-family:inherit;font-weight:550;letter-spacing:-1.4px}
+:root .login-form h2{font-size:34px}
+
+/* Signal’s grid artwork follows the active hero accent. */
+.theme-art{position:absolute;right:-35px;bottom:-50px;width:380px;height:360px;transform:rotate(-10deg);opacity:.28;pointer-events:none;color:var(--text-hero-accent)}
+.theme-art svg{width:100%;height:100%}
+.mobile-theme-art{display:none}
+.welcome>.wordmark{position:relative;z-index:1}
+@media(max-width:1000px){:root .welcome h1{font-size:43px;letter-spacing:-1.8px}.theme-art{opacity:.35}:root .welcome-copy>p{max-width:280px}}
+@media(max-width:650px){:root .mobile-brand{color:var(--text-hero-accent)}:root .login-right{background:var(--surface-page)}}
+@media(max-width:650px){.login-right{overflow:hidden}.mobile-theme-art{display:block;width:220px;height:210px;right:-70px;bottom:-40px;opacity:.16}.login-form,.login-foot{z-index:1}.login-form{position:relative}}
+
+.swatches i:nth-child(1){background:var(--surface-page)}
+.swatches i:nth-child(2){background:var(--surface-hero)}
+.swatches i:nth-child(3){background:var(--surface-action)}
+.swatches i:nth-child(4){background:var(--text-primary)}

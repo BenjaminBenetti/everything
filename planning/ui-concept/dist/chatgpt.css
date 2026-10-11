@@ -1,0 +1,36 @@
+/* Official SIWC button dimensions and font; application status uses theme tokens. */
+@font-face{font-family:"SIWC Inter";src:url("assets/siwc-inter-medium.ttf") format("truetype");font-weight:500;font-style:normal;font-display:swap}
+.chatgpt-mark{display:block;width:24px;height:24px;flex:none;background:currentColor;mask:url("assets/chatgpt-logo-white.svg") center/contain no-repeat;-webkit-mask:url("assets/chatgpt-logo-white.svg") center/contain no-repeat}
+:root .icon-button.provider-connection{display:inline-flex;position:relative;flex:none;width:38px;height:38px;color:var(--status-disconnected)}
+:root .icon-button.provider-connection[data-connected="true"]{color:var(--status-connected)}
+.provider-connection::after{content:"";position:absolute;right:4px;bottom:4px;width:6px;height:6px;border-radius:50%;background:currentColor;box-shadow:0 0 0 2px var(--surface-page)}
+.provider-connection>svg{width:22px;height:22px}
+.provider-list{list-style:none;padding:0;margin:20px 0 0;display:grid;gap:12px}
+.provider-card{padding:18px;border:1px solid var(--border-default);border-radius:var(--radius-panel);background:var(--surface-panel)}
+.provider-card-heading{display:flex;align-items:center;gap:12px}
+.provider-card-heading>.chatgpt-mark{width:32px;height:32px;color:var(--text-primary)}
+.provider-card strong{display:block;font-size:14px;font-weight:550;margin-bottom:5px}
+.provider-description{color:var(--text-secondary);font-size:11px}
+.provider-card-copy{color:var(--text-secondary);font-size:12px;line-height:1.7;margin-top:16px}
+.provider-availability{font-size:10px;line-height:1.6;color:var(--text-secondary);margin-top:14px}
+.chatgpt-state{display:flex;align-items:center;gap:6px;font-size:11px;line-height:1.5;color:var(--status-disconnected)}
+.chatgpt-state[data-connected="true"]{color:var(--status-connected)}
+.chatgpt-state::before{content:"";width:5px;height:5px;border-radius:50%;background:currentColor}
+.chatgpt-action{display:flex;justify-content:center;margin-top:24px}
+.chatgpt-signin{display:inline-flex;align-items:center;justify-content:center;gap:12px;width:242px;max-width:100%;height:45px;padding:0 20px;border:0;border-radius:12px;background:var(--brand-chatgpt-background);color:var(--brand-chatgpt-foreground);font:500 15px/18px "SIWC Inter",sans-serif;letter-spacing:0;white-space:nowrap}
+.chatgpt-signin-logo{display:block;flex:none;width:21px;height:21px;background:var(--brand-chatgpt-logo) center/contain no-repeat}
+.chatgpt-signin:hover{box-shadow:0 0 0 1px var(--border-active)}
+.chatgpt-manage{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-top:22px}
+.chatgpt-manage a{display:inline-flex;gap:6px;align-items:center;color:var(--text-accent);font-size:12px;text-decoration:none}
+.chatgpt-manage a:hover{text-decoration:underline}
+.chatgpt-manage svg{width:13px;height:13px}
+.chatgpt-manage .button{font-size:12px;min-height:38px}
+.chatgpt-preview-note{margin-top:22px}
+.chatgpt-preview-note strong{font-weight:550;color:var(--text-primary)}
+.chat-person{min-width:0}
+.chat-person>div{min-width:0}
+.chat-person h1{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chat-person p{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chat-actions{flex-shrink:0}
+@container(max-width:650px){.chat-actions{gap:4px}.has-artifact .chat-actions [data-rename]{display:none}.chat-person .mini-avatar,.chat-person .mobile-back{flex-shrink:0}}
+@media(max-width:650px){.chat-actions{gap:4px}.chat-person .mini-avatar,.chat-person .mobile-back{flex-shrink:0}}

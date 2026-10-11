@@ -1,0 +1,159 @@
+/* Shared semantic design tokens. Components never choose a palette directly. */
+:root {
+  --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-document: Georgia, serif;
+  --radius-control: 8px;
+  --radius-panel: 12px;
+  --status-connected: #79c99d;
+  --status-disconnected: #ee9994;
+  /* Approved SIWC branding follows the application theme. */
+  --brand-chatgpt-background: #000000;
+  --brand-chatgpt-foreground: #ffffff;
+  --brand-chatgpt-logo: url("assets/chatgpt-logo-white.svg");
+}
+
+/* Midnight: neutral charcoal with restrained amber accents. Default even without JavaScript. */
+:root, [data-theme="midnight"], [data-theme="midnight-dimmed"] {
+  color-scheme: dark;
+  --surface-page: #191919;
+  --surface-panel: #242424;
+  --surface-subtle: #202020;
+  --surface-review: #111111;
+  --text-primary: #edece9;
+  --text-secondary: #b3b1ad;
+  --text-placeholder: #a4a29e;
+  --border-default: #3d3c3a;
+  --border-field: #51504d;
+  --border-active: #aa8250;
+  --text-accent: #ddb16f;
+  --surface-selected: #3d3428;
+  --text-selected: #ebc88f;
+  --surface-hero: #2b2a28;
+  --text-on-hero: #f4f2ed;
+  --text-hero-accent: #deb577;
+  --text-hero-muted: #bdb9b0;
+  --surface-action: #d9aa69;
+  --text-on-action: #2b2113;
+  --surface-action-hover: #e7bd82;
+  --status-ready: #d8b47b;
+  --surface-avatar: #45382a;
+  --text-avatar: #e8c28a;
+  --overlay: #0b0b0b99;
+  --shadow-color: #00000024;
+}
+
+[data-theme="graphite"], [data-theme="graphite-dimmed"] {
+  color-scheme: dark;
+  --surface-page: #171819;
+  --surface-panel: #222426;
+  --surface-subtle: #1c1e20;
+  --surface-review: #101112;
+  --text-primary: #f0f0eb;
+  --text-secondary: #b0b3b0;
+  --text-placeholder: #9fa49f;
+  --border-default: #393d3c;
+  --border-field: #515755;
+  --border-active: #8eaaa2;
+  --text-accent: #b7ccc5;
+  --surface-selected: #303d39;
+  --text-selected: #d0e0d9;
+  --surface-hero: #282f2d;
+  --text-on-hero: #f3f3ee;
+  --text-hero-accent: #c4d5cb;
+  --text-hero-muted: #b8c4bc;
+  --surface-action: #d2ded7;
+  --text-on-action: #202b25;
+  --surface-action-hover: #e4ebe6;
+  --status-ready: #b4cabb;
+  --surface-avatar: #3d4a44;
+  --text-avatar: #cee0d2;
+  --overlay: #090b0a99;
+  --shadow-color: #00000028;
+}
+
+/* Dimmed variants inherit their base palette and soften its brightest tones. */
+[data-theme="midnight-dimmed"] {
+  --text-primary: #c3bfb8;
+  --text-secondary: #a6a198;
+  --text-on-hero: #c8c2b8;
+  --text-hero-muted: #aaa398;
+}
+
+[data-theme="graphite-dimmed"] {
+  --text-primary: #bfc3bc;
+  --text-secondary: #a4aca5;
+  --text-on-hero: #c3cac2;
+  --text-hero-muted: #a5b1a7;
+  --surface-action: #a5b8ac;
+  --surface-action-hover: #b8c8be;
+  --text-selected: #b9cec1;
+  --text-hero-accent: #b0c3b6;
+  --text-avatar: #b8cbbd;
+  --text-accent: #a8beb3;
+}
+
+[data-theme="daylight"] {
+  color-scheme: light;
+  --surface-page: #f6f7fb;
+  --surface-panel: #ffffff;
+  --surface-subtle: #eef1f8;
+  --surface-review: #e8ecf4;
+  --text-primary: #20283e;
+  --text-secondary: #5b667d;
+  --text-placeholder: #68748a;
+  --border-default: #d9dfeb;
+  --border-field: #b7c2d8;
+  --border-active: #697bd1;
+  --text-accent: #485dc2;
+  --surface-selected: #e4eaff;
+  --text-selected: #3d50a6;
+  --surface-hero: #e7ecff;
+  --text-on-hero: #202d5a;
+  --text-hero-accent: #475abd;
+  --text-hero-muted: #516184;
+  --surface-action: #465bc0;
+  --text-on-action: #ffffff;
+  --surface-action-hover: #35499f;
+  --status-ready: #4e65bb;
+  --surface-avatar: #dce4fa;
+  --text-avatar: #485ca5;
+  --overlay: #1e2b5655;
+  --shadow-color: #18254c12;
+}
+
+[data-theme="sand"] {
+  color-scheme: light;
+  --surface-page: #f9f5ef;
+  --surface-panel: #fffdfa;
+  --surface-subtle: #f1eae0;
+  --surface-review: #eae2d7;
+  --text-primary: #342c28;
+  --text-secondary: #706055;
+  --text-placeholder: #7e6b5b;
+  --border-default: #e1d6c8;
+  --border-field: #c8b9a6;
+  --border-active: #b57556;
+  --text-accent: #a04f32;
+  --surface-selected: #f3e1d2;
+  --text-selected: #874831;
+  --surface-hero: #efe0ce;
+  --text-on-hero: #433225;
+  --text-hero-accent: #9b4e31;
+  --text-hero-muted: #786048;
+  --surface-action: #984a2e;
+  --text-on-action: #fffaf3;
+  --surface-action-hover: #7d3923;
+  --status-ready: #a5693f;
+  --surface-avatar: #ecdbc4;
+  --text-avatar: #965b31;
+  --overlay: #38271855;
+  --shadow-color: #422d1812;
+}
+
+[data-theme="daylight"], [data-theme="sand"] {
+  --status-connected: #247247;
+  --status-disconnected: #ad3939;
+  --brand-chatgpt-background: #ffffff;
+  --brand-chatgpt-foreground: #000000;
+  --brand-chatgpt-logo: url("assets/chatgpt-logo-black.svg");
+}

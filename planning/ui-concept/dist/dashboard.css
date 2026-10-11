@@ -1,0 +1,60 @@
+/* Home prioritizes incoming updates, with recent conversations one tap away. */
+.dashboard-content{padding:40px 40px 36px}
+.dashboard-inner{max-width:1120px}
+.dashboard-heading{margin-bottom:34px}
+.dashboard-heading .eyebrow{margin-bottom:13px}
+.dashboard-heading h1{margin-bottom:11px}
+.dashboard-grid{display:grid;grid-template-columns:minmax(0,1.8fr) minmax(245px,1fr);gap:32px;align-items:start}
+.dashboard-grid>*,.dashboard-section-heading h2{min-width:0}
+.dashboard-section-heading{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:35px;margin-bottom:16px}
+.dashboard-section-heading h2{font-size:14px;font-weight:600;letter-spacing:-.2px;display:flex;align-items:center;flex-wrap:wrap;gap:10px}
+.dashboard-section-heading .text-button{display:flex;gap:6px;align-items:center;white-space:nowrap;font-size:10px}
+.dashboard-section-heading .text-button svg{width:13px;height:13px}
+.updates-count{display:inline-flex;background:var(--surface-selected);color:var(--text-selected);border:1px solid var(--border-default);border-radius:20px;padding:4px 8px;font-size:10px;font-weight:500;letter-spacing:0;white-space:nowrap}
+/* A single compact inbox surface, with the entire row opening its conversation. */
+.updates-feed{display:grid;grid-template-columns:minmax(0,1fr);gap:0;border:1px solid var(--border-default);border-radius:var(--radius-panel);overflow:hidden;background:var(--surface-panel)}
+.dashboard-update{display:flex;align-items:flex-start;gap:11px;width:100%;min-width:0;padding:14px 16px;background:transparent;text-align:left;border:0;border-bottom:1px solid var(--border-default);border-radius:0;color:var(--text-primary)}
+.dashboard-update:last-child{border-bottom:0}
+.dashboard-update.unread{box-shadow:inset 2px 0 var(--border-active)}
+.dashboard-update:hover{background:var(--surface-selected)}
+.dashboard-update:focus-visible{outline-offset:-3px}
+.dashboard-update>.mini-avatar{width:32px;height:32px;border-radius:10px;margin-top:2px}
+.update-copy{display:block;flex:1;min-width:0}
+.update-meta{display:flex;align-items:center;gap:7px;min-width:0;line-height:17px;margin-bottom:5px}
+.update-meta strong{font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.update-meta small{color:var(--text-secondary);font-size:9px;white-space:nowrap;margin-left:auto;flex-shrink:0}
+.update-type{display:inline-flex;align-items:center;color:var(--text-secondary);flex-shrink:0}
+.update-type svg{width:13px;height:13px}
+.update-meta .dot{width:5px;height:5px}
+.update-excerpt{color:var(--text-secondary);font-size:12px;line-height:1.6;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere}
+.update-open{display:flex;align-items:center;align-self:center;color:var(--text-secondary);flex-shrink:0}
+.update-open svg{width:13px;height:13px;transform:rotate(180deg)}
+.dashboard-recent{border-left:1px solid var(--border-default);padding-left:25px}
+.dashboard-recent .dashboard-section-heading{margin-bottom:4px}
+.recent-intro{color:var(--text-secondary);font-size:11px;line-height:1.6;margin-bottom:13px}
+.recent-list{display:grid;grid-template-columns:minmax(0,1fr);min-width:0}
+.recent-conversation{display:flex;gap:10px;align-items:flex-start;padding:17px 0;width:100%;min-width:0;text-align:left;background:transparent;border-bottom:1px solid var(--border-default);border-radius:0}
+.recent-conversation:hover .recent-name{color:var(--text-accent)}
+.recent-conversation>.mini-avatar{width:34px;height:34px;border-radius:11px}
+.recent-copy{flex:1;min-width:0}
+.recent-name{font-size:12px;font-weight:550;display:flex;align-items:center;gap:7px;overflow-wrap:anywhere;line-height:1.4}
+.recent-preview{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text-secondary);font-size:11px;margin:7px 0 9px;line-height:1.5}
+.recent-copy small{display:block;color:var(--text-secondary);font-size:9px}
+.recent-conversation>svg{color:var(--text-secondary);width:13px;height:13px;margin-top:11px}
+.team-link{display:flex;align-items:center;justify-content:space-between;gap:10px;background:transparent;width:100%;text-align:left;padding:17px 0;color:var(--text-accent);font-size:11px}
+.team-link svg{width:14px;height:14px}
+.dashboard-phone{display:flex;gap:11px;padding:18px 0;margin-top:22px;color:var(--text-secondary)}
+.dashboard-phone>svg{width:18px;height:18px}
+.dashboard-phone strong{font-size:11px;color:var(--text-primary);font-weight:550;line-height:1.6}
+.dashboard-phone p{font-size:10px;line-height:1.6;margin-top:5px}
+.dashboard-phone .text-button{color:var(--text-accent);font-size:10px;margin-top:2px}
+.dashboard-empty{padding:25px;background:var(--surface-panel)}
+.dashboard-empty>svg{color:var(--text-accent);margin-bottom:18px}
+.dashboard-empty h3{font-size:19px;font-weight:550;margin-bottom:10px}
+.dashboard-empty p,.recent-empty{color:var(--text-secondary);font-size:12px;line-height:1.7}
+.dashboard-empty .text-button{margin-top:10px}
+.recent-empty{padding:17px 0}
+.mobile-nav button{position:relative}
+.mobile-unread{position:absolute;top:1px;right:8px;background:var(--surface-action);color:var(--text-on-action);font-size:8px;min-width:13px;line-height:13px;border-radius:8px;padding:0 3px}
+@media(max-width:1120px){.dashboard-content{padding:32px 27px}.dashboard-grid{grid-template-columns:minmax(0,1fr);gap:30px}.dashboard-recent{border-left:0;border-top:1px solid var(--border-default);padding:22px 0 0}.dashboard-phone{margin-top:5px}.dashboard-heading{margin-bottom:25px}}
+@media(max-width:650px){.dashboard-content{padding:28px 22px}.dashboard-heading .eyebrow{font-size:9px;margin-bottom:11px}.dashboard-heading h1{font-size:32px}.dashboard-heading p{max-width:none}.dashboard-section-heading{gap:6px;margin-bottom:13px}.dashboard-section-heading h2{font-size:13px;gap:7px}.dashboard-update{padding:12px;gap:9px}.dashboard-update>.mini-avatar{width:28px;height:28px;border-radius:9px;font-size:10px}.update-meta{gap:5px}.update-meta strong{font-size:11px}.update-meta small{font-size:8px}.update-open{display:none}.dashboard-grid{gap:25px}.recent-conversation{min-height:96px}.dashboard-section-heading .text-button{min-height:44px}.mobile-nav{padding-inline:12px}.dashboard-phone .text-button,.team-link{min-height:44px}}
