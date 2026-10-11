@@ -1,0 +1,57 @@
+{
+  "name": "@everything/ui",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "files": [
+    "build",
+    "src/theme/style"
+  ],
+  "exports": {
+    "./button": {
+      "types": "./build/control/component/button.d.ts",
+      "default": "./build/control/component/button.js"
+    },
+    "./dialog": {
+      "types": "./build/dialog/component/dialog.d.ts",
+      "default": "./build/dialog/component/dialog.js"
+    },
+    "./brand": {
+      "types": "./build/brand/component/brand.d.ts",
+      "default": "./build/brand/component/brand.js"
+    },
+    "./theme": {
+      "types": "./build/theme/component/theme-picker.d.ts",
+      "default": "./build/theme/component/theme-picker.js"
+    },
+    "./tokens.css": "./src/theme/style/tokens.css",
+    "./styles.css": "./src/theme/style/primitives.css",
+    "./avatar": {
+      "types": "./build/avatar/component/avatar-button.d.ts",
+      "default": "./build/avatar/component/avatar-button.js"
+    },
+    "./choice-card": {
+      "types": "./build/control/component/choice-card.d.ts",
+      "default": "./build/control/component/choice-card.js"
+    }
+  },
+  "scripts": {
+    "build": "rm -rf build && tsc -p tsconfig.build.json",
+    "check": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@radix-ui/react-dialog": "1.2.0",
+    "lucide-react": "1.55.0"
+  },
+  "peerDependencies": {
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
+  },
+  "devDependencies": {
+    "typescript": "7.0.2",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  }
+}

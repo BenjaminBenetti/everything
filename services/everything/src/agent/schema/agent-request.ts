@@ -22,3 +22,12 @@ export const createAgentBody = Type.Object(
 
 /** Validated request body for creating a user-named agent. */
 export type CreateAgentBody = Static<typeof createAgentBody>;
+
+/** Change a name without accepting ownership, instructions, or runtime state. */
+export const renameAgentBody = Type.Object(
+  { name: nonBlankText(agentLimits.nameLength) },
+  { additionalProperties: false },
+);
+
+/** Validated input for the naming endpoint. */
+export type RenameAgentBody = Static<typeof renameAgentBody>;

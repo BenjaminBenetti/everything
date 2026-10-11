@@ -2,19 +2,13 @@ import type { FastifyInstance } from "fastify";
 import { subject } from "@everything/security/fastify";
 import type { AgentCatalog } from "../interface/agent-catalog.js";
 import type { AgentRemoval } from "../interface/agent-removal.js";
-import type { AgentDefinition } from "../model/agent.js";
+import { representAgent } from "../presenter/agent-presenter.js";
 import {
   agentParams,
   createAgentBody,
   type AgentParams,
   type CreateAgentBody,
 } from "../schema/agent-request.js";
-
-/** Exclude ownership and deployment storage details from public agent representations. */
-function representAgent(agent: AgentDefinition) {
-  const { id, name, systemPrompt, createdAt } = agent;
-  return { id, name, systemPrompt, createdAt };
-}
 
 /** Register agent definition endpoints; deletion goes through AgentRemoval so the runtime stops first. */
 export async function agentController(

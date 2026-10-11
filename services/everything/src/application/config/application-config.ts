@@ -10,6 +10,11 @@ export interface ApplicationConfig {
   readonly port: number;
   readonly issuer: string;
   readonly audience: string;
+  readonly publicOrigin: string;
+  readonly protocolUrl: string;
+  readonly clientId: string;
+  readonly clientSecret: string;
+  readonly sessionEncryptionKey: string;
   readonly jwksUrl: string;
   readonly databaseUrl: string;
   readonly databasePassword: string;
@@ -33,6 +38,11 @@ export function loadApplicationConfig(
     issuer: settings.OIDC_ISSUER,
     jwksUrl: settings.OIDC_JWKS_URL,
     audience: settings.OIDC_AUDIENCE,
+    publicOrigin: settings.PUBLIC_ORIGIN,
+    protocolUrl: settings.OIDC_PROTOCOL_URL,
+    clientId: settings.OIDC_CLIENT_ID,
+    clientSecret: settings.OIDC_CLIENT_SECRET,
+    sessionEncryptionKey: settings.SESSION_ENCRYPTION_KEY,
     databaseUrl: settings.DATABASE_URL,
     databasePassword: settings.DATABASE_PASSWORD,
     stateDirectory: settings.PI_STATE_DIRECTORY,

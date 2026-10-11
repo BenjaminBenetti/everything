@@ -14,17 +14,14 @@
   "refreshTokenMaxReuse": 0,
   "clients": [
     {
-      "clientId": "everything-ui",
+      "clientId": "everything-web",
       "protocol": "openid-connect",
-      "publicClient": true,
-      "standardFlowEnabled": true,
-      "directAccessGrantsEnabled": false,
+      "publicClient": false,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
       "implicitFlowEnabled": false,
-      "redirectUris": ["${EVERYTHING_PUBLIC_ORIGIN}/callback"],
-      "webOrigins": ["${EVERYTHING_PUBLIC_ORIGIN}"],
-      "attributes": {
-        "pkce.code.challenge.method": "S256"
-      },
+      "redirectUris": [],
+      "webOrigins": [],
       "protocolMappers": [
         {
           "name": "everything-api audience",
@@ -36,7 +33,10 @@
             "access.token.claim": "true"
           }
         }
-      ]
+      ],
+      "clientAuthenticatorType": "client-secret",
+      "secret": "${EVERYTHING_WEB_CLIENT_SECRET}",
+      "serviceAccountsEnabled": false
     }
   ]
 }

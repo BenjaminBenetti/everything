@@ -1,8 +1,13 @@
+import { KeycloakPasswordAuthentication } from "@everything/security/password-grant";
+import { SessionCipher } from "@everything/security/session-cipher";
+import { SessionService } from "../../session/service/session-service.js";
+import { PostgresSessionRepository } from "../../session/repository/postgres-session-repository.js";
 import type { FastifyInstance } from "fastify";
 import { createKeycloakTokenVerifier } from "@everything/security/keycloak";
 import { PostgresAgentRepository } from "../../agent/repository/postgres-agent-repository.js";
 import { AgentEntity } from "../../agent/schema/agent-entity.js";
 import { AgentService } from "../../agent/service/agent-service.js";
+import { AgentNamingService } from "../../agent/service/agent-naming-service.js";
 import { PostgresMessageRepository } from "../../conversation/repository/postgres-message-repository.js";
 import { ConversationService } from "../../conversation/service/conversation-service.js";
 import { createApplicationDatabase } from "../../persistence/factory/application-database.js";
@@ -25,7 +30,8 @@ async function main(): Promise<void> {
   await database.initialize();
   await database.runMigrations();
   const models = await createModelRuntime(config.stateDirectory);
-  const agents = new AgentService(new PostgresAgentRepository(database));
+  const agentRepository = new PostgresAgentRepository(database);
+  const agents = new AgentService(agentRepository);
   const workspaces = new FileSystemWorkspaces(config.agentsDirectory);
   const conversations = new ConversationService(
     agents,
@@ -35,9 +41,16 @@ async function main(): Promise<void> {
   );
   const app = await createHttpApplication({
     agents,
+    names: new AgentNamingService(agentRepository),
     removal: conversations,
     conversations,
     verifier,
+    sessions: new SessionService(
+      new PostgresSessionRepository(database),
+      new KeycloakPasswordAuthentication(config, verifier),
+      new SessionCipher(config.sessionEncryptionKey),
+    ),
+    publicOrigin: config.publicOrigin,
     /** Check the durable backing store before advertising readiness. */
     readiness: async () => {
       await database.getRepository(AgentEntity).exists();

@@ -22,6 +22,18 @@
     "./fastify": {
       "types": "./build/auth/handler/authentication-hook.d.ts",
       "default": "./build/auth/handler/authentication-hook.js"
+    },
+    "./browser": {
+      "types": "./build/session/factory/browser-session.d.ts",
+      "default": "./build/session/factory/browser-session.js"
+    },
+    "./password-grant": {
+      "types": "./build/session/adapter/keycloak-password-authentication.d.ts",
+      "default": "./build/session/adapter/keycloak-password-authentication.js"
+    },
+    "./session-cipher": {
+      "types": "./build/session/service/session-cipher.d.ts",
+      "default": "./build/session/service/session-cipher.js"
     }
   },
   "scripts": {

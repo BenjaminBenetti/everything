@@ -1,0 +1,505 @@
+/* ===========================================
+   Shared elements and semantic controls
+   =========================================== */
+:root {
+  font-family: var(--font-ui);
+  color: var(--text-primary);
+  font-size: 14px;
+  font-synthesis: none;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  background: var(--surface-page);
+}
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+button {
+  cursor: pointer;
+  color: inherit;
+  border: 0;
+}
+button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+button:focus-visible,
+a:focus-visible,
+select:focus-visible {
+  outline: 3px solid var(--text-accent);
+  outline-offset: 3px;
+}
+input:focus,
+textarea:focus {
+  outline: 2px solid var(--border-active);
+  outline-offset: 1px;
+}
+h1,
+h2,
+h3,
+p {
+  margin: 0;
+}
+a {
+  color: inherit;
+  text-decoration: none;
+}
+svg {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  vertical-align: middle;
+}
+button svg {
+  pointer-events: none;
+}
+.button {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 12px 18px;
+  border-radius: 9px;
+  font-size: 13px;
+  font-weight: 550;
+  transition: background 0.16s;
+}
+.button.primary {
+  background: var(--surface-action);
+  color: var(--text-on-action);
+}
+.button.primary:hover:not(:disabled) {
+  background: var(--surface-action-hover);
+}
+.button.light {
+  background: var(--surface-panel);
+  border: 1px solid var(--border-default);
+}
+.button.light:hover {
+  background: var(--surface-selected);
+}
+.button.text {
+  background: transparent;
+  color: var(--text-accent);
+}
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  flex-shrink: 0;
+  background: transparent;
+  border-radius: var(--radius-control);
+  color: var(--text-secondary);
+}
+.icon-button:hover {
+  background: var(--surface-selected);
+  color: var(--text-primary);
+}
+.muted {
+  color: var(--text-secondary);
+}
+.eyebrow {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 1.6px;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 100%;
+  background: var(--status-ready);
+  display: inline-block;
+  flex-shrink: 0;
+}
+.field {
+  display: block;
+  font-size: 12px;
+  font-weight: 550;
+  margin-bottom: 19px;
+}
+.field input,
+.field textarea {
+  display: block;
+  width: 100%;
+  margin-top: 9px;
+  border: 1px solid var(--border-field);
+  border-radius: 7px;
+  padding: 13px 14px;
+  background: var(--surface-panel);
+  color: var(--text-primary);
+  font-weight: 400;
+}
+.field textarea {
+  resize: vertical;
+  min-height: 100px;
+  max-height: 240px;
+}
+.field small {
+  display: block;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 400;
+  margin-top: 8px;
+  line-height: 1.6;
+}
+input::placeholder,
+textarea::placeholder {
+  color: var(--text-placeholder);
+}
+.form-error {
+  color: var(--status-disconnected);
+  font-size: 12px;
+  line-height: 1.7;
+  margin-top: 16px;
+}
+/* ===========================================
+   Brand and appearance
+   =========================================== */
+.wordmark {
+  display: inline-flex;
+  align-items: center;
+  gap: 11px;
+  letter-spacing: -0.9px;
+  font-size: 24px;
+  font-weight: 650;
+}
+.logo {
+  width: 31px;
+  height: 31px;
+}
+.avatar,
+.mini-avatar {
+  background: var(--surface-avatar);
+  color: var(--text-avatar);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.avatar {
+  width: 52px;
+  height: 52px;
+  border-radius: 17px;
+  margin-bottom: 21px;
+}
+.avatar svg {
+  width: 33px;
+  height: 33px;
+}
+.mini-avatar {
+  width: 27px;
+  height: 27px;
+  border-radius: 9px;
+  font-size: 11px;
+}
+/* Custom avatar and choice controls share semantic tokens in every feature. */
+.avatar-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 1px solid var(--border-active);
+  background: var(--surface-avatar);
+  color: var(--text-avatar);
+  font-size: 13px;
+  font-weight: 600;
+  transition:
+    background 160ms ease,
+    box-shadow 160ms ease;
+}
+.avatar-button:hover {
+  background: var(--surface-selected);
+  box-shadow: 0 0 0 3px var(--surface-selected);
+}
+.theme-picker {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.choice-card {
+  position: relative;
+  display: block;
+  min-width: 0;
+  cursor: pointer;
+}
+.choice-card-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: 0;
+  opacity: 0;
+  clip-path: inset(50%);
+}
+.choice-card-surface {
+  display: block;
+  height: 100%;
+  padding: 9px;
+  border: 1px solid var(--border-default);
+  border-radius: 11px;
+  background: var(--surface-subtle);
+  transition:
+    border-color 160ms ease,
+    background 160ms ease;
+}
+.choice-card:hover .choice-card-surface {
+  border-color: var(--border-active);
+}
+.choice-card-input:checked + .choice-card-surface {
+  border-color: var(--text-accent);
+  background: var(--surface-selected);
+  box-shadow: 0 0 0 1px var(--text-accent);
+}
+.choice-card-input:focus-visible + .choice-card-surface {
+  outline: 3px solid var(--text-accent);
+  outline-offset: 4px;
+}
+.choice-card-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  min-height: 35px;
+  margin-top: 6px;
+  color: var(--text-primary);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.choice-card-description {
+  display: block;
+  min-height: 28px;
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--text-secondary);
+}
+.choice-card-check {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--surface-action);
+  color: var(--text-on-action);
+  opacity: 0;
+}
+.choice-card-check svg {
+  width: 11px;
+  height: 11px;
+  stroke-width: 2.5;
+}
+.choice-card-input:checked + .choice-card-surface .choice-card-check {
+  opacity: 1;
+}
+.theme-preview {
+  display: flex;
+  height: 73px;
+  width: 100%;
+  overflow: hidden;
+  border-radius: 5px;
+  border: 1px solid var(--border-default);
+  background: var(--surface-page);
+}
+.theme-preview-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  width: 25%;
+  padding: 8px 5px;
+  background: var(--surface-subtle);
+  border-right: 1px solid var(--border-default);
+}
+.theme-preview-rail i {
+  display: block;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--border-field);
+}
+.theme-preview-rail i:first-child {
+  width: 7px;
+  height: 7px;
+  margin-bottom: 5px;
+  border-radius: 50%;
+  background: var(--text-accent);
+}
+.theme-preview-rail i:nth-child(2) {
+  background: var(--text-accent);
+}
+.theme-preview-content {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 6px;
+  padding: 9px 7px;
+}
+.theme-preview-heading {
+  display: block;
+  width: 40%;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--text-primary);
+}
+.theme-preview-hero {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 5px;
+  background: var(--surface-hero);
+  border-radius: 3px;
+}
+.theme-preview-hero i {
+  width: 65%;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--text-hero-accent);
+}
+.theme-preview-hero i:last-child {
+  width: 40%;
+  height: 2px;
+  background: var(--text-hero-muted);
+}
+.theme-preview-cards {
+  display: flex;
+  gap: 4px;
+  flex: 1;
+}
+.theme-preview-cards i {
+  flex: 1;
+  border: 1px solid var(--border-default);
+  border-radius: 3px;
+  background: var(--surface-panel);
+}
+@media (max-width: 650px) {
+  .avatar-button {
+    width: 44px;
+    height: 44px;
+  }
+  .theme-picker {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+.theme-art {
+  position: absolute;
+  right: -35px;
+  bottom: -50px;
+  width: 380px;
+  height: 360px;
+  transform: rotate(-10deg);
+  opacity: 0.28;
+  pointer-events: none;
+  color: var(--text-hero-accent);
+}
+.theme-art svg {
+  width: 100%;
+  height: 100%;
+}
+/* ===========================================
+   Accessible modal surface
+   =========================================== */
+.dialog-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: var(--overlay);
+  backdrop-filter: blur(4px);
+  animation: fade-in 0.16s ease-out;
+}
+.dialog-content {
+  position: fixed;
+  z-index: 41;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  border: 1px solid var(--border-default);
+  border-radius: 15px;
+  background: var(--surface-page);
+  color: var(--text-primary);
+  width: 430px;
+  max-width: calc(100% - 32px);
+  max-height: calc(100dvh - 36px);
+  padding: 29px;
+  overflow-y: auto;
+  box-shadow: 0 30px 90px var(--shadow-color);
+  animation: fade-in 0.2s ease-out;
+}
+.dialog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.dialog-head h2 {
+  font-size: 26px;
+  font-weight: 550;
+  letter-spacing: -0.9px;
+  overflow-wrap: anywhere;
+}
+.dialog-copy {
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.7;
+  margin: 0 0 24px;
+}
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 25px;
+}
+.dialog-actions .button {
+  font-size: 12px;
+}
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@media (max-width: 650px) {
+  .field input,
+  .field textarea {
+    font-size: 16px;
+  }
+  .dialog-content {
+    padding: 24px;
+  }
+  .icon-button {
+    width: 44px;
+    height: 44px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}

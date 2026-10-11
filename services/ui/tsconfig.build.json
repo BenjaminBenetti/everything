@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "outDir": "build/server",
+    "rootDir": "src"
+  },
+  "include": ["src/application/bootstrap/server.ts", "src/server/**/*.ts"],
+  "exclude": ["src/**/test/**"]
+}

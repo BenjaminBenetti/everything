@@ -20,26 +20,38 @@ const unauthenticated = {
   message: "A valid access token is required.",
 } as const;
 
-/** Require a verified bearer token for every route registered in this Fastify scope. */
+/** Optional server-owned session resolver; explicit Authorization always takes precedence. */
+export type SessionTokenResolver = (
+  request: FastifyRequest,
+) => Promise<string | undefined>;
+
+/** Require a verified access token from a bearer header or a server-owned session. */
 export function requireAuthentication(
   scope: FastifyInstance,
   verifier: TokenVerifier,
+  sessionToken?: SessionTokenResolver,
 ): void {
   scope.decorateRequest("identity", null);
-  scope.addHook("onRequest", authenticationHook(verifier));
+  scope.addHook("onRequest", authenticationHook(verifier, sessionToken));
 }
 
 /** Build a fail-closed hook that authenticates before protected content is parsed or handled. */
-function authenticationHook(verifier: TokenVerifier) {
+function authenticationHook(
+  verifier: TokenVerifier,
+  sessionToken?: SessionTokenResolver,
+) {
   /** Attach the verified identity, or reply 401 without exposing why verification failed. */
   return async function authenticate(
     request: FastifyRequest,
     reply: FastifyReply,
   ): Promise<void> {
-    const token = bearerCredential.exec(request.headers.authorization ?? "");
     try {
-      if (!token?.[1]) throw new Error("Missing bearer token");
-      request.identity = await verifier.verify(token[1]);
+      const token =
+        request.headers.authorization === undefined
+          ? await sessionToken?.(request)
+          : bearerCredential.exec(request.headers.authorization)?.[1];
+      if (!token) throw new Error("Missing access token");
+      request.identity = await verifier.verify(token);
     } catch {
       reply.header("WWW-Authenticate", 'Bearer realm="everything"');
       await reply.code(401).send(unauthenticated);

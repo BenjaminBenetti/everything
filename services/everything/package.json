@@ -18,9 +18,11 @@
   },
   "dependencies": {
     "@earendil-works/pi-coding-agent": "1.1.0",
+    "@everything/agent-contracts": "workspace:*",
     "@everything/errors": "workspace:*",
     "@everything/persistence": "workspace:*",
     "@everything/security": "workspace:*",
+    "@fastify/cookie": "11.1.3",
     "@fastify/helmet": "13.0.2",
     "@fastify/rate-limit": "10.3.0",
     "async-lock": "1.4.1",

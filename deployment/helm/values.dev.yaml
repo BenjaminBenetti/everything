@@ -7,6 +7,9 @@ secrets:
     everything: dev-everything-database
   keycloak-credentials:
     admin: admin
+  browser-auth:
+    client-secret: dev-everything-web-secret
+    session-encryption-key: AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=
 
 keycloakRealm:
   developmentSeed:

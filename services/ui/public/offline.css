@@ -1,0 +1,35 @@
+:root {
+  color-scheme: dark;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #edece9;
+  background: #191919;
+}
+body {
+  margin: 0;
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+}
+main {
+  padding: 32px;
+  max-width: 420px;
+  text-align: center;
+}
+h1 {
+  font-size: 26px;
+  letter-spacing: -0.8px;
+}
+p {
+  color: #b3b1ad;
+  font-size: 14px;
+  line-height: 1.7;
+}
+a {
+  display: inline-block;
+  margin-top: 20px;
+  padding: 12px 22px;
+  border-radius: 8px;
+  background: #d9aa69;
+  color: #2b2113;
+  text-decoration: none;
+}

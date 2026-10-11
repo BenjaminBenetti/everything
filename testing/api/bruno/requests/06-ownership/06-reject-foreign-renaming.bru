@@ -1,0 +1,29 @@
+meta {
+  name: Reject foreign renaming
+  type: http
+  seq: 6
+}
+
+patch {
+  url: {{baseUrl}}/v1/agents/{{ownedAgentId}}
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+  Authorization: Bearer {{outsiderToken}}
+}
+
+body:json {
+  {
+    "name": "Unauthorized rename"
+  }
+}
+
+tests {
+  test("Hide the foreign definition from renaming", () => {
+    expect(res.status).to.equal(404);
+    expect(res.body.code).to.equal("AGENT_NOT_FOUND");
+  });
+}

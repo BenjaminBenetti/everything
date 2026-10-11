@@ -34,6 +34,9 @@ secrets:
     everything: ""
   keycloak-credentials:
     admin: ""
+  browser-auth:
+    client-secret: ""
+    session-encryption-key: ""
 
 # Keycloak's realm import: files/keycloak/everything-realm.json, rendered into the keycloak-realm Secret.
 keycloakRealm:
@@ -105,6 +108,31 @@ serviceDefaults:
 # Ingress paths. To add a microservice, add an entry here and a workspace under services/ with a
 # `build:image` script.
 services:
+  ui:
+    image: everything-ui
+    workload: Deployment
+    env:
+      PORT: "8080"
+    ports:
+      http: { containerPort: 8080, servicePort: 8080 }
+    ingress:
+      port: http
+      paths: [/]
+    probes:
+      startup:
+        httpGet: { path: /ui-health, port: http }
+        failureThreshold: 20
+        periodSeconds: 3
+      readiness:
+        httpGet: { path: /ui-health, port: http }
+        periodSeconds: 5
+      liveness:
+        httpGet: { path: /ui-health, port: http }
+        periodSeconds: 10
+    resources:
+      requests: { cpu: 50m, memory: 96Mi }
+      limits: { cpu: "1", memory: 256Mi }
+
   postgres:
     workload: StatefulSet
     rolloutWave: 0
@@ -164,8 +192,10 @@ services:
       KC_HTTP_ENABLED: "true"
       KC_PROXY_HEADERS: xforwarded
       KC_HEALTH_ENABLED: "true"
-      # Resolved by Keycloak in the realm import's redirect URIs and web origins.
-      EVERYTHING_PUBLIC_ORIGIN: "{{ .Values.global.publicOrigin }}"
+      # Confidential client secret resolved by Keycloak during realm import.
+      EVERYTHING_WEB_CLIENT_SECRET:
+        secretName: browser-auth
+        key: client-secret
       # Temporary administrator created on first start.
       KC_BOOTSTRAP_ADMIN_USERNAME: admin
       KC_BOOTSTRAP_ADMIN_PASSWORD:
@@ -209,6 +239,15 @@ services:
       OIDC_ISSUER: "{{ .Values.global.publicOrigin }}/auth/realms/{{ .Values.global.realm }}"
       OIDC_JWKS_URL: "http://keycloak:8080/auth/realms/{{ .Values.global.realm }}/protocol/openid-connect/certs"
       OIDC_AUDIENCE: everything-api
+      PUBLIC_ORIGIN: "{{ .Values.global.publicOrigin }}"
+      OIDC_PROTOCOL_URL: "http://keycloak:8080/auth/realms/{{ .Values.global.realm }}/protocol/openid-connect"
+      OIDC_CLIENT_ID: everything-web
+      OIDC_CLIENT_SECRET:
+        secretName: browser-auth
+        key: client-secret
+      SESSION_ENCRYPTION_KEY:
+        secretName: browser-auth
+        key: session-encryption-key
       DATABASE_URL: postgresql://everything@postgres:5432/everything
       DATABASE_PASSWORD:
         secretName: "{{ .Values.global.databaseCredentialsSecret }}"
