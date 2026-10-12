@@ -4,7 +4,7 @@ This slice runs Everything's API and real Pi SDK together, with Keycloak and Pos
 
 ## Run it
 
-Requirements: Node 24.11+, pnpm 10.34.6, Docker, kubectl, Helm, and Minikube with an ingress controller. The devcontainer provides all of them: it enables the pinned pnpm version through Corepack, starts Minikube, and installs Traefik as the default ingress controller (`.devcontainer/install-traefik.sh`). The deployment scripts only target the `minikube` context.
+Requirements: Node 24.11+, pnpm 10.34.6, Docker, kubectl, Helm, and Minikube with an ingress controller. The devcontainer provides all of them: its Node feature installs the pinned pnpm version during the image build, and its startup script starts Minikube and installs Traefik as the default ingress controller (`.devcontainer/install-traefik.sh`). Package-manager setup does not need `sudo` or a post-create command; Node and pnpm use the feature's nvm-managed path. The deployment scripts only target the `minikube` context.
 
 ```sh
 pnpm install --frozen-lockfile

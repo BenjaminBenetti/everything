@@ -5,9 +5,10 @@
   },
   "remoteUser": "vscode",
   "features": {
-    // Pi SDK, API service, and Bruno CLI.
+    // Pi SDK, API service, and Bruno CLI; install pnpm during the image build.
     "ghcr.io/devcontainers/features/node:1": {
-      "version": "24"
+      "version": "24",
+      "pnpmVersion": "10.34.6"
     },
     // Docker daemon inside the container; minikube uses it as its driver.
     // v4+ picks the iptables backend at container start: nftables on Fedora
@@ -33,7 +34,6 @@
     "source=/lib/modules,target=/lib/modules,type=bind,readonly"
   ],
   "postStartCommand": "bash ${containerWorkspaceFolder}/.devcontainer/post-start.sh",
-  "postCreateCommand": "sudo corepack enable && corepack prepare pnpm@10.34.6 --activate",
   "hostRequirements": {
     "cpus": 2,
     "memory": "4gb"
