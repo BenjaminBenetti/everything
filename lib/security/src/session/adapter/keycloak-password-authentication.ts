@@ -1,4 +1,5 @@
 import { decodeJwt } from "jose";
+import { keycloakTokenRequest } from "../../auth/adapter/keycloak-forwarding.js";
 import type { TokenVerifier } from "../../auth/interface/token-verifier.js";
 import type { SessionCredentials } from "../interface/browser-session.js";
 import {
@@ -128,25 +129,14 @@ export class KeycloakPasswordAuthentication implements PasswordAuthentication {
     parameters: Record<string, string>,
   ): Promise<Response> {
     try {
-      const origin = new URL(this.config.publicOrigin);
-      return await this.fetcher(this.config.protocolUrl + "/" + endpoint, {
-        method: "POST",
-        redirect: "error",
-        signal: AbortSignal.timeout(8000),
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-          Accept: "application/json",
-          "X-Forwarded-Proto": origin.protocol.slice(0, -1),
-          "X-Forwarded-Host": origin.host,
-          "X-Forwarded-Port":
-            origin.port || (origin.protocol === "https:" ? "443" : "80"),
-        },
-        body: new URLSearchParams({
+      return await this.fetcher(
+        this.config.protocolUrl + "/" + endpoint,
+        keycloakTokenRequest(this.config.publicOrigin, {
           ...parameters,
           client_id: this.config.clientId,
           client_secret: this.config.clientSecret,
         }),
-      });
+      );
     } catch {
       throw new AuthenticationFailure("unavailable");
     }

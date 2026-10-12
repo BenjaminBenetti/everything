@@ -16,6 +16,9 @@ function environment(): NodeJS.ProcessEnv {
     DATABASE_PASSWORD: "test-only",
     PI_STATE_DIRECTORY: "/state",
     AGENTS_DIRECTORY: "/agents",
+    ARTIFACT_SERVICE_URL: "http://artifact:8081",
+    ARTIFACT_CLIENT_ID: "artifact-client",
+    ARTIFACT_CLIENT_SECRET: "test-only",
   };
 }
 test("env-schema applies port defaults/coercion without changing the supplied environment", () => {
@@ -33,6 +36,8 @@ test("rejects invalid deployment input", () => {
     { DATABASE_URL: "https://db/app" },
     { AGENTS_DIRECTORY: undefined },
     { AGENTS_DIRECTORY: "relative/agents" },
+    { ARTIFACT_SERVICE_URL: "http://artifact:8081/path" },
+    { ARTIFACT_CLIENT_SECRET: undefined },
   ])
     assert.throws(() =>
       loadApplicationConfig({ ...environment(), ...override }),

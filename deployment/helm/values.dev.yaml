@@ -1,15 +1,32 @@
-# Local development credentials and realm seed, passed by cluster:up after values.yaml. These are fixed,
-# public values for a stack reachable only on this machine; never use them for another deployment.
+# Local development credentials, realm seed, and ingress entrypoints, passed by cluster:up after
+# values.yaml. These are fixed, public values for a stack reachable only on this machine; never use
+# them for another deployment.
+global:
+  # Traefik serves the application on its `web` entrypoint and the artifact host on its `artifacts`
+  # entrypoint (see .devcontainer/install-traefik.sh); cluster:forward exposes them at 8080 and 8081.
+  ingress:
+    annotations:
+      traefik.ingress.kubernetes.io/router.entrypoints: web
+  artifactIngress:
+    annotations:
+      traefik.ingress.kubernetes.io/router.entrypoints: artifacts
+
 secrets:
   database-credentials:
     admin: dev-postgres-admin
     keycloak: dev-keycloak-database
     everything: dev-everything-database
+    artifact: dev-artifact-database
   keycloak-credentials:
     admin: admin
   browser-auth:
     client-secret: dev-everything-web-secret
     session-encryption-key: AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=
+  artifact-auth:
+    client-secret: dev-everything-artifact-secret
+  registry-credentials:
+    username: everything
+    password: dev-registry-password
 
 keycloakRealm:
   developmentSeed:

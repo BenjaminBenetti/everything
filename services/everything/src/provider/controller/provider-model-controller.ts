@@ -13,10 +13,7 @@ export async function providerModelController(
 ): Promise<void> {
   app.get<{ Params: ProviderParams }>(
     "/providers/:provider/models",
-    {
-      schema: { params: providerParams },
-      config: { rateLimit: { max: 30, timeWindow: "1 minute" } },
-    },
+    { schema: { params: providerParams } },
     async (request) => ({
       models: await models.list(subject(request), request.params.provider),
     }),

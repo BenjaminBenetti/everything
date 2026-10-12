@@ -1,19 +1,19 @@
-# Two services sharing one volume, as the planned artifact server will; rendered by check-stack.sh.
+# Two services sharing one volume: one writes exports and the other serves them; rendered by check-stack.sh.
 global:
   storageClassName: standard
 sharedVolumes:
-  artifacts:
+  exports:
     size: 5Gi
     storageClassName: shared-files
 services:
   everything:
     volumes:
-      artifacts: { mountPath: /artifacts, sharedVolume: artifacts }
-  artifact-server:
-    image: everything-artifacts
+      exports: { mountPath: /exports, sharedVolume: exports }
+  export-server:
+    image: everything-exports
     ports:
       http: { containerPort: 8080, servicePort: 8080 }
-    ingress: { port: http, paths: [/artifacts] }
+    ingress: { port: http, paths: [/exports] }
     volumes:
-      artifacts: { mountPath: /srv/artifacts, sharedVolume: artifacts }
+      exports: { mountPath: /srv/exports, sharedVolume: exports }
       tmp: { mountPath: /tmp, emptyDir: {} }

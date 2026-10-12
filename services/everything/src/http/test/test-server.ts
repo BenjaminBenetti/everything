@@ -1,6 +1,6 @@
 import Fastify, { type FastifyInstance } from "fastify";
 import { strictRequestValidation } from "../config/request-validation.js";
-import { errorHandler } from "../handler/error-handler.js";
+import { errorHandler } from "@everything/errors/fastify";
 
 /** Subject every request to the test server is authenticated as. */
 export const testSubject = "owner";

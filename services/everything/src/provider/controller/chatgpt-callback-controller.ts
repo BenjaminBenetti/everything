@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { anonymousRateLimit } from "../../http/config/rate-limit.js";
 
 /** Return authorization codes to the initiating browser; this public route never exchanges tokens. */
 export async function chatGptCallbackController(
@@ -8,7 +9,7 @@ export async function chatGptCallbackController(
 ): Promise<void> {
   app.get(
     "/v1/providers/chatgpt/callback",
-    { logLevel: "silent" },
+    { logLevel: "silent", config: { rateLimit: anonymousRateLimit } },
     async (request, reply) => {
       const callback = new URL(request.url, redirectUri);
       reply.header("Cache-Control", "no-store");

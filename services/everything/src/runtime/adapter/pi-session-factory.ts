@@ -7,6 +7,7 @@ import {
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import type { AgentDefinition } from "../../agent/model/agent.js";
+import type { ArtifactWorkbench } from "../../artifact/service/artifact-workbench.js";
 import type { AgentWorkspaces } from "../../workspace/interface/agent-workspaces.js";
 import { ProviderUnavailableError } from "../error/runtime-errors.js";
 import type {
@@ -15,6 +16,7 @@ import type {
   MessageDelivery,
 } from "../interface/agent-session.js";
 import { mainAgentPrompt } from "../prompt/main-agent-prompt.js";
+import { artifactTools } from "../tool/artifact-tools.js";
 import { sendMessageTool } from "../tool/send-message-tool.js";
 import { PiAgentSession } from "./pi-agent-session.js";
 import type { InferenceRuntimeFactory } from "../interface/inference-runtime.js";
@@ -32,10 +34,11 @@ export class PiSessionFactory implements AgentSessionFactory {
   // Construction
   // ===========================================
 
-  /** Receive owner-scoped inference and the teammates' working directories. */
+  /** Receive owner-scoped inference, the teammates' working directories, and the shared artifacts. */
   constructor(
     private readonly inference: InferenceRuntimeFactory,
     private readonly workspaces: Pick<AgentWorkspaces, "directory">,
+    private readonly artifacts: ArtifactWorkbench,
   ) {}
 
   // ===========================================
@@ -67,7 +70,15 @@ export class PiSessionFactory implements AgentSessionFactory {
       directories,
       settingsManager,
     );
-    const tools = [sendMessageTool(sendMessage)];
+    const tools = [
+      sendMessageTool(sendMessage),
+      ...artifactTools(this.artifacts, {
+        ownerId: agent.ownerId,
+        author: { id: agent.id, name: agent.name },
+        workspace: directories.cwd,
+        privateDirectory: directories.agentDir,
+      }),
+    ];
     const { session } = await createAgentSession({
       cwd: directories.cwd,
       agentDir: directories.agentDir,

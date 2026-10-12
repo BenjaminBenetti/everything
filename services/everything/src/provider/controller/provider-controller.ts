@@ -24,7 +24,6 @@ export async function providerController(
     "/providers/:provider",
     {
       schema: { params: apiKeyProviderParams, body: saveProviderBody },
-      config: { rateLimit: { max: 10, timeWindow: "1 minute" } },
     },
     async (request) =>
       providers.save(subject(request), request.params.provider, request.body),
@@ -33,7 +32,6 @@ export async function providerController(
     "/providers/:provider/verify",
     {
       schema: { params: providerParams },
-      config: { rateLimit: { max: 10, timeWindow: "1 minute" } },
     },
     async (request) =>
       providers.verify(subject(request), request.params.provider),
@@ -44,10 +42,8 @@ export async function providerController(
     async (request) =>
       providers.disconnect(subject(request), request.params.provider),
   );
-  app.post(
-    "/providers/chatgpt/authorize",
-    { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } },
-    async (request) => providers.authorize(subject(request)),
+  app.post("/providers/chatgpt/authorize", async (request) =>
+    providers.authorize(subject(request)),
   );
   app.post<{ Body: CompleteProviderBody }>(
     "/providers/chatgpt/complete",

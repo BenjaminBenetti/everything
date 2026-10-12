@@ -3,6 +3,7 @@
 @import "@everything/ui/styles.css";
 @import "../../agent/style/teammate-profile.css";
 @import "../../agent/style/avatar-animation.css";
+@import "../../artifact/style/artifact.css";
 @source "../../../../../lib/ui/src";
 @theme inline {
   --color-page: var(--surface-page);

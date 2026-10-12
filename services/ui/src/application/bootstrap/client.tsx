@@ -5,6 +5,7 @@ import { QueryClient } from "@tanstack/react-query";
 import { createBrowserSession } from "@everything/security/browser";
 import { initializeTheme } from "@everything/ui/theme";
 import { HttpAgentDirectory } from "../../agent/adapter/http-agent-directory.js";
+import { HttpArtifactLibrary } from "../../artifact/adapter/http-artifact-library.js";
 import { HttpProviderConnections } from "../../provider/adapter/http-provider-connections.js";
 import { createAuthenticatedTransport } from "../../http/adapter/authenticated-transport.js";
 import { Application } from "../component/application.js";
@@ -34,6 +35,9 @@ async function bootstrap(): Promise<void> {
             <Application
               session={session}
               directory={directory}
+              artifacts={
+                new HttpArtifactLibrary(createAuthenticatedTransport())
+              }
               connections={
                 new HttpProviderConnections(createAuthenticatedTransport())
               }

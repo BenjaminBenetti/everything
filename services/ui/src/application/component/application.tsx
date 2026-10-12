@@ -5,6 +5,9 @@ import { Brand } from "@everything/ui/brand";
 import type { AgentDirectory } from "../../agent/interface/agent-directory.js";
 import { AgentDirectoryProvider } from "../../agent/component/agent-directory-provider.js";
 import { TeamPage } from "../../agent/page/team-page.js";
+import type { ArtifactLibrary } from "../../artifact/interface/artifact-library.js";
+import { ArtifactLibraryProvider } from "../../artifact/component/artifact-library-provider.js";
+import { ArtifactOpenPage } from "../../artifact/page/artifact-open-page.js";
 import { ArtifactsPage } from "../../artifact/page/artifacts-page.js";
 import { HomePage } from "../../dashboard/page/home-page.js";
 import {
@@ -22,11 +25,13 @@ import { ProviderConnectionsProvider } from "../../provider/component/provider-c
 export function Application({
   session,
   directory,
+  artifacts,
   connections,
   queryClient,
 }: {
   session: BrowserSession;
   directory: AgentDirectory;
+  artifacts: ArtifactLibrary;
   connections: ProviderConnections;
   queryClient: QueryClient;
 }) {
@@ -34,9 +39,11 @@ export function Application({
     <QueryClientProvider client={queryClient}>
       <SessionProvider session={session}>
         <AgentDirectoryProvider directory={directory}>
-          <ProviderConnectionsProvider connections={connections}>
-            <AuthenticatedRoutes />
-          </ProviderConnectionsProvider>
+          <ArtifactLibraryProvider library={artifacts}>
+            <ProviderConnectionsProvider connections={connections}>
+              <AuthenticatedRoutes />
+            </ProviderConnectionsProvider>
+          </ArtifactLibraryProvider>
         </AgentDirectoryProvider>
       </SessionProvider>
     </QueryClientProvider>
@@ -57,6 +64,7 @@ function AuthenticatedRoutes() {
   return (
     <WorkspaceDialogsProvider>
       <Routes>
+        <Route path="artifacts/open" element={<ArtifactOpenPage />} />
         <Route element={<WorkspaceShell />}>
           <Route index element={<HomePage />} />
           <Route path="team" element={<TeamPage />} />

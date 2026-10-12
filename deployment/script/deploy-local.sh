@@ -11,7 +11,7 @@ if ! minikube --profile "$context" ssh -- true; then
   exit 1
 fi
 
-# The namespace carries the pod-security policy and must exist before Helm installs into it.
+# The namespaces carry pod-security policies and must exist before Helm installs into them.
 kubectl --context "$context" apply -f deployment/cluster/namespace.yaml
 pnpm build:images
 images=$(stack_images --values "$dev_values")

@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import type { AgentDefinition } from "../../agent/model/agent.js";
+import type { ArtifactWorkbench } from "../../artifact/service/artifact-workbench.js";
 import { FileSystemWorkspaces } from "../../workspace/service/file-system-workspaces.js";
 import { PiSessionFactory } from "../adapter/pi-session-factory.js";
 import type { InferenceRuntimeFactory } from "../interface/inference-runtime.js";
@@ -40,6 +41,7 @@ test("refuses to open a session until a provider is connected, before touching t
   const factory = new PiSessionFactory(
     disconnectedModels,
     new FileSystemWorkspaces(agentsDirectory),
+    {} as ArtifactWorkbench,
   );
   await assert.rejects(
     factory.create(agent, async () => {}),
@@ -120,6 +122,7 @@ test("Pi applies the saved model and effort, refreshes owner credentials, and re
   const factory = new PiSessionFactory(
     inference,
     new FileSystemWorkspaces(directory),
+    {} as ArtifactWorkbench,
   );
   const definition: AgentDefinition = {
     ...agent,

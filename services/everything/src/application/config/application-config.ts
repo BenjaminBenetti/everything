@@ -23,6 +23,12 @@ export interface ApplicationConfig {
   readonly stateDirectory: string;
   /** Directory holding one subdirectory of files per agent. */
   readonly agentsDirectory: string;
+  /** The artifact service's internal API and the client credentials used to call it. */
+  readonly artifactService: {
+    readonly url: string;
+    readonly clientId: string;
+    readonly clientSecret: string;
+  };
 }
 
 /** Validate deployment settings with env-schema and normalize paths. */
@@ -49,5 +55,10 @@ export function loadApplicationConfig(
     databasePassword: settings.DATABASE_PASSWORD,
     stateDirectory: settings.PI_STATE_DIRECTORY,
     agentsDirectory: path.resolve(settings.AGENTS_DIRECTORY),
+    artifactService: {
+      url: settings.ARTIFACT_SERVICE_URL,
+      clientId: settings.ARTIFACT_CLIENT_ID,
+      clientSecret: settings.ARTIFACT_CLIENT_SECRET,
+    },
   };
 }

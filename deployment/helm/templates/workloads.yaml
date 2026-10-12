@@ -31,7 +31,13 @@ spec:
       labels:
         {{- include "stack.labels" $context | nindent 8 }}
     spec:
+      {{- if $service.apiAccess }}
+      # Only services granted Kubernetes API access receive a service account token.
+      serviceAccountName: {{ $name }}
+      automountServiceAccountToken: true
+      {{- else }}
       automountServiceAccountToken: false
+      {{- end }}
       {{- with $service.terminationGracePeriodSeconds }}
       terminationGracePeriodSeconds: {{ . }}
       {{- end }}

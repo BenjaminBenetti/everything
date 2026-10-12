@@ -23,6 +23,10 @@
       "types": "./build/auth/factory/keycloak-token-verifier.d.ts",
       "default": "./build/auth/factory/keycloak-token-verifier.js"
     },
+    "./client-credentials": {
+      "types": "./build/auth/adapter/keycloak-client-credentials.d.ts",
+      "default": "./build/auth/adapter/keycloak-client-credentials.js"
+    },
     "./fastify": {
       "types": "./build/auth/handler/authentication-hook.d.ts",
       "default": "./build/auth/handler/authentication-hook.js"

@@ -1,14 +1,14 @@
 import type { EntitySchemaColumnOptions, ValueTransformer } from "typeorm";
 
-/** Preserve public ISO timestamps while TypeORM maps timestamptz to Date. */
-const timestamp: ValueTransformer = {
+/** Preserve public ISO timestamps while TypeORM maps timestamptz to Date; null stays null. */
+export const timestampTransformer: ValueTransformer = {
   /** Convert a supplied public timestamp to a native Date. */
-  to(value: string | undefined): Date | undefined {
-    return value === undefined ? undefined : new Date(value);
+  to(value: string | null | undefined): Date | null | undefined {
+    return value === undefined || value === null ? value : new Date(value);
   },
   /** Convert a loaded timestamp to the public entity representation. */
-  from(value: Date): string {
-    return value.toISOString();
+  from(value: Date | null): string | null {
+    return value === null ? null : value.toISOString();
   },
 };
 
@@ -19,6 +19,6 @@ export const baseColumns = {
     name: "created_at",
     type: "timestamptz",
     createDate: true,
-    transformer: timestamp,
+    transformer: timestampTransformer,
   },
 } satisfies Record<string, EntitySchemaColumnOptions>;

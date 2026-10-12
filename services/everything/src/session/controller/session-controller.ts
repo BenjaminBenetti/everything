@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { anonymousRateLimit } from "../../http/config/rate-limit.js";
 import type { SessionOperations } from "../interface/session-operations.js";
 import { SessionCookie } from "../handler/session-cookie.js";
 import { signInBody, type SignInBody } from "../schema/session-request.js";
@@ -12,11 +13,15 @@ export async function sessionController(
   app.addHook("onSend", async (_request, reply) => {
     reply.header("Cache-Control", "no-store");
   });
-  app.get("/session", async (request, reply) => {
-    const session = await sessions.resolve(cookie.read(request));
-    if (!session) cookie.clear(reply);
-    return { profile: session?.profile ?? null };
-  });
+  app.get(
+    "/session",
+    { config: { rateLimit: anonymousRateLimit } },
+    async (request, reply) => {
+      const session = await sessions.resolve(cookie.read(request));
+      if (!session) cookie.clear(reply);
+      return { profile: session?.profile ?? null };
+    },
+  );
   app.post<{ Body: SignInBody }>(
     "/session",
     {
@@ -38,6 +43,7 @@ export async function sessionController(
   app.post(
     "/session/logout",
     {
+      config: { rateLimit: anonymousRateLimit },
       onRequest: async (request) => {
         cookie.requireOrigin(request);
       },

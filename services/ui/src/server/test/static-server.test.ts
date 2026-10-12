@@ -21,7 +21,13 @@ test("serves deep links and probes without swallowing API or asset misses", asyn
     await app.close();
     await rm(root, { recursive: true, force: true });
   });
-  for (const url of ["/", "/team", "/updates", "/artifacts"]) {
+  for (const url of [
+    "/",
+    "/team",
+    "/updates",
+    "/artifacts",
+    "/artifacts/open",
+  ]) {
     const response = await app.inject({ url });
     assert.equal(response.statusCode, 200, url);
     assert.match(response.body, /<title>Everything/);

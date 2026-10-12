@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import Fastify from "fastify";
-import { ApplicationError } from "@everything/errors";
-import { errorHandler } from "../handler/error-handler.js";
+import { ApplicationError } from "../model/application-error.js";
+import { errorHandler } from "../handler/fastify-error-handler.js";
 
 /** Serve one route per failure kind through the production error handler. */
 function createServer() {

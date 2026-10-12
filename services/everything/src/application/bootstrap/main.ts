@@ -4,6 +4,10 @@ import { SessionService } from "../../session/service/session-service.js";
 import { PostgresSessionRepository } from "../../session/repository/postgres-session-repository.js";
 import type { FastifyInstance } from "fastify";
 import { createKeycloakTokenVerifier } from "@everything/security/keycloak";
+import { KeycloakClientCredentials } from "@everything/security/client-credentials";
+import { HttpArtifactGateway } from "../../artifact/adapter/http-artifact-gateway.js";
+import { ArtifactLibraryService } from "../../artifact/service/artifact-library-service.js";
+import { ArtifactWorkbench } from "../../artifact/service/artifact-workbench.js";
 import { PostgresAgentRepository } from "../../agent/repository/postgres-agent-repository.js";
 import { AgentEntity } from "../../agent/schema/agent-entity.js";
 import { AgentService } from "../../agent/service/agent-service.js";
@@ -67,12 +71,22 @@ async function main(): Promise<void> {
   const agentRepository = new PostgresAgentRepository(database);
   const agents = new AgentService(agentRepository, models);
   const workspaces = new FileSystemWorkspaces(config.agentsDirectory);
+  const artifactGateway = new HttpArtifactGateway(
+    config.artifactService.url,
+    new KeycloakClientCredentials({
+      protocolUrl: config.protocolUrl,
+      publicOrigin: config.publicOrigin,
+      clientId: config.artifactService.clientId,
+      clientSecret: config.artifactService.clientSecret,
+    }),
+  );
   const conversations = new ConversationService(
     agents,
     new PostgresMessageRepository(database),
     new PiSessionFactory(
       new PiInferenceRuntimeFactory(providers, models, capabilities),
       workspaces,
+      new ArtifactWorkbench(artifactGateway),
     ),
     workspaces,
   );
@@ -84,6 +98,7 @@ async function main(): Promise<void> {
     profiles: new AgentEditingService(agentRepository, models),
     removal: conversations,
     conversations,
+    artifacts: new ArtifactLibraryService(artifactGateway),
     verifier,
     sessions: new SessionService(
       new PostgresSessionRepository(database),

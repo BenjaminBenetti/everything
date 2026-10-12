@@ -12,6 +12,10 @@ ingress_service=traefik
 # cluster:forward serves the ingress here; it matches global.publicOrigin in values.yaml.
 local_port=8080
 local_origin=http://localhost:$local_port
+# The artifact host's entrypoint, forwarded to the same port; it matches global.artifactOrigin.
+artifact_local_port=8081
+# Namespaces of dynamic artifacts and their builds, created by deployment/cluster/namespace.yaml.
+artifact_namespaces=(everything-artifacts everything-builds)
 
 # Render the release's manifests; extra arguments, such as --values, are passed to Helm.
 render_stack() {
