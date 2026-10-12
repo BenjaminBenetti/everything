@@ -1,0 +1,161 @@
+/* ===========================================
+   Message typography
+   =========================================== */
+.chat-markdown {
+  min-width: 0;
+  font-size: 14px;
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+}
+.chat-markdown p,
+.chat-markdown ul,
+.chat-markdown ol {
+  margin: 0 0 12px;
+}
+.chat-markdown :is(h1, h2, h3, h4, h5, h6) {
+  margin: 20px 0 10px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.chat-markdown h1 {
+  font-size: 22px;
+}
+.chat-markdown h2 {
+  font-size: 19px;
+}
+.chat-markdown h3 {
+  font-size: 16px;
+}
+.chat-markdown :is(h4, h5, h6) {
+  font-size: 14px;
+}
+.chat-markdown a {
+  color: var(--text-accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.chat-markdown a:hover {
+  text-decoration-thickness: 2px;
+}
+.chat-markdown ul,
+.chat-markdown ol {
+  padding-left: 1.6em;
+}
+.chat-markdown ul {
+  list-style: disc;
+}
+.chat-markdown ol {
+  list-style: decimal;
+}
+.chat-markdown ul ul {
+  list-style: circle;
+}
+.chat-markdown li + li {
+  margin-top: 4px;
+}
+.chat-markdown li > :is(p, ul, ol) {
+  margin: 6px 0;
+}
+.chat-markdown .contains-task-list {
+  padding-left: 0;
+}
+.chat-markdown .task-list-item {
+  list-style: none;
+}
+.chat-markdown .task-list-item input {
+  margin-right: 8px;
+  accent-color: var(--text-accent);
+}
+.chat-markdown blockquote {
+  margin: 14px 0;
+  padding-left: 14px;
+  border-left: 3px solid var(--border-active);
+  color: var(--text-secondary);
+}
+.chat-markdown hr {
+  margin: 20px 0;
+  border: 0;
+  border-top: 1px solid var(--border-default);
+}
+.chat-markdown img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+}
+.chat-markdown .footnotes {
+  margin-top: 20px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-default);
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+.chat-markdown > :first-child,
+.chat-markdown blockquote > :first-child {
+  margin-top: 0;
+}
+.chat-markdown > :last-child,
+.chat-markdown blockquote > :last-child {
+  margin-bottom: 0;
+}
+
+/* ===========================================
+   Code and wide tables
+   =========================================== */
+.chat-markdown code {
+  font-family:
+    ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: 0.9em;
+}
+.chat-markdown :not(pre) > code {
+  padding: 2px 5px;
+  border: 1px solid var(--border-default);
+  border-radius: 4px;
+  background: var(--surface-review);
+  white-space: pre-wrap;
+  box-decoration-break: clone;
+}
+.chat-markdown pre {
+  max-width: 100%;
+  overflow-x: auto;
+  margin: 14px 0;
+  padding: 14px 16px;
+  border: 1px solid var(--border-default);
+  border-radius: 9px;
+  background: var(--surface-review);
+  white-space: pre;
+  overflow-wrap: normal;
+  line-height: 1.6;
+}
+.chat-markdown-table {
+  max-width: 100%;
+  overflow-x: auto;
+  margin: 14px 0;
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+}
+.chat-markdown table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.chat-markdown th,
+.chat-markdown td {
+  min-width: 110px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-default);
+  text-align: left;
+  vertical-align: top;
+}
+.chat-markdown th {
+  background: var(--surface-subtle);
+  font-weight: 600;
+}
+.chat-markdown tr:last-child td {
+  border-bottom: 0;
+}
+.chat-markdown pre:focus-visible,
+.chat-markdown-table:focus-visible {
+  outline: 2px solid var(--border-active);
+  outline-offset: 2px;
+}

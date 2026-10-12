@@ -5,7 +5,7 @@ import { TeammateAvatar } from "../../agent/component/teammate-avatar.js";
 import { effortLabels } from "../../agent/model/inference-options.js";
 import { providerOptions } from "../../provider/model/provider-options.js";
 
-/** Keep the teammate's identity, model settings, and editing action beside their conversation. */
+/** Show the teammate's idle avatar, identity, model settings, and editing action beside their conversation. */
 export function ConversationTeammateCard({
   agent,
   onEdit,
@@ -19,7 +19,11 @@ export function ConversationTeammateCard({
       aria-label={`${agent.name} teammate info`}
     >
       <div className="chat-teammate-identity">
-        <TeammateAvatar avatarId={agent.avatarId} />
+        <TeammateAvatar
+          avatarId={agent.avatarId}
+          animation="idle"
+          animationSeed={agent.id}
+        />
         <h1>{agent.name}</h1>
         <IconButton label={`Edit ${agent.name}`} onClick={onEdit}>
           <Pencil aria-hidden="true" />

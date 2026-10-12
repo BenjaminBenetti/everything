@@ -286,3 +286,177 @@ test("a teammate without model settings keeps their history and explains how to 
     page.getByRole("dialog", { name: "Edit teammate", exact: true }),
   ).toBeVisible();
 });
+
+test("Markdown messages render formatting, contain wide content, and retain their original source", async ({
+  page,
+  context,
+}, info) => {
+  const state = await workspace(context);
+  const code = `const greeting = "${"hello ".repeat(60)}";\nconsole.log(greeting);`;
+  const markdown = [
+    "## A useful plan",
+    "",
+    "**Start small**, *keep learning*, and ~~skip the checks~~ verify each step.",
+    "First line\nSecond line",
+    "",
+    "- Read the brief",
+    "  - Ask a question",
+    "- Use `pnpm build`",
+    "",
+    "1. Make the change",
+    "2. Review the result",
+    "",
+    "> Keep the next step clear.",
+    "",
+    "- [x] Plan ready",
+    "- [ ] Review pending",
+    "",
+    "[Read the guide](https://example.com/guide)",
+    "",
+    "```ts",
+    code,
+    "```",
+    "",
+    "| Task | Owner | Status | Priority | Notes |",
+    "| --- | --- | --- | --- | --- |",
+    "| Planning | Avery | Ready | High | Review together |",
+    "",
+    "A source[^1].",
+    "",
+    "[^1]: First reference.",
+  ].join("\n");
+  state.messages = [
+    {
+      id: "formatted-reply",
+      role: "assistant",
+      text: markdown,
+      createdAt: "2026-10-12T10:00:00Z",
+    },
+    {
+      id: "formatted-user",
+      role: "user",
+      text: "**My notes**\nKeep this line break.\n\nAnother source[^1].\n\n[^1]: Second reference.",
+      createdAt: "2026-10-12T10:01:00Z",
+    },
+  ];
+  await page.goto("/team/avery");
+  const log = page.getByRole("log");
+  const reply = log.getByRole("article").first();
+  await expect(
+    reply.getByRole("heading", { name: "A useful plan" }),
+  ).toBeVisible();
+  await expect(reply.locator(".chat-markdown strong")).toHaveText(
+    "Start small",
+  );
+  await expect(reply.locator("em")).toHaveText("keep learning");
+  await expect(reply.locator("del")).toHaveText("skip the checks");
+  await expect(reply.locator("blockquote")).toContainText(
+    "Keep the next step clear.",
+  );
+  await expect(reply.locator("ul ul li")).toHaveText("Ask a question");
+  await expect(reply.locator("input[type=checkbox]").first()).toBeChecked();
+  await expect(reply.locator("input[type=checkbox]").last()).toBeDisabled();
+  await expect(reply.locator("br")).toHaveCount(2);
+  await expect(reply.locator("pre code")).toHaveText(`${code}\n`);
+  await expect(reply.getByRole("table")).toContainText("Planning");
+  const guide = reply.getByRole("link", { name: "Read the guide" });
+  await expect(guide).toHaveAttribute("href", "https://example.com/guide");
+  await expect(guide).toHaveAttribute("target", "_blank");
+  await expect(guide).toHaveAttribute("rel", "noopener noreferrer");
+  await expect(
+    log.getByRole("article").last().locator(".chat-markdown strong"),
+  ).toHaveText("My notes");
+  const footnotes = await log
+    .locator("a[data-footnote-ref]")
+    .evaluateAll((links) =>
+      links.map((link) => ({
+        href: link.getAttribute("href"),
+        local: link
+          .closest("article")
+          ?.contains(
+            document.getElementById(link.getAttribute("href")!.slice(1)),
+          ),
+        label: link
+          .closest("article")
+          ?.contains(
+            document.getElementById(link.getAttribute("aria-describedby")!),
+          ),
+        target: link.getAttribute("target"),
+      })),
+    );
+  expect(footnotes).toHaveLength(2);
+  expect(new Set(footnotes.map((note) => note.href)).size).toBe(2);
+  expect(
+    footnotes.every((note) => note.local && note.label && note.target === null),
+  ).toBe(true);
+  expect(
+    await reply
+      .locator("pre")
+      .evaluate((element) => element.scrollWidth > element.clientWidth),
+  ).toBe(true);
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+  await reply.getByRole("heading").first().scrollIntoViewIfNeeded();
+  await page.screenshot({ path: info.outputPath("markdown-chat.png") });
+
+  const draft = "### My update\n\n- **Done**\n- Ready to review";
+  await page
+    .getByRole("textbox", { name: "Message Avery", exact: true })
+    .fill(draft);
+  await page.getByRole("button", { name: "Send message", exact: true }).click();
+  await expect(
+    log.getByRole("article").last().getByRole("heading", { name: "My update" }),
+  ).toBeVisible();
+  expect(state.sends).toEqual([draft]);
+  await page.reload();
+  await expect(
+    log.getByRole("article").last().getByRole("heading", { name: "My update" }),
+  ).toBeVisible();
+  expect(state.messages[0]!.text).toBe(markdown);
+});
+
+test("Markdown keeps raw HTML inert and removes unsafe link and image destinations", async ({
+  page,
+  context,
+}) => {
+  const state = await workspace(context);
+  const html =
+    '<img src="/markdown-probe" onerror="document.body.dataset.markdownExecuted = true">';
+  state.messages = [
+    {
+      id: "untrusted-markdown",
+      role: "assistant",
+      text: [
+        html,
+        "",
+        "[unsafe link](javascript:alert(1))",
+        "",
+        "![unsafe image](javascript:alert(1))",
+        "",
+        "```html",
+        html,
+        "```",
+      ].join("\n"),
+      createdAt: "2026-10-12T10:00:00Z",
+    },
+  ];
+  let probeRequested = false;
+  await context.route("**/markdown-probe", (route) => {
+    probeRequested = true;
+    return route.fulfill({ status: 404, body: "" });
+  });
+  await page.goto("/team/avery");
+  const message = page.getByRole("log").getByRole("article");
+  await expect(message).toContainText(html);
+  await expect(message).toContainText("unsafe link");
+  await expect(message).toContainText("unsafe image");
+  await expect(message.locator("a, img, script, iframe")).toHaveCount(0);
+  await expect(message.locator("pre code")).toHaveText(`${html}\n`);
+  expect(
+    await page.locator("body").getAttribute("data-markdown-executed"),
+  ).toBeNull();
+  expect(probeRequested).toBe(false);
+});

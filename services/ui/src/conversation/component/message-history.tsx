@@ -1,8 +1,9 @@
 import { useLayoutEffect, useRef } from "react";
 import type { ChatMessage } from "@everything/conversation-contracts";
 import { Button } from "@everything/ui/button";
+import { MessageMarkdown } from "./message-markdown.js";
 
-/** Display saved messages and preserve reading position when older history is prepended. */
+/** Render saved Markdown messages and preserve reading position when older history is prepended. */
 export function MessageHistory({
   name,
   messages,
@@ -78,6 +79,11 @@ export function MessageHistory({
         aria-label={`Conversation with ${name}`}
         aria-live="polite"
         aria-relevant="additions"
+        onLoadCapture={() => {
+          const element = viewport.current;
+          if (element && follow.current)
+            element.scrollTop = element.scrollHeight;
+        }}
       >
         {messages.map((message) => (
           <article
@@ -97,7 +103,7 @@ export function MessageHistory({
                 })}
               </time>
             </div>
-            <p>{message.text}</p>
+            <MessageMarkdown text={message.text} />
           </article>
         ))}
       </div>

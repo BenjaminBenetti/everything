@@ -37,6 +37,10 @@ test("serves deep links and probes without swallowing API or asset misses", asyn
       String(response.headers["content-security-policy"]),
       /frame-ancestors 'none'/,
     );
+    assert.match(
+      String(response.headers["content-security-policy"]),
+      /img-src 'self' data: https:/,
+    );
   }
 
   assert.equal((await app.inject({ url: "/ui-health" })).statusCode, 200);

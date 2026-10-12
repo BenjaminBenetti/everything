@@ -160,11 +160,17 @@ test("Pi sends only the teammate's initial context, applies saved inference, and
   assert.equal(requests[0]?.body.model, "o3-mini");
   assert.equal(requests[0]?.body.reasoning_effort, "high");
   assert.equal(requests[0]?.authorization, "Bearer first-owner-key");
-  const toolNames = (
-    requests[0]!.body.tools as { function: { name: string } }[]
-  ).map((tool) => tool.function.name);
+  const tools = requests[0]!.body.tools as {
+    function: { name: string; description: string };
+  }[];
+  const toolNames = tools.map((tool) => tool.function.name);
   for (const name of ["file_read", "file_write", "bash"])
     assert.ok(toolNames.includes(name), name);
+  assert.match(
+    tools.find((tool) => tool.function.name === "send_message")?.function
+      .description ?? "",
+    /Markdown is supported/,
+  );
   const initialMessages = requests[0]!.body.messages as {
     role: string;
     content: unknown;

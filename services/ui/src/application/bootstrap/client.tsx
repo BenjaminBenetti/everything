@@ -16,6 +16,7 @@ import { IdleAvatarAnimation } from "../../agent/component/idle-avatar-animation
 import "../../workspace/style/application.css";
 import "../../provider/style/provider.css";
 import "../../conversation/style/conversation.css";
+import "../../conversation/style/message-markdown.css";
 import { HttpConversationClient } from "../../conversation/adapter/http-conversation-client.js";
 
 initializeTheme();

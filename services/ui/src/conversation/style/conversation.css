@@ -157,12 +157,6 @@
   flex-shrink: 0;
   font-size: 10px;
 }
-.chat-message p {
-  font-size: 14px;
-  line-height: 1.8;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
 .chat-empty {
   max-width: 390px;
   margin: 10dvh auto 24px;
@@ -333,9 +327,6 @@
   }
   .chat-message {
     max-width: 95%;
-  }
-  .chat-message p {
-    font-size: 14px;
   }
   .chat-footer {
     padding: 0 12px 12px;
