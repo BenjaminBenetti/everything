@@ -42,7 +42,8 @@ self.addEventListener("fetch", (event) => {
   const pages = ["/", "/team", "/updates", "/artifacts", "/login"];
   const publicAssets = ["/offline.html", "/offline.css", "/brand/icon.svg"];
   if (
-    (event.request.mode === "navigate" && pages.includes(url.pathname)) ||
+    (event.request.mode === "navigate" &&
+      (pages.includes(url.pathname) || /^\/team\/[^/]+$/.test(url.pathname))) ||
     publicAssets.includes(url.pathname)
   ) {
     event.respondWith(networkOrOffline(event.request));

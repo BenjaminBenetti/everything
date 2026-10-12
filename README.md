@@ -12,6 +12,7 @@ lib/
   errors/          Expected application failure contract
   agent-contracts/ Browser-safe agent DTOs and validation limits
   artifact-contracts/ Artifact representations and limits shared by services and the UI
+  conversation-contracts/ Browser-safe chat messages, pagination, and progress
   ui/              Shared React controls, branding, and six-theme design tokens
 services/
   everything/      API + main-agent lifecycle + Pi runtime
@@ -54,6 +55,6 @@ pnpm test:all        # Build + checks + unit tests + Bruno + pod-replacement ver
 
 The Bruno commands require the deployed Minikube stack; they use a running `cluster:forward`, or forward the ingress themselves. `test:restart` and `test:all` restart all application pods. To work on one service, use `pnpm --filter @everything/everything... build` (or `test`, `start`, `build:image`).
 
-The UI implements the mockup’s welcome, Home, team, updates, and artifacts surfaces, with all six themes. The welcome form authenticates through the API’s Keycloak back channel. Teammate names, descriptions, and selected pixel-art avatars persist through the API; the same saved avatar appears on team cards and in the sidebar. Chat and the agentic loop are excluded. The Artifacts page lists the artifacts teammates share and opens them on the artifact host. Updates have an empty state until its data integration exists; provider connections and push notifications are explicitly unavailable. See [frontend setup](services/ui/README.md).
+The UI implements welcome, Home, team, teammate chat, updates, and artifacts surfaces with all six themes. The welcome form authenticates through the API’s Keycloak back channel. Teammate profiles, avatars, and provider/model/effort selections persist through the API. Each teammate opens one ongoing conversation with paginated saved history, reply progress, and a stop action. Pi automatically compacts older model context into durable summaries without removing visible messages. The Artifacts page lists the artifacts teammates share and opens them on the artifact host. Provider connections are configured in the application; updates and push delivery remain deferred. See [frontend setup](services/ui/README.md).
 
 See the [setup and review guide](deployment/documentation/foundation.md) for deploying to a cluster, security configuration, API endpoints, persistence, and Bruno instructions.

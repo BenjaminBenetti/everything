@@ -20,6 +20,9 @@ import { WorkspaceDialogsProvider } from "../../workspace/component/workspace-di
 import { WorkspaceShell } from "../../workspace/component/workspace-shell.js";
 import type { ProviderConnections } from "../../provider/interface/provider-connections.js";
 import { ProviderConnectionsProvider } from "../../provider/component/provider-connections-context.js";
+import type { ConversationClient } from "../../conversation/interface/conversation-client.js";
+import { ConversationProvider } from "../../conversation/component/conversation-provider.js";
+import { ConversationPage } from "../../conversation/page/conversation-page.js";
 
 /** Application composition accepts capabilities, making real and test transports interchangeable. */
 export function Application({
@@ -27,12 +30,14 @@ export function Application({
   directory,
   artifacts,
   connections,
+  conversations,
   queryClient,
 }: {
   session: BrowserSession;
   directory: AgentDirectory;
   artifacts: ArtifactLibrary;
   connections: ProviderConnections;
+  conversations: ConversationClient;
   queryClient: QueryClient;
 }) {
   return (
@@ -41,7 +46,9 @@ export function Application({
         <AgentDirectoryProvider directory={directory}>
           <ArtifactLibraryProvider library={artifacts}>
             <ProviderConnectionsProvider connections={connections}>
-              <AuthenticatedRoutes />
+              <ConversationProvider client={conversations}>
+                <AuthenticatedRoutes />
+              </ConversationProvider>
             </ProviderConnectionsProvider>
           </ArtifactLibraryProvider>
         </AgentDirectoryProvider>
@@ -68,6 +75,7 @@ function AuthenticatedRoutes() {
         <Route element={<WorkspaceShell />}>
           <Route index element={<HomePage />} />
           <Route path="team" element={<TeamPage />} />
+          <Route path="team/:agentId" element={<ConversationPage />} />
           <Route path="updates" element={<UpdatesPage />} />
           <Route path="artifacts" element={<ArtifactsPage />} />
           <Route path="login" element={<Navigate replace to="/" />} />

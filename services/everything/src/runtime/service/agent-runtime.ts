@@ -4,7 +4,7 @@ import type { RuntimeStatus } from "../model/runtime-status.js";
 
 /** Caller-safe failure text; provider details stay in the private session transcript. */
 const runFailure =
-  "The model run failed. Check provider configuration and try again.";
+  "Your teammate couldn’t finish replying. Check the model provider, then send a message to continue.";
 
 /** One agent's loaded session, its in-flight turn, and the public status of that turn. */
 export class AgentRuntime {
@@ -23,6 +23,7 @@ export class AgentRuntime {
   constructor(private readonly session: AgentSession) {
     this.current = {
       status: "idle",
+      compacting: false,
       sessionId: session.id,
       runId: null,
       error: null,
@@ -35,7 +36,10 @@ export class AgentRuntime {
 
   /** Current status; every transition replaces it, so readers never see a partial update. */
   get status(): RuntimeStatus {
-    return this.current;
+    return {
+      ...this.current,
+      compacting: this.current.status === "running" && this.session.compacting,
+    };
   }
 
   // ===========================================
@@ -49,6 +53,7 @@ export class AgentRuntime {
     const runId = randomUUID();
     this.current = {
       status: "running",
+      compacting: false,
       sessionId: this.session.id,
       runId,
       error: null,

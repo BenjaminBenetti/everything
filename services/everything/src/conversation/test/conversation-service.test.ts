@@ -55,9 +55,12 @@ function fixture() {
       return message;
     },
     /** Read the requested agent's messages. */
-    async list({ ownerId, agentId }) {
+    async page({ ownerId, agentId }) {
       assert.equal(ownerId, "owner");
-      return recorded.filter((message) => message.agentId === agentId);
+      return {
+        messages: recorded.filter((message) => message.agentId === agentId),
+        nextCursor: null,
+      };
     },
   };
   const sessions: AgentSessionFactory = {
@@ -66,6 +69,7 @@ function fixture() {
       created++;
       return {
         id: "session-" + agent.id,
+        compacting: false,
         /** Remain active until aborted, or reject to simulate a provider failure. */
         async prompt(text) {
           if (text === "error") throw new Error("secret provider detail");
@@ -146,7 +150,9 @@ test("editing model settings reloads the runtime on the next turn without creati
   assert.equal(f.metrics().disposed, 1);
   assert.equal(f.metrics().peakConcurrency, 1);
   assert.deepEqual(
-    (await f.service.list("owner", "one")).map((message) => message.text),
+    (await f.service.list("owner", "one")).messages.map(
+      (message) => message.text,
+    ),
     ["Before editing", "After editing"],
   );
   await f.service.close();

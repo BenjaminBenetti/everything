@@ -45,6 +45,12 @@ importers:
         specifier: 7.0.2
         version: 7.0.2
 
+  lib/conversation-contracts:
+    devDependencies:
+      typescript:
+        specifier: 7.0.2
+        version: 7.0.2
+
   lib/errors:
     devDependencies:
       '@types/node':
@@ -231,6 +237,9 @@ importers:
       '@everything/artifact-contracts':
         specifier: workspace:*
         version: link:../../lib/artifact-contracts
+      '@everything/conversation-contracts':
+        specifier: workspace:*
+        version: link:../../lib/conversation-contracts
       '@everything/errors':
         specifier: workspace:*
         version: link:../../lib/errors
@@ -304,6 +313,9 @@ importers:
       '@everything/artifact-contracts':
         specifier: workspace:*
         version: link:../../lib/artifact-contracts
+      '@everything/conversation-contracts':
+        specifier: workspace:*
+        version: link:../../lib/conversation-contracts
       '@everything/provider-contracts':
         specifier: workspace:*
         version: link:../../lib/provider-contracts

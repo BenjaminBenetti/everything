@@ -20,6 +20,7 @@
   "dependencies": {
     "@everything/agent-contracts": "workspace:*",
     "@everything/artifact-contracts": "workspace:*",
+    "@everything/conversation-contracts": "workspace:*",
     "@everything/provider-contracts": "workspace:*",
     "@everything/security": "workspace:*",
     "@everything/ui": "workspace:*",

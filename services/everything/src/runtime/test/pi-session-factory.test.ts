@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
-import { mkdtemp, rm } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
@@ -13,7 +20,7 @@ import { PiInferenceRuntimeFactory } from "../adapter/pi-inference-runtime.js";
 import { PiModelCapabilities } from "../adapter/pi-model-capabilities.js";
 import { createModelRuntime } from "../factory/model-runtime.js";
 import { ProviderInactiveError } from "../../provider/error/provider-errors.js";
-import { readFile, readdir } from "node:fs/promises";
+import { mainAgentPrompt } from "../prompt/main-agent-prompt.js";
 
 const agent: AgentDefinition = {
   id: "agent-id",
@@ -81,9 +88,19 @@ function completedStream(): Response {
   );
 }
 
-test("Pi applies the saved model and effort, refreshes owner credentials, and reopens the same history after edits", async (context) => {
+test("Pi sends only the teammate's initial context, applies saved inference, and reopens the same history after edits", async (context) => {
   const directory = await mkdtemp(path.join(tmpdir(), "everything-inference-"));
   context.after(() => rm(directory, { recursive: true, force: true }));
+  const workspace = path.join(directory, agent.id);
+  const privateDirectory = path.join(workspace, ".pi");
+  await mkdir(privateDirectory, { recursive: true });
+  for (const filename of [
+    path.join(directory, "AGENTS.md"),
+    path.join(workspace, "AGENTS.md"),
+    path.join(privateDirectory, "SYSTEM.md"),
+    path.join(privateDirectory, "APPEND_SYSTEM.md"),
+  ])
+    await writeFile(filename, "UNRELATED_HOST_CONTEXT: Never use this prompt.");
   let connected = true;
   let apiKey = "first-owner-key";
   const requests: {
@@ -126,6 +143,8 @@ test("Pi applies the saved model and effort, refreshes owner credentials, and re
   );
   const definition: AgentDefinition = {
     ...agent,
+    systemPrompt:
+      "SAVED_TEAMMATE_INSTRUCTIONS: Help plan small gardening projects.",
     inference: {
       provider: "openai-compatible",
       model: "o3-mini",
@@ -138,6 +157,29 @@ test("Pi applies the saved model and effort, refreshes owner credentials, and re
   assert.equal(requests[0]?.body.model, "o3-mini");
   assert.equal(requests[0]?.body.reasoning_effort, "high");
   assert.equal(requests[0]?.authorization, "Bearer first-owner-key");
+  const initialMessages = requests[0]!.body.messages as {
+    role: string;
+    content: unknown;
+  }[];
+  assert.equal(
+    initialMessages.length,
+    2,
+    "a new teammate has no seeded history",
+  );
+  assert.ok(["system", "developer"].includes(initialMessages[0]!.role));
+  assert.equal(
+    initialMessages[0]!.content,
+    `${mainAgentPrompt(definition)}\n\n<cwd>\n${workspace}\n</cwd>`,
+    "the provider receives saved instructions, harness rules, and the teammate's workspace path",
+  );
+  assert.equal(initialMessages[1]!.role, "user");
+  assert.ok(
+    JSON.stringify(initialMessages[1]!.content).includes("First message"),
+  );
+  assert.ok(
+    !JSON.stringify(requests[0]!.body).includes("UNRELATED_HOST_CONTEXT"),
+  );
+  assert.ok(!JSON.stringify(requests[0]!.body).includes("first-owner-key"));
   apiKey = "";
   await session.prompt("Second message");
   assert.equal(requests[1]?.authorization, null);
@@ -145,6 +187,9 @@ test("Pi applies the saved model and effort, refreshes owner credentials, and re
   const edited = await factory.create(
     {
       ...definition,
+      name: "Updated teammate",
+      systemPrompt:
+        "UPDATED_TEAMMATE_INSTRUCTIONS: Keep gardening advice brief.",
       inference: { ...definition.inference!, model: "o4-mini", effort: "low" },
     },
     async () => {},
@@ -157,6 +202,15 @@ test("Pi applies the saved model and effort, refreshes owner credentials, and re
   assert.ok(
     JSON.stringify(requests[2]?.body.messages).includes("First message"),
   );
+  const updatedMessages = requests[2]!.body.messages as {
+    role: string;
+    content: string;
+  }[];
+  const updatedPrompt = updatedMessages
+    .filter((message) => ["system", "developer"].includes(message.role))
+    .at(-1)!.content;
+  assert.ok(updatedPrompt.includes("UPDATED_TEAMMATE_INSTRUCTIONS"));
+  assert.ok(updatedPrompt.includes("named Updated teammate"));
   connected = false;
   await assert.rejects(
     edited.prompt("Disconnected"),

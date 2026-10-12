@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
+  ArrowLeft,
   Bell,
   ChevronRight,
   Folder,
@@ -10,7 +11,7 @@ import {
   Plus,
   Plug,
 } from "lucide-react";
-import { NavLink, Outlet, useLocation } from "react-router-dom";
+import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import { Brand } from "@everything/ui/brand";
 import { TeammateAvatar } from "../../agent/component/teammate-avatar.js";
 import { IconButton } from "@everything/ui/button";
@@ -19,6 +20,7 @@ import { useAgents } from "../../agent/component/agent-directory-provider.js";
 import { useSession } from "../../session/component/session-provider.js";
 import { useWorkspaceDialogs } from "./workspace-dialogs.js";
 import { useProviders } from "../../provider/component/provider-connections-context.js";
+import { ConversationHeading } from "../../conversation/component/conversation-heading.js";
 
 const navigation = [
   { path: "/", label: "Home", icon: House },
@@ -42,7 +44,13 @@ export function WorkspaceShell() {
   const previousPath = useRef(pathname);
   const [signingOut, setSigningOut] = useState(false);
   const [error, setError] = useState("");
+  const activeAgent = agents.data?.find(
+    (agent) => pathname === `/team/${agent.id}`,
+  );
+  const isChat = pathname.startsWith("/team/");
   const label =
+    activeAgent?.name ??
+    (isChat ? "Teammate" : undefined) ??
     navigation.find((item) => item.path === pathname)?.label ??
     "Page not found";
   useEffect(() => {
@@ -107,14 +115,16 @@ export function WorkspaceShell() {
         </div>
         <div className="sidebar-agents">
           {agents.data?.map((agent) => (
-            <button
+            <NavLink
               key={agent.id}
-              className="side-agent"
-              onClick={() => open({ kind: "details", agent })}
+              className={({ isActive }) =>
+                `side-agent ${isActive ? "active" : ""}`
+              }
+              to={`/team/${encodeURIComponent(agent.id)}`}
             >
               <TeammateAvatar avatarId={agent.avatarId} small />
               <span>{agent.name}</span>
-            </button>
+            </NavLink>
           ))}
           {agents.data?.length === 0 && (
             <p className="sidebar-empty">No teammates yet.</p>
@@ -148,12 +158,30 @@ export function WorkspaceShell() {
         </div>
       </aside>
       <div className="main">
-        <header className="topbar">
-          <Brand className="mobile-wordmark" />
-          <div className="breadcrumb">
-            Your workspace <ChevronRight aria-hidden="true" />
-            <span>{label}</span>
-          </div>
+        <header className={`topbar ${activeAgent ? "chat-topbar" : ""}`}>
+          {activeAgent ? (
+            <>
+              <Link
+                to="/team"
+                className="icon-button chat-back"
+                aria-label="Back to your team"
+              >
+                <ArrowLeft aria-hidden="true" />
+              </Link>
+              <ConversationHeading
+                agent={activeAgent}
+                onDetails={() => open({ kind: "details", agent: activeAgent })}
+              />
+            </>
+          ) : (
+            <>
+              <Brand className="mobile-wordmark" />
+              <div className="breadcrumb">
+                Your workspace <ChevronRight aria-hidden="true" />
+                <span>{label}</span>
+              </div>
+            </>
+          )}
           <div className="topbar-right">
             <span className="topbar-caption">Your team, in one place.</span>
             <IconButton
@@ -169,11 +197,16 @@ export function WorkspaceShell() {
             </IconButton>
             <IconButton
               label="Notification settings"
+              className="notification-button"
               onClick={() => open({ kind: "notifications" })}
             >
               <Bell aria-hidden="true" />
             </IconButton>
-            <IconButton label="Sign out" onClick={() => void signOut()}>
+            <IconButton
+              label="Sign out"
+              className="signout-button"
+              onClick={() => void signOut()}
+            >
               <LogOut aria-hidden="true" />
             </IconButton>
             <AvatarButton
@@ -190,7 +223,7 @@ export function WorkspaceShell() {
           data-dialog-fallback=""
           ref={content}
           tabIndex={-1}
-          className={`content ${pathname === "/" ? "dashboard-content" : ""}`}
+          className={`content ${pathname === "/" ? "dashboard-content" : ""} ${isChat ? "chat-content" : ""}`}
         >
           <div key={pathname} className="route-content">
             <Outlet />

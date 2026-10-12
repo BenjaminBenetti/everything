@@ -46,6 +46,7 @@ export async function createStaticServer(root: string) {
     "/",
     "/login",
     "/team",
+    "/team/:agentId",
     "/updates",
     "/artifacts",
     "/artifacts/open",

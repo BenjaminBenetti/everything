@@ -20,6 +20,7 @@ import { artifactTools } from "../tool/artifact-tools.js";
 import { sendMessageTool } from "../tool/send-message-tool.js";
 import { PiAgentSession } from "./pi-agent-session.js";
 import type { InferenceRuntimeFactory } from "../interface/inference-runtime.js";
+import { compactionPolicy } from "../model/compaction-policy.js";
 
 /** Pi's per-agent configuration and session paths inside the agent's workspace. */
 interface AgentDirectories {
@@ -61,15 +62,16 @@ export class PiSessionFactory implements AgentSessionFactory {
       directories.cwd,
       directories.agentDir,
     );
-    settingsManager.applyOverrides({
-      retry: { enabled: false },
-      compaction: { enabled: false },
-    });
     const resourceLoader = await this.isolatedResources(
       agent,
       directories,
       settingsManager,
     );
+    // Resource loading reloads settings, so enforce harness policy after it has completed.
+    settingsManager.applyOverrides({
+      retry: { enabled: false },
+      compaction: compactionPolicy(model.contextWindow),
+    });
     const tools = [
       sendMessageTool(sendMessage),
       ...artifactTools(this.artifacts, {

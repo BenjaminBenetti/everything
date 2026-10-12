@@ -4,7 +4,7 @@ import { PageHeading } from "../../workspace/component/page-heading.js";
 import { EmptyState } from "../../workspace/component/empty-state.js";
 import { useWorkspaceDialogs } from "../../workspace/component/workspace-dialogs.js";
 
-/** Show teammate updates and recent messages while messaging is unavailable. */
+/** Provide entry points into the team and future update integrations. */
 export function HomePage() {
   const { open } = useWorkspaceDialogs();
   return (
@@ -24,7 +24,7 @@ export function HomePage() {
           </div>
           <div className="updates-feed">
             <EmptyState icon={Check} title="No updates yet">
-              <p>Updates will appear here when messaging is available.</p>
+              <p>You’re all caught up. Open a teammate to continue chatting.</p>
               <Link className="text-link" to="/team">
                 View your team <ArrowRight aria-hidden="true" />
               </Link>
@@ -33,12 +33,12 @@ export function HomePage() {
         </section>
         <aside className="dashboard-recent" aria-labelledby="recent-heading">
           <div className="section-heading">
-            <h2 id="recent-heading">Recent messages</h2>
+            <h2 id="recent-heading">Your conversations</h2>
           </div>
-          <p className="recent-intro">No messages yet.</p>
+          <p className="recent-intro">Pick up where you left off.</p>
           <p className="recent-empty">
-            Messaging isn’t available yet. You can create and edit teammates
-            now.
+            Open a teammate to return to your conversation. Your messages stay
+            together in one place.
           </p>
           <Link className="team-link" to="/team">
             View your team <ArrowRight aria-hidden="true" />

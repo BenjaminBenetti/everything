@@ -1,14 +1,22 @@
-import { ArrowRight, Pencil } from "lucide-react";
+import { ArrowRight, Pencil, Ellipsis } from "lucide-react";
 import type { Agent } from "@everything/agent-contracts";
 import { TeammateAvatar } from "./teammate-avatar.js";
 import { IconButton } from "@everything/ui/button";
 import { useWorkspaceDialogs } from "../../workspace/component/workspace-dialogs.js";
+import { Link } from "react-router-dom";
 
-/** Show a saved teammate with an idle avatar and access to their profile details. */
+/** Open the teammate's ongoing conversation, with profile editing kept separately available. */
 export function AgentCard({ agent }: { agent: Agent }) {
   const { open } = useWorkspaceDialogs();
   return (
     <article className="agent-card">
+      <IconButton
+        className="view-teammate"
+        label={`View ${agent.name}`}
+        onClick={() => open({ kind: "details", agent })}
+      >
+        <Ellipsis aria-hidden="true" />
+      </IconButton>
       <IconButton
         className="edit-teammate"
         label={`Edit ${agent.name}`}
@@ -16,10 +24,10 @@ export function AgentCard({ agent }: { agent: Agent }) {
       >
         <Pencil aria-hidden="true" />
       </IconButton>
-      <button
+      <Link
         className="agent-open"
-        aria-label={`View ${agent.name}`}
-        onClick={() => open({ kind: "details", agent })}
+        aria-label={`Chat with ${agent.name}`}
+        to={`/team/${encodeURIComponent(agent.id)}`}
       >
         <TeammateAvatar
           avatarId={agent.avatarId}
@@ -31,10 +39,10 @@ export function AgentCard({ agent }: { agent: Agent }) {
         <p className="agent-preview">{agent.systemPrompt}</p>
         <div className="card-bottom">
           <span className="dot" />
-          Saved<span className="time">View details</span>
+          Teammate<span className="time">Open chat</span>
           <ArrowRight aria-hidden="true" />
         </div>
-      </button>
+      </Link>
     </article>
   );
 }

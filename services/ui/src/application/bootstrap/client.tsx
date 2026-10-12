@@ -15,6 +15,8 @@ import { AvatarAnimationProvider } from "../../agent/component/avatar-animation.
 import { IdleAvatarAnimation } from "../../agent/component/idle-avatar-animation.js";
 import "../../workspace/style/application.css";
 import "../../provider/style/provider.css";
+import "../../conversation/style/conversation.css";
+import { HttpConversationClient } from "../../conversation/adapter/http-conversation-client.js";
 
 initializeTheme();
 const element = document.getElementById("root");
@@ -37,6 +39,9 @@ async function bootstrap(): Promise<void> {
               directory={directory}
               artifacts={
                 new HttpArtifactLibrary(createAuthenticatedTransport())
+              }
+              conversations={
+                new HttpConversationClient(createAuthenticatedTransport())
               }
               connections={
                 new HttpProviderConnections(createAuthenticatedTransport())

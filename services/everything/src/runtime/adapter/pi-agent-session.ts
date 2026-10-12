@@ -8,6 +8,7 @@ export class PiAgentSession implements AgentSession {
   // ===========================================
 
   readonly id: string;
+  private cancellation: AbortController | undefined;
 
   // ===========================================
   // Construction
@@ -22,16 +23,42 @@ export class PiAgentSession implements AgentSession {
   // Operations
   // ===========================================
 
-  /** Run Pi and surface provider failures instead of reporting a successful empty turn. */
+  /** Read compaction state without exposing summaries or the private transcript. */
+  get compacting(): boolean {
+    return this.session.isCompacting;
+  }
+
+  /** Run through compaction/recovery and surface safe failures, including swallowed summary errors. */
   async prompt(text: string): Promise<void> {
-    await this.session.prompt(text);
-    const last = this.session.messages.at(-1);
-    if (last?.role === "assistant" && last.stopReason === "error")
-      throw new Error("Pi model request failed");
+    const cancellation = new AbortController();
+    this.cancellation = cancellation;
+    let compactionFailed = false;
+    const unsubscribe = this.session.subscribe((event) => {
+      if (event.type === "compaction_end" && event.errorMessage)
+        compactionFailed = true;
+    });
+    try {
+      await this.session.prompt(text, {
+        expandPromptTemplates: false,
+        /** Stop a cancelled or failed pre-prompt compaction before Pi can begin another request. */
+        preflightResult: () => {
+          cancellation.signal.throwIfAborted();
+          if (compactionFailed) throw new Error("Pi context compaction failed");
+        },
+      });
+      if (compactionFailed) throw new Error("Pi context compaction failed");
+      const last = this.session.messages.at(-1);
+      if (last?.role === "assistant" && last.stopReason === "error")
+        throw new Error("Pi model request failed");
+    } finally {
+      unsubscribe();
+      this.cancellation = undefined;
+    }
   }
 
   /** Abort generation and await in-flight tools. */
   async abort(): Promise<void> {
+    this.cancellation?.abort();
     await this.session.abort();
   }
 

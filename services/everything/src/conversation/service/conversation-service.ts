@@ -7,11 +7,12 @@ import {
   type RuntimeStatus,
 } from "../../runtime/model/runtime-status.js";
 import { AgentRuntime } from "../../runtime/service/agent-runtime.js";
+import { ReplyingAgentSession } from "../../runtime/service/replying-agent-session.js";
 import type { AgentWorkspaces } from "../../workspace/interface/agent-workspaces.js";
 import { ServiceShuttingDownError } from "../error/conversation-errors.js";
 import type { ConversationOperations } from "../interface/conversation-operations.js";
 import type { ConversationMessageStore } from "../interface/message-repository.js";
-import type { ConversationMessage, MessageReceipt } from "../model/message.js";
+import type { MessagePage, MessageReceipt } from "../model/message.js";
 import { AgentLock } from "./agent-lock.js";
 
 /** Coordinates durable chat and interruptible execution through runtime and storage interfaces. */
@@ -43,10 +44,14 @@ export class ConversationService
   // Operations
   // ===========================================
 
-  /** Read visible messages only after verifying ownership. */
-  async list(ownerId: string, agentId: string): Promise<ConversationMessage[]> {
+  /** Read a page of visible history only after verifying ownership. */
+  async list(
+    ownerId: string,
+    agentId: string,
+    before?: string,
+  ): Promise<MessagePage> {
     await this.agents.get(ownerId, agentId);
-    return this.messages.list({ ownerId, agentId });
+    return this.messages.page({ ownerId, agentId }, before);
   }
 
   /** Interrupt previous work, persist the new input, and start an asynchronous run. */
@@ -118,10 +123,14 @@ export class ConversationService
     if (loaded && this.runtimeDefinitions.get(agent.id) === definition)
       return loaded;
     if (loaded) await this.unloadRuntime(agent.id);
-    const session = await this.sessions.create(agent, (text) =>
-      this.appendReply(agent, text),
+    let delivered = 0;
+    const session = await this.sessions.create(agent, async (text) => {
+      await this.appendReply(agent, text);
+      delivered++;
+    });
+    const runtime = new AgentRuntime(
+      new ReplyingAgentSession(session, () => delivered),
     );
-    const runtime = new AgentRuntime(session);
     this.runtimes.set(agent.id, runtime);
     this.runtimeDefinitions.set(agent.id, definition);
     return runtime;

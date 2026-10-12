@@ -16,9 +16,14 @@ async function fixture(): Promise<{
   const calls: string[] = [];
   const conversations: ConversationOperations = {
     /** Return one visible message. */
-    async list(ownerId, id) {
-      calls.push(`list:${ownerId}:${id}`);
-      return [{ id: "message", role: "user", text: "hi", createdAt: "now" }];
+    async list(ownerId, id, before) {
+      calls.push(`list:${ownerId}:${id}${before ? `:${before}` : ""}`);
+      return {
+        messages: [
+          { id: "message", role: "user", text: "hi", createdAt: "now" },
+        ],
+        nextCursor: null,
+      };
     },
     /** Acknowledge the accepted message and its run. */
     async send(ownerId, id, text) {
@@ -101,4 +106,24 @@ test("lists messages, reports status, and interrupts for the authenticated owner
     `interrupt:owner:${agentId}`,
     `status:owner:${agentId}`,
   ]);
+});
+
+test("validates history cursors and forwards them with the authenticated scope", async (context) => {
+  const { app, calls } = await fixture();
+  context.after(() => app.close());
+  const cursor = "08debf1a-f4de-4905-89c5-f89631969816";
+  const response = await app.inject({
+    url: `/agents/${agentId}/messages?before=${cursor}`,
+  });
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json().nextCursor, null);
+  assert.deepEqual(calls, [`list:owner:${agentId}:${cursor}`]);
+  for (const query of ["before=invalid", "before=", "offset=100"]) {
+    assert.equal(
+      (await app.inject({ url: `/agents/${agentId}/messages?${query}` }))
+        .statusCode,
+      400,
+    );
+  }
+  assert.equal(calls.length, 1);
 });

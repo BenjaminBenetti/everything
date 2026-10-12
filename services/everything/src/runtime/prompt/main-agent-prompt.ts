@@ -7,8 +7,9 @@ export function mainAgentPrompt(
   agent: Pick<AgentDefinition, "name" | "systemPrompt">,
 ): string {
   const rules = [
-    `You are the user's main agent, named ${agent.name}.`,
-    `To communicate with the user, call ${sendMessageToolName}.`,
+    `You are the user's teammate, named ${agent.name}.`,
+    `Reply to each user message by calling ${sendMessageToolName} with your complete answer.`,
+    "You share one ongoing conversation with this user. Continue from the context you have, including summaries of earlier messages.",
     "Ordinary assistant text is private and never appears in chat.",
     "User messages interrupt your current work; attend to the new message promptly.",
   ];

@@ -24,6 +24,7 @@ test("serves deep links and probes without swallowing API or asset misses", asyn
   for (const url of [
     "/",
     "/team",
+    "/team/06eb92d4-3ee3-4a6a-93d1-1a984d7691cb",
     "/updates",
     "/artifacts",
     "/artifacts/open",
@@ -52,6 +53,7 @@ test("serves deep links and probes without swallowing API or asset misses", asyn
     "/callback",
     "/unknown",
     "/chat",
+    "/team/teammate/messages",
   ])
     assert.equal((await app.inject({ url })).statusCode, 404, url);
   assert.equal(

@@ -7,6 +7,8 @@ export type MessageDelivery = (text: string) => Promise<void>;
 export interface AgentSession {
   /** Durable session identifier, stable across process restarts. */
   readonly id: string;
+  /** Whether the model is summarizing older context before continuing. */
+  readonly compacting: boolean;
   /** Run the model until it settles; ordinary model text is never a user message. */
   prompt(text: string): Promise<void>;
   /** Abort active generation and wait for its tool execution to settle. */

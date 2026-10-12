@@ -7,6 +7,8 @@ import {
 import type { ConversationOperations } from "../interface/conversation-operations.js";
 import {
   sendMessageBody,
+  messageHistoryQuery,
+  type MessageHistoryQuery,
   type SendMessageBody,
 } from "../schema/message-request.js";
 
@@ -15,15 +17,15 @@ export async function conversationController(
   app: FastifyInstance,
   conversations: ConversationOperations,
 ): Promise<void> {
-  app.get<{ Params: AgentParams }>(
+  app.get<{ Params: AgentParams; Querystring: MessageHistoryQuery }>(
     "/agents/:agentId/messages",
-    { schema: { params: agentParams } },
-    async (request) => ({
-      messages: await conversations.list(
+    { schema: { params: agentParams, querystring: messageHistoryQuery } },
+    async (request) =>
+      conversations.list(
         subject(request),
         request.params.agentId,
+        request.query.before,
       ),
-    }),
   );
 
   app.post<{ Params: AgentParams; Body: SendMessageBody }>(

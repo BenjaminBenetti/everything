@@ -5,6 +5,7 @@ import { Button } from "@everything/ui/button";
 import { Dialog } from "@everything/ui/dialog";
 import { providerOptions } from "../../provider/model/provider-options.js";
 import { effortLabels } from "../model/inference-options.js";
+import { Link } from "react-router-dom";
 
 /** Inspect a saved profile with separated editing and deletion actions. */
 export function AgentDetails({
@@ -59,7 +60,13 @@ export function AgentDetails({
       ) : (
         <p className="muted">No model selected.</p>
       )}
-      <p className="availability-note">Messaging isn’t available yet.</p>
+      <Link
+        className="text-link"
+        to={`/team/${encodeURIComponent(agent.id)}`}
+        onClick={onClose}
+      >
+        Open chat
+      </Link>
     </Dialog>
   );
 }

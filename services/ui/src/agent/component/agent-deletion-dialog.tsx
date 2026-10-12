@@ -21,6 +21,9 @@ export function AgentDeletionDialog({
   const removal = useMutation({
     mutationFn: () => directory.delete(agent.id),
     onSuccess: async () => {
+      const conversationKey = ["conversation", profile?.subject, agent.id];
+      await cache.cancelQueries({ queryKey: conversationKey });
+      cache.removeQueries({ queryKey: conversationKey });
       await cache.cancelQueries({ queryKey });
       cache.setQueryData<Agent[]>(queryKey, (agents) =>
         agents?.filter((item) => item.id !== agent.id),

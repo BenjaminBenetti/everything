@@ -428,7 +428,13 @@
   width: 16px;
   height: 16px;
 }
+.agent-card .view-teammate {
+  position: absolute;
+  right: 49px;
+  top: 13px;
+}
 .agent-open {
+  display: block;
   width: 100%;
   text-align: left;
   background: transparent;
@@ -902,7 +908,7 @@
   .agent-open h2 {
     font-size: 16px;
     align-self: end;
-    padding-right: 32px;
+    padding-right: 72px;
   }
   .agent-role {
     margin: 6px 0 0;

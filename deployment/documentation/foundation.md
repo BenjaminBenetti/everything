@@ -1,6 +1,6 @@
 # Pi and Keycloak foundation
 
-This slice runs Everything's API and real Pi SDK together, with Keycloak, PostgreSQL, the artifact service, and its image registry in separate Kubernetes pods behind the ingress. Agents run on whichever model provider is connected through the application; no provider or model is part of the deployment. The separate UI pod serves the React/Tailwind PWA; Fleet, chat UI, and the agentic loop remain outside this frontend slice.
+This slice runs Everything's API and real Pi SDK together, with Keycloak, PostgreSQL, the artifact service, and its image registry in separate Kubernetes pods behind the ingress. Teammates run on their saved provider, model, and effort; no provider or model is part of the deployment. The separate UI pod serves the React/Tailwind PWA, including one ongoing chat per teammate and the shared artifact library. Fleet and general shell/file execution remain deferred.
 
 ## Run it
 
@@ -126,7 +126,7 @@ After authentication, each folder creates the agents it needs and deletes them a
 | PATCH | `/v1/agents/:agentId` | Edit any supplied `name`, `systemPrompt`, `avatarId`, or complete `inference` selection; omitted fields keep their saved values. |
 | GET | `/v1/providers/:provider/models` | Models and supported effort levels from the caller's active connection. |
 | DELETE | `/v1/agents/:agentId` | Stop execution, delete the agent's files, and remove application records. |
-| GET | `/v1/agents/:agentId/messages` | Latest 100 visible messages, chronologically ordered. |
+| GET | `/v1/agents/:agentId/messages` | Latest 100 visible messages and `nextCursor`; `?before=<cursor>` reads earlier history. |
 | POST | `/v1/agents/:agentId/messages` | Persist `{ "text": "..." }`, interrupt prior work, and return 202 with message/run IDs. |
 | GET | `/v1/agents/:agentId/runtime` | `idle`, `running`, or `error`, plus the loaded session ID. |
 | POST | `/v1/agents/:agentId/interrupt` | Abort generation and await in-flight tools. |
@@ -169,9 +169,19 @@ Protocol references: [OpenAI registration](https://developers.openai.com/siwc/to
 
 Each teammate has exactly one ongoing user-facing conversation. Opening a teammate always returns to the same message history. This is a product rule across releases. Internal Pi sessions and background conversations never become separate user-visible conversations.
 
+On the first turn, the model receives the teammate's saved Description (`systemPrompt`), followed by the harness's identity, message-delivery, ongoing-conversation, and artifact instructions. Pi adds the teammate's workspace path in a `<cwd>` section. Tool descriptions and argument schemas accompany the request separately. The first user message is the only initial conversation history; existing teammates resume their native session, including prior turns and compaction summaries. Host `AGENTS.md`, `SYSTEM.md`, append files, skills, and extensions are not loaded, and Pi's default coding-assistant prompt is replaced. Name, Description, or model-setting edits take effect on the next user turn in the same session.
+
+`GET /v1/agents/:agentId/messages` returns `{ messages, nextCursor }`, the latest 100 saved messages in insertion order. Pass `?before=<nextCursor>` for the preceding page. The cursor is a message ID checked against the same owner and teammate; inaccessible cursors return an empty page. Earlier history is retained without a conversation-length cap. Runtime status additionally reports `compacting`; the UI presents reply/compaction progress without showing session IDs or model internals.
+
+Automatic compaction uses Pi's native summarizer with the same owner-scoped provider, model, and effort as replies. It reserves up to 16,384 tokens (one quarter of smaller context windows) and retains up to 20,000 recent tokens (also bounded to one quarter). Resource loading completes before the harness applies these settings. Pi persists each summary checkpoint in the teammate's existing JSONL session, carries previous summaries into later compactions, and attempts compact-and-retry recovery on provider context overflow. PostgreSQL messages are never rewritten or removed by compaction. Summaries are lossy, so older context is represented by its important facts rather than verbatim recall; the full visible transcript remains available to the user.
+
+The runtime waits for compaction and any recovery request before reporting completion. Summary failures report a safe error while preserving the transcript; Stop reply cancels summarization as well as generation. Sending another message stops the active turn first. A model still needs enough context for its instructions and an individual message; automatic compaction removes the need to manually start another conversation, not the provider's per-request limits.
+
 The teammate’s Pi session is reopened lazily on the next message after a restart. Runtime status is process-local and initially reports an unloaded `sessionId`; saved conversations and native context survive. User input aborts the current Pi turn, waits for it to settle, then starts the new turn. Different agents can run concurrently; same-agent operations are serialized. Everything runs as a single-replica StatefulSet, as does PostgreSQL: Kubernetes never starts a replacement pod until the previous one is confirmed gone, so two processes never run the same agents or open the same data directory, even when a node stops responding. The cost is that a pod on a failed node stays down until the node is removed or the pod is force-deleted. Keycloak keeps its state in PostgreSQL and runs as a Deployment.
 
 Agents have `send_message` and the [artifact tools](#artifacts). Pi's ordinary assistant output is private, even when it contains text. General shell/file execution and Fleet delegation are not enabled yet. Deleting an agent stops its runtime, deletes its directory with its files and JSONL transcripts, then removes its definition and messages; if a step fails, deleting again completes it.
+
+A successful user turn must deliver a visible reply. If the model finishes with only private text, the harness sends one internal reminder to call `send_message` in the same session. A second undelivered completion becomes a safe runtime error. Cancellation prevents this correction, and provider failures are not automatically retried by the delivery policy.
 
 Already saved state must survive restart. An in-flight turn can be interrupted or lost, and is not replayed automatically. PVCs protect against pod replacement, not volume deletion or loss of the cluster.
 

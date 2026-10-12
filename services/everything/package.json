@@ -23,6 +23,7 @@
     "@earendil-works/pi-coding-agent": "1.1.0",
     "@everything/agent-contracts": "workspace:*",
     "@everything/artifact-contracts": "workspace:*",
+    "@everything/conversation-contracts": "workspace:*",
     "@everything/errors": "workspace:*",
     "@everything/persistence": "workspace:*",
     "@everything/provider-contracts": "workspace:*",

@@ -1,5 +1,9 @@
 import { randomUUID } from "node:crypto";
-import type { DataSource, FindOptionsWhere } from "typeorm";
+import { LessThan, type DataSource, type FindOptionsWhere } from "typeorm";
+import {
+  messagePageSize,
+  type MessagePage,
+} from "@everything/conversation-contracts";
 import { BaseRepository } from "@everything/persistence/repository";
 import { serializableTransaction } from "@everything/persistence/transaction";
 import { AgentNotFoundError } from "../../agent/error/agent-errors.js";
@@ -12,9 +16,6 @@ import type { ConversationMessage, MessageRole } from "../model/message.js";
 import type { MessageRecord } from "../model/message-record.js";
 import { MessageEntity } from "../schema/message-entity.js";
 
-/** Newest messages returned by a listing; older history stays stored but is not returned. */
-const listedMessageLimit = 100;
-
 /** Persist chat through ORM relations with transactional ownership checks. */
 export class PostgresMessageRepository
   extends BaseRepository<ConversationMessage, MessageScope, MessageRecord>
@@ -24,11 +25,10 @@ export class PostgresMessageRepository
   // Construction
   // ===========================================
 
-  /** Reuse the data source and bound listings to the newest messages. */
+  /** Reuse the mapped repository and inherit its scoped ORM defaults. */
   constructor(database: DataSource) {
     super(database.getRepository(MessageEntity), {
-      order: { sequence: "DESC" },
-      take: listedMessageLimit,
+      order: { sequence: "ASC" },
     });
   }
 
@@ -57,9 +57,27 @@ export class PostgresMessageRepository
     });
   }
 
-  /** Present the bounded latest-message result in chronological order. */
-  override async list(scope: MessageScope): Promise<ConversationMessage[]> {
-    return (await super.list(scope)).reverse();
+  /** Page by insertion order, checking the cursor against the same owner and teammate. */
+  async page(scope: MessageScope, before?: string): Promise<MessagePage> {
+    let where = this.scopeWhere(scope);
+    if (before) {
+      const cursor = await this.orm.findOneBy({ ...where, id: before });
+      if (!cursor) return { messages: [], nextCursor: null };
+      where = { ...where, sequence: LessThan(cursor.sequence) };
+    }
+    const records = await this.orm.find({
+      where,
+      order: { sequence: "DESC" },
+      take: messagePageSize + 1,
+    });
+    const messages = records
+      .slice(0, messagePageSize)
+      .reverse()
+      .map((record) => this.toEntity(record));
+    return {
+      messages,
+      nextCursor: records.length > messagePageSize ? messages[0]!.id : null,
+    };
   }
 
   // ===========================================

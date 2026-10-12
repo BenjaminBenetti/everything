@@ -1,10 +1,10 @@
 import type { RuntimeStatus } from "../../runtime/model/runtime-status.js";
-import type { ConversationMessage, MessageReceipt } from "../model/message.js";
+import type { MessagePage, MessageReceipt } from "../model/message.js";
 
 /** Conversation use cases for an agent owned by the authenticated subject. */
 export interface ConversationOperations {
   /** Read the visible conversation after enforcing ownership. */
-  list(ownerId: string, agentId: string): Promise<ConversationMessage[]>;
+  list(ownerId: string, agentId: string, before?: string): Promise<MessagePage>;
   /** Persist user input and schedule an interruptible main-agent turn. */
   send(ownerId: string, agentId: string, text: string): Promise<MessageReceipt>;
   /** Read public execution status. */

@@ -3,6 +3,7 @@ import type {
   Repository,
 } from "@everything/persistence/repository";
 import type { ConversationMessage, MessageRole } from "../model/message.js";
+import type { MessagePage } from "@everything/conversation-contracts";
 
 /** Limit message access to one agent owned by the authenticated subject. */
 export interface MessageScope extends OwnerScope {
@@ -20,12 +21,12 @@ export interface MessageRepository extends Repository<
     role: MessageRole,
     text: string,
   ): Promise<ConversationMessage>;
-  /** Return the latest messages in chronological order. */
-  list(scope: MessageScope): Promise<ConversationMessage[]>;
+  /** Read a bounded chronological page, with an owner-scoped message ID as its cursor. */
+  page(scope: MessageScope, before?: string): Promise<MessagePage>;
 }
 
-/** Conversation use cases only require appending and listing, not individual deletion. */
+/** Conversation use cases require appending and paging, not individual deletion. */
 export type ConversationMessageStore = Pick<
   MessageRepository,
-  "append" | "list"
+  "append" | "page"
 >;
