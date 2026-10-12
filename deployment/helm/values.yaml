@@ -1,6 +1,6 @@
 # Development defaults for the local Minikube stack; values.prod.yaml overrides them for remote clusters.
 # Env values, env secret names, and secret volume names are rendered as templates, so they can
-# reference these settings, for example "{{ .Values.global.publicOrigin }}".
+# reference these settings, for example "{{ tpl .Values.global.publicOrigin . }}".
 global:
   # Every service image is <registry>/<image>:<tag>; an empty registry uses local images.
   image:
@@ -9,7 +9,8 @@ global:
     pullPolicy: Never
   # Origin through which browsers reach the application. Keycloak is served under /auth on it, and
   # access tokens carry it in their issuer. TLS, when used, terminates at the cluster's ingress.
-  publicOrigin: http://localhost:8080
+  externalHostname: localhost
+  publicOrigin: "http://{{ .Values.global.externalHostname }}:8080"
   # Realm defined in services/keycloak/config/everything-realm.json.
   realm: everything
   # Secret holding the `admin`, `keycloak`, and `everything` database role passwords.
@@ -188,7 +189,7 @@ services:
         key: keycloak
       # Served under /auth (set when the image is built) behind the ingress, which forwards the
       # original scheme and host.
-      KC_HOSTNAME: "{{ .Values.global.publicOrigin }}/auth"
+      KC_HOSTNAME: "{{ tpl .Values.global.publicOrigin . }}/auth"
       KC_HTTP_ENABLED: "true"
       KC_PROXY_HEADERS: xforwarded
       KC_HEALTH_ENABLED: "true"
@@ -236,10 +237,11 @@ services:
     terminationGracePeriodSeconds: 45
     env:
       PORT: "8080"
-      OIDC_ISSUER: "{{ .Values.global.publicOrigin }}/auth/realms/{{ .Values.global.realm }}"
+      OIDC_ISSUER: "{{ tpl .Values.global.publicOrigin . }}/auth/realms/{{ .Values.global.realm }}"
       OIDC_JWKS_URL: "http://keycloak:8080/auth/realms/{{ .Values.global.realm }}/protocol/openid-connect/certs"
       OIDC_AUDIENCE: everything-api
-      PUBLIC_ORIGIN: "{{ .Values.global.publicOrigin }}"
+      PUBLIC_ORIGIN: "{{ tpl .Values.global.publicOrigin . }}"
+      CHATGPT_REDIRECT_URI: http://127.0.0.1:8080/v1/providers/chatgpt/callback
       OIDC_PROTOCOL_URL: "http://keycloak:8080/auth/realms/{{ .Values.global.realm }}/protocol/openid-connect"
       OIDC_CLIENT_ID: everything-web
       OIDC_CLIENT_SECRET:

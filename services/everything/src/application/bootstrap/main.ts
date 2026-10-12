@@ -16,6 +16,13 @@ import { createModelRuntime } from "../../runtime/factory/model-runtime.js";
 import { FileSystemWorkspaces } from "../../workspace/service/file-system-workspaces.js";
 import { loadApplicationConfig } from "../config/application-config.js";
 import { createHttpApplication } from "../factory/http-application.js";
+import { createOidcIdentityVerifier } from "@everything/security/oidc";
+import { PostgresProviderRepository } from "../../provider/repository/postgres-provider-repository.js";
+import { ProviderConnectionService } from "../../provider/service/provider-connections.js";
+import { OpenAiChatGptAuthorization } from "../../provider/adapter/chatgpt-authorization.js";
+import { ChatGptConnectionVerifier } from "../../provider/adapter/chatgpt-connection-verifier.js";
+import { AnthropicConnectionVerifier } from "../../provider/adapter/anthropic-connection-verifier.js";
+import { CompatibleConnectionVerifier } from "../../provider/adapter/compatible-connection-verifier.js";
 
 /** Assemble concrete adapters once at the process boundary and own their lifecycle. */
 async function main(): Promise<void> {
@@ -40,6 +47,23 @@ async function main(): Promise<void> {
     workspaces,
   );
   const app = await createHttpApplication({
+    providers: new ProviderConnectionService(
+      new PostgresProviderRepository(database),
+      new SessionCipher(config.sessionEncryptionKey),
+      {
+        chatgpt: new ChatGptConnectionVerifier(),
+        anthropic: new AnthropicConnectionVerifier(),
+        "openai-compatible": new CompatibleConnectionVerifier(),
+      },
+      new OpenAiChatGptAuthorization(
+        createOidcIdentityVerifier(
+          "https://auth.openai.com",
+          "https://auth.openai.com/.well-known/jwks.json",
+        ),
+        config.chatGptRedirectUri,
+      ),
+    ),
+    chatGptRedirectUri: config.chatGptRedirectUri,
     agents,
     profiles: new AgentEditingService(agentRepository),
     removal: conversations,

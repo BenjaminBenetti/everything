@@ -30,7 +30,7 @@ export function createAuthenticatedTransport(
           );
         if (response.status === 404)
           throw new Error(
-            "This teammate is no longer available. Refresh your team and try again.",
+            "This item is no longer available. Refresh and try again.",
           );
         if (response.status === 429)
           throw new Error(

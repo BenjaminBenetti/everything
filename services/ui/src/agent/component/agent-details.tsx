@@ -44,7 +44,7 @@ export function AgentDetails({
       <TeammateAvatar avatarId={agent.avatarId} />
       <p className="eyebrow">Description</p>
       <p className="agent-instructions">{agent.systemPrompt}</p>
-      <p className="availability-note">Conversations aren’t available yet.</p>
+      <p className="availability-note">Messaging isn’t available yet.</p>
     </Dialog>
   );
 }

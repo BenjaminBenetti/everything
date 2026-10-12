@@ -32,7 +32,11 @@ export function WorkspaceDialogsProvider({
 }: {
   children: ReactNode;
 }) {
-  const [dialog, setDialog] = useState<WorkspaceDialog | null>(null);
+  const [dialog, setDialog] = useState<WorkspaceDialog | null>(() =>
+    new URLSearchParams(location.hash.slice(1)).has("chatgpt")
+      ? { kind: "provider" }
+      : null,
+  );
   const [notice, setNotice] = useState("");
   useEffect(() => {
     if (!notice) return;

@@ -10,6 +10,10 @@ export const environmentSchema = Type.Object({
   OIDC_JWKS_URL: required,
   OIDC_AUDIENCE: required,
   PUBLIC_ORIGIN: Type.String({ pattern: "^https?://[^/]+$" }),
+  CHATGPT_REDIRECT_URI: Type.String({
+    pattern: "^http://127\\.0\\.0\\.1:[0-9]+/v1/providers/chatgpt/callback$",
+    default: "http://127.0.0.1:8080/v1/providers/chatgpt/callback",
+  }),
   OIDC_PROTOCOL_URL: Type.String({ pattern: "^https?://" }),
   OIDC_CLIENT_ID: required,
   OIDC_CLIENT_SECRET: required,

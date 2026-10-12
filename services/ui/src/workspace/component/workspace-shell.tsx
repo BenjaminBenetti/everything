@@ -18,6 +18,7 @@ import { AvatarButton } from "@everything/ui/avatar";
 import { useAgents } from "../../agent/component/agent-directory-provider.js";
 import { useSession } from "../../session/component/session-provider.js";
 import { useWorkspaceDialogs } from "./workspace-dialogs.js";
+import { useProviders } from "../../provider/component/provider-connections-context.js";
 
 const navigation = [
   { path: "/", label: "Home", icon: House },
@@ -30,6 +31,10 @@ const navigation = [
 export function WorkspaceShell() {
   const { profile, signOut: endSession } = useSession();
   const agents = useAgents();
+  const providers = useProviders();
+  const hasVerifiedProvider =
+    !providers.isError &&
+    providers.data?.some((provider) => provider.status === "verified");
   const { open } = useWorkspaceDialogs();
   const cache = useQueryClient();
   const { pathname } = useLocation();
@@ -152,8 +157,12 @@ export function WorkspaceShell() {
           <div className="topbar-right">
             <span className="topbar-caption">Your team, in one place.</span>
             <IconButton
-              label="Model providers — connection not available yet"
-              className="provider-button"
+              label={
+                hasVerifiedProvider
+                  ? "Model providers — connection verified"
+                  : "Model providers — no verified connection"
+              }
+              className={`provider-button ${hasVerifiedProvider ? "connected" : ""}`}
               onClick={() => open({ kind: "provider" })}
             >
               <Plug aria-hidden="true" />

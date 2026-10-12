@@ -15,22 +15,28 @@ import { LoginPage } from "../../session/page/login-page.js";
 import { UpdatesPage } from "../../update/page/updates-page.js";
 import { WorkspaceDialogsProvider } from "../../workspace/component/workspace-dialogs.js";
 import { WorkspaceShell } from "../../workspace/component/workspace-shell.js";
+import type { ProviderConnections } from "../../provider/interface/provider-connections.js";
+import { ProviderConnectionsProvider } from "../../provider/component/provider-connections-context.js";
 
 /** Application composition accepts capabilities, making real and test transports interchangeable. */
 export function Application({
   session,
   directory,
+  connections,
   queryClient,
 }: {
   session: BrowserSession;
   directory: AgentDirectory;
+  connections: ProviderConnections;
   queryClient: QueryClient;
 }) {
   return (
     <QueryClientProvider client={queryClient}>
       <SessionProvider session={session}>
         <AgentDirectoryProvider directory={directory}>
-          <AuthenticatedRoutes />
+          <ProviderConnectionsProvider connections={connections}>
+            <AuthenticatedRoutes />
+          </ProviderConnectionsProvider>
         </AgentDirectoryProvider>
       </SessionProvider>
     </QueryClientProvider>

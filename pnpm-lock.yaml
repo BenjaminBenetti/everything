@@ -66,6 +66,12 @@ importers:
         specifier: 7.0.2
         version: 7.0.2
 
+  lib/provider-contracts:
+    devDependencies:
+      typescript:
+        specifier: 7.0.2
+        version: 7.0.2
+
   lib/security:
     dependencies:
       jose:
@@ -112,6 +118,9 @@ importers:
 
   services/everything:
     dependencies:
+      '@anthropic-ai/sdk':
+        specifier: 0.129.0
+        version: 0.129.0
       '@earendil-works/pi-coding-agent':
         specifier: 1.1.0
         version: 1.1.0(@aws-sdk/credential-provider-node@3.972.85)(@smithy/hash-node@4.5.2)(@smithy/signature-v4@5.7.4)(ws@8.22.0)
@@ -124,6 +133,9 @@ importers:
       '@everything/persistence':
         specifier: workspace:*
         version: link:../../lib/persistence
+      '@everything/provider-contracts':
+        specifier: workspace:*
+        version: link:../../lib/provider-contracts
       '@everything/security':
         specifier: workspace:*
         version: link:../../lib/security
@@ -145,6 +157,9 @@ importers:
       fastify:
         specifier: 5.12.5
         version: 5.12.5
+      openai:
+        specifier: 7.19.0
+        version: 7.19.0(@aws-sdk/credential-provider-node@3.972.85)(@smithy/hash-node@4.5.2)(@smithy/signature-v4@5.7.4)(undici@8.10.2)(ws@8.22.0)
       pg:
         specifier: 8.23.1
         version: 8.23.1
@@ -180,6 +195,9 @@ importers:
       '@everything/agent-contracts':
         specifier: workspace:*
         version: link:../../lib/agent-contracts
+      '@everything/provider-contracts':
+        specifier: workspace:*
+        version: link:../../lib/provider-contracts
       '@everything/security':
         specifier: workspace:*
         version: link:../../lib/security

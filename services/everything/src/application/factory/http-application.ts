@@ -24,12 +24,17 @@ import {
 import { strictRequestValidation } from "../../http/config/request-validation.js";
 import { errorHandler } from "../../http/handler/error-handler.js";
 import { identityController } from "../../identity/controller/identity-controller.js";
+import { providerController } from "../../provider/controller/provider-controller.js";
+import { chatGptCallbackController } from "../../provider/controller/chatgpt-callback-controller.js";
+import type { ProviderConnections } from "../../provider/interface/provider-connections.js";
 
 /** Use cases and transport settings supplied by the composition root. */
 export interface HttpDependencies {
   readonly verifier: TokenVerifier;
   readonly sessions: SessionOperations;
   readonly publicOrigin: string;
+  readonly chatGptRedirectUri: string;
+  readonly providers: ProviderConnections;
   readonly agents: Omit<AgentCatalog, "delete">;
   readonly profiles: AgentEditing;
   readonly removal: AgentRemoval;
@@ -47,8 +52,20 @@ export async function createHttpApplication(
     bodyLimit: 64 * 1024,
     requestTimeout: 15_000,
     logger: {
+      serializers: {
+        /** OAuth codes belong only in the protected callback flow, never access logs. */
+        req(request) {
+          return {
+            method: request.method,
+            url: request.url.split("?")[0] ?? "",
+            remoteAddress: request.ip,
+          };
+        },
+      },
       redact: [
         "req.body.password",
+        "req.body.apiKey",
+        "req.body.callback",
         "req.headers.authorization",
         "req.headers.cookie",
         "res.headers.set-cookie",
@@ -61,6 +78,11 @@ export async function createHttpApplication(
   await app.register(rateLimit, { max: 120, timeWindow: "1 minute" });
   app.setErrorHandler(errorHandler);
   await healthController(app, dependencies.readiness);
+  await chatGptCallbackController(
+    app,
+    dependencies.publicOrigin,
+    dependencies.chatGptRedirectUri,
+  );
   const cookie = new SessionCookie(dependencies.publicOrigin);
   await app.register(
     async (scope) => sessionController(scope, dependencies.sessions, cookie),
@@ -90,6 +112,7 @@ function protectedApi(
       reply.header("Cache-Control", "no-store");
     });
     await identityController(scope);
+    await providerController(scope, dependencies.providers);
     await conversationController(scope, dependencies.conversations);
     await agentController(scope, dependencies.agents, dependencies.removal);
     await agentEditingController(scope, dependencies.profiles);

@@ -17,6 +17,7 @@
       "required": [
         "image",
         "publicOrigin",
+        "externalHostname",
         "realm",
         "databaseCredentialsSecret",
         "ingress",
@@ -43,6 +44,11 @@
         "publicOrigin": {
           "type": "string",
           "pattern": "^https?://[^/]+$"
+        },
+        "externalHostname": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9.-]*$"
         },
         "realm": {
           "type": "string",

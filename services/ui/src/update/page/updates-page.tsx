@@ -13,7 +13,7 @@ export function UpdatesPage() {
       />
       <div className="updates-feed">
         <EmptyState icon={Check} title="No updates yet">
-          <p>Updates will appear here when conversations are available.</p>
+          <p>Updates will appear here when messaging is available.</p>
           <Link className="text-link" to="/team">
             View your team →
           </Link>

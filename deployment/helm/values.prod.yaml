@@ -11,6 +11,7 @@ global:
     registry: registry.example.com/everything
     tag: "0.1.0"
     pullPolicy: IfNotPresent
-  publicOrigin: https://everything.example.com
+  externalHostname: everything.example.com
+  publicOrigin: "https://{{ .Values.global.externalHostname }}"
   ingress:
-    host: everything.example.com
+    host: "{{ .Values.global.externalHostname }}"

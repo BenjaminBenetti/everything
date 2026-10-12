@@ -11,6 +11,7 @@ export interface ApplicationConfig {
   readonly issuer: string;
   readonly audience: string;
   readonly publicOrigin: string;
+  readonly chatGptRedirectUri: string;
   readonly protocolUrl: string;
   readonly clientId: string;
   readonly clientSecret: string;
@@ -39,6 +40,7 @@ export function loadApplicationConfig(
     jwksUrl: settings.OIDC_JWKS_URL,
     audience: settings.OIDC_AUDIENCE,
     publicOrigin: settings.PUBLIC_ORIGIN,
+    chatGptRedirectUri: settings.CHATGPT_REDIRECT_URI,
     protocolUrl: settings.OIDC_PROTOCOL_URL,
     clientId: settings.OIDC_CLIENT_ID,
     clientSecret: settings.OIDC_CLIENT_SECRET,

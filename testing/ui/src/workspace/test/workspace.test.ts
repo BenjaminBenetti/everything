@@ -107,10 +107,13 @@ test("real sign-in, all non-chat pages, themes, deep links, and sign-out", async
     page.getByRole("button", { name: "Notification settings" }),
   ).toBeFocused();
   await page.getByRole("button", { name: /Model providers/ }).click();
-  await expect(page.getByRole("dialog")).toContainText(
-    "No account is connected",
-  );
-  await page.getByRole("button", { name: "Got it" }).click();
+  for (const name of ["ChatGPT", "Claude", "OpenAI-compatible API"])
+    await expect(
+      page
+        .getByRole("dialog")
+        .getByRole("button", { name: new RegExp("^" + name) }),
+    ).toBeVisible();
+  await page.getByRole("button", { name: "Close dialog", exact: true }).click();
   await navigate(page, "Home");
   await page.locator('button[aria-label="Open preferences"]:visible').click();
   await expect(

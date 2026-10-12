@@ -1,4 +1,4 @@
 {{ .Release.Name }} is installed in namespace {{ .Release.Namespace }}.
 
-The application is served at {{ .Values.global.publicOrigin }}, with Keycloak under /auth.
+The application is served at {{ tpl .Values.global.publicOrigin . }}, with Keycloak under /auth.
 Persistent volume claims are kept when the release is uninstalled; delete them explicitly to discard data.

@@ -7,6 +7,10 @@
     "build"
   ],
   "exports": {
+    "./oidc": {
+      "types": "./build/auth/factory/oidc-identity-verifier.d.ts",
+      "default": "./build/auth/factory/oidc-identity-verifier.js"
+    },
     "./identity": {
       "types": "./build/auth/model/identity.d.ts",
       "default": "./build/auth/model/identity.js"

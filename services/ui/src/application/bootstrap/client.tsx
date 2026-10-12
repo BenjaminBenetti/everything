@@ -5,10 +5,12 @@ import { QueryClient } from "@tanstack/react-query";
 import { createBrowserSession } from "@everything/security/browser";
 import { initializeTheme } from "@everything/ui/theme";
 import { HttpAgentDirectory } from "../../agent/adapter/http-agent-directory.js";
+import { HttpProviderConnections } from "../../provider/adapter/http-provider-connections.js";
 import { createAuthenticatedTransport } from "../../http/adapter/authenticated-transport.js";
 import { Application } from "../component/application.js";
 import { ApplicationErrorBoundary } from "../component/error-boundary.js";
 import "../../workspace/style/application.css";
+import "../../provider/style/provider.css";
 
 initializeTheme();
 const element = document.getElementById("root");
@@ -26,6 +28,9 @@ async function bootstrap(): Promise<void> {
           <Application
             session={session}
             directory={directory}
+            connections={
+              new HttpProviderConnections(createAuthenticatedTransport())
+            }
             queryClient={new QueryClient()}
           />
         </BrowserRouter>

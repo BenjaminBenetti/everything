@@ -1,0 +1,174 @@
+/* ===========================================
+   Provider connection dialog
+   =========================================== */
+
+.provider-dialog {
+  width: min(560px, calc(100vw - 28px));
+  max-width: 560px;
+}
+.provider-check-note {
+  margin: 20px 0 0;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-default);
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.provider-picker {
+  display: grid;
+  gap: 10px;
+}
+.provider-option {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) 16px;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-panel);
+  background: var(--surface-subtle);
+  text-align: left;
+}
+.provider-option:hover {
+  border-color: var(--border-active);
+  background: var(--surface-panel);
+}
+.provider-option-copy {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+.provider-option-copy strong {
+  font-size: 15px;
+  font-weight: 600;
+}
+.provider-option-arrow {
+  width: 16px;
+  height: 16px;
+  color: var(--text-secondary);
+}
+.provider-back {
+  padding: 0;
+  margin: -12px 0 12px;
+  font-size: 12px;
+  gap: 6px;
+}
+.provider-back svg {
+  width: 16px;
+  height: 16px;
+}
+.connection-page {
+  min-width: 0;
+}
+.provider-option-description,
+.connection-detail,
+.connection-return p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.connection-icon {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--border-default);
+  border-radius: 10px;
+  color: var(--text-primary);
+}
+.connection-icon > svg {
+  width: 19px;
+  height: 19px;
+}
+.connection-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.connection-status svg {
+  width: 13px;
+  height: 13px;
+}
+.connection-status.verified,
+.provider-button.connected {
+  color: var(--status-connected);
+}
+.connection-status.error {
+  color: var(--text-danger);
+}
+.connection-status.checking {
+  color: var(--text-accent);
+}
+.connection-detail {
+  margin-top: 10px;
+}
+.connection-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+.connection-actions .button {
+  font-size: 12px;
+}
+.connection-form,
+.connection-return {
+  margin-top: 18px;
+}
+.connection-form .field {
+  margin-bottom: 16px;
+}
+.connection-form input,
+.connection-return input {
+  min-width: 0;
+}
+.connection-advanced summary,
+.connection-return summary {
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 8px 0;
+}
+.connection-advanced[open] .field,
+.connection-return .field {
+  margin-top: 10px;
+}
+.connection-usage {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 12px;
+  font-size: 12px;
+}
+.connection-usage svg {
+  width: 12px;
+  height: 12px;
+}
+.connection-page .form-error {
+  margin-bottom: 0;
+}
+
+/* ===========================================
+   Phone layout
+   =========================================== */
+
+@media (max-width: 550px) {
+  .provider-option {
+    padding: 14px;
+    grid-template-columns: 30px minmax(0, 1fr) 16px;
+    gap: 10px;
+  }
+  .connection-icon {
+    width: 30px;
+    height: 30px;
+  }
+  .connection-actions {
+    gap: 6px;
+  }
+}
