@@ -1,28 +1,22 @@
 import { useState, type FormEvent, type KeyboardEvent } from "react";
-import { ArrowUp, Square } from "lucide-react";
+import { ArrowUp } from "lucide-react";
 import { Button } from "@everything/ui/button";
 import { messageTextMaxLength } from "@everything/conversation-contracts";
 
-/** Keep the draft on failure and expose sending and interruption as explicit actions. */
+/** Keep the draft on failure and expose sending as an explicit action. */
 export function MessageComposer({
   name,
   disabled,
   sending,
-  running,
-  stopping,
   onSend,
-  onStop,
 }: {
   name: string;
   disabled: boolean;
   sending: boolean;
-  running: boolean;
-  stopping: boolean;
   onSend: (text: string) => Promise<unknown>;
-  onStop: () => void;
 }) {
   const [draft, setDraft] = useState("");
-  const canSend = !!draft.trim() && !disabled && !sending && !stopping;
+  const canSend = !!draft.trim() && !disabled && !sending;
 
   /** Clear only the submitted draft after persistence succeeds, retaining text typed during the request. */
   async function submit(event: FormEvent<HTMLFormElement>): Promise<void> {
@@ -66,22 +60,7 @@ export function MessageComposer({
         aria-describedby="composer-help"
       />
       <div className="chat-composer-actions">
-        <p id="composer-help">
-          {running
-            ? "A new message stops the current reply."
-            : "Enter to send · Shift+Enter for a new line"}
-        </p>
-        {running && (
-          <Button
-            type="button"
-            variant="light"
-            disabled={stopping || sending}
-            onClick={onStop}
-          >
-            <Square aria-hidden="true" />
-            {stopping ? "Stopping…" : "Stop reply"}
-          </Button>
-        )}
+        <p id="composer-help">Enter to send · Shift+Enter for a new line</p>
         <Button type="submit" disabled={!canSend} aria-label="Send message">
           <ArrowUp aria-hidden="true" />
           <span>{sending ? "Sending…" : "Send"}</span>

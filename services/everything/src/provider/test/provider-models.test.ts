@@ -144,8 +144,11 @@ test("compatible catalogs support keyless servers, filter non-text models, and b
     model: "configured-model",
   };
   const discovery = new HttpModelDiscovery(async (input, init) => {
-    assert.equal(String(input), "http://model.test/v1/models");
     assert.equal(new Headers(init?.headers).has("authorization"), false);
+    // A single listed model also prompts a look at llama.cpp's running limits.
+    if (String(input) === "http://model.test/props")
+      return new Response(null, { status: 404 });
+    assert.equal(String(input), "http://model.test/v1/models");
     return Response.json({
       data: [
         { id: "text-model" },

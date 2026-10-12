@@ -34,7 +34,9 @@ test("ChatGPT uses owner-specific OAuth with the public Responses protocol and s
     },
     {
       /** Selection validation is exercised by provider-model tests. */
-      async validate() {},
+      async select(_ownerId, selection) {
+        return { id: selection.model, name: selection.model };
+      },
     },
     new PiModelCapabilities(await createModelRuntime()),
     async (input, init) => {
@@ -118,7 +120,9 @@ test("Claude uses the official messages endpoint and maps selected effort throug
     },
     {
       /** Runtime behavior is independent from separately tested availability validation. */
-      async validate() {},
+      async select(_ownerId, selection) {
+        return { id: selection.model, name: selection.model };
+      },
     },
     new PiModelCapabilities(await createModelRuntime()),
     async (input, init) => {
@@ -187,7 +191,9 @@ test("local Qwen effort choices reach the compatible API and Default leaves the 
     },
     {
       /** The provider API regression covers validation of each supported effort. */
-      async validate() {},
+      async select(_ownerId, selection) {
+        return { id: selection.model, name: selection.model };
+      },
     },
     new PiModelCapabilities(await createModelRuntime()),
     async (input, init) => {

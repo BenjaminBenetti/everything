@@ -5,6 +5,7 @@ import type {
 } from "@everything/provider-contracts/inference";
 import type { ProviderAccess } from "../interface/provider-access.js";
 import type {
+  DiscoveredModel,
   ModelCapabilities,
   ProviderModelDiscovery,
   ProviderModels,
@@ -33,13 +34,9 @@ export class ProviderModelService implements ProviderModels {
 
   /** Fetch the owner's catalog; expose neither credentials nor upstream failure details. */
   async list(ownerId: string, provider: ProviderId): Promise<ProviderModel[]> {
-    const connection = await this.connections.access(ownerId, provider);
-    try {
-      const models = await this.discovery.discover(provider, connection);
-      return models.map((model) => this.capabilities.describe(provider, model));
-    } catch {
-      throw new ProviderModelsError();
-    }
+    return (await this.discover(ownerId, provider)).map((model) =>
+      this.capabilities.describe(provider, model),
+    );
   }
 
   /** Validate the complete selection again at save time, including its ownership scope. */
@@ -47,10 +44,41 @@ export class ProviderModelService implements ProviderModels {
     ownerId: string,
     selection: InferenceSelection,
   ): Promise<void> {
-    const model = (await this.list(ownerId, selection.provider)).find(
+    await this.select(ownerId, selection);
+  }
+
+  /** Validate a selection against a fresh catalog, returning the model with the limits it reports. */
+  async select(
+    ownerId: string,
+    selection: InferenceSelection,
+  ): Promise<DiscoveredModel> {
+    const model = (await this.discover(ownerId, selection.provider)).find(
       (item) => item.id === selection.model,
     );
-    if (!model?.efforts.includes(selection.effort))
+    if (
+      !model ||
+      !this.capabilities
+        .describe(selection.provider, model)
+        .efforts.includes(selection.effort)
+    )
       throw new InferenceSelectionError();
+    return model;
+  }
+
+  // ===========================================
+  // Discovery
+  // ===========================================
+
+  /** Discover the owner's models, hiding upstream failure details. */
+  private async discover(
+    ownerId: string,
+    provider: ProviderId,
+  ): Promise<DiscoveredModel[]> {
+    const connection = await this.connections.access(ownerId, provider);
+    try {
+      return await this.discovery.discover(provider, connection);
+    } catch {
+      throw new ProviderModelsError();
+    }
   }
 }

@@ -5,9 +5,11 @@ import { DeploymentEntity } from "../../deployment/schema/deployment-entity.js";
 import { RevisionEntity } from "../../revision/schema/revision-entity.js";
 import {
   ViewGrantEntity,
+  ViewPassEntity,
   ViewSessionEntity,
 } from "../../viewing/schema/view-entities.js";
 import { Artifacts1792022400000 } from "../migration/1792022400000-artifacts.js";
+import { ViewPasses1792108800000 } from "../migration/1792108800000-view-passes.js";
 
 /** Connection settings for one PostgreSQL database. */
 export interface DatabaseConnectionSettings {
@@ -44,8 +46,9 @@ export function createArtifactDatabase(
       DeploymentEntity,
       ViewGrantEntity,
       ViewSessionEntity,
+      ViewPassEntity,
     ],
-    migrations: [Artifacts1792022400000],
+    migrations: [Artifacts1792022400000, ViewPasses1792108800000],
     migrationsTableName: "artifact_migrations",
     migrationsTransactionMode: "all",
     synchronize: false,

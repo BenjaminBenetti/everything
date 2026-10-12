@@ -25,6 +25,8 @@ export const artifactLimits = {
   envValueLength: 4096,
   /** Largest disk a dynamic artifact can request, in GiB. */
   diskGi: 50,
+  /** Longest path, with its query, that a view link or teammate pass may open inside an artifact. */
+  viewPathLength: 2048,
 } as const;
 
 /** Lowercase letters, digits, and inner hyphens; slugs name an artifact's link. */
@@ -259,6 +261,26 @@ export interface ArtifactViewInput {
   readonly slug: string;
   /** Path inside the artifact, starting with `/`; the artifact's root when omitted. */
   readonly path?: string;
+}
+
+/** Request for a teammate's pass to view one artifact. */
+export interface ArtifactViewPassInput {
+  /** Path inside the artifact, starting with `/`; the artifact's root when omitted. */
+  readonly path?: string;
+}
+
+/**
+ * A short-lived pass with which a teammate views one artifact from inside the cluster, as the user
+ * sees it. Paths are on the artifact host; the caller knows how its teammates reach that host.
+ */
+export interface ArtifactViewPass {
+  /** Secret to send as `Authorization: Bearer`; it opens only this artifact, until `expiresAt`. */
+  readonly token: string;
+  /** Path of the requested page on the artifact host, such as `/report/docs/`. */
+  readonly path: string;
+  /** Path on the artifact host that stores the pass in a browser cookie, then opens `path`. */
+  readonly signInPath: string;
+  readonly expiresAt: string;
 }
 
 /** A failure body returned by the artifact service and the Everything API. */

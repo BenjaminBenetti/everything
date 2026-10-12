@@ -1,12 +1,13 @@
 import envSchema from "env-schema";
 import { Type, type Static } from "typebox";
+import { workspaceMountPath } from "@everything/workspace-contracts/mount";
 import { WorkspaceFiles } from "../../workspace/service/workspace-files.js";
 import { BashRunner } from "../../shell/service/bash-runner.js";
 import { createHttpApplication } from "../factory/http-application.js";
 
 const settingsSchema = Type.Object({
   PORT: Type.Integer({ default: 8080, minimum: 1, maximum: 65535 }),
-  WORKSPACE_DIRECTORY: Type.String({ const: "/workspace" }),
+  WORKSPACE_DIRECTORY: Type.String({ const: workspaceMountPath }),
   WORKSPACE_TOKEN: Type.String({ pattern: "^[a-f0-9]{64}$" }),
 });
 

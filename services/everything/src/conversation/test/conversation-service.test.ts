@@ -70,6 +70,8 @@ function fixture() {
       return {
         id: "session-" + agent.id,
         compacting: false,
+        lastToolName: undefined,
+        typing: false,
         /** Remain active until aborted, or reject to simulate a provider failure. */
         async prompt(text) {
           if (text === "error") throw new Error("secret provider detail");

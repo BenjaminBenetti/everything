@@ -4,6 +4,7 @@ import {
   fileReadInput,
   fileWriteInput,
 } from "@everything/workspace-contracts";
+import { workspaceMountPath } from "@everything/workspace-contracts/mount";
 import type { WorkspaceTools } from "../../workspace/interface/workspace-tools.js";
 
 export const workspaceToolNames = {
@@ -49,7 +50,9 @@ export function workspaceTools(workspace: WorkspaceTools, agentId: string) {
       name: workspaceToolNames.bash,
       label: "Run Bash",
       description:
-        "Run a Bash command in your teammate pod. The workspace is /workspace. Optional cwd is relative to it. Defaults to a 30-second timeout (maximum 120). Returns stdout/stderr, exit status, and truncation/timeout flags. Processes are stopped when the command completes or is interrupted; use artifacts for persistent apps.",
+        `Run a Bash command in your teammate pod. The workspace is ${workspaceMountPath}, which is also HOME. Optional cwd is relative to it. Defaults to a 30-second timeout (maximum 120). Returns stdout/stderr, exit status, and truncation/timeout flags. Processes are stopped when the command completes or is interrupted; use artifacts for persistent apps. ` +
+        "Installed: Node.js with npm, Python 3 with pip and venv, Ruby with gem and bundler, Go, gcc/g++/make, git, curl, jq, and Chromium (`chromium --headless --screenshot=shot.png <url>`; its D-Bus errors are harmless). Puppeteer finds Chromium automatically; Playwright needs `executablePath: process.env.CHROME_PATH`. " +
+        "There is no root or apt-get. User-level installs (pip install --user, npm install -g, gem install, go install) persist in ~/.local and are on PATH; download and build caches in /tmp are cleared when the pod restarts.",
       parameters: bashInput,
       /** Execute outside Everything and propagate interruption. */
       async execute(_id, input, signal) {

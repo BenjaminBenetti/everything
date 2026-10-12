@@ -12,7 +12,10 @@ export const artifactViewBody = Type.Object(
       maxLength: artifactLimits.slugLength,
     }),
     path: Type.Optional(
-      Type.String({ pattern: "^/(?!/)[^\\\\\\s]*$", maxLength: 2048 }),
+      Type.String({
+        pattern: "^/(?!/)[^\\\\\\s]*$",
+        maxLength: artifactLimits.viewPathLength,
+      }),
     ),
   },
   { additionalProperties: false },

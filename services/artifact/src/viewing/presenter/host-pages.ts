@@ -57,4 +57,9 @@ export const hostMessages = {
     title: "Sign in to view this artifact",
     message: "Open the artifact from Everything to sign in.",
   },
+  passExpired: {
+    title: "This teammate link has expired",
+    message:
+      "Teammate links work for a few minutes. Get a new link to keep viewing this artifact.",
+  },
 } as const;

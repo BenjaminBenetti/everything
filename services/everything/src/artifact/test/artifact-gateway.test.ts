@@ -13,11 +13,15 @@ import { ArtifactLibraryService } from "../service/artifact-library-service.js";
 import { ArtifactWorkbench } from "../service/artifact-workbench.js";
 
 const tokens = { token: async () => "service-token" };
+const addresses = {
+  url: "http://artifact:8081",
+  hostUrl: "http://artifact.everything.svc.cluster.local:8080",
+};
 
 test("the gateway authenticates as the service and names the acting teammate", async () => {
   const requests: { url: string; init: RequestInit }[] = [];
   const gateway = new HttpArtifactGateway(
-    "http://artifact:8081",
+    addresses,
     tokens,
     async (url, init = {}) => {
       requests.push({ url: String(url), init });
@@ -45,14 +49,11 @@ test("the gateway authenticates as the service and names the acting teammate", a
 });
 
 test("the gateway reports the artifact service's failures with their codes and messages", async () => {
-  const gateway = new HttpArtifactGateway(
-    "http://artifact:8081",
-    tokens,
-    async () =>
-      Response.json(
-        { code: "RELEASE_CONFLICT", message: "Release 3 by Ada is live now." },
-        { status: 409 },
-      ),
+  const gateway = new HttpArtifactGateway(addresses, tokens, async () =>
+    Response.json(
+      { code: "RELEASE_CONFLICT", message: "Release 3 by Ada is live now." },
+      { status: 409 },
+    ),
   );
   await assert.rejects(gateway.get("owner", "site"), (error: unknown) => {
     assert.ok(error instanceof ArtifactRequestFailure);
@@ -63,7 +64,7 @@ test("the gateway reports the artifact service's failures with their codes and m
     return true;
   });
   const opaque = new HttpArtifactGateway(
-    "http://artifact:8081",
+    addresses,
     tokens,
     async () => new Response("bad gateway", { status: 502 }),
   );
@@ -159,4 +160,59 @@ test("browser endpoints list artifacts and open them, hiding artifact service de
     [unavailable.statusCode, unavailable.json().code],
     [503, "ARTIFACTS_UNAVAILABLE"],
   );
+});
+
+test("teammate passes are issued for the owner's artifact and resolved on the in-cluster artifact host", async () => {
+  const requests: { url: string; init: RequestInit }[] = [];
+  const gateway = new HttpArtifactGateway(
+    addresses,
+    tokens,
+    async (url, init = {}) => {
+      requests.push({ url: String(url), init });
+      return Response.json(
+        {
+          token: "everything_view_secret",
+          path: "/site/docs/",
+          signInPath: "/_teammate-access?token=everything_view_secret",
+          expiresAt: "2026-10-12T10:10:00.000Z",
+        },
+        { status: 201 },
+      );
+    },
+  );
+  const view = await new ArtifactWorkbench(gateway).view(
+    {
+      ownerId: "owner/1",
+      author: { id: "agent", name: "Ada" },
+      workspace: "/agents/agent",
+      privateDirectory: "/agents/agent/.pi",
+    },
+    "site",
+    { path: "/docs/" },
+  );
+  assert.deepEqual(view, {
+    url: "http://artifact.everything.svc.cluster.local:8080/site/docs/",
+    browserUrl:
+      "http://artifact.everything.svc.cluster.local:8080/_teammate-access?token=everything_view_secret",
+    token: "everything_view_secret",
+    expiresAt: "2026-10-12T10:10:00.000Z",
+  });
+  const headers = new Headers(requests[0]!.init.headers);
+  assert.equal(
+    requests[0]!.url,
+    "http://artifact:8081/internal/v1/owners/owner%2F1/artifacts/site/view-passes",
+  );
+  assert.equal(requests[0]!.init.method, "POST");
+  assert.equal(requests[0]!.init.body, JSON.stringify({ path: "/docs/" }));
+  assert.equal(headers.get("authorization"), "Bearer service-token");
+
+  const missing = new HttpArtifactGateway(addresses, tokens, async () =>
+    Response.json(
+      { code: "ARTIFACT_NOT_FOUND", message: "Artifact not found." },
+      { status: 404 },
+    ),
+  );
+  await assert.rejects(missing.viewPass("owner", "gone", {}), {
+    code: "ARTIFACT_NOT_FOUND",
+  });
 });

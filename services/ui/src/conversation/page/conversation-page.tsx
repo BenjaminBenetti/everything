@@ -42,12 +42,12 @@ export function ConversationPage() {
 /** Present the teammate's ongoing conversation alongside their profile and editing action. */
 function TeammateConversation({ agent }: { agent: Agent }) {
   const { open } = useWorkspaceDialogs();
-  const { history, snapshot, send, stop, older } = useConversation(agent.id);
+  const { history, snapshot, send, older } = useConversation(agent.id);
   const runtime = snapshot.data?.runtime;
-  const running = runtime?.status === "running";
+  // Only writing a message shows; other work stays out of sight.
+  const typing = runtime?.status === "running" && runtime.typing;
   const error =
     send.error?.message ??
-    stop.error?.message ??
     older.error?.message ??
     snapshot.error?.message ??
     runtime?.error;
@@ -68,20 +68,11 @@ function TeammateConversation({ agent }: { agent: Agent }) {
           hasOlder={!!history?.nextCursor}
           loadingOlder={older.isPending}
           sentMessageId={send.data?.messageId}
+          typing={typing}
           onOlder={() => older.mutateAsync(history!.nextCursor!)}
         />
       )}
       <div className="chat-footer">
-        <div className="chat-progress" role="status">
-          {running && (
-            <>
-              <span className="dot" />
-              {runtime?.compacting
-                ? "Summarizing earlier messages…"
-                : `${agent.name} is replying…`}
-            </>
-          )}
-        </div>
         {error && (
           <div className="chat-error" role="alert">
             <p>{error}</p>
@@ -116,16 +107,7 @@ function TeammateConversation({ agent }: { agent: Agent }) {
           name={agent.name}
           disabled={!agent.inference || snapshot.isPending || snapshot.isError}
           sending={send.isPending}
-          running={running}
-          stopping={stop.isPending}
-          onSend={(text) => {
-            stop.reset();
-            return send.mutateAsync(text);
-          }}
-          onStop={() => {
-            send.reset();
-            stop.mutate();
-          }}
+          onSend={(text) => send.mutateAsync(text)}
         />
       </div>
     </section>

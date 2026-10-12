@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import type {
   ArtifactView,
   ArtifactViewInput,
@@ -11,6 +11,8 @@ import type {
   ViewSessionRepository,
 } from "../interface/view-repositories.js";
 import {
+  artifactPathPattern,
+  credentialHash,
   grantLifetimeMs,
   viewSessionLifetimeMs,
 } from "../model/view-credential.js";
@@ -19,14 +21,6 @@ import {
 export interface RedeemedView {
   readonly sessionToken: string;
   readonly next: string;
-}
-
-/** A path inside an artifact, optionally with a query, that cannot leave the artifact host. */
-const artifactPath = /^\/(?!\/)[^\\\s]*$/;
-
-/** Hash a secret for storage and lookup. */
-function tokenHash(token: string): string {
-  return createHash("sha256").update(token).digest("hex");
 }
 
 /** Signs viewers in to the artifact host with one-time links issued for the signed-in user. */
@@ -53,13 +47,13 @@ export class ViewAccess {
     input: ArtifactViewInput,
   ): Promise<ArtifactView> {
     const path = input.path ?? "/";
-    if (!artifactPath.test(path)) throw new InvalidViewPathError();
+    if (!artifactPathPattern.test(path)) throw new InvalidViewPathError();
     if (!(await this.artifacts.findBySlug({ ownerId }, input.slug)))
       throw new ArtifactNotFoundError();
     const code = randomBytes(32).toString("base64url");
     await this.grants.create({
       ownerId,
-      tokenHash: tokenHash(code),
+      tokenHash: credentialHash(code),
       next: `/${input.slug}${path}`,
       expiresAt: new Date(Date.now() + grantLifetimeMs).toISOString(),
     });
@@ -68,12 +62,14 @@ export class ViewAccess {
 
   /** Use a link once and start a session; expired, used, and unknown links yield undefined. */
   async redeem(code: string): Promise<RedeemedView | undefined> {
-    const grant = await this.grants.consume({ tokenHash: tokenHash(code) });
+    const grant = await this.grants.consume({
+      tokenHash: credentialHash(code),
+    });
     if (!grant) return undefined;
     const sessionToken = randomBytes(32).toString("base64url");
     await this.sessions.create({
       ownerId: grant.ownerId,
-      tokenHash: tokenHash(sessionToken),
+      tokenHash: credentialHash(sessionToken),
       expiresAt: new Date(Date.now() + viewSessionLifetimeMs).toISOString(),
     });
     return { sessionToken, next: grant.next };
@@ -83,7 +79,7 @@ export class ViewAccess {
   async viewer(sessionToken: string | undefined): Promise<string | undefined> {
     if (!sessionToken) return undefined;
     return (
-      await this.sessions.findValid({ tokenHash: tokenHash(sessionToken) })
+      await this.sessions.findValid({ tokenHash: credentialHash(sessionToken) })
     )?.ownerId;
   }
 

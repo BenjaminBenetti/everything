@@ -10,6 +10,7 @@ import {
   type ArtifactWorkbench,
   type WorkbenchContext,
 } from "../../artifact/service/artifact-workbench.js";
+import type { TeammateArtifactView } from "../../artifact/interface/artifact-gateway.js";
 
 /** Tool names, shared by the prompt and the tool allowlist. */
 export const artifactToolNames = {
@@ -25,6 +26,7 @@ export const artifactToolNames = {
   deploy: "deploy_artifact",
   stop: "stop_artifact",
   logs: "get_artifact_logs",
+  view: "view_artifact",
 } as const;
 
 /** An artifact named by slug or ID. */
@@ -52,6 +54,23 @@ function variables(description: string, maxProperties: number) {
       { maxProperties, additionalProperties: false, description },
     ),
   );
+}
+
+/** Quote a value as one Bash word. */
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", `'\\''`)}'`;
+}
+
+/** The teammate pod's browser, run once per command without a display or sandbox. */
+const browser = "chromium --headless --no-sandbox";
+
+/** Ready-to-run commands that view an artifact from the teammate's pod with its pass. */
+function viewCommands(view: TeammateArtifactView) {
+  return {
+    fetch: `curl -sS -i -H ${shellQuote(`Authorization: Bearer ${view.token}`)} ${shellQuote(view.url)}`,
+    screenshot: `${browser} --window-size=1280,800 --screenshot=/tmp/screenshot.png ${shellQuote(view.browserUrl)}`,
+    renderedHtml: `${browser} --dump-dom ${shellQuote(view.browserUrl)}`,
+  };
 }
 
 /** A tool result the model reads as JSON. */
@@ -240,7 +259,7 @@ export function artifactTools(
       name: artifactToolNames.build,
       label: "Build artifact",
       description:
-        "Build a container image for a dynamic artifact from a directory in your workspace that holds a Dockerfile; .dockerignore is respected. The build runs in the background and this returns its number right away: follow it with get_artifact_build, then run it with deploy_artifact. The image must run as a non-root user, listen on the PORT variable, and serve the app under the BASE_PATH variable, which is the artifact's /slug prefix.",
+        "Build a container image for a dynamic artifact from a directory in your workspace that holds a Dockerfile; .dockerignore is respected. The build runs in the background and this returns its number right away: follow it with get_artifact_build, then run it with deploy_artifact. The image must run as a non-root user and listen on the PORT variable. Serve routes from /: requests arrive without the artifact's /slug prefix. Use the BASE_PATH variable, which holds that prefix, only to build absolute links and asset URLs, or use relative links; root-relative redirects are prefixed automatically.",
       parameters: Type.Object(
         {
           artifact: artifactReference,
@@ -297,7 +316,7 @@ export function artifactTools(
       name: artifactToolNames.deploy,
       label: "Deploy artifact",
       description:
-        "Run a successful build of a dynamic artifact as its next release; the latest successful build by default. Settings you leave out keep their current values; a first deployment uses port 8080, no variables, no database, and no disk. database: true gives the app its own PostgreSQL schema through DATABASE_URL and the PG* variables. diskGi mounts a persistent disk at /data; its size can't change once created. The app also receives PORT and BASE_PATH.",
+        "Run a successful build of a dynamic artifact as its next release; the latest successful build by default. Settings you leave out keep their current values; a first deployment uses port 8080, no variables, no database, and no disk. database: true gives the app its own PostgreSQL schema through DATABASE_URL and the PG* variables. diskGi mounts a persistent disk at /data; its size can't change once created. The app also receives PORT and BASE_PATH, the artifact's /slug prefix. Requests arrive without that prefix, so serve routes from / and use BASE_PATH only to build absolute links.",
       parameters: Type.Object(
         {
           artifact: artifactReference,
@@ -367,6 +386,31 @@ export function artifactTools(
           lines: parameters.lines ?? 200,
         });
         return reply(logs.text || "The app has no output yet.");
+      },
+    }),
+    defineTool({
+      name: artifactToolNames.view,
+      label: "View artifact",
+      description:
+        "Open an artifact from your pod the way the user sees it, to check that a publish or deployment works: read its HTML, call its API, or take a screenshot. Returns a pass that works for a few minutes, only for this artifact, and only inside the cluster. Send token as an Authorization: Bearer header to url, or open browserUrl in Chromium, which signs the browser in and then opens the page; call again for a new pass or another page. The result includes ready-to-run curl and Chromium commands for bash. These links don't work for the user, so share the artifact's own link instead.",
+      parameters: Type.Object(
+        {
+          artifact: artifactReference,
+          path: Type.Optional(
+            Type.String({
+              minLength: 1,
+              maxLength: artifactLimits.viewPathLength,
+              description:
+                "Page inside the artifact to open, starting with /, such as /docs/?tab=2. Defaults to its home page.",
+            }),
+          ),
+        },
+        { additionalProperties: false },
+      ),
+      async execute(_id, { artifact, ...input }, signal) {
+        signal?.throwIfAborted();
+        const view = await workbench.view(context, artifact, input);
+        return reply({ ...view, commands: viewCommands(view) });
       },
     }),
   ];

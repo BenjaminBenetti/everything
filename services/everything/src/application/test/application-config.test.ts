@@ -20,6 +20,7 @@ function environment(): NodeJS.ProcessEnv {
     WORKSPACE_TEMPLATE_NAME: "teammate",
     WORKSPACE_CLAIM_NAME: "everything-agents",
     ARTIFACT_SERVICE_URL: "http://artifact:8081",
+    ARTIFACT_HOST_URL: "http://artifact.everything.svc.cluster.local:8080",
     ARTIFACT_CLIENT_ID: "artifact-client",
     ARTIFACT_CLIENT_SECRET: "test-only",
   };
@@ -40,6 +41,8 @@ test("rejects invalid deployment input", () => {
     { AGENTS_DIRECTORY: undefined },
     { AGENTS_DIRECTORY: "relative/agents" },
     { ARTIFACT_SERVICE_URL: "http://artifact:8081/path" },
+    { ARTIFACT_HOST_URL: undefined },
+    { ARTIFACT_HOST_URL: "http://artifact:8080/" },
     { ARTIFACT_CLIENT_SECRET: undefined },
   ])
     assert.throws(() =>

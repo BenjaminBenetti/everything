@@ -1,5 +1,9 @@
 import type { AgentSession } from "../interface/agent-session.js";
-import { replyDeliveryPrompt } from "../prompt/reply-delivery-prompt.js";
+import {
+  outcomeDeliveryPrompt,
+  replyDeliveryPrompt,
+} from "../prompt/reply-delivery-prompt.js";
+import { sendMessageToolName } from "../tool/send-message-tool.js";
 
 /** Require deliberate delivery for user turns without treating private model text as a reply. */
 export class ReplyingAgentSession implements AgentSession {
@@ -29,19 +33,36 @@ export class ReplyingAgentSession implements AgentSession {
     return this.session.compacting;
   }
 
+  /** Forward the tool the latest prompt, or its reminder, finished last. */
+  get lastToolName(): string | undefined {
+    return this.session.lastToolName;
+  }
+
+  /** Forward whether a message to the user is being written, including during a reminder. */
+  get typing(): boolean {
+    return this.session.typing;
+  }
+
   // ===========================================
   // User turns
   // ===========================================
 
-  /** Give an undelivered answer one corrective turn, then fail instead of silently completing. */
+  /**
+   * Give an undelivered answer one corrective turn, then fail instead of silently completing. A turn
+   * that replied early, such as confirming a task, but kept working after its last message gets one
+   * reminder to report the outcome.
+   */
   async prompt(text: string): Promise<void> {
     this.stopped = false;
     const before = this.deliveredCount();
     await this.session.prompt(text);
-    if (this.stopped || this.deliveredCount() > before) return;
-    await this.session.prompt(replyDeliveryPrompt);
-    if (!this.stopped && this.deliveredCount() === before)
-      throw new Error("The teammate did not deliver a reply");
+    if (this.stopped) return;
+    if (this.deliveredCount() === before) {
+      await this.session.prompt(replyDeliveryPrompt);
+      if (!this.stopped && this.deliveredCount() === before)
+        throw new Error("The teammate did not deliver a reply");
+    } else if (this.session.lastToolName !== sendMessageToolName)
+      await this.session.prompt(outcomeDeliveryPrompt);
   }
 
   /** Stop both ordinary generation and any pending delivery correction. */

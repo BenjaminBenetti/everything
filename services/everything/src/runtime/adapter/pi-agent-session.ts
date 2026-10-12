@@ -1,5 +1,9 @@
 import type { AgentSession as PiSession } from "@earendil-works/pi-coding-agent";
 import type { AgentSession } from "../interface/agent-session.js";
+import { sendMessageToolName } from "../tool/send-message-tool.js";
+
+/** An event a Pi session reports while it works. */
+type PiSessionEvent = Parameters<Parameters<PiSession["subscribe"]>[0]>[0];
 
 /** Adapts a native Pi session to the application's runtime contract. */
 export class PiAgentSession implements AgentSession {
@@ -9,6 +13,8 @@ export class PiAgentSession implements AgentSession {
 
   readonly id: string;
   private cancellation: AbortController | undefined;
+  private lastTool: string | undefined;
+  private writing = false;
 
   // ===========================================
   // Construction
@@ -28,14 +34,28 @@ export class PiAgentSession implements AgentSession {
     return this.session.isCompacting;
   }
 
+  /** The tool the latest prompt finished last, in completion order. */
+  get lastToolName(): string | undefined {
+    return this.lastTool;
+  }
+
+  /** Whether the model is writing a message to the user, until that message is delivered. */
+  get typing(): boolean {
+    return this.writing;
+  }
+
   /** Run through compaction/recovery and surface safe failures, including swallowed summary errors. */
   async prompt(text: string): Promise<void> {
     const cancellation = new AbortController();
     this.cancellation = cancellation;
+    this.lastTool = undefined;
+    this.writing = false;
     let compactionFailed = false;
     const unsubscribe = this.session.subscribe((event) => {
       if (event.type === "compaction_end" && event.errorMessage)
         compactionFailed = true;
+      if (event.type === "tool_execution_end") this.lastTool = event.toolName;
+      this.followTyping(event);
     });
     try {
       await this.session.prompt(text, {
@@ -53,6 +73,7 @@ export class PiAgentSession implements AgentSession {
     } finally {
       unsubscribe();
       this.cancellation = undefined;
+      this.writing = false;
     }
   }
 
@@ -65,5 +86,42 @@ export class PiAgentSession implements AgentSession {
   /** Release Pi listeners and resources. */
   dispose(): void {
     this.session.dispose();
+  }
+
+  // ===========================================
+  // Typing
+  // ===========================================
+
+  /**
+   * Follow a message to the user from the first streamed part of its send_message call until the
+   * call delivers it. Other output, a response that calls no tools, or a failed call ends it.
+   */
+  private followTyping(event: PiSessionEvent): void {
+    if (event.type === "message_update") {
+      const update = event.assistantMessageEvent;
+      if (
+        update.type === "toolcall_start" ||
+        update.type === "toolcall_delta"
+      ) {
+        // Some providers name the tool only in a later part of the call.
+        const block = update.partial.content[update.contentIndex];
+        this.writing =
+          block?.type === "toolCall" && block.name === sendMessageToolName;
+      } else if (
+        update.type === "text_start" ||
+        update.type === "thinking_start"
+      )
+        this.writing = false;
+    } else if (
+      event.type === "message_end" &&
+      event.message.role === "assistant" &&
+      event.message.stopReason !== "toolUse"
+    )
+      this.writing = false;
+    else if (
+      event.type === "tool_execution_end" &&
+      event.toolName === sendMessageToolName
+    )
+      this.writing = false;
   }
 }

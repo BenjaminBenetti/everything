@@ -27,6 +27,8 @@ export const environmentSchema = Type.Object({
   WORKSPACE_CLAIM_NAME: required,
   /** Internal API of the artifact service, reachable inside the cluster. */
   ARTIFACT_SERVICE_URL: Type.String({ pattern: "^https?://[^/]+$" }),
+  /** The artifact host as teammate pods reach it inside the cluster, over plain HTTP. */
+  ARTIFACT_HOST_URL: Type.String({ pattern: "^https?://[^/]+$" }),
   /** Keycloak client whose service account calls the artifact service. */
   ARTIFACT_CLIENT_ID: required,
   ARTIFACT_CLIENT_SECRET: required,

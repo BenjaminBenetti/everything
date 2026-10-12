@@ -8,15 +8,23 @@ import type { ArtifactRepository } from "../../artifact/interface/artifact-repos
 import type { ContentStore } from "../../content/interface/content-store.js";
 import type { ArtifactProxy } from "../adapter/artifact-proxy.js";
 import type { ViewCookie } from "../handler/view-cookie.js";
+import type { ViewPassCredentials } from "../handler/view-pass-credentials.js";
+import {
+  viewPassSignInPath,
+  type ArtifactViewer,
+} from "../model/view-credential.js";
 import { hostMessages, hostPage } from "../presenter/host-pages.js";
 import type { StaticSite } from "../service/static-site.js";
 import type { ViewAccess } from "../service/view-access.js";
+import type { ViewPasses } from "../service/view-passes.js";
 
-/** What the artifact host needs to sign viewers in and serve artifacts. */
+/** What the artifact host needs to sign viewers and teammates in and serve artifacts. */
 export interface ArtifactHostDependencies {
-  readonly access: ViewAccess;
+  readonly access: Pick<ViewAccess, "redeem" | "viewer">;
   readonly cookie: ViewCookie;
-  readonly artifacts: Pick<ArtifactRepository, "findBySlug">;
+  readonly passes: Pick<ViewPasses, "find">;
+  readonly passCredentials: ViewPassCredentials;
+  readonly artifacts: Pick<ArtifactRepository, "findBySlug" | "getById">;
   readonly site: StaticSite;
   readonly content: Pick<ContentStore, "open">;
   readonly proxy: ArtifactProxy;
@@ -26,6 +34,12 @@ export interface ArtifactHostDependencies {
 
 /** Accepted slugs in artifact paths. */
 const slugPattern = new RegExp(artifactSlugPattern);
+
+/**
+ * Sign-in links are the host's only unauthenticated operations that touch storage, so only they are
+ * rate limited; signed-in viewers browse artifacts without limits.
+ */
+const signInLimit = { rateLimit: { max: 120, timeWindow: "1 minute" } };
 
 /** Send a short explanatory page. */
 function explain(
@@ -49,13 +63,36 @@ function isNavigation(request: FastifyRequest): boolean {
     : (request.headers.accept ?? "").includes("text/html");
 }
 
-/** Register the artifact host: sign-in links, static files, and forwarding to dynamic artifacts. */
+/**
+ * Register the artifact host: sign-in links for users and teammates, static files, and forwarding to
+ * dynamic artifacts.
+ */
 export async function artifactHostController(
   app: FastifyInstance,
   dependencies: ArtifactHostDependencies,
 ): Promise<void> {
-  const { access, cookie, artifacts, site, content, proxy, publicOrigin } =
-    dependencies;
+  const {
+    access,
+    cookie,
+    passes,
+    passCredentials,
+    artifacts,
+    site,
+    content,
+    proxy,
+    publicOrigin,
+  } = dependencies;
+
+  /** Who the request views artifacts as: the signed-in user, or else the teammate whose pass it sends. */
+  async function viewer(
+    request: FastifyRequest,
+    passToken: string | undefined,
+  ): Promise<ArtifactViewer | undefined> {
+    const ownerId = await access.viewer(cookie.read(request));
+    if (ownerId) return { ownerId, artifactId: null };
+    const pass = await passes.find(passToken);
+    return pass && { ownerId: pass.ownerId, artifactId: pass.artifactId };
+  }
 
   /** Send a stored file with validators, so unchanged files are not downloaded again. */
   async function sendFile(
@@ -99,8 +136,7 @@ export async function artifactHostController(
 
   app.get<{ Querystring: { code?: string } }>(
     "/_access",
-    // Redeeming a link is the host's only unauthenticated operation that touches storage.
-    { config: { rateLimit: { max: 120, timeWindow: "1 minute" } } },
+    { config: signInLimit },
     async (request, reply) => {
       const code = request.query.code;
       const redeemed =
@@ -112,6 +148,32 @@ export async function artifactHostController(
       return reply
         .header("Cache-Control", "no-store")
         .redirect(redeemed.next, 303);
+    },
+  );
+
+  app.get<{ Querystring: { token?: string } }>(
+    viewPassSignInPath,
+    { config: signInLimit },
+    async (request, reply) => {
+      const token =
+        typeof request.query.token === "string"
+          ? request.query.token
+          : undefined;
+      const pass = await passes.find(token);
+      const artifact =
+        pass &&
+        (await artifacts.getById({ ownerId: pass.ownerId }, pass.artifactId));
+      if (!token || !pass || !artifact)
+        return explain(reply, 403, hostMessages.passExpired);
+      passCredentials.write(
+        request,
+        reply,
+        { token, expiresAt: pass.expiresAt },
+        artifact.slug,
+      );
+      return reply
+        .header("Cache-Control", "no-store")
+        .redirect(`/${artifact.slug}${pass.path}`, 303);
     },
   );
 
@@ -139,10 +201,22 @@ export async function artifactHostController(
       queryStart === -1 ? request.url : request.url.slice(0, queryStart)
     ).slice(slug.length + 1);
     const query = queryStart === -1 ? "" : request.url.slice(queryStart);
-    const ownerId = await access.viewer(cookie.read(request));
-    if (!ownerId) return signIn(request, reply, slug, rawPath + query);
-    const artifact = await artifacts.findBySlug({ ownerId }, slug);
-    if (!artifact) return explain(reply, 404, hostMessages.notFound);
+    const passToken = passCredentials.read(request);
+    const signedIn = await viewer(request, passToken);
+    if (!signedIn)
+      return passToken
+        ? explain(reply, 401, hostMessages.passExpired)
+        : signIn(request, reply, slug, rawPath + query);
+    const artifact = await artifacts.findBySlug(
+      { ownerId: signedIn.ownerId },
+      slug,
+    );
+    // A pass for another artifact sees the same answer as a missing one.
+    if (
+      !artifact ||
+      (signedIn.artifactId !== null && signedIn.artifactId !== artifact.id)
+    )
+      return explain(reply, 404, hostMessages.notFound);
     if (artifact.kind === "dynamic") {
       if (artifact.liveDeployment === null)
         return explain(reply, 503, hostMessages.unpublished);

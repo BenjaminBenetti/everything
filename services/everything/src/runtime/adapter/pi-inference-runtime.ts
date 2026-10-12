@@ -27,7 +27,7 @@ export class PiInferenceRuntimeFactory implements InferenceRuntimeFactory {
   /** Receive account access, selection validation, model metadata, and replaceable transport. */
   constructor(
     private readonly connections: ProviderAccess,
-    private readonly choices: Pick<ProviderModels, "validate">,
+    private readonly choices: Pick<ProviderModels, "select">,
     private readonly capabilities: RuntimeModelCatalog,
     private readonly fetcher: typeof fetch = fetch,
   ) {}
@@ -36,12 +36,15 @@ export class PiInferenceRuntimeFactory implements InferenceRuntimeFactory {
   // Runtime preparation
   // ===========================================
 
-  /** Pin the selected model and refresh connection access before every inference request. */
+  /**
+   * Pin the selected model with the limits its server reports, and refresh connection access before
+   * every inference request.
+   */
   async create(
     ownerId: string,
     selection: InferenceSelection,
   ): Promise<InferenceRuntime> {
-    await this.choices.validate(ownerId, selection);
+    const discovered = await this.choices.select(ownerId, selection);
     const connection = await this.connections.access(
       ownerId,
       selection.provider,
@@ -51,6 +54,7 @@ export class PiInferenceRuntimeFactory implements InferenceRuntimeFactory {
       selection.provider,
       selection.model,
       baseUrl,
+      discovered,
     );
     const models = await ModelRuntime.create({
       credentials: new InMemoryCredentialStore(),

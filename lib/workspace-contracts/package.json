@@ -10,6 +10,10 @@
     ".": {
       "types": "./build/workspace/schema/operations.d.ts",
       "default": "./build/workspace/schema/operations.js"
+    },
+    "./mount": {
+      "types": "./build/workspace/model/mount.d.ts",
+      "default": "./build/workspace/model/mount.js"
     }
   },
   "scripts": {

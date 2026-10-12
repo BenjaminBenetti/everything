@@ -22,12 +22,15 @@ import { PostgresRevisionRepository } from "../../revision/repository/postgres-r
 import { RevisionService } from "../../revision/service/revision-service.js";
 import { ArtifactProxy } from "../../viewing/adapter/artifact-proxy.js";
 import { ViewCookie } from "../../viewing/handler/view-cookie.js";
+import { ViewPassCredentials } from "../../viewing/handler/view-pass-credentials.js";
 import {
   PostgresViewGrantRepository,
+  PostgresViewPassRepository,
   PostgresViewSessionRepository,
 } from "../../viewing/repository/postgres-view-repositories.js";
 import { StaticSite } from "../../viewing/service/static-site.js";
 import { ViewAccess } from "../../viewing/service/view-access.js";
+import { ViewPasses } from "../../viewing/service/view-passes.js";
 import { loadApplicationConfig } from "../config/application-config.js";
 import { createInternalApplication } from "../factory/internal-application.js";
 import { createPublicApplication } from "../factory/public-application.js";
@@ -86,6 +89,10 @@ async function main(): Promise<void> {
     new PostgresViewSessionRepository(database),
     config.artifactOrigin,
   );
+  const passes = new ViewPasses(
+    lookup,
+    new PostgresViewPassRepository(database),
+  );
   const artifacts = new ArtifactService(
     artifactRepository,
     revisionRepository,
@@ -124,22 +131,26 @@ async function main(): Promise<void> {
     ),
     content,
     access,
+    passes,
     /** Check the durable backing store before advertising readiness. */
     readiness: async () => {
       await database.getRepository(ArtifactEntity).exists();
     },
   });
   const cookie = new ViewCookie(config.artifactOrigin);
+  const passCredentials = new ViewPassCredentials();
   const host = await createPublicApplication({
     access,
     cookie,
+    passes,
+    passCredentials,
     artifacts: artifactRepository,
     site: new StaticSite(revisionRepository),
     content,
-    proxy: new ArtifactProxy(
-      config.cluster.artifactNamespace,
-      cookie.privateCookies,
-    ),
+    proxy: new ArtifactProxy(config.cluster.artifactNamespace, [
+      ...cookie.privateCookies,
+      passCredentials.cookieName,
+    ]),
     publicOrigin: config.publicOrigin,
   });
 
@@ -148,9 +159,10 @@ async function main(): Promise<void> {
     new PeriodicTask("Workload reconciliation", 5 * 60 * 1000, () =>
       reconciler.reconcileAll(),
     ),
-    new PeriodicTask("View credential cleanup", 60 * 60 * 1000, () =>
-      access.purge(),
-    ),
+    new PeriodicTask("View credential cleanup", 60 * 60 * 1000, async () => {
+      await access.purge();
+      await passes.purge();
+    }),
   ];
   internal.addHook("onClose", async () => {
     await Promise.all(tasks.map((task) => task.stop()));

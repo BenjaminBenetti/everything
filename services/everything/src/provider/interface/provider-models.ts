@@ -11,10 +11,23 @@ export interface ProviderModels {
   list(ownerId: string, provider: ProviderId): Promise<ProviderModel[]>;
   /** Reject models and efforts outside the owner's available catalog. */
   validate(ownerId: string, selection: InferenceSelection): Promise<void>;
+  /** Validate a selection and return its model as discovered, with any limits its provider reports. */
+  select(
+    ownerId: string,
+    selection: InferenceSelection,
+  ): Promise<DiscoveredModel>;
 }
 
-/** Provider-advertised model identity, independent of runtime implementation. */
-export interface DiscoveredModel {
+/** Token limits a provider reports for one of its models; absent values are unknown. */
+export interface ModelLimits {
+  /** Tokens one request may hold, prompt and response together, as the server runs the model. */
+  readonly contextWindow?: number;
+  /** Most tokens one response may generate, reasoning included. */
+  readonly maxOutputTokens?: number;
+}
+
+/** Provider-advertised model identity and limits, independent of runtime implementation. */
+export interface DiscoveredModel extends ModelLimits {
   readonly id: string;
   readonly name: string;
 }

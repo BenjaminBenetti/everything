@@ -3,6 +3,7 @@ import { Readable } from "node:stream";
 import { test } from "node:test";
 import fastifyCookie from "@fastify/cookie";
 import Fastify from "fastify";
+import { ArtifactLookup } from "../../artifact/service/artifact-lookup.js";
 import {
   ada,
   file,
@@ -13,78 +14,17 @@ import {
 import {
   prefixedLocation,
   withoutCookies,
+  withoutHostCredentials,
   type ArtifactProxy,
 } from "../adapter/artifact-proxy.js";
 import { artifactHostController } from "../controller/artifact-host-controller.js";
 import { ViewCookie } from "../handler/view-cookie.js";
-import type {
-  ViewGrantRepository,
-  ViewSessionRepository,
-} from "../interface/view-repositories.js";
-import type { ViewGrant, ViewSession } from "../model/view-credential.js";
+import { ViewPassCredentials } from "../handler/view-pass-credentials.js";
+import { credentialHash } from "../model/view-credential.js";
 import { StaticSite } from "../service/static-site.js";
 import { ViewAccess } from "../service/view-access.js";
-
-/** In-memory view links and sessions with the same one-time and expiry rules as PostgreSQL. */
-function memoryCredentials(): {
-  grants: ViewGrantRepository;
-  sessions: ViewSessionRepository;
-} {
-  const grants: ViewGrant[] = [];
-  const sessions: ViewSession[] = [];
-  const now = () => new Date().toISOString();
-  return {
-    grants: {
-      getById: async () => undefined,
-      list: async () => [...grants],
-      delete: async () => {},
-      async create(grant) {
-        grants.push({
-          ...grant,
-          id: String(grants.length),
-          createdAt: now(),
-          usedAt: null,
-        });
-      },
-      async consume({ tokenHash }) {
-        const grant = grants.find(
-          (entry) =>
-            entry.tokenHash === tokenHash &&
-            !entry.usedAt &&
-            entry.expiresAt > now(),
-        );
-        if (!grant) return undefined;
-        Object.assign(grant, { usedAt: now() });
-        return grant;
-      },
-      async purge({ expiredBefore }) {
-        grants.splice(
-          0,
-          grants.length,
-          ...grants.filter((entry) => entry.expiresAt >= expiredBefore),
-        );
-      },
-    },
-    sessions: {
-      getById: async () => undefined,
-      list: async () => [...sessions],
-      delete: async () => {},
-      async create(session) {
-        sessions.push({
-          ...session,
-          id: String(sessions.length),
-          createdAt: now(),
-        });
-      },
-      async findValid({ tokenHash }) {
-        return sessions.find(
-          (entry) => entry.tokenHash === tokenHash && entry.expiresAt > now(),
-        );
-      },
-      async purge() {},
-    },
-  };
-}
+import { ViewPasses } from "../service/view-passes.js";
+import { expire, memoryCredentials } from "./view-fixture.js";
 
 test("static paths serve files, directory indexes, trailing-slash redirects, and 404.html", async () => {
   const artifacts = new MemoryArtifacts();
@@ -189,7 +129,7 @@ test("the artifact host signs viewers in, serves files with validators, and expl
     { ownerId: owner, artifactId: site.id },
     { number: 1, author: ada, files: [page], totalSize: 5 },
   );
-  const { grants, sessions } = memoryCredentials();
+  const { grants, sessions, passes } = memoryCredentials();
   const access = new ViewAccess(
     artifacts,
     grants,
@@ -202,6 +142,8 @@ test("the artifact host signs viewers in, serves files with validators, and expl
   await artifactHostController(app, {
     access,
     cookie: new ViewCookie("http://localhost:8081"),
+    passes: new ViewPasses(new ArtifactLookup(artifacts), passes),
+    passCredentials: new ViewPassCredentials(),
     artifacts,
     site: new StaticSite(revisions),
     content: { open: async () => Readable.from(["hello"]) },
@@ -266,4 +208,218 @@ test("the artifact host signs viewers in, serves files with validators, and expl
     (await app.inject({ url: "/missing/", headers })).statusCode,
     404,
   );
+});
+
+test("forwarded requests drop the host's credentials and keep the artifact's own Authorization", () => {
+  const privateCookies = [
+    "everything-artifact-session",
+    "everything-teammate-pass",
+  ];
+  const pass = "everything_view_secret";
+  assert.deepEqual(
+    withoutHostCredentials(
+      {
+        authorization: `Bearer ${pass}`,
+        cookie: `theme=dark; everything-teammate-pass=${pass}`,
+        accept: "text/html",
+      },
+      privateCookies,
+    ),
+    { cookie: "theme=dark", accept: "text/html" },
+  );
+  assert.deepEqual(
+    withoutHostCredentials(
+      {
+        authorization: "Bearer app-token",
+        cookie: "everything-artifact-session=s",
+      },
+      privateCookies,
+    ),
+    { authorization: "Bearer app-token" },
+  );
+});
+
+test("a teammate pass opens one existing artifact of its owner, is stored hashed, and expires", async () => {
+  const artifacts = new MemoryArtifacts();
+  const site = artifacts.add("static", "site");
+  const { passes: repository, storedPasses } = memoryCredentials();
+  const passes = new ViewPasses(new ArtifactLookup(artifacts), repository);
+
+  const issued = await passes.issue(owner, "site", { path: "/docs/?tab=1" });
+  assert.match(issued.token, /^everything_view_[A-Za-z0-9_-]{43}$/);
+  assert.equal(issued.path, "/site/docs/?tab=1");
+  assert.equal(issued.signInPath, `/_teammate-access?token=${issued.token}`);
+  const lifetime = Date.parse(issued.expiresAt) - Date.now();
+  assert.ok(lifetime > 9 * 60_000 && lifetime <= 10 * 60_000);
+  assert.deepEqual(
+    [storedPasses[0]!.tokenHash, storedPasses[0]!.artifactId],
+    [credentialHash(issued.token), site.id],
+  );
+  assert.ok(!JSON.stringify(storedPasses).includes(issued.token));
+  assert.equal((await passes.find(issued.token))?.ownerId, owner);
+  assert.equal((await passes.issue(owner, site.id, {})).path, "/site/");
+
+  for (const token of [undefined, "", "forged", "everything_view_forged"])
+    assert.equal(await passes.find(token), undefined);
+  for (const [ownerId, reference] of [
+    [owner, "missing"],
+    ["someone-else", "site"],
+    ["someone-else", site.id],
+  ] as const)
+    await assert.rejects(passes.issue(ownerId, reference, {}), {
+      code: "ARTIFACT_NOT_FOUND",
+    });
+  for (const path of ["//evil.test/", "no-slash", "/a\\b", "/a b"])
+    await assert.rejects(passes.issue(owner, "site", { path }), {
+      code: "INVALID_VIEW_PATH",
+    });
+
+  expire(storedPasses[0]!);
+  assert.equal(await passes.find(issued.token), undefined);
+  await passes.purge();
+  assert.equal(storedPasses.length, 1, "only the expired pass is purged");
+});
+
+/** The artifact host with a static site, a running and a stopped app, and a recording proxy. */
+async function teammateHost(context: {
+  after: (cleanup: () => unknown) => void;
+}) {
+  const artifacts = new MemoryArtifacts();
+  const revisions = new MemoryRevisions();
+  const site = artifacts.add("static", "site", { liveRevision: 1 });
+  artifacts.add("dynamic", "app", { liveDeployment: 1, running: true });
+  const foreign = artifacts.add("static", "foreign", {
+    ownerId: "someone-else",
+    liveRevision: 1,
+  });
+  for (const artifact of [site, foreign])
+    await revisions.create(
+      { ownerId: artifact.ownerId, artifactId: artifact.id },
+      { number: 1, author: ada, files: [file("index.html", 5)], totalSize: 5 },
+    );
+  const {
+    grants,
+    sessions,
+    passes: repository,
+    storedPasses,
+  } = memoryCredentials();
+  const passes = new ViewPasses(new ArtifactLookup(artifacts), repository);
+  const forwarded: { slug: string; path: string }[] = [];
+  const host = Fastify({ trustProxy: true });
+  context.after(() => host.close());
+  await host.register(fastifyCookie);
+  await artifactHostController(host, {
+    access: new ViewAccess(
+      artifacts,
+      grants,
+      sessions,
+      "http://localhost:8081",
+    ),
+    cookie: new ViewCookie("http://localhost:8081"),
+    passes,
+    passCredentials: new ViewPassCredentials(),
+    artifacts,
+    site: new StaticSite(revisions),
+    content: { open: async () => Readable.from(["hello"]) },
+    proxy: {
+      forward: (_request, reply, artifact, path) => {
+        forwarded.push({ slug: artifact.slug, path });
+        return reply.send("from the app");
+      },
+    } as ArtifactProxy,
+    publicOrigin: "http://localhost:8080",
+  });
+  return { host, passes, storedPasses, forwarded };
+}
+
+test("a teammate pass views its static or dynamic artifact as a bearer token, and nothing else", async (context) => {
+  const { host, passes, storedPasses, forwarded } = await teammateHost(context);
+  const bearer = (token: string) => ({ authorization: `Bearer ${token}` });
+  const sitePass = await passes.issue(owner, "site", {});
+  const served = await host.inject({
+    url: "/site/",
+    headers: bearer(sitePass.token),
+  });
+  assert.deepEqual([served.statusCode, served.body], [200, "hello"]);
+  for (const url of ["/app/", "/foreign/", "/missing/"]) {
+    const refused = await host.inject({ url, headers: bearer(sitePass.token) });
+    assert.equal(refused.statusCode, 404, url);
+    assert.match(refused.body, /Artifact not found/);
+  }
+
+  const appPass = await passes.issue(owner, "app", {});
+  const proxied = await host.inject({
+    method: "POST",
+    url: "/app/api/items?limit=2",
+    headers: { ...bearer(appPass.token), "content-type": "application/json" },
+    payload: "{}",
+  });
+  assert.equal(proxied.body, "from the app");
+  assert.deepEqual(forwarded, [{ slug: "app", path: "/api/items?limit=2" }]);
+
+  const forged = await host.inject({
+    url: "/site/",
+    headers: bearer("everything_view_forged"),
+  });
+  assert.equal(forged.statusCode, 401);
+  assert.match(forged.body, /teammate link has expired/);
+  expire(storedPasses[0]!);
+  assert.equal(
+    (await host.inject({ url: "/site/", headers: bearer(sitePass.token) }))
+      .statusCode,
+    401,
+  );
+  for (const headers of [
+    bearer("app-token"),
+    { cookie: "everything-teammate-pass=set-by-an-app" },
+  ]) {
+    const notAPass = await host.inject({ url: "/site/", headers });
+    assert.match(notAPass.body, /Sign in to view this artifact/);
+  }
+});
+
+test("a teammate's browser link stores the pass in a cookie over plain HTTP and opens the page", async (context) => {
+  const { host, passes, forwarded } = await teammateHost(context);
+  const pass = await passes.issue(owner, "app", { path: "/dashboard?x=1" });
+  const signedIn = await host.inject({ url: pass.signInPath });
+  assert.equal(signedIn.statusCode, 303);
+  assert.equal(signedIn.headers.location, "/app/dashboard?x=1");
+  const cookie = signedIn.cookies.find(
+    (entry) => entry.name === "everything-teammate-pass",
+  )!;
+  assert.deepEqual(
+    [
+      cookie.value,
+      cookie.path,
+      cookie.httpOnly,
+      cookie.sameSite,
+      cookie.secure,
+    ],
+    [pass.token, "/app", true, "Lax", undefined],
+  );
+  assert.ok(cookie.maxAge! > 9 * 60 && cookie.maxAge! <= 10 * 60);
+  const reused = await host.inject({ url: pass.signInPath });
+  assert.equal(reused.statusCode, 303, "the link works until the pass expires");
+
+  const browsed = await host.inject({
+    url: "/app/dashboard?x=1",
+    headers: { cookie: `everything-teammate-pass=${cookie.value}` },
+  });
+  assert.equal(browsed.body, "from the app");
+  assert.deepEqual(forwarded, [{ slug: "app", path: "/dashboard?x=1" }]);
+
+  const secure = await host.inject({
+    url: pass.signInPath,
+    headers: { "x-forwarded-proto": "https" },
+  });
+  assert.equal(secure.cookies[0]?.secure, true);
+  for (const url of [
+    "/_teammate-access",
+    "/_teammate-access?token=everything_view_forged",
+    `/_teammate-access?token=${pass.token}&token=${pass.token}`,
+  ]) {
+    const refused = await host.inject({ url });
+    assert.equal(refused.statusCode, 403, url);
+    assert.match(refused.body, /teammate link has expired/);
+  }
 });

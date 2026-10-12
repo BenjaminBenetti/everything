@@ -16,6 +16,4 @@ export interface ConversationClient {
   status(agentId: string, signal?: AbortSignal): Promise<RuntimeStatus>;
   /** Save input and begin a turn using the teammate's saved model settings. */
   send(agentId: string, text: string): Promise<MessageReceipt>;
-  /** Stop the active reply while retaining all saved messages. */
-  interrupt(agentId: string): Promise<RuntimeStatus>;
 }

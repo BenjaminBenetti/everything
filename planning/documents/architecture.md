@@ -125,7 +125,7 @@ The artifact service keeps the full source of every static revision and every bu
 
 ### Agent tools
 
-Main agents manage artifacts only through these tools, which call the artifact service's internal API. Directory paths are relative to the calling agent's workspace; paths that resolve outside it, including through symbolic links, are refused.
+Main agents manage artifacts only through these tools, which call the artifact service's internal API. Directory paths are relative to the calling agent's workspace, or absolute under `/workspace` as its pod names it; paths that resolve outside it or into its private `.pi` directory, including through symbolic links, are refused.
 
 | Tool | Kind | Purpose |
 | --- | --- | --- |
@@ -141,12 +141,13 @@ Main agents manage artifacts only through these tools, which call the artifact s
 | `deploy_artifact` | Dynamic | Make a build live with its port, environment, database, disk, and health-check settings. Defaults to the latest successful build. |
 | `stop_artifact` | Dynamic | Stop the artifact's pod and keep its database and disk. |
 | `get_artifact_logs` | Dynamic | Show recent container logs, including those from the last crash. |
+| `view_artifact` | Both | Return a short-lived pass and in-cluster links that open the artifact from the main agent's own pod as the user sees it, with ready-to-run curl and headless Chromium commands for reading its HTML, calling its API, or taking a screenshot. |
 
 Builds return immediately so a main agent stays responsive to the user, and waiting tools return early when the user interrupts. A later version may wake the main agent when a build finishes.
 
 `publish_artifact` and `deploy_artifact` accept an optional `basedOn` release. If another main agent has released the artifact since, the call fails with a conflict naming the newer release and its author; the caller checks it out, merges its changes, and tries again. The artifact service applies one change per artifact at a time.
 
-The main-agent prompt says to look for an existing artifact before creating another, and how dynamic artifacts must behave: listen on `PORT`, respect `BASE_PATH`, and run without root.
+The main-agent prompt says to look for an existing artifact before creating another, and how dynamic artifacts must behave: listen on `PORT`, serve routes from `/` because requests arrive without the artifact's prefix, use `BASE_PATH` only to build absolute links and asset URLs, and run without root. It also says to check an artifact with `view_artifact` after publishing or deploying, before sharing its link.
 
 Images are always built by the artifact service from uploaded source; nothing pushes images to the registry directly. A way for main agents to query an artifact's database while debugging is deferred.
 
@@ -159,7 +160,7 @@ Images are always built by the artifact service from uploaded source; nothing pu
 
 Each artifact pod receives:
 
-- `PORT`, the port it must listen on, and `BASE_PATH`, the path prefix it is served under.
+- `PORT`, the port it must listen on, and `BASE_PATH`, the artifact's `/slug` prefix. The artifact service removes that prefix before forwarding a request, so the app serves its routes from `/` and uses `BASE_PATH` only to build absolute links and asset URLs. Root-relative redirects are kept under the prefix.
 - When it requests a database, its own PostgreSQL role and schema in the `artifact_data` database, as `DATABASE_URL` and the standard `PG*` variables. The role owns only that schema, uses it as its search path, and has a connection limit.
 - When it requests a disk, a persistent volume mounted at `/data`.
 - A writable `/tmp`.
@@ -182,6 +183,7 @@ Locally, the artifact origin is `http://localhost:8081`: the same hostname on a 
 - Static revisions are served from the content store: `index.html` by default, content types from file extensions, and ETags from content hashes.
 - Requests for a dynamic artifact are forwarded to its Service with the slug prefix removed and `X-Forwarded-Prefix` set. The artifact service removes its own and the application's login cookies before forwarding, keeping the artifact's own cookies and headers, and keeps root-relative redirects under the artifact's path. WebSockets are not forwarded yet.
 - The UI lists artifacts through the Everything API, which calls the artifact service, so Everything remains the browser's only login authority.
+- Main agents view artifacts from their own pods with short-lived passes that Everything requests from the artifact service's internal API on their behalf; pods never hold Keycloak credentials. A pass is opaque, stored hashed, limited to one artifact of one owner, and valid for ten minutes. It is sent as a bearer token, or a sign-in link stores it in a cookie for a headless browser; the cookie is `Secure` only over HTTPS because main agents reach the artifact host over plain HTTP inside the cluster. The artifact host strips the pass before forwarding to a dynamic artifact and leaves the app's own `Authorization` headers alone.
 
 Everything authenticates to the artifact service's internal API with a Keycloak service client, verified through `@everything/security`. Each call carries the user's scope and the acting main agent for authorship. The internal API is reachable only inside the cluster.
 

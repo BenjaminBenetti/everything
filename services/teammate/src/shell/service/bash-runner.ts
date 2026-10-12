@@ -6,6 +6,7 @@ import {
 } from "@everything/workspace-contracts";
 import type { WorkspaceDirectories } from "../../workspace/interface/workspace-files.js";
 import type { CommandRunner } from "../interface/command-runner.js";
+import { commandEnvironment } from "../model/command-environment.js";
 import { WorkspaceBusyError } from "../../workspace/error/workspace-errors.js";
 
 /** Execute commands in the teammate container, with bounded output and process-group cancellation. */
@@ -16,23 +17,32 @@ export class BashRunner implements CommandRunner {
 
   private active: AbortController | undefined;
 
-  /** Receive workspace path policy and a container-wide descendant cleanup operation. */
+  /**
+   * Receive workspace path policy, a container-wide descendant cleanup operation, and the variables
+   * commands inherit, which default to the allowlisted part of this process's environment.
+   */
   constructor(
     private readonly files: WorkspaceDirectories,
     private readonly reap: () => void = () => {},
+    private readonly environment = commandEnvironment(process.env),
   ) {}
 
   // ===========================================
   // Execution
   // ===========================================
 
-  /** Run Bash with a clean environment and kill descendants on timeout, interruption, or completion. */
+  /**
+   * Run Bash with only the allowlisted environment and the workspace as HOME, so user-level installs
+   * and settings land in one place whatever the working directory. Kill descendants on timeout,
+   * interruption, or completion.
+   */
   async run(input: BashInput, signal?: AbortSignal): Promise<BashResult> {
     signal?.throwIfAborted();
     if (this.active) throw new WorkspaceBusyError();
     const cancellation = new AbortController();
     this.active = cancellation;
     try {
+      const home = await this.files.directory();
       const cwd = await this.files.directory(input.cwd);
       signal?.throwIfAborted();
       return await new Promise<BashResult>((resolve, reject) => {
@@ -43,12 +53,7 @@ export class BashRunner implements CommandRunner {
             cwd,
             detached: true,
             stdio: ["ignore", "pipe", "pipe"],
-            env: {
-              PATH: "/usr/local/bin:/usr/bin:/bin",
-              HOME: cwd,
-              TMPDIR: "/tmp",
-              LANG: "C.UTF-8",
-            },
+            env: { ...this.environment, HOME: home },
           },
         );
         const chunks: Buffer[] = [];

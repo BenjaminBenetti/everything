@@ -9,15 +9,17 @@ import type {
   ArtifactKind,
   ArtifactLogs,
   ArtifactSummary,
+  ArtifactViewPassInput,
   DeployInput,
 } from "@everything/artifact-contracts";
 import type {
   ArtifactActor,
   ArtifactGateway,
   LogChoice,
+  TeammateArtifactView,
 } from "../interface/artifact-gateway.js";
 import { checkoutFiles } from "./artifact-checkout.js";
-import { workspaceDirectory } from "./workspace-path.js";
+import { inWorkspace, workspaceDirectory } from "./workspace-path.js";
 import { snapshotDirectory, type Snapshot } from "./workspace-snapshot.js";
 
 /** The teammate using artifact tools: its owner, identity, and working directory. */
@@ -108,6 +110,15 @@ export class ArtifactWorkbench {
     return this.gateway.delete(this.actor(context), reference);
   }
 
+  /** Get a short-lived pass with which the teammate opens one artifact from its pod, as the user sees it. */
+  view(
+    context: WorkbenchContext,
+    reference: string,
+    input: ArtifactViewPassInput,
+  ): Promise<TeammateArtifactView> {
+    return this.gateway.viewPass(context.ownerId, reference, input);
+  }
+
   // ===========================================
   // Source
   // ===========================================
@@ -128,11 +139,16 @@ export class ArtifactWorkbench {
       ...(input.revision !== undefined ? { revision: input.revision } : {}),
       ...(input.build !== undefined ? { build: input.build } : {}),
     });
-    await checkoutFiles(
-      target,
-      source.files,
-      (hash) => this.gateway.readContent(hash),
-      input.overwrite ?? false,
+    await inWorkspace(context, () =>
+      checkoutFiles(
+        target,
+        source.files,
+        (hash) => this.gateway.readContent(hash),
+        {
+          overwrite: input.overwrite ?? false,
+          privateDirectory: context.privateDirectory,
+        },
+      ),
     );
     return {
       directory: path.relative(context.workspace, target) || ".",
@@ -262,48 +278,55 @@ export class ArtifactWorkbench {
   // Uploads
   // ===========================================
 
-  /** Snapshot a workspace directory and upload content the artifact service does not have. */
-  private async upload(
+  /** Snapshot a workspace directory without its private state, and upload content the service lacks. */
+  private upload(
     context: WorkbenchContext,
     directory: string,
     options: { dockerignore: boolean; alwaysInclude?: readonly string[] },
   ): Promise<Snapshot> {
-    const root = await this.directory(context, directory, true);
-    const snapshot = await snapshotDirectory(root, {
-      ...options,
-      exclude: [context.privateDirectory],
-    });
-    const missing = new Set(
-      await this.gateway.missingContent(
-        snapshot.files.map((file) => file.sha256),
-      ),
-    );
-    const pending = snapshot.files.filter((file) => {
-      if (!missing.has(file.sha256)) return false;
-      missing.delete(file.sha256);
-      return true;
-    });
-    for (let index = 0; index < pending.length; index += uploadConcurrency)
-      await Promise.all(
-        pending
-          .slice(index, index + uploadConcurrency)
-          .map(async (file) =>
-            this.gateway.uploadContent(
-              file.sha256,
-              await openAsBlob(file.absolutePath),
-            ),
-          ),
+    return inWorkspace(context, async () => {
+      const root = await this.directory(context, directory, true);
+      const snapshot = await snapshotDirectory(root, {
+        ...options,
+        exclude: [context.privateDirectory],
+      });
+      const missing = new Set(
+        await this.gateway.missingContent(
+          snapshot.files.map((file) => file.sha256),
+        ),
       );
-    return snapshot;
+      const pending = snapshot.files.filter((file) => {
+        if (!missing.has(file.sha256)) return false;
+        missing.delete(file.sha256);
+        return true;
+      });
+      for (let index = 0; index < pending.length; index += uploadConcurrency)
+        await Promise.all(
+          pending
+            .slice(index, index + uploadConcurrency)
+            .map(async (file) =>
+              this.gateway.uploadContent(
+                file.sha256,
+                await openAsBlob(file.absolutePath),
+              ),
+            ),
+        );
+      return snapshot;
+    });
   }
 
-  /** Resolve a directory inside the teammate's workspace. */
+  /**
+   * Resolve a directory the teammate named, relative to its workspace or under `/workspace`,
+   * refusing its private state.
+   */
   private directory(
     context: WorkbenchContext,
     directory: string,
     mustExist: boolean,
   ): Promise<string> {
-    return workspaceDirectory(context.workspace, directory, { mustExist });
+    return inWorkspace(context, () =>
+      workspaceDirectory(context, directory, { mustExist }),
+    );
   }
 
   /** The teammate acting on the owner's artifacts. */

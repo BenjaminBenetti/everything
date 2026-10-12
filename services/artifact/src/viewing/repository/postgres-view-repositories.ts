@@ -12,10 +12,19 @@ import type {
   ExpiredScope,
   TokenScope,
   ViewGrantRepository,
+  ViewPassRepository,
   ViewSessionRepository,
 } from "../interface/view-repositories.js";
-import type { ViewGrant, ViewSession } from "../model/view-credential.js";
-import { ViewGrantEntity, ViewSessionEntity } from "../schema/view-entities.js";
+import type {
+  ViewGrant,
+  ViewPass,
+  ViewSession,
+} from "../model/view-credential.js";
+import {
+  ViewGrantEntity,
+  ViewPassEntity,
+  ViewSessionEntity,
+} from "../schema/view-entities.js";
 
 /** Scope a credential query to one token or to expired credentials. */
 function credentialWhere(
@@ -138,6 +147,59 @@ export class PostgresViewSessionRepository
 
   /** Sessions contain no persistence-only fields. */
   protected toEntity(record: ViewSession): ViewSession {
+    return record;
+  }
+}
+
+/** Persist teammate passes. */
+export class PostgresViewPassRepository
+  extends BaseRepository<ViewPass, CredentialScope>
+  implements ViewPassRepository
+{
+  // ===========================================
+  // Construction
+  // ===========================================
+
+  /** Bind the ORM repository; passes are never listed in order. */
+  constructor(database: DataSource) {
+    super(database.getRepository(ViewPassEntity), {});
+  }
+
+  // ===========================================
+  // Operations
+  // ===========================================
+
+  /** Save a new pass. */
+  async create(pass: Omit<ViewPass, "id" | "createdAt">): Promise<void> {
+    await this.orm.insert({ ...pass, id: randomUUID() });
+  }
+
+  /** Find the pass if it has not expired. */
+  async findValid(scope: TokenScope): Promise<ViewPass | undefined> {
+    return (
+      (await this.orm.findOneBy({
+        ...this.scopeWhere(scope),
+        expiresAt: MoreThan(new Date().toISOString()),
+      })) ?? undefined
+    );
+  }
+
+  /** Delete passes in scope. */
+  async purge(scope: ExpiredScope): Promise<void> {
+    await this.orm.delete(this.scopeWhere(scope));
+  }
+
+  // ===========================================
+  // Domain policy
+  // ===========================================
+
+  /** Scope to one pass's token or to expired passes. */
+  protected scopeWhere(scope: CredentialScope): FindOptionsWhere<ViewPass> {
+    return credentialWhere(scope);
+  }
+
+  /** Passes contain no persistence-only fields. */
+  protected toEntity(record: ViewPass): ViewPass {
     return record;
   }
 }

@@ -62,6 +62,11 @@ else
 fi
 kubectl config use-context minikube
 
+# metrics-server reports pod and node CPU and memory, for `kubectl top` and k9s. Enabling it is safe
+# to rerun but pulls an image, so a failure only warns.
+minikube addons enable metrics-server ||
+    echo "WARNING: metrics-server was not enabled; rerun 'minikube addons enable metrics-server'." >&2
+
 # Traefik is the development cluster's ingress controller. Installing it needs network access, so a
 # failure only warns; rerun the script once the network is available.
 bash "$(dirname "$0")/install-traefik.sh" ||

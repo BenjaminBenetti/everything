@@ -24,6 +24,7 @@ export class AgentRuntime {
     this.current = {
       status: "idle",
       compacting: false,
+      typing: false,
       sessionId: session.id,
       runId: null,
       error: null,
@@ -39,6 +40,7 @@ export class AgentRuntime {
     return {
       ...this.current,
       compacting: this.current.status === "running" && this.session.compacting,
+      typing: this.current.status === "running" && this.session.typing,
     };
   }
 
@@ -54,6 +56,7 @@ export class AgentRuntime {
     this.current = {
       status: "running",
       compacting: false,
+      typing: false,
       sessionId: this.session.id,
       runId,
       error: null,

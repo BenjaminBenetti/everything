@@ -6,8 +6,13 @@ import {
 import type { VerificationInput } from "../interface/connection-verifier.js";
 import type {
   DiscoveredModel,
+  ModelLimits,
   ProviderModelDiscovery,
 } from "../interface/provider-models.js";
+import {
+  advertisedLimits,
+  serverPropsLimits,
+} from "./advertised-model-limits.js";
 import { providerFetch } from "./provider-fetch.js";
 
 /** Discover account-specific catalogs through each configured provider's own endpoint. */
@@ -94,7 +99,7 @@ export class HttpModelDiscovery implements ProviderModelDiscovery {
         }));
     }
     const result = (await response.json()) as { data: { id: string }[] };
-    const models = result.data
+    const models: DiscoveredModel[] = result.data
       .filter(
         (item) =>
           typeof item.id === "string" &&
@@ -102,7 +107,38 @@ export class HttpModelDiscovery implements ProviderModelDiscovery {
             item.id,
           ),
       )
-      .map((item) => ({ id: item.id, name: item.id }));
+      .map((item) => ({
+        id: item.id,
+        name: item.id,
+        ...advertisedLimits(item),
+      }));
+    // A single-model llama.cpp server lists only the context the model was trained with.
+    const [only] = models;
+    if (
+      provider === "openai-compatible" &&
+      models.length === 1 &&
+      only!.contextWindow === undefined
+    )
+      return [{ ...only!, ...(await this.serverProps(address, token)) }];
     return models;
+  }
+
+  /** Read a llama.cpp server's running limits; any failure leaves the limits unknown. */
+  private async serverProps(
+    address: string,
+    token: string | undefined,
+  ): Promise<ModelLimits> {
+    try {
+      const response = await providerFetch(this.fetcher)(
+        `${address.replace(/\/v1\/?$/, "")}/props`,
+        {
+          headers: token ? { authorization: `Bearer ${token}` } : {},
+          signal: AbortSignal.timeout(10_000),
+        },
+      );
+      return response.ok ? serverPropsLimits(await response.json()) : {};
+    } catch {
+      return {};
+    }
   }
 }

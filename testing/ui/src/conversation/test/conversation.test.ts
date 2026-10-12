@@ -19,6 +19,7 @@ async function workspace(context: BrowserContext, withModel = true) {
     runtime: {
       status: "idle",
       compacting: false,
+      typing: false,
       sessionId: "private-session-id",
       runId: null as string | null,
       error: null as string | null,
@@ -26,7 +27,6 @@ async function workspace(context: BrowserContext, withModel = true) {
     failSend: false,
     failRead: false,
     sends: [] as string[],
-    interruptions: 0,
   };
   await context.route("**/v1/session", (route) =>
     route.fulfill({
@@ -62,15 +62,14 @@ async function workspace(context: BrowserContext, withModel = true) {
     route.fulfill({
       json: route.request().url().includes("/avery/")
         ? state.runtime
-        : { ...state.runtime, status: "idle", compacting: false },
+        : {
+            ...state.runtime,
+            status: "idle",
+            compacting: false,
+            typing: false,
+          },
     }),
   );
-  await context.route("**/v1/agents/*/interrupt", (route) => {
-    state.interruptions++;
-    state.runtime.status = "idle";
-    state.runtime.compacting = false;
-    return route.fulfill({ json: state.runtime });
-  });
   await context.route(
     /\/v1\/agents\/[^/]+\/messages(?:\?.*)?$/,
     async (route) => {
@@ -93,6 +92,7 @@ async function workspace(context: BrowserContext, withModel = true) {
         state.runtime = {
           status: "running",
           compacting: false,
+          typing: false,
           sessionId: "private-session-id",
           runId: "private-run-id",
           error: null,
@@ -167,16 +167,18 @@ test("one conversation opens from team cards, loads all history, replies, and su
   await expect(log.getByRole("article").last()).toContainText(
     "Keep working on Kiwi\nk",
   );
-  await expect(
-    page.getByRole("button", { name: "Stop reply", exact: true }),
-  ).toBeVisible();
+  // Working, including summarizing, shows nothing; only writing a message shows typing bubbles.
+  const typing = page.getByText("Avery is typing", { exact: true });
   state.runtime.compacting = true;
-  await expect(
-    page
-      .getByRole("status")
-      .filter({ hasText: "Summarizing earlier messages" }),
-  ).toBeVisible({ timeout: 10000 });
+  await page.waitForTimeout(1500);
+  await expect(typing).toHaveCount(0);
+  await expect(page.getByText(/replying|Summarizing/)).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Stop reply" })).toHaveCount(0);
   state.runtime.compacting = false;
+  state.runtime.typing = true;
+  await expect(typing).toBeAttached({ timeout: 5000 });
+  await expect(page.locator(".chat-typing-bubble")).toBeVisible();
+  state.runtime.typing = false;
   state.runtime.status = "idle";
   state.messages.push({
     id: "reply-kiwi",
@@ -188,6 +190,7 @@ test("one conversation opens from team cards, loads all history, replies, and su
     log.getByText("Kiwi is ready for the next step.", { exact: true }),
   ).toBeVisible({ timeout: 10000 });
   await expect(log.getByRole("article")).toHaveCount(207);
+  await expect(typing).toHaveCount(0);
   await expect(page.getByText("private-session-id")).toHaveCount(0);
   await expect(page.getByRole("button", { name: /new chat/i })).toHaveCount(0);
   await expect(
@@ -226,7 +229,7 @@ test("one conversation opens from team cards, loads all history, replies, and su
   expect(errors).toEqual([]);
 });
 
-test("failed sends keep the draft, stop cancels work, and a dropped connection can reconnect", async ({
+test("failed sends keep the draft, work shows no controls, and a dropped connection can reconnect", async ({
   page,
   context,
 }) => {
@@ -245,14 +248,8 @@ test("failed sends keep the draft, stop cancels work, and a dropped connection c
   await expect(page.getByRole("alert")).not.toContainText("Private provider");
   state.failSend = false;
   await page.getByRole("button", { name: "Send message" }).click();
-  await expect(
-    page.getByRole("button", { name: "Stop reply", exact: true }),
-  ).toBeVisible();
-  await page.getByRole("button", { name: "Stop reply", exact: true }).click();
-  await expect(
-    page.getByRole("button", { name: "Stop reply", exact: true }),
-  ).toHaveCount(0);
-  expect(state.interruptions).toBe(1);
+  await expect(composer).toHaveValue("");
+  await expect(page.getByRole("button", { name: "Stop reply" })).toHaveCount(0);
   expect(
     state.messages.filter(
       (message) => message.text === "Please keep this draft",

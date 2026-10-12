@@ -305,6 +305,8 @@ services:
       WORKSPACE_TEMPLATE_NAME: teammate
       WORKSPACE_CLAIM_NAME: '{{ include "stack.claimName" (dict "name" "everything" "volumeName" "agents") }}'
       ARTIFACT_SERVICE_URL: http://artifact:8081
+      # The artifact host as teammate pods reach it, over plain HTTP, when view_artifact gives them a pass.
+      ARTIFACT_HOST_URL: "http://artifact.{{ .Release.Namespace }}.svc.cluster.local:8080"
       ARTIFACT_CLIENT_ID: everything-artifact-client
       ARTIFACT_CLIENT_SECRET:
         secretName: artifact-auth
@@ -373,15 +375,22 @@ services:
       liveness:
         httpGet: { path: /health, port: http }
         periodSeconds: 10
+    # Idle pods only run the workspace API; the limits leave room for compilers and a headless browser.
     resources:
       requests: { cpu: 25m, memory: 64Mi }
-      limits: { cpu: "1", memory: 512Mi }
+      limits: { cpu: "2", memory: 2Gi }
     volumes:
       # Reconciliation substitutes the existing workspace PVC with this teammate's ID as subPath.
       workspace: { mountPath: /workspace, emptyDir: {} }
       # Hide Pi's configuration and conversation files behind a read-only empty mount.
       private: { mountPath: /workspace/.pi, emptyDir: {}, readOnly: true }
-      tmp: { mountPath: /tmp, emptyDir: { sizeLimit: 256Mi } }
+      # Package and build caches live here and are rebuilt after the pod is replaced. Exceeding the
+      # limit evicts the pod, which clears them.
+      tmp: { mountPath: /tmp, emptyDir: { sizeLimit: 4Gi } }
+      # Shared memory for browsers and multiprocessing; it counts toward the memory limit.
+      shm:
+        mountPath: /dev/shm
+        emptyDir: { medium: Memory, sizeLimit: 512Mi }
 
   registry:
     # Images are files on its disk; one copy owns them.

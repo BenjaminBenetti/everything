@@ -9,6 +9,10 @@ export interface AgentSession {
   readonly id: string;
   /** Whether the model is summarizing older context before continuing. */
   readonly compacting: boolean;
+  /** The tool the latest prompt finished last, if it ran any. */
+  readonly lastToolName: string | undefined;
+  /** Whether the model is writing a message to the user, until that message is delivered. */
+  readonly typing: boolean;
   /** Run the model until it settles; ordinary model text is never a user message. */
   prompt(text: string): Promise<void>;
   /** Abort active generation and wait for its tool execution to settle. */

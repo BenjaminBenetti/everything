@@ -3,13 +3,17 @@ import type { ChatMessage } from "@everything/conversation-contracts";
 import { Button } from "@everything/ui/button";
 import { MessageMarkdown } from "./message-markdown.js";
 
-/** Render saved Markdown messages and preserve reading position when older history is prepended. */
+/**
+ * Render saved Markdown messages, with typing bubbles while the teammate writes a message, and
+ * preserve reading position when older history is prepended.
+ */
 export function MessageHistory({
   name,
   messages,
   hasOlder,
   loadingOlder,
   sentMessageId,
+  typing,
   onOlder,
 }: {
   name: string;
@@ -17,6 +21,7 @@ export function MessageHistory({
   hasOlder: boolean;
   loadingOlder: boolean;
   sentMessageId: string | undefined;
+  typing: boolean;
   onOlder: () => Promise<unknown>;
 }) {
   const viewport = useRef<HTMLDivElement>(null);
@@ -35,7 +40,7 @@ export function MessageHistory({
       element.scrollTop = element.scrollHeight - previousHeight.current;
       previousHeight.current = null;
     } else if (follow.current) element.scrollTop = element.scrollHeight;
-  }, [messages, loadingOlder, newestId, sentMessageId]);
+  }, [messages, loadingOlder, newestId, sentMessageId, typing]);
 
   /** Anchor the reader's current position while fetching earlier messages. */
   async function loadOlder(): Promise<void> {
@@ -106,6 +111,19 @@ export function MessageHistory({
             <MessageMarkdown text={message.text} />
           </article>
         ))}
+      </div>
+      {/* The live region stays mounted so screen readers announce typing when it starts. */}
+      <div className="chat-typing" role="status">
+        {typing && (
+          <>
+            <span className="sr-only">{name} is typing</span>
+            <span className="chat-typing-bubble" aria-hidden="true">
+              <span />
+              <span />
+              <span />
+            </span>
+          </>
+        )}
       </div>
       {!messages.length && (
         <div className="chat-empty">

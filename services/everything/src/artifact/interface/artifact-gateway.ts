@@ -10,6 +10,7 @@ import type {
   ArtifactSummary,
   ArtifactView,
   ArtifactViewInput,
+  ArtifactViewPassInput,
   CreateArtifactInput,
   DeployInput,
   PublishRevisionInput,
@@ -33,6 +34,20 @@ export interface SourceChoice {
 export interface LogChoice {
   readonly previous: boolean;
   readonly lines: number;
+}
+
+/**
+ * A teammate's short-lived pass to one artifact, with links on the artifact host as teammate pods
+ * reach it inside the cluster.
+ */
+export interface TeammateArtifactView {
+  /** The requested page, for clients that send the token, such as curl. */
+  readonly url: string;
+  /** Stores the pass in a browser cookie, then opens `url`; it works until the pass expires. */
+  readonly browserUrl: string;
+  /** Secret to send as `Authorization: Bearer`; it opens only this artifact. */
+  readonly token: string;
+  readonly expiresAt: string;
 }
 
 /** The artifact service's internal API, as Everything uses it. */
@@ -107,4 +122,10 @@ export interface ArtifactGateway {
   ): Promise<ArtifactLogs>;
   /** Issue a link that signs the owner in to the artifact host and opens the artifact. */
   view(ownerId: string, input: ArtifactViewInput): Promise<ArtifactView>;
+  /** Issue a short-lived pass with which a teammate views one artifact from its pod. */
+  viewPass(
+    ownerId: string,
+    reference: string,
+    input: ArtifactViewPassInput,
+  ): Promise<TeammateArtifactView>;
 }

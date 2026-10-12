@@ -3,7 +3,11 @@ import {
   baseColumns,
   timestampTransformer,
 } from "@everything/persistence/schema";
-import type { ViewGrant, ViewSession } from "../model/view-credential.js";
+import type {
+  ViewGrant,
+  ViewPass,
+  ViewSession,
+} from "../model/view-credential.js";
 
 /** Map view links to the `view_grants` table. */
 export const ViewGrantEntity = new EntitySchema<ViewGrant>({
@@ -36,6 +40,24 @@ export const ViewSessionEntity = new EntitySchema<ViewSession>({
     ...baseColumns,
     ownerId: { name: "owner_id", type: "text" },
     tokenHash: { name: "token_hash", type: "text", unique: true },
+    expiresAt: {
+      name: "expires_at",
+      type: "timestamptz",
+      transformer: timestampTransformer,
+    },
+  },
+});
+
+/** Map teammate passes to the `view_passes` table; passes are deleted with their artifact. */
+export const ViewPassEntity = new EntitySchema<ViewPass>({
+  name: "ViewPass",
+  tableName: "view_passes",
+  columns: {
+    ...baseColumns,
+    ownerId: { name: "owner_id", type: "text" },
+    artifactId: { name: "artifact_id", type: "uuid" },
+    tokenHash: { name: "token_hash", type: "text", unique: true },
+    path: { type: "text" },
     expiresAt: {
       name: "expires_at",
       type: "timestamptz",

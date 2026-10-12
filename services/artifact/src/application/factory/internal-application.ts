@@ -19,7 +19,9 @@ import { strictRequestValidation } from "../../http/config/request-validation.js
 import { revisionController } from "../../revision/controller/revision-controller.js";
 import type { RevisionService } from "../../revision/service/revision-service.js";
 import { viewController } from "../../viewing/controller/view-controller.js";
+import { viewPassController } from "../../viewing/controller/view-pass-controller.js";
 import type { ViewAccess } from "../../viewing/service/view-access.js";
+import type { ViewPasses } from "../../viewing/service/view-passes.js";
 
 /** Use cases served by the internal API. */
 export interface InternalDependencies {
@@ -30,6 +32,7 @@ export interface InternalDependencies {
   readonly deployments: DeploymentService;
   readonly content: ContentStore;
   readonly access: ViewAccess;
+  readonly passes: ViewPasses;
   readonly readiness: ReadinessCheck;
 }
 
@@ -84,6 +87,7 @@ export async function createInternalApplication(
       );
       await contentController(scope, dependencies.content);
       await viewController(scope, dependencies.access);
+      await viewPassController(scope, dependencies.passes);
     },
     { prefix: "/internal/v1" },
   );

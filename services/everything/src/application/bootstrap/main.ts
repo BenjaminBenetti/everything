@@ -90,7 +90,10 @@ async function main(): Promise<void> {
       }),
   );
   const artifactGateway = new HttpArtifactGateway(
-    config.artifactService.url,
+    {
+      url: config.artifactService.url,
+      hostUrl: config.artifactService.hostUrl,
+    },
     new KeycloakClientCredentials({
       protocolUrl: config.protocolUrl,
       publicOrigin: config.publicOrigin,

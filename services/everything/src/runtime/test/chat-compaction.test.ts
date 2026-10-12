@@ -87,7 +87,12 @@ async function fixture(context: TestContext) {
       },
     },
     {
-      /** Keep account policy independent from the native runtime fixture. */ async validate() {},
+      /** Keep account policy independent from the native runtime fixture. */ async select(
+        _ownerId,
+        selection,
+      ) {
+        return { id: selection.model, name: selection.model };
+      },
     },
     {
       /** Force a small real context budget so compaction is exercised in a few turns. */

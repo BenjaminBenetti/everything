@@ -47,12 +47,4 @@ export class HttpConversationClient implements ConversationClient {
       { method: "POST", body: JSON.stringify({ text }) },
     );
   }
-
-  /** Cancel only this teammate's current work. */
-  interrupt(agentId: string): Promise<RuntimeStatus> {
-    return this.transport.request(
-      `/v1/agents/${encodeURIComponent(agentId)}/interrupt`,
-      { method: "POST" },
-    );
-  }
 }

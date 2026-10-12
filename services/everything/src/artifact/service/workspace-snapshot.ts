@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { createRequire } from "node:module";
-import { opendir, readFile, stat } from "node:fs/promises";
+import { opendir, readFile, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
 import type { Ignore } from "@balena/dockerignore";
@@ -10,6 +10,7 @@ import {
   type ArtifactFile,
 } from "@everything/artifact-contracts";
 import { SnapshotLimitError } from "../error/workspace-errors.js";
+import { isInside, realTarget } from "./workspace-path.js";
 
 /** A file to upload, with where it lives in the workspace. */
 export interface SnapshotFile extends ArtifactFile {
@@ -30,7 +31,10 @@ export interface SnapshotOptions {
   readonly dockerignore: boolean;
   /** Relative paths always included, such as the Dockerfile, even when ignored. */
   readonly alwaysInclude?: readonly string[];
-  /** Absolute directories never included, such as the teammate's private runtime state. */
+  /**
+   * Absolute directories never included, such as the teammate's private runtime state. They are
+   * compared by real path, so a root inside one, even through a symbolic link, yields no files.
+   */
   readonly exclude?: readonly string[];
 }
 
@@ -73,18 +77,23 @@ async function dockerignoreRules(
   };
 }
 
-/** List, hash, and size every file under `root`, enforcing the artifact limits. */
+/** List, hash, and size every file under `start`, enforcing the artifact limits. */
 export async function snapshotDirectory(
-  root: string,
+  start: string,
   options: SnapshotOptions,
 ): Promise<Snapshot> {
+  // The walk never follows links below the real root, so every path it visits is real.
+  const root = await realpath(start);
+  const excluded = new Set(
+    await Promise.all((options.exclude ?? []).map(realTarget)),
+  );
+  for (const excludedDirectory of excluded)
+    if (isInside(excludedDirectory, root))
+      return { files: [], totalSize: 0, skipped: [] };
   const rules = options.dockerignore
     ? await dockerignoreRules(root)
     : undefined;
   const always = new Set(options.alwaysInclude ?? []);
-  const excluded = new Set(
-    (options.exclude ?? []).map((directory) => path.resolve(directory)),
-  );
   // Ignored directories can be skipped whole unless a negated rule might bring part of one back.
   const prunable = !rules?.negated;
   const files: SnapshotFile[] = [];

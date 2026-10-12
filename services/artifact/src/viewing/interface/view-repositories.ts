@@ -1,5 +1,9 @@
 import type { Repository } from "@everything/persistence/repository";
-import type { ViewGrant, ViewSession } from "../model/view-credential.js";
+import type {
+  ViewGrant,
+  ViewPass,
+  ViewSession,
+} from "../model/view-credential.js";
 
 /** The credential whose secret hashes to this value. */
 export interface TokenScope {
@@ -37,5 +41,18 @@ export interface ViewSessionRepository extends Repository<
   /** Find an unexpired session by its token. */
   findValid(scope: TokenScope): Promise<ViewSession | undefined>;
   /** Delete every session in scope. */
+  purge(scope: ExpiredScope): Promise<void>;
+}
+
+/** Persistence boundary for teammate passes. */
+export interface ViewPassRepository extends Repository<
+  ViewPass,
+  CredentialScope
+> {
+  /** Store a new pass. */
+  create(pass: Omit<ViewPass, "id" | "createdAt">): Promise<void>;
+  /** Find an unexpired pass by its token. */
+  findValid(scope: TokenScope): Promise<ViewPass | undefined>;
+  /** Delete every pass in scope. */
   purge(scope: ExpiredScope): Promise<void>;
 }

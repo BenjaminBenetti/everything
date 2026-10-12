@@ -19,6 +19,8 @@ import type { DeploymentService } from "../../deployment/service/deployment-serv
 import type { BuildService } from "../../image/service/build-service.js";
 import { RevisionService } from "../../revision/service/revision-service.js";
 import type { ViewAccess } from "../../viewing/service/view-access.js";
+import { ViewPasses } from "../../viewing/service/view-passes.js";
+import { memoryCredentials } from "../../viewing/test/view-fixture.js";
 import { createInternalApplication } from "../factory/internal-application.js";
 
 const actor = {
@@ -65,6 +67,7 @@ async function application(context: {
     access: {
       grant: async (_owner, input) => ({ url: `view:${input.slug}` }),
     } as ViewAccess,
+    passes: new ViewPasses(lookup, memoryCredentials().passes),
     readiness: async () => {},
   });
   context.after(async () => {
@@ -196,6 +199,45 @@ test("uploading, publishing, checking out, and opening a static artifact", async
     payload: { slug: "site" },
   });
   assert.deepEqual(view.json(), { url: "view:site" });
+  const passUrl = "/internal/v1/owners/owner/artifacts/site/view-passes";
+  const pass = await app.inject({
+    method: "POST",
+    url: passUrl,
+    headers: bearer,
+    payload: { path: "/index.html" },
+  });
+  assert.equal(pass.statusCode, 201);
+  assert.equal(pass.headers["cache-control"], "no-store");
+  assert.equal(pass.json().path, "/site/index.html");
+  assert.match(
+    pass.json().signInPath,
+    /^\/_teammate-access\?token=everything_view_/,
+  );
+  assert.equal(
+    (await app.inject({ method: "POST", url: passUrl, payload: {} }))
+      .statusCode,
+    401,
+  );
+  const foreignPass = await app.inject({
+    method: "POST",
+    url: "/internal/v1/owners/other/artifacts/site/view-passes",
+    headers: bearer,
+    payload: {},
+  });
+  assert.deepEqual(
+    [foreignPass.statusCode, foreignPass.json().code],
+    [404, "ARTIFACT_NOT_FOUND"],
+  );
+  const outside = await app.inject({
+    method: "POST",
+    url: passUrl,
+    headers: bearer,
+    payload: { path: "//evil.test/" },
+  });
+  assert.deepEqual(
+    [outside.statusCode, outside.json().code],
+    [400, "INVALID_VIEW_PATH"],
+  );
   const removed = await app.inject({
     method: "DELETE",
     url: "/internal/v1/owners/owner/artifacts/site",

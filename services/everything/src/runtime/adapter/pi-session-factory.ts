@@ -5,7 +5,9 @@ import {
   DefaultResourceLoader,
   SessionManager,
   SettingsManager,
+  type ExtensionAPI,
 } from "@earendil-works/pi-coding-agent";
+import { workspaceMountPath } from "@everything/workspace-contracts/mount";
 import type { AgentDefinition } from "../../agent/model/agent.js";
 import type { ArtifactWorkbench } from "../../artifact/service/artifact-workbench.js";
 import type { AgentWorkspaces } from "../../workspace/interface/agent-workspaces.js";
@@ -29,6 +31,16 @@ interface AgentDirectories {
   readonly cwd: string;
   readonly agentDir: string;
   readonly sessionDir: string;
+}
+
+/**
+ * Name the working directory in the prompt's `cwd` section as the teammate's pod mounts it. Pi keeps
+ * its real working directory, which locates the teammate's saved sessions in this process.
+ */
+function podWorkingDirectory(pi: ExtensionAPI): void {
+  pi.on("before_agent_start", (event) => {
+    event.systemPromptOptions.cwd = workspaceMountPath;
+  });
 }
 
 /** Adapts Pi's native session persistence and explicit messaging to the application interface. */
@@ -114,7 +126,10 @@ export class PiSessionFactory implements AgentSessionFactory {
     return { cwd, agentDir, sessionDir: path.join(agentDir, "sessions") };
   }
 
-  /** Load only the agent's prompt: no extensions, skills, templates, themes, or context files. */
+  /**
+   * Load only the agent's prompt and the harness's own prompt adjustment: no discovered extensions,
+   * skills, templates, themes, or context files.
+   */
   private async isolatedResources(
     agent: AgentDefinition,
     { cwd, agentDir }: AgentDirectories,
@@ -125,6 +140,13 @@ export class PiSessionFactory implements AgentSessionFactory {
       agentDir,
       settingsManager,
       noExtensions: true,
+      extensionFactories: [
+        {
+          name: "pod-working-directory",
+          factory: podWorkingDirectory,
+          hidden: true,
+        },
+      ],
       noSkills: true,
       noPromptTemplates: true,
       noThemes: true,

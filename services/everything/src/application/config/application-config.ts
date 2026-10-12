@@ -29,9 +29,13 @@ export interface ApplicationConfig {
     readonly templateName: string;
     readonly claimName: string;
   };
-  /** The artifact service's internal API and the client credentials used to call it. */
+  /**
+   * The artifact service's internal API and the client credentials used to call it, and its artifact
+   * host as teammate pods reach it inside the cluster.
+   */
   readonly artifactService: {
     readonly url: string;
+    readonly hostUrl: string;
     readonly clientId: string;
     readonly clientSecret: string;
   };
@@ -68,6 +72,7 @@ export function loadApplicationConfig(
     },
     artifactService: {
       url: settings.ARTIFACT_SERVICE_URL,
+      hostUrl: settings.ARTIFACT_HOST_URL,
       clientId: settings.ARTIFACT_CLIENT_ID,
       clientSecret: settings.ARTIFACT_CLIENT_SECRET,
     },

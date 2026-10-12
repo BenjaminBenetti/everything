@@ -20,8 +20,9 @@ export function useConversation(agentId: string) {
     },
     enabled: !!profile,
     retry: false,
+    // While the teammate works, check every second so its typing indicator appears as it writes.
     refetchInterval: (query) =>
-      query.state.data?.runtime.status === "running" ? 3000 : 5000,
+      query.state.data?.runtime.status === "running" ? 1000 : 5000,
   });
   useEffect(() => {
     if (snapshot.data)
@@ -31,14 +32,6 @@ export function useConversation(agentId: string) {
     mutationFn: (text: string) => client.send(agentId, text),
     retry: false,
     /** Refresh the saved input and progress after the POST has been acknowledged. */
-    onSuccess: () => {
-      void snapshot.refetch();
-    },
-  });
-  const stop = useMutation({
-    mutationFn: () => client.interrupt(agentId),
-    retry: false,
-    /** Display any reply that committed before cancellation settled. */
     onSuccess: () => {
       void snapshot.refetch();
     },
@@ -54,5 +47,5 @@ export function useConversation(agentId: string) {
           : current,
       ),
   });
-  return { history, snapshot, send, stop, older };
+  return { history, snapshot, send, older };
 }

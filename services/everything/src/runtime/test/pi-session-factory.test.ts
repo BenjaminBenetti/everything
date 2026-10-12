@@ -125,7 +125,9 @@ test("Pi sends only the teammate's initial context, applies saved inference, and
     },
     {
       /** Selection policy is covered separately; this test exercises real Pi execution. */
-      async validate() {},
+      async select(_ownerId, selection) {
+        return { id: selection.model, name: selection.model };
+      },
     },
     new PiModelCapabilities(await createModelRuntime()),
     async (input, init) => {
@@ -183,8 +185,12 @@ test("Pi sends only the teammate's initial context, applies saved inference, and
   assert.ok(["system", "developer"].includes(initialMessages[0]!.role));
   assert.equal(
     initialMessages[0]!.content,
-    `${mainAgentPrompt(definition)}\n\n<cwd>\n${workspace}\n</cwd>`,
-    "the provider receives saved instructions, harness rules, and the teammate's workspace path",
+    `${mainAgentPrompt(definition)}\n\n<cwd>\n/workspace\n</cwd>`,
+    "the provider receives saved instructions, harness rules, and the workspace path as the teammate's pod names it",
+  );
+  assert.ok(
+    !JSON.stringify(requests[0]!.body).includes(workspace),
+    "where this process keeps the teammate's files never reaches the model",
   );
   assert.equal(initialMessages[1]!.role, "user");
   assert.ok(
@@ -224,7 +230,7 @@ test("Pi sends only the teammate's initial context, applies saved inference, and
     .filter((message) => ["system", "developer"].includes(message.role))
     .at(-1)!.content;
   assert.ok(updatedPrompt.includes("UPDATED_TEAMMATE_INSTRUCTIONS"));
-  assert.ok(updatedPrompt.includes("named Updated teammate"));
+  assert.ok(updatedPrompt.includes("You are Updated teammate,"));
   connected = false;
   await assert.rejects(
     edited.prompt("Disconnected"),

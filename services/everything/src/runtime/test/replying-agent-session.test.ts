@@ -2,20 +2,32 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { AgentSession } from "../interface/agent-session.js";
 import { ReplyingAgentSession } from "../service/replying-agent-session.js";
+import { sendMessageToolName } from "../tool/send-message-tool.js";
 
-/** Track delivery independently from successful private model completions. */
+/**
+ * Track delivery independently from successful private model completions. `onPrompt` returns the
+ * tool the prompt finished last; a delivery is assumed to close the turn unless it says otherwise.
+ */
 function fixture(
-  onPrompt: (text: string) => Promise<void>,
+  onPrompt: (text: string) => Promise<string | void>,
   delivered: () => number,
 ) {
   const prompts: string[] = [];
+  let lastToolName: string | undefined;
   const session: AgentSession = {
     id: "same-session",
     compacting: false,
+    typing: false,
+    get lastToolName() {
+      return lastToolName;
+    },
     /** A successful model completion may contain only private text. */
     async prompt(text) {
       prompts.push(text);
-      await onPrompt(text);
+      const before = delivered();
+      const last = await onPrompt(text);
+      lastToolName =
+        last ?? (delivered() > before ? sendMessageToolName : undefined);
     },
     /** The controllable test prompt determines when cancellation settles. */
     async abort() {},
@@ -84,4 +96,48 @@ test("cancellation before delivery prevents a late corrective request", async ()
   finish();
   await running;
   assert.deepEqual(f.prompts, ["Cancel this"]);
+});
+
+test("an early reply followed by more work gets one reminder to report the outcome", async () => {
+  let delivered = 0;
+  const f = fixture(
+    async (text) => {
+      if (text !== "Build me a page") return;
+      delivered++;
+      return "build_artifact";
+    },
+    () => delivered,
+  );
+  await f.session.prompt("Build me a page");
+  assert.equal(f.prompts.length, 2);
+  assert.match(f.prompts[1]!, /kept working after your last message/);
+  assert.match(f.prompts[1]!, /send_message/);
+});
+
+test("a turn whose last tool sent the outcome gets no reminder", async () => {
+  let delivered = 0;
+  const f = fixture(
+    async () => {
+      // A confirmation, then the outcome once the work is done.
+      delivered += 2;
+    },
+    () => delivered,
+  );
+  await f.session.prompt("Build me a page");
+  assert.deepEqual(f.prompts, ["Build me a page"]);
+});
+
+test("a declined outcome reminder still completes the turn, since the user already has a reply", async () => {
+  let delivered = 0;
+  const f = fixture(
+    async (text) => {
+      if (text !== "Check the logs") return;
+      delivered++;
+      return "get_artifact_logs";
+    },
+    () => delivered,
+  );
+  await f.session.prompt("Check the logs");
+  assert.equal(f.prompts.length, 2);
+  assert.equal(delivered, 1);
 });

@@ -26,6 +26,8 @@ export interface MessageReceipt {
 export interface RuntimeStatus {
   readonly status: "idle" | "running" | "error";
   readonly compacting: boolean;
+  /** Whether the teammate is writing a message to the user right now. */
+  readonly typing: boolean;
   readonly sessionId: string | null;
   readonly runId: string | null;
   readonly error: string | null;

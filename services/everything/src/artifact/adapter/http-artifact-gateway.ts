@@ -12,6 +12,8 @@ import type {
   ArtifactSummary,
   ArtifactView,
   ArtifactViewInput,
+  ArtifactViewPass,
+  ArtifactViewPassInput,
   CreateArtifactInput,
   DeployInput,
   MissingContent,
@@ -26,7 +28,16 @@ import type {
   ArtifactGateway,
   LogChoice,
   SourceChoice,
+  TeammateArtifactView,
 } from "../interface/artifact-gateway.js";
+
+/** Where Everything reaches the artifact service, and where teammate pods reach its artifact host. */
+export interface ArtifactServiceAddresses {
+  /** Base URL of the internal API. */
+  readonly url: string;
+  /** Origin of the artifact host inside the cluster. */
+  readonly hostUrl: string;
+}
 
 /** How one request is sent and what it expects back. */
 interface RequestOptions {
@@ -47,9 +58,9 @@ export class HttpArtifactGateway implements ArtifactGateway {
   // Construction
   // ===========================================
 
-  /** Bind the internal API's base URL and the token source; the fetcher is replaceable for tests. */
+  /** Bind the service's addresses and the token source; the fetcher is replaceable for tests. */
   constructor(
-    private readonly baseUrl: string,
+    private readonly addresses: ArtifactServiceAddresses,
     private readonly tokens: AccessTokenSource,
     private readonly fetcher: typeof fetch = fetch,
   ) {}
@@ -248,6 +259,24 @@ export class HttpArtifactGateway implements ArtifactGateway {
     });
   }
 
+  /** Issue a teammate pass and resolve its paths on the in-cluster artifact host. */
+  async viewPass(
+    ownerId: string,
+    reference: string,
+    input: ArtifactViewPassInput,
+  ): Promise<TeammateArtifactView> {
+    const pass = await this.json<ArtifactViewPass>(
+      `${this.artifact(ownerId, reference)}/view-passes`,
+      { method: "POST", json: input },
+    );
+    return {
+      url: this.addresses.hostUrl + pass.path,
+      browserUrl: this.addresses.hostUrl + pass.signInPath,
+      token: pass.token,
+      expiresAt: pass.expiresAt,
+    };
+  }
+
   // ===========================================
   // Transport
   // ===========================================
@@ -294,7 +323,7 @@ export class HttpArtifactGateway implements ArtifactGateway {
       headers.set("Content-Type", "application/octet-stream");
       body = options.body;
     }
-    const response = await this.fetcher(this.baseUrl + path, {
+    const response = await this.fetcher(this.addresses.url + path, {
       method: options.method ?? "GET",
       headers,
       ...(body !== undefined ? { body } : {}),
