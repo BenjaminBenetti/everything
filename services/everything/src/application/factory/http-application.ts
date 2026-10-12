@@ -29,6 +29,8 @@ import { identityController } from "../../identity/controller/identity-controlle
 import { providerController } from "../../provider/controller/provider-controller.js";
 import { chatGptCallbackController } from "../../provider/controller/chatgpt-callback-controller.js";
 import type { ProviderConnections } from "../../provider/interface/provider-connections.js";
+import type { ProviderModels } from "../../provider/interface/provider-models.js";
+import { providerModelController } from "../../provider/controller/provider-model-controller.js";
 
 /** Use cases and transport settings supplied by the composition root. */
 export interface HttpDependencies {
@@ -37,6 +39,7 @@ export interface HttpDependencies {
   readonly publicOrigin: string;
   readonly chatGptRedirectUri: string;
   readonly providers: ProviderConnections;
+  readonly models: Pick<ProviderModels, "list">;
   readonly agents: Omit<AgentCatalog, "delete">;
   readonly profiles: AgentEditing;
   readonly removal: AgentRemoval;
@@ -117,6 +120,7 @@ function protectedApi(
     });
     await identityController(scope);
     await providerController(scope, dependencies.providers);
+    await providerModelController(scope, dependencies.models);
     await conversationController(scope, dependencies.conversations);
     await agentController(scope, dependencies.agents, dependencies.removal);
     await agentEditingController(scope, dependencies.profiles);

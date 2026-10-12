@@ -10,6 +10,9 @@ import { HttpProviderConnections } from "../../provider/adapter/http-provider-co
 import { createAuthenticatedTransport } from "../../http/adapter/authenticated-transport.js";
 import { Application } from "../component/application.js";
 import { ApplicationErrorBoundary } from "../component/error-boundary.js";
+import { AvatarAnimationRegistry } from "../../agent/service/avatar-animation-registry.js";
+import { AvatarAnimationProvider } from "../../agent/component/avatar-animation.js";
+import { IdleAvatarAnimation } from "../../agent/component/idle-avatar-animation.js";
 import "../../workspace/style/application.css";
 import "../../provider/style/provider.css";
 
@@ -22,19 +25,25 @@ const root = createRoot(element);
 async function bootstrap(): Promise<void> {
   const session = createBrowserSession();
   const directory = new HttpAgentDirectory(createAuthenticatedTransport());
+  const avatarAnimations = new AvatarAnimationRegistry();
+  avatarAnimations.register("idle", IdleAvatarAnimation);
   root.render(
     <StrictMode>
       <ApplicationErrorBoundary>
         <BrowserRouter>
-          <Application
-            session={session}
-            directory={directory}
-            artifacts={new HttpArtifactLibrary(createAuthenticatedTransport())}
-            connections={
-              new HttpProviderConnections(createAuthenticatedTransport())
-            }
-            queryClient={new QueryClient()}
-          />
+          <AvatarAnimationProvider animations={avatarAnimations}>
+            <Application
+              session={session}
+              directory={directory}
+              artifacts={
+                new HttpArtifactLibrary(createAuthenticatedTransport())
+              }
+              connections={
+                new HttpProviderConnections(createAuthenticatedTransport())
+              }
+              queryClient={new QueryClient()}
+            />
+          </AvatarAnimationProvider>
         </BrowserRouter>
       </ApplicationErrorBoundary>
     </StrictMode>,

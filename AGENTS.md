@@ -1,6 +1,7 @@
 # Repository conventions
 
 - Use “teammate” in all product copy, including labels, dialogs, notifications, errors, accessibility text, and app metadata. Write in a plain, friendly tone: name the action, explain what happens, and avoid vague or decorative phrasing. Technical identifiers and API contracts may retain `agent`.
+- Use the shared `@everything/ui/select` component for dropdown selection so menus follow the active theme; do not introduce native system dropdowns in product flows.
 - Each teammate has exactly one ongoing user-facing conversation. Opening a teammate always returns to the same message history. Do not introduce conversation creation, switching, or branching within a teammate. Internal runtime sessions and background conversations stay out of product flows.
 - Organize deployable services under `services/<service>` and shared workspace libraries under `lib/<library>`.
 - Keep source files in `src/<domain>/<type>/<file>` within either kind of package. Use `interface` for contracts.
@@ -22,5 +23,6 @@
 - Expose services only through the chart's Ingresses: one for the application's origin, and one for the artifact host's separate origin (`ingress.site: artifacts`). The registry's NodePort is the only exception, because nodes pull artifact images through it. TLS terminates at the cluster's ingress, and in-cluster traffic is plain HTTP. Images are `<registry>/<image>:<tag>` from `global.image` and each service's image name; `values.prod.yaml` holds remote-cluster overrides.
 - The chart creates every Secret from values supplied at install time (`values.dev.yaml` holds fixed development values); never commit credentials for any other environment. Only the artifact service creates Secrets at runtime, in the artifact namespace, for credentials that do not exist at install time, such as each dynamic artifact's database connection. Keep Keycloak test clients and seeded users in `deployment/helm/files/keycloak/everything-realm.dev.json`; the production realm, `everything-realm.json`, contains neither.
 - Build shared libraries before consumers with `pnpm build`, or use `pnpm --filter @everything/everything... build` to include that service's dependencies.
+- After implementing and validating application changes, redeploy the local development stack with `pnpm cluster:up` and verify readiness so the user can try the changes, unless the user asks otherwise.
 
 Apply the global SOLID, documentation-comment, and section-comment conventions throughout.

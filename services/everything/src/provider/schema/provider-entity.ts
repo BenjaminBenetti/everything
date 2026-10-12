@@ -21,6 +21,11 @@ export const ProviderEntity = new EntitySchema<StoredProvider>({
       nullable: true,
     },
     verifiedAt: { name: "verified_at", type: "timestamptz", nullable: true },
+    lastCheckedAt: {
+      name: "last_checked_at",
+      type: "timestamptz",
+      nullable: true,
+    },
     verificationError: {
       name: "verification_error",
       type: "text",
@@ -31,6 +36,12 @@ export const ProviderEntity = new EntitySchema<StoredProvider>({
     {
       name: "provider_connections_owner_provider",
       columns: ["ownerId", "provider"],
+    },
+  ],
+  indices: [
+    {
+      name: "provider_connections_due_check",
+      columns: ["configured", "lastCheckedAt"],
     },
   ],
   checks: [

@@ -5,7 +5,6 @@ import {
   DefaultResourceLoader,
   SessionManager,
   SettingsManager,
-  type ModelRuntime,
 } from "@earendil-works/pi-coding-agent";
 import type { AgentDefinition } from "../../agent/model/agent.js";
 import type { ArtifactWorkbench } from "../../artifact/service/artifact-workbench.js";
@@ -20,6 +19,7 @@ import { mainAgentPrompt } from "../prompt/main-agent-prompt.js";
 import { artifactTools } from "../tool/artifact-tools.js";
 import { sendMessageTool } from "../tool/send-message-tool.js";
 import { PiAgentSession } from "./pi-agent-session.js";
+import type { InferenceRuntimeFactory } from "../interface/inference-runtime.js";
 
 /** Pi's per-agent configuration and session paths inside the agent's workspace. */
 interface AgentDirectories {
@@ -34,9 +34,9 @@ export class PiSessionFactory implements AgentSessionFactory {
   // Construction
   // ===========================================
 
-  /** Receive the model runtime, the agents' working directories, and the shared artifacts. */
+  /** Receive owner-scoped inference, the teammates' working directories, and the shared artifacts. */
   constructor(
-    private readonly models: ModelRuntime,
+    private readonly inference: InferenceRuntimeFactory,
     private readonly workspaces: Pick<AgentWorkspaces, "directory">,
     private readonly artifacts: ArtifactWorkbench,
   ) {}
@@ -51,7 +51,11 @@ export class PiSessionFactory implements AgentSessionFactory {
     sendMessage: MessageDelivery,
   ): Promise<AgentSession> {
     const directories = this.directoriesFor(agent);
-    await this.requireConnectedProvider();
+    if (!agent.inference) throw new ProviderUnavailableError();
+    const { models, model } = await this.inference.create(
+      agent.ownerId,
+      agent.inference,
+    );
     await mkdir(directories.sessionDir, { recursive: true, mode: 0o700 });
     const settingsManager = SettingsManager.create(
       directories.cwd,
@@ -78,11 +82,11 @@ export class PiSessionFactory implements AgentSessionFactory {
     const { session } = await createAgentSession({
       cwd: directories.cwd,
       agentDir: directories.agentDir,
-      // Pi resumes the session's model while its provider stays connected, else uses the provider default.
-      modelRuntime: this.models,
+      modelRuntime: models,
+      model,
       resourceLoader,
       settingsManager,
-      thinkingLevel: "off",
+      thinkingLevel: agent.inference.effort,
       tools: tools.map((tool) => tool.name),
       customTools: tools,
       sessionManager: SessionManager.continueRecent(
@@ -102,12 +106,6 @@ export class PiSessionFactory implements AgentSessionFactory {
     const cwd = this.workspaces.directory(agent.id);
     const agentDir = path.join(cwd, ".pi");
     return { cwd, agentDir, sessionDir: path.join(agentDir, "sessions") };
-  }
-
-  /** Refuse to open a session until at least one model provider has credentials. */
-  private async requireConnectedProvider(): Promise<void> {
-    if (!(await this.models.getAvailable()).length)
-      throw new ProviderUnavailableError();
   }
 
   /** Load only the agent's prompt: no extensions, skills, templates, themes, or context files. */

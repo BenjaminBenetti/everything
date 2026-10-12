@@ -12,6 +12,10 @@
       "types": "./build/control/component/button.d.ts",
       "default": "./build/control/component/button.js"
     },
+    "./select": {
+      "types": "./build/control/component/select.d.ts",
+      "default": "./build/control/component/select.js"
+    },
     "./dialog": {
       "types": "./build/dialog/component/dialog.d.ts",
       "default": "./build/dialog/component/dialog.js"
@@ -45,6 +49,7 @@
   },
   "dependencies": {
     "@radix-ui/react-dialog": "1.2.0",
+    "@radix-ui/react-select": "2.3.8",
     "lucide-react": "1.55.0"
   },
   "peerDependencies": {
@@ -52,10 +57,10 @@
     "react-dom": "^19.3.0"
   },
   "devDependencies": {
-    "typescript": "7.0.2",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
     "react": "19.3.0",
-    "react-dom": "19.3.0"
+    "react-dom": "19.3.0",
+    "typescript": "7.0.2"
   }
 }

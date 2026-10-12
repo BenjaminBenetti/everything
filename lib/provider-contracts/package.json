@@ -7,6 +7,10 @@
     "build"
   ],
   "exports": {
+    "./inference": {
+      "types": "./build/provider/model/inference.d.ts",
+      "default": "./build/provider/model/inference.js"
+    },
     ".": {
       "types": "./build/provider/model/provider.d.ts",
       "default": "./build/provider/model/provider.js"

@@ -182,6 +182,114 @@ textarea::placeholder {
   margin-top: 16px;
 }
 /* ===========================================
+   Themed dropdowns
+   =========================================== */
+.select-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-field);
+  border-radius: var(--radius-control);
+  background: var(--surface-panel);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 400;
+  text-align: left;
+}
+.field .select-trigger {
+  margin-top: 9px;
+}
+.select-trigger:hover:not(:disabled),
+.select-trigger[data-state="open"] {
+  border-color: var(--border-active);
+}
+.select-trigger[data-placeholder] {
+  color: var(--text-placeholder);
+}
+.select-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.select-chevron {
+  width: 16px;
+  height: 16px;
+  color: var(--text-secondary);
+}
+.select-trigger[data-state="open"] .select-chevron {
+  transform: rotate(180deg);
+}
+.select-content {
+  z-index: 50;
+  width: var(--radix-select-trigger-width);
+  max-width: calc(100vw - 24px);
+  max-height: min(320px, var(--radix-select-content-available-height));
+  overflow: hidden;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-panel);
+  background: var(--surface-panel);
+  color: var(--text-primary);
+  box-shadow: 0 12px 36px var(--shadow-color);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 400;
+}
+.select-viewport {
+  padding: 5px;
+}
+.select-option {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 10px 36px 10px 12px;
+  border-radius: 7px;
+  outline: none;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  user-select: none;
+  cursor: pointer;
+}
+.select-option[data-empty] {
+  color: var(--text-secondary);
+}
+.select-option[data-state="checked"],
+.select-option[data-highlighted] {
+  background: var(--surface-selected);
+  color: var(--text-selected);
+}
+.select-option[data-state="checked"] {
+  font-weight: 550;
+}
+.select-option[data-disabled] {
+  opacity: 0.5;
+  cursor: default;
+}
+.select-indicator {
+  position: absolute;
+  right: 12px;
+  display: flex;
+  align-items: center;
+}
+.select-indicator svg,
+.select-scroll svg {
+  width: 16px;
+  height: 16px;
+}
+.select-scroll {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 26px;
+  color: var(--text-secondary);
+  background: var(--surface-panel);
+}
+/* ===========================================
    Brand and appearance
    =========================================== */
 .wordmark {

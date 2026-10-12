@@ -4,7 +4,7 @@ import { TeammateAvatar } from "./teammate-avatar.js";
 import { IconButton } from "@everything/ui/button";
 import { useWorkspaceDialogs } from "../../workspace/component/workspace-dialogs.js";
 
-/** A saved definition opens its details, with conversation entry deliberately deferred. */
+/** Show a saved teammate with an idle avatar and access to their profile details. */
 export function AgentCard({ agent }: { agent: Agent }) {
   const { open } = useWorkspaceDialogs();
   return (
@@ -21,7 +21,11 @@ export function AgentCard({ agent }: { agent: Agent }) {
         aria-label={`View ${agent.name}`}
         onClick={() => open({ kind: "details", agent })}
       >
-        <TeammateAvatar avatarId={agent.avatarId} />
+        <TeammateAvatar
+          avatarId={agent.avatarId}
+          animation="idle"
+          animationSeed={agent.id}
+        />
         <h2>{agent.name}</h2>
         <p className="agent-role">Teammate</p>
         <p className="agent-preview">{agent.systemPrompt}</p>

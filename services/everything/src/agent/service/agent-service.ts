@@ -2,6 +2,7 @@ import { AgentNotFoundError } from "../error/agent-errors.js";
 import type { AgentCatalog } from "../interface/agent-catalog.js";
 import type { AgentRepository } from "../interface/agent-repository.js";
 import type { AgentDefinition, CreateAgentInput } from "../model/agent.js";
+import type { ProviderModels } from "../../provider/interface/provider-models.js";
 
 /** Owns agent definition use cases, independently of HTTP and database details. */
 export class AgentService implements AgentCatalog {
@@ -9,8 +10,11 @@ export class AgentService implements AgentCatalog {
   // Construction
   // ===========================================
 
-  /** Receive the persistence boundary through dependency injection. */
-  constructor(private readonly repository: AgentRepository) {}
+  /** Receive persistence and owner-scoped inference validation through dependency injection. */
+  constructor(
+    private readonly repository: AgentRepository,
+    private readonly models: Pick<ProviderModels, "validate">,
+  ) {}
 
   // ===========================================
   // Operations
@@ -21,14 +25,19 @@ export class AgentService implements AgentCatalog {
     return this.repository.list({ ownerId });
   }
 
-  /** Create a user-named agent in an available persistent workspace. */
-  create(ownerId: string, input: CreateAgentInput): Promise<AgentDefinition> {
+  /** Create a teammate profile after validating its optional inference selection. */
+  async create(
+    ownerId: string,
+    input: CreateAgentInput,
+  ): Promise<AgentDefinition> {
+    if (input.inference) await this.models.validate(ownerId, input.inference);
     return this.repository.create(
       { ownerId },
       {
         name: input.name,
         systemPrompt: input.systemPrompt,
         ...(input.avatarId !== undefined ? { avatarId: input.avatarId } : {}),
+        ...(input.inference ? { inference: input.inference } : {}),
       },
     );
   }

@@ -11,6 +11,7 @@ export interface StoredProvider extends OwnedEntity {
   readonly encryptedCredential: string;
   readonly encryptedPending: string | null;
   readonly verifiedAt: Date | null;
+  readonly lastCheckedAt: Date | null;
   readonly verificationError: string | null;
 }
 

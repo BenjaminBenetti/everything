@@ -2,6 +2,8 @@ import { SessionEntity } from "../../session/schema/session-entity.js";
 import { BrowserSessions1791763200000 } from "../migration/1791763200000-browser-sessions.js";
 import { AgentAvatars1791849600000 } from "../migration/1791849600000-agent-avatars.js";
 import { DataSource } from "typeorm";
+import { AgentInference1792022400000 } from "../migration/1792022400000-agent-inference.js";
+import { ProviderChecks1792108800000 } from "../migration/1792108800000-provider-checks.js";
 import { ProviderEntity } from "../../provider/schema/provider-entity.js";
 import { ProviderConnections1791936000000 } from "../migration/1791936000000-provider-connections.js";
 import { AgentEntity } from "../../agent/schema/agent-entity.js";
@@ -35,6 +37,8 @@ export function createApplicationDatabase(
       BrowserSessions1791763200000,
       AgentAvatars1791849600000,
       ProviderConnections1791936000000,
+      AgentInference1792022400000,
+      ProviderChecks1792108800000,
     ],
     migrationsTableName: "everything_migrations",
     migrationsTransactionMode: "all",

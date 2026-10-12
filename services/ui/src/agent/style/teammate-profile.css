@@ -58,6 +58,84 @@
 }
 
 /* ===========================================
+   Teammate inference settings
+   =========================================== */
+.teammate-inference {
+  border-top: 1px solid var(--border-default);
+  margin: 24px 0 0;
+  min-width: 0;
+}
+.teammate-inference-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 8px 0;
+  cursor: pointer;
+  list-style: none;
+  white-space: nowrap;
+}
+.teammate-inference-summary::-webkit-details-marker {
+  display: none;
+}
+.teammate-inference-summary:focus-visible {
+  outline: 2px solid var(--border-active);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+.teammate-inference-title {
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 600;
+}
+.teammate-inference-selection {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 5px;
+  flex: 1;
+  min-width: 0;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+.teammate-inference-value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.teammate-inference-effort,
+.teammate-inference-chevron {
+  flex-shrink: 0;
+}
+.teammate-inference-chevron {
+  width: 16px;
+  height: 16px;
+  color: var(--text-secondary);
+}
+.teammate-inference[open] > summary .teammate-inference-chevron {
+  transform: rotate(90deg);
+}
+.teammate-inference-fields {
+  border: 0;
+  margin: 0;
+  padding: 12px 0 0;
+  min-width: 0;
+}
+.teammate-model-details {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px 18px;
+  font-size: 13px;
+}
+.teammate-model-details dt {
+  color: var(--text-secondary);
+}
+.teammate-model-details dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+/* ===========================================
    Avatar catalog picker
    =========================================== */
 .avatar-search {

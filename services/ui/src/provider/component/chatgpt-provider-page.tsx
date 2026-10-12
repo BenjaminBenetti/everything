@@ -14,6 +14,7 @@ import {
 } from "@everything/provider-contracts";
 import { useSession } from "../../session/component/session-provider.js";
 import { ConnectionStatus } from "./connection-status.js";
+import { ConnectionCheckDetails } from "./connection-check-details.js";
 import {
   useProviderAction,
   useProviderConnections,
@@ -152,11 +153,7 @@ export function ChatGptProviderPage({
           {connection.status === "verified" ? " · Using ChatGPT plan" : ""}
         </p>
       )}
-      {connection.verifiedAt && (
-        <p className="connection-detail">
-          Last verified {new Date(connection.verifiedAt).toLocaleString()}.
-        </p>
-      )}
+      <ConnectionCheckDetails connection={connection} />
       <div className="connection-actions">
         {authorization ? (
           <a

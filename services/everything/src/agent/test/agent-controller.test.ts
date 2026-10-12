@@ -17,6 +17,7 @@ function definition(name: string): AgentDefinition {
     name,
     systemPrompt: "Reply deliberately",
     avatarId: "avatar-01",
+    inference: null,
     createdAt: "2026-01-01T00:00:00.000Z",
   };
 }
@@ -71,6 +72,7 @@ test("creates a definition and hides its owner", async (context) => {
     "avatarId",
     "createdAt",
     "id",
+    "inference",
     "name",
     "systemPrompt",
   ]);

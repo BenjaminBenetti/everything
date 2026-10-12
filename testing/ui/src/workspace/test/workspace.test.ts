@@ -24,6 +24,56 @@ async function navigate(page: Page, label: string): Promise<void> {
   await nav.getByRole("link", { name: label }).click();
 }
 
+/** Use a connected provider for live creation checks without sending an inference request. */
+async function chooseModel(page: Page): Promise<void> {
+  const response = await page.request.get("/v1/providers");
+  expect(response.status()).toBe(200);
+  const { providers } = (await response.json()) as {
+    providers: {
+      provider: "chatgpt" | "anthropic" | "openai-compatible";
+      configured: boolean;
+      verifiedAt: string | null;
+      status: string;
+    }[];
+  };
+  const active = providers.filter(
+    (provider) =>
+      provider.configured &&
+      provider.verifiedAt &&
+      !["error", "disconnected"].includes(provider.status),
+  );
+  const provider =
+    active.find((item) => item.provider === "openai-compatible") ?? active[0];
+  test.skip(!provider, "Live teammate creation requires a connected provider.");
+  const catalog = await page.request.get(
+    `/v1/providers/${provider!.provider}/models`,
+  );
+  expect(catalog.status()).toBe(200);
+  const { models } = (await catalog.json()) as { models: { name: string }[] };
+  test.skip(
+    models.length === 0,
+    "The connected provider has no available models.",
+  );
+  const labels = {
+    chatgpt: "ChatGPT",
+    anthropic: "Claude",
+    "openai-compatible": "OpenAI-compatible API",
+  };
+  await page.getByText("Model settings", { exact: true }).click();
+  await page.getByRole("combobox", { name: "Provider", exact: true }).click();
+  await page
+    .getByRole("option", { name: labels[provider!.provider], exact: true })
+    .click();
+  await expect(page.getByRole("listbox")).toHaveCount(0);
+  await page.getByRole("combobox", { name: "Model", exact: true }).click();
+  await page
+    .getByRole("option", { name: models[0]!.name, exact: true })
+    .first()
+    .click();
+  await expect(page.getByRole("listbox")).toHaveCount(0);
+  await page.getByText("Model settings", { exact: true }).click();
+}
+
 test("real sign-in, all non-chat pages, themes, deep links, and sign-out", async ({
   page,
 }, info) => {
@@ -218,6 +268,7 @@ test("creates and edits a durable teammate profile without invoking any chat end
       page.getByRole("textbox", { name: "Description" }),
     ).toHaveValue("Research and summarize findings.");
     expect(profileMutations).toEqual([]);
+    await chooseModel(page);
     const created = page.waitForResponse(
       (response) =>
         response.request().method() === "POST" &&
@@ -414,6 +465,7 @@ test("API failure offers retry and dialogs preserve every unsaved profile field"
     .filter({ has: page.getByRole("radio", { name: "Potion", exact: true }) })
     .click();
   await page.getByRole("button", { name: "Use avatar" }).click();
+  await chooseModel(page);
   await page.route("**/v1/agents", (route) =>
     route.fulfill({ status: 503, json: { message: "Internal failure" } }),
   );
@@ -479,6 +531,10 @@ test("deletion requires confirmation, preserves teammates on cancellation or fai
       await Promise.all(
         document
           .getAnimations()
+          .filter(
+            (animation) =>
+              animation.effect?.getTiming().iterations !== Infinity,
+          )
           .map((animation) => animation.finished.catch(() => undefined)),
       );
     });

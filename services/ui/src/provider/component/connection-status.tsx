@@ -1,7 +1,7 @@
 import { Check, Circle, LoaderCircle } from "lucide-react";
 import type { ProviderConnection } from "@everything/provider-contracts";
 
-/** Pair color with a readable label and icon so status never relies on color alone. */
+/** Show the last connection result with a readable label and icon, including an explicit manual check in progress. */
 export function ConnectionStatus({
   connection,
   pending = false,
@@ -12,7 +12,7 @@ export function ConnectionStatus({
   const label = pending
     ? "Checking…"
     : {
-        verified: "Verified",
+        verified: "Connected",
         error: "Check failed",
         unverified: "Check needed",
         disconnected: "Not connected",

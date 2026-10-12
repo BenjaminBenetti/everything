@@ -20,6 +20,9 @@
     "build": "rm -rf build && tsc -p tsconfig.build.json",
     "check": "tsc -p tsconfig.json"
   },
+  "dependencies": {
+    "@everything/provider-contracts": "workspace:*"
+  },
   "devDependencies": {
     "typescript": "7.0.2"
   }

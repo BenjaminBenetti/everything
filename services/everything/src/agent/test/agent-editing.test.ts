@@ -21,6 +21,7 @@ function definition(): AgentDefinition {
     name: "Before",
     systemPrompt: "Keep these instructions",
     avatarId: "avatar-24",
+    inference: { provider: "anthropic", model: "saved-model", effort: "high" },
     createdAt: "2026-01-01T00:00:00.000Z",
   };
 }
@@ -97,14 +98,26 @@ test("database updates and reloads apply ownership and update only supplied fiel
 
 test("profile edits preserve omitted fields and return all public fields without ownership", async (context) => {
   let saved = definition();
-  const service = new AgentEditingService({
-    /** Apply the same owner predicate and partial updates as persistence. */
-    async update({ ownerId }, id, changes) {
-      if (id !== saved.id || ownerId !== saved.ownerId) return undefined;
-      saved = { ...saved, ...changes };
-      return saved;
+  const service = new AgentEditingService(
+    {
+      /** Look up the saved profile within ownership scope. */
+      async getById({ ownerId }, id) {
+        return ownerId === saved.ownerId && id === saved.id ? saved : undefined;
+      },
+      /** Apply the same owner predicate and partial updates as persistence. */
+      async update({ ownerId }, id, changes) {
+        if (id !== saved.id || ownerId !== saved.ownerId) return undefined;
+        saved = { ...saved, ...changes };
+        return saved;
+      },
     },
-  });
+    {
+      /** Profile-only edits must never revalidate or replace saved inference settings. */
+      async validate() {
+        throw new Error("Unexpected inference change");
+      },
+    },
+  );
   const app = authenticatedTestServer();
   context.after(() => app.close());
   await agentEditingController(app, service);
@@ -138,6 +151,7 @@ test("profile edits preserve omitted fields and return all public fields without
       systemPrompt: expected.systemPrompt,
       avatarId: expected.avatarId,
       createdAt: expected.createdAt,
+      inference: expected.inference,
     });
   }
 });
@@ -145,14 +159,28 @@ test("profile edits preserve omitted fields and return all public fields without
 test("foreign and missing profile edits are indistinguishable and leave definitions unchanged", async (context) => {
   const foreign = { ...definition(), id: foreignId, ownerId: "another-owner" };
   const before = { ...foreign };
-  const service = new AgentEditingService({
-    /** Refuse records outside the authenticated owner's scope. */
-    async update({ ownerId }, id, changes) {
-      return id === foreign.id && ownerId === foreign.ownerId
-        ? { ...foreign, ...changes }
-        : undefined;
+  const service = new AgentEditingService(
+    {
+      /** Hide foreign and missing profiles before checking any provider choice. */
+      async getById({ ownerId }, id) {
+        return ownerId === foreign.ownerId && id === foreign.id
+          ? foreign
+          : undefined;
+      },
+      /** Refuse records outside the authenticated owner's scope. */
+      async update({ ownerId }, id, changes) {
+        return id === foreign.id && ownerId === foreign.ownerId
+          ? { ...foreign, ...changes }
+          : undefined;
+      },
     },
-  });
+    {
+      /** Inaccessible edits must never reach inference validation. */
+      async validate() {
+        throw new Error("Unexpected inference validation");
+      },
+    },
+  );
   const app = authenticatedTestServer();
   context.after(() => app.close());
   await agentEditingController(app, service);

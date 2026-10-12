@@ -31,7 +31,7 @@ export function useProviderConnections(): ProviderConnections {
   return connections;
 }
 
-/** Refresh metadata periodically so expired checks stop appearing green without paid polling. */
+/** Poll persisted connection results; the server schedules daily checks independently of the UI. */
 export function useProviders() {
   const connections = useProviderConnections();
   const { profile } = useSession();
@@ -53,6 +53,12 @@ export function useProviderAction(provider: ProviderId) {
   return useMutation({
     mutationFn: (action: () => Promise<unknown>) => action(),
     onMutate: async () => {
+      await cache.cancelQueries({
+        queryKey: ["provider-models", profile?.subject, provider],
+      });
+      cache.removeQueries({
+        queryKey: ["provider-models", profile?.subject, provider],
+      });
       await cache.cancelQueries({ queryKey: key });
       cache.setQueryData<ProviderConnection[]>(key, (items) =>
         items?.map((item) =>

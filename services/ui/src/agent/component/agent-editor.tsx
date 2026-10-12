@@ -9,8 +9,10 @@ import { useSession } from "../../session/component/session-provider.js";
 import { AvatarPicker } from "./avatar-picker.js";
 import { TeammateAvatar } from "./teammate-avatar.js";
 import { randomTeammateAvatarId } from "../model/teammate-avatars.js";
+import { InferenceFields, type InferenceDraft } from "./inference-fields.js";
+import type { InferenceSelection } from "@everything/provider-contracts/inference";
 
-/** Edit a teammate profile as one draft, preserving every field after API failures. */
+/** Require a model for new teammates and preserve the complete profile draft after API failures. */
 export function AgentEditor({
   agent,
   onClose,
@@ -27,6 +29,20 @@ export function AgentEditor({
   );
   const [avatarChoice, setAvatarChoice] = useState(avatarId);
   const [choosingAvatar, setChoosingAvatar] = useState(false);
+  const [inference, setInference] = useState<InferenceDraft>(
+    agent?.inference ?? { provider: "", model: "", effort: "" },
+  );
+  const [validInference, setValidInference] = useState(false);
+  const inferenceChanged =
+    inference.provider !== (agent?.inference?.provider ?? "") ||
+    inference.model !== (agent?.inference?.model ?? "") ||
+    inference.effort !== (agent?.inference?.effort ?? "");
+  const inferenceReady =
+    (!!agent && !inferenceChanged) ||
+    (validInference &&
+      !!inference.provider &&
+      !!inference.model &&
+      !!inference.effort);
   const formId = useId();
   const avatarButton = useRef<HTMLButtonElement>(null);
   const wasChoosingAvatar = useRef(false);
@@ -44,6 +60,12 @@ export function AgentEditor({
         name: name.trim(),
         systemPrompt: description.trim() || "Help me with my everyday work.",
         avatarId,
+        ...(inferenceChanged &&
+        inference.provider &&
+        inference.model &&
+        inference.effort
+          ? { inference: inference as InferenceSelection }
+          : {}),
       };
       return agent
         ? directory.update(agent.id, input)
@@ -55,10 +77,10 @@ export function AgentEditor({
       onClose();
     },
   });
-  /** Prevent duplicate submissions and reject names that contain only spaces. */
+  /** Reject incomplete names or model settings and prevent duplicate submissions. */
   function submit(event: FormEvent<HTMLFormElement>): void {
     event.preventDefault();
-    if (name.trim() && !save.isPending) save.mutate();
+    if (name.trim() && inferenceReady && !save.isPending) save.mutate();
   }
   /** Return from artwork selection without discarding the profile draft. */
   function close(): void {
@@ -78,7 +100,7 @@ export function AgentEditor({
       description={
         choosingAvatar
           ? "Pick a character for your teammate."
-          : "Choose a name, description, and avatar. You can change them later."
+          : "Choose your teammate’s profile and model settings. You can change them later."
       }
       className={`teammate-editor ${choosingAvatar ? "choosing-avatar" : ""}`}
       onClose={close}
@@ -103,7 +125,7 @@ export function AgentEditor({
               key="save-profile"
               form={formId}
               type="submit"
-              disabled={!name.trim() || save.isPending}
+              disabled={!name.trim() || !inferenceReady || save.isPending}
             >
               {save.isPending
                 ? "Saving…"
@@ -158,6 +180,14 @@ export function AgentEditor({
             />
             <small>Leave blank for general help with everyday tasks.</small>
           </label>
+          <InferenceFields
+            value={inference}
+            saved={agent?.inference ?? null}
+            required={!agent}
+            disabled={save.isPending}
+            onChange={setInference}
+            onValidityChange={setValidInference}
+          />
           {save.isError && (
             <p className="form-error" role="alert">
               {save.error.message}

@@ -1,13 +1,13 @@
 import { ApplicationError } from "@everything/errors";
 
-/** No model provider has credentials, so no agent can run. */
+/** A teammate needs an explicit inference selection before starting work. */
 export class ProviderUnavailableError extends ApplicationError {
-  /** Ask the user to connect a provider. */
+  /** Ask the owner to select this teammate's provider, model, and effort. */
   constructor() {
     super(
       503,
       "PROVIDER_UNAVAILABLE",
-      "Connect a model provider to use your teammates.",
+      "Choose a provider, model, and effort level in this teammate’s settings before sending a message.",
     );
   }
 }

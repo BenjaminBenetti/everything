@@ -6,9 +6,12 @@ import type {
   ProviderId,
   SaveProviderInput,
 } from "@everything/provider-contracts";
+import type { ProviderModel } from "@everything/provider-contracts/inference";
 
 /** Browser capabilities reveal only safe connection metadata. */
 export interface ProviderConnections {
+  /** List models and supported efforts for one active connection. */
+  models(provider: ProviderId, signal?: AbortSignal): Promise<ProviderModel[]>;
   /** Read saved status without performing inference. */
   list(signal?: AbortSignal): Promise<ProviderConnection[]>;
   /** Save a write-only API key and check it. */

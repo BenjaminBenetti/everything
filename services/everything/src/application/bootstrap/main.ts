@@ -27,6 +27,12 @@ import { OpenAiChatGptAuthorization } from "../../provider/adapter/chatgpt-autho
 import { ChatGptConnectionVerifier } from "../../provider/adapter/chatgpt-connection-verifier.js";
 import { AnthropicConnectionVerifier } from "../../provider/adapter/anthropic-connection-verifier.js";
 import { CompatibleConnectionVerifier } from "../../provider/adapter/compatible-connection-verifier.js";
+import { HttpModelDiscovery } from "../../provider/adapter/http-model-discovery.js";
+import { ProviderModelService } from "../../provider/service/provider-models.js";
+import { PiModelCapabilities } from "../../runtime/adapter/pi-model-capabilities.js";
+import { PiInferenceRuntimeFactory } from "../../runtime/adapter/pi-inference-runtime.js";
+import { PostgresProviderCheckRepository } from "../../provider/repository/postgres-provider-check-repository.js";
+import { ProviderCheckScheduler } from "../../provider/service/provider-check-scheduler.js";
 
 /** Assemble concrete adapters once at the process boundary and own their lifecycle. */
 async function main(): Promise<void> {
@@ -40,9 +46,30 @@ async function main(): Promise<void> {
   const database = createApplicationDatabase(config);
   await database.initialize();
   await database.runMigrations();
-  const models = await createModelRuntime(config.stateDirectory);
+  const providers = new ProviderConnectionService(
+    new PostgresProviderRepository(database),
+    new SessionCipher(config.sessionEncryptionKey),
+    {
+      chatgpt: new ChatGptConnectionVerifier(),
+      anthropic: new AnthropicConnectionVerifier(),
+      "openai-compatible": new CompatibleConnectionVerifier(),
+    },
+    new OpenAiChatGptAuthorization(
+      createOidcIdentityVerifier(
+        "https://auth.openai.com",
+        "https://auth.openai.com/.well-known/jwks.json",
+      ),
+      config.chatGptRedirectUri,
+    ),
+  );
+  const capabilities = new PiModelCapabilities(await createModelRuntime());
+  const models = new ProviderModelService(
+    providers,
+    new HttpModelDiscovery(),
+    capabilities,
+  );
   const agentRepository = new PostgresAgentRepository(database);
-  const agents = new AgentService(agentRepository);
+  const agents = new AgentService(agentRepository, models);
   const workspaces = new FileSystemWorkspaces(config.agentsDirectory);
   const artifactGateway = new HttpArtifactGateway(
     config.artifactService.url,
@@ -57,32 +84,18 @@ async function main(): Promise<void> {
     agents,
     new PostgresMessageRepository(database),
     new PiSessionFactory(
-      models,
+      new PiInferenceRuntimeFactory(providers, models, capabilities),
       workspaces,
       new ArtifactWorkbench(artifactGateway),
     ),
     workspaces,
   );
   const app = await createHttpApplication({
-    providers: new ProviderConnectionService(
-      new PostgresProviderRepository(database),
-      new SessionCipher(config.sessionEncryptionKey),
-      {
-        chatgpt: new ChatGptConnectionVerifier(),
-        anthropic: new AnthropicConnectionVerifier(),
-        "openai-compatible": new CompatibleConnectionVerifier(),
-      },
-      new OpenAiChatGptAuthorization(
-        createOidcIdentityVerifier(
-          "https://auth.openai.com",
-          "https://auth.openai.com/.well-known/jwks.json",
-        ),
-        config.chatGptRedirectUri,
-      ),
-    ),
+    providers,
+    models,
     chatGptRedirectUri: config.chatGptRedirectUri,
     agents,
-    profiles: new AgentEditingService(agentRepository),
+    profiles: new AgentEditingService(agentRepository, models),
     removal: conversations,
     conversations,
     artifacts: new ArtifactLibraryService(artifactGateway),
@@ -98,12 +111,22 @@ async function main(): Promise<void> {
       await database.getRepository(AgentEntity).exists();
     },
   });
+  const providerChecks = new ProviderCheckScheduler(
+    new PostgresProviderCheckRepository(database),
+    providers,
+    () =>
+      app.log.warn(
+        "Automatic provider checks could not complete; scheduling will retry.",
+      ),
+  );
   app.addHook("onClose", async () => {
+    await providerChecks.close();
     await conversations.close();
     await database.destroy();
   });
   closeOnTermination(app);
   await app.listen({ host: "0.0.0.0", port: config.port });
+  providerChecks.start();
 }
 
 /** Drain requests and Pi tool writes before Kubernetes terminates the pod. */

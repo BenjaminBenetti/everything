@@ -7,13 +7,13 @@ export const providerIds = [
 export type ProviderId = (typeof providerIds)[number];
 export type ApiKeyProviderId = Exclude<ProviderId, "chatgpt">;
 
-/** Shared input bounds and the lifetime of a successful connection check. */
+/** Shared input bounds and intervals for connection checks and authorization. */
 export const providerLimits = {
   apiKeyLength: 8192,
   addressLength: 2048,
   modelLength: 200,
   callbackLength: 16384,
-  verificationLifetimeMs: 15 * 60 * 1000,
+  verificationIntervalMs: 24 * 60 * 60 * 1000,
   authorizationLifetimeMs: 10 * 60 * 1000,
 } as const;
 
@@ -26,6 +26,7 @@ export interface ProviderConnection {
   readonly model: string | null;
   readonly account: string | null;
   readonly verifiedAt: string | null;
+  readonly lastCheckedAt: string | null;
   readonly message: string | null;
 }
 

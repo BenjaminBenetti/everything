@@ -46,6 +46,7 @@ export class PostgresAgentRepository
         name: agent.name,
         systemPrompt: agent.systemPrompt,
         avatarId: agent.avatarId ?? defaultAgentAvatarId,
+        inference: agent.inference ?? null,
       }),
     );
   }

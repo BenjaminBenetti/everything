@@ -11,6 +11,9 @@ import {
 } from "@everything/provider-contracts";
 import type { ProviderStore } from "../interface/provider-repository.js";
 import type { ProviderConnections } from "../interface/provider-connections.js";
+import type { ProviderAccess } from "../interface/provider-access.js";
+import type { ProviderChecks } from "../interface/provider-checks.js";
+import { isActiveProvider } from "@everything/provider-contracts/inference";
 import type { ConnectionVerifier } from "../interface/connection-verifier.js";
 import type { ChatGptAuthorization } from "../interface/chatgpt-authorization.js";
 import type {
@@ -22,11 +25,14 @@ import {
   ProviderAuthorizationError,
   ProviderInputError,
   ProviderNotConnectedError,
+  ProviderInactiveError,
 } from "../error/provider-errors.js";
 import { verificationFailure } from "../error/provider-errors.js";
 
 /** Own encrypted connection state transitions; no operation starts a teammate runtime. */
-export class ProviderConnectionService implements ProviderConnections {
+export class ProviderConnectionService
+  implements ProviderConnections, ProviderAccess, ProviderChecks
+{
   // ===========================================
   // Construction
   // ===========================================
@@ -47,7 +53,33 @@ export class ProviderConnectionService implements ProviderConnections {
   // Connection operations
   // ===========================================
 
-  /** Show the last successful check as verified for a bounded time without making paid requests. */
+  /** Resolve only this owner's active connection, serializing OAuth rotation with connection edits. */
+  async access(ownerId: string, provider: ProviderId) {
+    return this.locks.acquire(`${ownerId}:${provider}`, async () => {
+      let record = await this.find(ownerId, provider);
+      if (!record || !isActiveProvider(this.publicState(provider, record)))
+        throw new ProviderInactiveError();
+      let credential = await this.open<ProviderCredential>(
+        record,
+        record.encryptedCredential,
+      );
+      if (provider === "chatgpt") {
+        try {
+          credential = await this.authorization.refresh(credential);
+          record = {
+            ...record,
+            encryptedCredential: await this.seal(ownerId, provider, credential),
+          };
+          await this.store.save({ ownerId }, record);
+        } catch {
+          throw new ProviderInactiveError();
+        }
+      }
+      return { credential, baseUrl: record.baseUrl, model: record.model };
+    });
+  }
+
+  /** Return the persisted check result without making inference requests while listing providers. */
   async list(ownerId: string): Promise<ProviderConnection[]> {
     const records = await this.store.list({ ownerId });
     return providerIds.map((provider) =>
@@ -102,6 +134,7 @@ export class ProviderConnectionService implements ProviderConnections {
         encryptedCredential: await this.seal(ownerId, provider, { apiKey }),
         encryptedPending: null,
         verifiedAt: null,
+        lastCheckedAt: null,
         verificationError: null,
       };
       await this.store.save({ ownerId }, record);
@@ -118,6 +151,21 @@ export class ProviderConnectionService implements ProviderConnections {
       const record = await this.find(ownerId, provider);
       if (!record?.configured) throw new ProviderNotConnectedError();
       return this.check(record);
+    });
+  }
+
+  /** Serialize automatic checks with edits and skip a recent attempt, even after a restart or failure. */
+  async verifyIfDue(ownerId: string, provider: ProviderId): Promise<void> {
+    await this.locks.acquire(`${ownerId}:${provider}`, async () => {
+      const record = await this.find(ownerId, provider);
+      if (
+        !record?.configured ||
+        (record.lastCheckedAt &&
+          record.lastCheckedAt.getTime() >
+            Date.now() - providerLimits.verificationIntervalMs)
+      )
+        return;
+      await this.check(record);
     });
   }
 
@@ -144,6 +192,7 @@ export class ProviderConnectionService implements ProviderConnections {
           account: null,
           model: null,
           verifiedAt: null,
+          lastCheckedAt: null,
           verificationError: null,
           encryptedPending: null,
           encryptedCredential: await this.seal(ownerId, provider, {
@@ -240,6 +289,7 @@ export class ProviderConnectionService implements ProviderConnections {
           result.credential,
         ),
         verifiedAt: null,
+        lastCheckedAt: null,
         verificationError: null,
       };
       await this.store.save({ ownerId }, record);
@@ -251,12 +301,11 @@ export class ProviderConnectionService implements ProviderConnections {
   // Verification and representation
   // ===========================================
 
-  /** Persist a rotated grant before inference so a failed check cannot lose its refresh token. */
+  /** Persist the attempt before inference, retaining the last result until the new check finishes. */
   private async check(saved: StoredProvider): Promise<ProviderConnection> {
     let record = {
       ...saved,
-      verifiedAt: null,
-      verificationError: null,
+      lastCheckedAt: new Date(),
     } as StoredProvider;
     await this.store.save({ ownerId: record.ownerId }, record);
     try {
@@ -281,10 +330,16 @@ export class ProviderConnectionService implements ProviderConnections {
         baseUrl: record.baseUrl,
         model: record.model,
       });
-      record = { ...record, model, verifiedAt: new Date() };
+      record = {
+        ...record,
+        model,
+        verifiedAt: new Date(),
+        verificationError: null,
+      };
     } catch (error) {
       record = {
         ...record,
+        verifiedAt: null,
         verificationError:
           error instanceof ProviderAuthorizationError
             ? error.message
@@ -295,16 +350,12 @@ export class ProviderConnectionService implements ProviderConnections {
     return this.publicState(record.provider, record);
   }
 
-  /** Project a strict allowlist; credentials and pending OAuth state never reach the UI. */
+  /** Expose the last completed result; elapsed time schedules a refresh instead of disconnecting a provider. */
   private publicState(
     provider: ProviderId,
     record?: StoredProvider,
   ): ProviderConnection {
     const configured = record?.configured ?? false;
-    const fresh =
-      record?.verifiedAt &&
-      record.verifiedAt.getTime() >
-        Date.now() - providerLimits.verificationLifetimeMs;
     return {
       provider,
       configured,
@@ -312,7 +363,7 @@ export class ProviderConnectionService implements ProviderConnections {
         ? "disconnected"
         : record?.verificationError
           ? "error"
-          : fresh
+          : record?.verifiedAt
             ? "verified"
             : "unverified",
       baseUrl:
@@ -320,6 +371,7 @@ export class ProviderConnectionService implements ProviderConnections {
       model: record?.model ?? null,
       account: record?.account ?? null,
       verifiedAt: record?.verifiedAt?.toISOString() ?? null,
+      lastCheckedAt: record?.lastCheckedAt?.toISOString() ?? null,
       message: record?.verificationError ?? null,
     };
   }
@@ -348,6 +400,7 @@ export class ProviderConnectionService implements ProviderConnections {
       encryptedCredential: "",
       encryptedPending: null,
       verifiedAt: null,
+      lastCheckedAt: null,
       verificationError: null,
     };
   }
