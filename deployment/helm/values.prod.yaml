@@ -1,6 +1,7 @@
 # Remote clusters: images come from a registry, and the cluster's ingress controller exposes the
-# application. Replace the example registry, tag, and host. TLS for the host is configured by the
-# cluster, for example with `global.ingress.annotations` for a certificate issuer.
+# application and the artifact host. Replace the example registry, tag, and hosts. TLS for the hosts
+# is configured by the cluster, for example with `global.ingress.annotations` and
+# `global.artifactIngress.annotations` for a certificate issuer.
 #
 # Pass the credentials in a separate values file kept out of Git, with every key under `secrets` in
 # values.yaml set:
@@ -13,5 +14,10 @@ global:
     pullPolicy: IfNotPresent
   externalHostname: everything.example.com
   publicOrigin: "https://{{ .Values.global.externalHostname }}"
+  # A sibling of the application's hostname, so the two are different origins on the same site.
+  externalArtifactHostname: artifacts.example.com
+  artifactOrigin: "https://{{ .Values.global.externalArtifactHostname }}"
   ingress:
     host: "{{ .Values.global.externalHostname }}"
+  artifactIngress:
+    host: "{{ .Values.global.externalArtifactHostname }}"

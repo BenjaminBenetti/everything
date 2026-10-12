@@ -8,6 +8,7 @@ COPY lib/errors/package.json ./lib/errors/package.json
 COPY lib/security/package.json ./lib/security/package.json
 COPY lib/agent-contracts/package.json ./lib/agent-contracts/package.json
 COPY lib/provider-contracts/package.json ./lib/provider-contracts/package.json
+COPY lib/artifact-contracts/package.json ./lib/artifact-contracts/package.json
 COPY services/everything/package.json ./services/everything/package.json
 COPY services/keycloak/package.json ./services/keycloak/package.json
 COPY services/postgres/package.json ./services/postgres/package.json
@@ -23,6 +24,7 @@ COPY lib/errors ./lib/errors
 COPY lib/security ./lib/security
 COPY lib/agent-contracts ./lib/agent-contracts
 COPY lib/provider-contracts ./lib/provider-contracts
+COPY lib/artifact-contracts ./lib/artifact-contracts
 RUN pnpm --filter @everything/everything... build
 RUN --mount=type=secret,id=proxy_ca \
     if [ -f /run/secrets/proxy_ca ]; then export NODE_EXTRA_CA_CERTS=/run/secrets/proxy_ca; fi; \

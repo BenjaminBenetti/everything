@@ -11,9 +11,15 @@ global:
   # access tokens carry it in their issuer. TLS, when used, terminates at the cluster's ingress.
   externalHostname: localhost
   publicOrigin: "http://{{ .Values.global.externalHostname }}:8080"
+  # Hostname of the artifact host, which serves artifacts on an origin of their own so artifact pages
+  # never share the application's. It must share the application's registrable domain, such as
+  # artifacts.example.com beside everything.example.com, so its login cookie works in the app.
+  externalArtifactHostname: localhost
+  # Locally the artifact host is a second port on localhost: a different origin on the same site.
+  artifactOrigin: "http://{{ .Values.global.externalArtifactHostname }}:8081"
   # Realm defined in services/keycloak/config/everything-realm.json.
   realm: everything
-  # Secret holding the `admin`, `keycloak`, and `everything` database role passwords.
+  # Secret holding the `admin`, `keycloak`, `everything`, and `artifact` database role passwords.
   databaseCredentialsSecret: database-credentials
   ingress:
     # Ingress class to use; empty selects the cluster's default class.
@@ -22,6 +28,14 @@ global:
     host: ""
     # Controller-specific settings, such as a certificate issuer.
     annotations: {}
+  # The artifact host's Ingress, with the same settings; services join it with `ingress.site: artifacts`.
+  artifactIngress:
+    className: ""
+    host: ""
+    annotations: {}
+  # Namespaces for dynamic artifacts and their image builds, created by deployment/cluster/namespace.yaml.
+  artifactNamespace: everything-artifacts
+  buildNamespace: everything-builds
   # Storage class for persistent volumes that do not name one; empty uses the cluster's default class.
   storageClassName: ""
 
@@ -33,11 +47,19 @@ secrets:
     admin: ""
     keycloak: ""
     everything: ""
+    artifact: ""
   keycloak-credentials:
     admin: ""
   browser-auth:
     client-secret: ""
     session-encryption-key: ""
+  # Client secret of the Keycloak service account Everything uses to call the artifact service.
+  artifact-auth:
+    client-secret: ""
+  # The artifact registry's only account, used by the artifact service, build jobs, and nodes.
+  registry-credentials:
+    username: ""
+    password: ""
 
 # Keycloak's realm import: files/keycloak/everything-realm.json, rendered into the keycloak-realm Secret.
 keycloakRealm:
@@ -52,10 +74,21 @@ keycloakRealm:
       everything-outsider: ""
       wrong-audience: ""
 
-# Volumes mounted by more than one service, such as artifacts one service writes and another serves.
+# The registry holding dynamic artifact images. templates/registry-credentials.yaml renders its
+# password file and the push and pull credentials of build jobs and artifact pods.
+artifactRegistry:
+  # Secret under `secrets` holding the registry's `username` and `password`.
+  credentialsSecret: registry-credentials
+  # Address build jobs push to, inside the cluster.
+  pushHost: "registry.{{ .Release.Namespace }}.svc.cluster.local:5000"
+  # Address nodes pull from: the registry's node port through each node's own localhost, which
+  # container runtimes reach over plain HTTP.
+  pullHost: localhost:30500
+
+# Volumes mounted by more than one service, such as files one service writes and another serves.
 # Each becomes a claim named after its key, kept on uninstall; services mount it with `sharedVolume`.
 # Shared storage needs an access mode and storage class that allow it, such as ReadWriteMany.
-#   artifacts: { size: 10Gi, accessModes: [ReadWriteMany], storageClassName: <class> }
+#   exports: { size: 10Gi, accessModes: [ReadWriteMany], storageClassName: <class> }
 sharedVolumes: {}
 
 # Defaults merged under every entry in `services`; an entry overrides any of them.
@@ -89,12 +122,16 @@ serviceDefaults:
   args: []
   # Variable name to a literal value, or to `{ secretName, key }` for a Secret value.
   env: {}
-  # Port name to `{ containerPort, servicePort }`; ports with a servicePort are exposed by a Service
-  # named after the service.
+  # Port name to `{ containerPort, servicePort, nodePort? }`; ports with a servicePort are exposed by
+  # a Service named after the service, which becomes a NodePort Service when a port sets nodePort.
   ports: {}
-  # Route these path prefixes on the public origin to the named exposed port.
+  # Route these path prefixes to the named exposed port, on the application's origin or, with
+  # `site: artifacts`, on the artifact host.
   #   ingress: { port: http, paths: [/v1] }
   ingress: {}
+  # Kubernetes API access: namespace (rendered as a template) to RBAC rules. A service with access
+  # runs with its own ServiceAccount and a Role in each namespace; others get no API token.
+  apiAccess: {}
   # `startup`, `readiness`, and `liveness` probe specifications.
   probes: {}
   resources: {}
@@ -156,6 +193,9 @@ services:
       EVERYTHING_DB_PASSWORD:
         secretName: "{{ .Values.global.databaseCredentialsSecret }}"
         key: everything
+      ARTIFACT_DB_PASSWORD:
+        secretName: "{{ .Values.global.databaseCredentialsSecret }}"
+        key: artifact
     ports:
       postgres: { containerPort: 5432, servicePort: 5432 }
     probes:
@@ -196,6 +236,9 @@ services:
       # Confidential client secret resolved by Keycloak during realm import.
       EVERYTHING_WEB_CLIENT_SECRET:
         secretName: browser-auth
+        key: client-secret
+      EVERYTHING_ARTIFACT_CLIENT_SECRET:
+        secretName: artifact-auth
         key: client-secret
       # Temporary administrator created on first start.
       KC_BOOTSTRAP_ADMIN_USERNAME: admin
@@ -258,6 +301,11 @@ services:
       XDG_CACHE_HOME: /state/cache
       # Each agent keeps its files in a subdirectory named by its ID.
       AGENTS_DIRECTORY: /agents
+      ARTIFACT_SERVICE_URL: http://artifact:8081
+      ARTIFACT_CLIENT_ID: everything-artifact-client
+      ARTIFACT_CLIENT_SECRET:
+        secretName: artifact-auth
+        key: client-secret
     ports:
       http: { containerPort: 8080, servicePort: 8080 }
     ingress:
@@ -285,5 +333,123 @@ services:
       # Files of every agent; agents are created at runtime, so this volume is shared rather than per agent.
       agents:
         mountPath: /agents
+        persistentVolume: { size: 10Gi }
+      tmp: { mountPath: /tmp, emptyDir: {} }
+
+  registry:
+    # Images are files on its disk; one copy owns them.
+    workload: StatefulSet
+    rolloutWave: 0
+    image: everything-registry
+    env:
+      REGISTRY_HTTP_ADDR: ":5000"
+      REGISTRY_STORAGE_FILESYSTEM_ROOTDIRECTORY: /var/lib/registry
+      REGISTRY_STORAGE_DELETE_ENABLED: "true"
+      REGISTRY_AUTH: htpasswd
+      REGISTRY_AUTH_HTPASSWD_REALM: Everything artifacts
+      REGISTRY_AUTH_HTPASSWD_PATH: /auth/htpasswd
+      OTEL_TRACES_EXPORTER: none
+    ports:
+      # Nodes pull artifact images through this node port; see artifactRegistry.pullHost.
+      http: { containerPort: 5000, servicePort: 5000, nodePort: 30500 }
+    probes:
+      readiness:
+        httpGet: { path: /, port: http }
+        periodSeconds: 5
+      liveness:
+        httpGet: { path: /, port: http }
+        periodSeconds: 15
+    resources:
+      requests: { cpu: 50m, memory: 64Mi }
+      limits: { cpu: "1", memory: 256Mi }
+    volumes:
+      data:
+        mountPath: /var/lib/registry
+        persistentVolume: { size: 10Gi }
+      # Password file rendered by templates/registry-credentials.yaml.
+      auth: { mountPath: /auth, secret: registry-htpasswd }
+
+  artifact:
+    # Reconciles artifact workloads and serializes each artifact's changes in process, so it runs alone.
+    workload: StatefulSet
+    image: everything-artifact
+    env:
+      PORT: "8080"
+      INTERNAL_PORT: "8081"
+      PUBLIC_ORIGIN: "{{ tpl .Values.global.publicOrigin . }}"
+      ARTIFACT_ORIGIN: "{{ tpl .Values.global.artifactOrigin . }}"
+      OIDC_ISSUER: "{{ tpl .Values.global.publicOrigin . }}/auth/realms/{{ .Values.global.realm }}"
+      OIDC_JWKS_URL: "http://keycloak:8080/auth/realms/{{ .Values.global.realm }}/protocol/openid-connect/certs"
+      OIDC_AUDIENCE: everything-artifact
+      DATABASE_URL: postgresql://artifact@postgres:5432/artifact
+      DATABASE_PASSWORD:
+        secretName: "{{ .Values.global.databaseCredentialsSecret }}"
+        key: artifact
+      # Each dynamic artifact gets a role and schema in this database, reached from its namespace.
+      ARTIFACT_DATA_DATABASE: artifact_data
+      ARTIFACT_DATABASE_HOST: "postgres.{{ .Release.Namespace }}.svc.cluster.local:5432"
+      CONTENT_DIRECTORY: /content
+      ARTIFACT_NAMESPACE: "{{ .Values.global.artifactNamespace }}"
+      BUILD_NAMESPACE: "{{ .Values.global.buildNamespace }}"
+      ARTIFACT_STORAGE_CLASS: "{{ .Values.global.storageClassName }}"
+      REGISTRY_URL: http://registry:5000
+      REGISTRY_USERNAME:
+        secretName: "{{ .Values.artifactRegistry.credentialsSecret }}"
+        key: username
+      REGISTRY_PASSWORD:
+        secretName: "{{ .Values.artifactRegistry.credentialsSecret }}"
+        key: password
+      REGISTRY_PUSH_HOST: "{{ tpl .Values.artifactRegistry.pushHost . }}"
+      REGISTRY_PULL_HOST: "{{ tpl .Values.artifactRegistry.pullHost . }}"
+      REGISTRY_PULL_SECRET: registry-pull
+      REGISTRY_PUSH_SECRET: registry-push
+      # Build jobs, in their own namespace, download their source from the internal port.
+      BUILD_SOURCE_URL: "http://artifact.{{ .Release.Namespace }}.svc.cluster.local:8081"
+      BUILDKIT_IMAGE: moby/buildkit:v0.33.1-rootless
+    ports:
+      # The artifact host, through the artifact Ingress.
+      http: { containerPort: 8080, servicePort: 8080 }
+      # The internal API, called by Everything and build jobs inside the cluster.
+      internal: { containerPort: 8081, servicePort: 8081 }
+    ingress:
+      site: artifacts
+      port: http
+      paths: [/]
+    apiAccess:
+      "{{ .Values.global.artifactNamespace }}":
+        - apiGroups: [apps]
+          resources: [deployments, statefulsets]
+          verbs: [get, list, watch, create, update, patch, delete]
+        - apiGroups: [""]
+          resources: [services, secrets, persistentvolumeclaims]
+          verbs: [get, list, watch, create, update, patch, delete]
+        - apiGroups: [""]
+          resources: [pods, pods/log]
+          verbs: [get, list, watch]
+      "{{ .Values.global.buildNamespace }}":
+        - apiGroups: [batch]
+          resources: [jobs]
+          verbs: [get, list, watch, create, delete]
+        - apiGroups: [""]
+          resources: [pods, pods/log]
+          verbs: [get, list, watch]
+    probes:
+      startup:
+        httpGet: { path: /health/live, port: internal }
+        failureThreshold: 40
+        periodSeconds: 3
+      readiness:
+        httpGet: { path: /health/ready, port: internal }
+        periodSeconds: 5
+      liveness:
+        httpGet: { path: /health/live, port: internal }
+        periodSeconds: 10
+    resources:
+      requests: { cpu: 100m, memory: 256Mi }
+      limits: { cpu: "1", memory: 512Mi }
+    volumes:
+      # Uploaded files of every revision and build source.
+      content:
+        mountPath: /content
         persistentVolume: { size: 10Gi }
       tmp: { mountPath: /tmp, emptyDir: {} }

@@ -10,13 +10,29 @@
     ".": {
       "types": "./build/error/model/application-error.d.ts",
       "default": "./build/error/model/application-error.js"
+    },
+    "./fastify": {
+      "types": "./build/error/handler/fastify-error-handler.d.ts",
+      "default": "./build/error/handler/fastify-error-handler.js"
     }
   },
   "scripts": {
     "build": "rm -rf build && tsc -p tsconfig.build.json",
-    "check": "tsc -p tsconfig.json"
+    "check": "tsc -p tsconfig.json",
+    "test": "node --import tsx --test \"src/**/*.test.ts\""
   },
   "devDependencies": {
+    "@types/node": "^24.0.0",
+    "fastify": "5.12.5",
+    "tsx": "^4.20.0",
     "typescript": "7.0.2"
+  },
+  "peerDependencies": {
+    "fastify": "^5.12.5"
+  },
+  "peerDependenciesMeta": {
+    "fastify": {
+      "optional": true
+    }
   }
 }

@@ -6,3 +6,22 @@ metadata:
     pod-security.kubernetes.io/enforce: restricted
     pod-security.kubernetes.io/audit: restricted
     pod-security.kubernetes.io/warn: restricted
+---
+# Dynamic artifacts, run by the artifact service; named by global.artifactNamespace in the chart.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: everything-artifacts
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+---
+# Image builds; named by global.buildNamespace in the chart. Rootless BuildKit needs unconfined
+# seccomp and AppArmor profiles, which only the privileged policy allows.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: everything-builds
+  labels:
+    pod-security.kubernetes.io/enforce: privileged

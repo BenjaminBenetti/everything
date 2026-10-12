@@ -11,6 +11,8 @@ import rateLimit from "@fastify/rate-limit";
 import { requireAuthentication } from "@everything/security/fastify";
 import type { TokenVerifier } from "@everything/security/token-verifier";
 import { agentController } from "../../agent/controller/agent-controller.js";
+import { artifactController } from "../../artifact/controller/artifact-controller.js";
+import type { ArtifactLibrary } from "../../artifact/interface/artifact-library.js";
 import { agentEditingController } from "../../agent/controller/agent-editing-controller.js";
 import type { AgentEditing } from "../../agent/interface/agent-editing.js";
 import type { AgentCatalog } from "../../agent/interface/agent-catalog.js";
@@ -22,7 +24,7 @@ import {
   type ReadinessCheck,
 } from "../../health/controller/health-controller.js";
 import { strictRequestValidation } from "../../http/config/request-validation.js";
-import { errorHandler } from "../../http/handler/error-handler.js";
+import { errorHandler } from "@everything/errors/fastify";
 import { identityController } from "../../identity/controller/identity-controller.js";
 import { providerController } from "../../provider/controller/provider-controller.js";
 import { chatGptCallbackController } from "../../provider/controller/chatgpt-callback-controller.js";
@@ -39,6 +41,7 @@ export interface HttpDependencies {
   readonly profiles: AgentEditing;
   readonly removal: AgentRemoval;
   readonly conversations: ConversationOperations;
+  readonly artifacts: ArtifactLibrary;
   readonly readiness: ReadinessCheck;
 }
 
@@ -75,7 +78,8 @@ export async function createHttpApplication(
   });
   await app.register(helmet);
   await app.register(fastifyCookie);
-  await app.register(rateLimit, { max: 120, timeWindow: "1 minute" });
+  // Only routes that opt in are limited: those reachable without authentication.
+  await app.register(rateLimit, { global: false });
   app.setErrorHandler(errorHandler);
   await healthController(app, dependencies.readiness);
   await chatGptCallbackController(
@@ -116,5 +120,6 @@ function protectedApi(
     await conversationController(scope, dependencies.conversations);
     await agentController(scope, dependencies.agents, dependencies.removal);
     await agentEditingController(scope, dependencies.profiles);
+    await artifactController(scope, dependencies.artifacts);
   };
 }

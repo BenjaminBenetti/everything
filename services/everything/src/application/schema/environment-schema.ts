@@ -22,6 +22,11 @@ export const environmentSchema = Type.Object({
   DATABASE_PASSWORD: required,
   PI_STATE_DIRECTORY: required,
   AGENTS_DIRECTORY: Type.String({ pattern: "^/" }),
+  /** Internal API of the artifact service, reachable inside the cluster. */
+  ARTIFACT_SERVICE_URL: Type.String({ pattern: "^https?://[^/]+$" }),
+  /** Keycloak client whose service account calls the artifact service. */
+  ARTIFACT_CLIENT_ID: required,
+  ARTIFACT_CLIENT_SECRET: required,
 });
 
 /** Deployment settings after env-schema validation and defaults. */

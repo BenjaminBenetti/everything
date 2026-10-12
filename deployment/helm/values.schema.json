@@ -6,6 +6,7 @@
     "global",
     "secrets",
     "keycloakRealm",
+    "artifactRegistry",
     "sharedVolumes",
     "serviceDefaults",
     "services"
@@ -21,7 +22,12 @@
         "realm",
         "databaseCredentialsSecret",
         "ingress",
-        "storageClassName"
+        "storageClassName",
+        "externalArtifactHostname",
+        "artifactOrigin",
+        "artifactIngress",
+        "artifactNamespace",
+        "buildNamespace"
       ],
       "properties": {
         "image": {
@@ -45,7 +51,16 @@
           "type": "string",
           "pattern": "^https?://[^/]+$"
         },
+        "artifactOrigin": {
+          "type": "string",
+          "pattern": "^https?://[^/]+$"
+        },
         "externalHostname": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9.-]*$"
+        },
+        "externalArtifactHostname": {
           "type": "string",
           "minLength": 1,
           "pattern": "^[A-Za-z0-9][A-Za-z0-9.-]*$"
@@ -76,8 +91,32 @@
             }
           }
         },
+        "artifactIngress": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "className": {
+              "type": "string"
+            },
+            "host": {
+              "type": "string"
+            },
+            "annotations": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "storageClassName": {
           "type": "string"
+        },
+        "artifactNamespace": {
+          "$ref": "#/definitions/dnsLabel"
+        },
+        "buildNamespace": {
+          "$ref": "#/definitions/dnsLabel"
         }
       }
     },
@@ -121,6 +160,24 @@
         }
       },
       "required": ["developmentSeed"]
+    },
+    "artifactRegistry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["credentialsSecret", "pushHost", "pullHost"],
+      "properties": {
+        "credentialsSecret": {
+          "$ref": "#/definitions/dnsLabel"
+        },
+        "pushHost": {
+          "type": "string",
+          "minLength": 1
+        },
+        "pullHost": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
     },
     "sharedVolumes": {
       "type": "object",
@@ -261,6 +318,11 @@
               "servicePort": {
                 "type": "integer",
                 "minimum": 1
+              },
+              "nodePort": {
+                "type": "integer",
+                "minimum": 30000,
+                "maximum": 32767
               }
             }
           }
@@ -280,11 +342,23 @@
                 "type": "string",
                 "pattern": "^/"
               }
+            },
+            "site": {
+              "enum": ["application", "artifacts"]
             }
           },
           "dependencies": {
             "port": ["paths"],
             "paths": ["port"]
+          }
+        },
+        "apiAccess": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
           }
         },
         "probes": {

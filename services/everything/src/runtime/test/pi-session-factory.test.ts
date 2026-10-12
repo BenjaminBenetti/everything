@@ -6,6 +6,7 @@ import path from "node:path";
 import { test } from "node:test";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { AgentDefinition } from "../../agent/model/agent.js";
+import type { ArtifactWorkbench } from "../../artifact/service/artifact-workbench.js";
 import { FileSystemWorkspaces } from "../../workspace/service/file-system-workspaces.js";
 import { PiSessionFactory } from "../adapter/pi-session-factory.js";
 
@@ -34,6 +35,7 @@ test("refuses to open a session until a provider is connected, before touching t
   const factory = new PiSessionFactory(
     disconnectedModels,
     new FileSystemWorkspaces(agentsDirectory),
+    {} as ArtifactWorkbench,
   );
   await assert.rejects(
     factory.create(agent, async () => {}),

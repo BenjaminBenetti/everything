@@ -37,6 +37,31 @@
       "clientAuthenticatorType": "client-secret",
       "secret": "${EVERYTHING_WEB_CLIENT_SECRET}",
       "serviceAccountsEnabled": false
+    },
+    {
+      "clientId": "everything-artifact-client",
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "implicitFlowEnabled": false,
+      "redirectUris": [],
+      "webOrigins": [],
+      "protocolMappers": [
+        {
+          "name": "everything-artifact audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.custom.audience": "everything-artifact",
+            "id.token.claim": "false",
+            "access.token.claim": "true"
+          }
+        }
+      ],
+      "clientAuthenticatorType": "client-secret",
+      "secret": "${EVERYTHING_ARTIFACT_CLIENT_SECRET}",
+      "serviceAccountsEnabled": true
     }
   ]
 }

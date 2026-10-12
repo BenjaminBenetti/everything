@@ -1,5 +1,5 @@
 import type { FastifyReply, FastifyRequest } from "fastify";
-import { ApplicationError } from "@everything/errors";
+import { ApplicationError } from "../model/application-error.js";
 
 /** A stable, caller-safe error body. */
 interface PublicFailure {

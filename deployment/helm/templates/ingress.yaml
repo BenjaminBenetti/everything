@@ -1,20 +1,26 @@
-{{- $paths := list }}
+{{- /* One Ingress per site: the application's origin, and the artifact host's separate origin. */ -}}
+{{- $sites := dict
+  "application" (dict "name" .Release.Name "settings" .Values.global.ingress)
+  "artifacts" (dict "name" (printf "%s-artifacts" .Release.Name) "settings" .Values.global.artifactIngress) }}
+{{- $paths := dict }}
 {{- range $name, $_ := .Values.services }}
 {{- $service := include "stack.service" (dict "root" $ "name" $name) | fromYaml }}
 {{- if and $service.enabled $service.ingress }}
+{{- $site := $service.ingress.site | default "application" }}
 {{- range $service.ingress.paths }}
-{{- $paths = append $paths (dict "path" . "service" $name "port" $service.ingress.port) }}
+{{- $_ := set $paths $site (append (get $paths $site | default list) (dict "path" . "service" $name "port" $service.ingress.port)) }}
 {{- end }}
 {{- end }}
 {{- end }}
-{{- if $paths }}
-{{- $ingress := .Values.global.ingress }}
+{{- range $site, $sitePaths := $paths }}
+{{- $ingress := (get $sites $site).settings }}
+---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: {{ .Release.Name }}
+  name: {{ (get $sites $site).name }}
   labels:
-    {{- include "stack.commonLabels" . | nindent 4 }}
+    {{- include "stack.commonLabels" $ | nindent 4 }}
   {{- with $ingress.annotations }}
   annotations:
     {{- toYaml . | nindent 4 }}
@@ -25,13 +31,13 @@ spec:
   {{- end }}
   rules:
     {{- if $ingress.host }}
-    - host: {{ tpl $ingress.host . | quote }}
+    - host: {{ tpl $ingress.host $ | quote }}
       http:
     {{- else }}
     - http:
     {{- end }}
         paths:
-          {{- range $paths }}
+          {{- range $sitePaths }}
           - path: {{ .path }}
             pathType: Prefix
             backend:

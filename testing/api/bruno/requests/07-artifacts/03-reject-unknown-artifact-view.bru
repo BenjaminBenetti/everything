@@ -1,0 +1,29 @@
+meta {
+  name: Reject a view of an unknown artifact
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/v1/artifact-views
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+  Authorization: Bearer {{accessToken}}
+}
+
+body:json {
+  {
+    "slug": "no-such-artifact"
+  }
+}
+
+tests {
+  test("Reject a view of an unknown artifact", () => {
+    expect(res.status).to.equal(404);
+    expect(res.body.code).to.equal("ARTIFACT_NOT_FOUND");
+  });
+}

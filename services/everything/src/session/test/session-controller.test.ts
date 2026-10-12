@@ -6,7 +6,7 @@ import rateLimit from "@fastify/rate-limit";
 import { requireAuthentication } from "@everything/security/fastify";
 import { sessionController } from "../controller/session-controller.js";
 import { SessionCookie } from "../handler/session-cookie.js";
-import { errorHandler } from "../../http/handler/error-handler.js";
+import { errorHandler } from "@everything/errors/fastify";
 import { strictRequestValidation } from "../../http/config/request-validation.js";
 import { sessionFixture } from "./session-fixture.js";
 

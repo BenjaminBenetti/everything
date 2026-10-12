@@ -1,0 +1,18 @@
+meta {
+  name: Reject unauthenticated artifact list
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/v1/artifacts
+  body: none
+  auth: none
+}
+
+tests {
+  test("Reject unauthenticated artifact list", () => {
+    expect(res.status).to.equal(401);
+    expect(res.body.code).to.equal("UNAUTHENTICATED");
+  });
+}

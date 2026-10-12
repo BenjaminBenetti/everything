@@ -42,7 +42,14 @@ export async function createStaticServer(root: string) {
   });
   app.get("/ui-health", async () => ({ status: "ok" }));
   // An allowlist prevents missing assets and misrouted API requests receiving HTML.
-  const pages = new Set(["/", "/login", "/team", "/updates", "/artifacts"]);
+  const pages = new Set([
+    "/",
+    "/login",
+    "/team",
+    "/updates",
+    "/artifacts",
+    "/artifacts/open",
+  ]);
   for (const path of pages)
     app.get(path, async (_request, reply) =>
       reply.type("text/html").sendFile("index.html"),
