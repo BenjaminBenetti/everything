@@ -1,5 +1,41 @@
 import { ApplicationError } from "@everything/errors";
 
+/** A disconnected or failed connection cannot drive a teammate. */
+export class ProviderInactiveError extends ApplicationError {
+  /** Direct the owner to restore a usable connection. */
+  constructor() {
+    super(
+      409,
+      "PROVIDER_INACTIVE",
+      "Connect and check this model provider before using it for a teammate.",
+    );
+  }
+}
+
+/** Reject stale or incompatible teammate inference choices. */
+export class InferenceSelectionError extends ApplicationError {
+  /** Explain how to replace a model or effort that is no longer available. */
+  constructor() {
+    super(
+      400,
+      "INFERENCE_SELECTION_INVALID",
+      "Choose an available model and effort level for this teammate’s provider.",
+    );
+  }
+}
+
+/** Model discovery errors must not expose provider response bodies or credentials. */
+export class ProviderModelsError extends ApplicationError {
+  /** Offer a retry without claiming a catalog failure disconnected the provider. */
+  constructor() {
+    super(
+      502,
+      "PROVIDER_MODELS_UNAVAILABLE",
+      "Could not load models. Try again, or check this connection in Model providers.",
+    );
+  }
+}
+
 /** Invalid connection settings, safe to display without echoing submitted values. */
 export class ProviderInputError extends ApplicationError {
   /** Describe the input correction without including credentials. */

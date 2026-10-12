@@ -23,6 +23,7 @@ export class ConversationService
   // ===========================================
 
   private readonly runtimes = new Map<string, AgentRuntime>();
+  private readonly runtimeDefinitions = new Map<string, string>();
   private readonly locks = new AgentLock();
   private closing = false;
 
@@ -106,15 +107,23 @@ export class ConversationService
   // Runtime lifecycle
   // ===========================================
 
-  /** Reuse the agent's loaded runtime or reopen its durable session; the caller holds the agent's lock. */
+  /** Apply profile changes on the next turn while reopening the same durable session and history. */
   private async loadRuntime(agent: AgentDefinition): Promise<AgentRuntime> {
     const loaded = this.runtimes.get(agent.id);
-    if (loaded) return loaded;
+    const definition = JSON.stringify([
+      agent.name,
+      agent.systemPrompt,
+      agent.inference,
+    ]);
+    if (loaded && this.runtimeDefinitions.get(agent.id) === definition)
+      return loaded;
+    if (loaded) await this.unloadRuntime(agent.id);
     const session = await this.sessions.create(agent, (text) =>
       this.appendReply(agent, text),
     );
     const runtime = new AgentRuntime(session);
     this.runtimes.set(agent.id, runtime);
+    this.runtimeDefinitions.set(agent.id, definition);
     return runtime;
   }
 
@@ -124,6 +133,7 @@ export class ConversationService
     if (!runtime) return;
     await runtime.close();
     this.runtimes.delete(agentId);
+    this.runtimeDefinitions.delete(agentId);
   }
 
   /** Persist a message the agent deliberately sent to its owner. */

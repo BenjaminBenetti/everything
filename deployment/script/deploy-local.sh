@@ -4,12 +4,19 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 source deployment/script/stack-chart.sh
 
+# Image loading needs SSH access even when Kubernetes itself is reachable.
+# Check it explicitly because Minikube can skip inaccessible nodes without failing image load.
+if ! minikube --profile "$context" ssh -- true; then
+  echo "Cannot access the local Minikube node. Repair its SSH connection before deploying." >&2
+  exit 1
+fi
+
 # The namespace carries the pod-security policy and must exist before Helm installs into it.
 kubectl --context "$context" apply -f deployment/cluster/namespace.yaml
 pnpm build:images
 images=$(stack_images --values "$dev_values")
 for image in $images; do
-  minikube image load "$image"
+  minikube --profile "$context" image load --daemon --overwrite=true "$image"
 done
 # Without values flags, Helm would reuse the previous release's values; the chart's values.yaml must win.
 helm upgrade "$release" "$chart" --install --reset-values --kube-context "$context" --namespace "$namespace" \

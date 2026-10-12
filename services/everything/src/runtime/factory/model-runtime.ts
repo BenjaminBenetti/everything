@@ -1,16 +1,12 @@
-import { mkdir } from "node:fs/promises";
-import path from "node:path";
+import { InMemoryCredentialStore } from "@earendil-works/pi-ai";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 
-/** Open Pi's persistent provider credentials and model catalog, shared by every agent. */
-export async function createModelRuntime(
-  stateDirectory: string,
-): Promise<ModelRuntime> {
-  await mkdir(stateDirectory, { recursive: true, mode: 0o700 });
+/** Load Pi's capability catalog without machine-wide credentials or configuration. */
+export async function createModelRuntime(): Promise<ModelRuntime> {
   return ModelRuntime.create({
-    authPath: path.join(stateDirectory, "auth.json"),
-    modelsPath: path.join(stateDirectory, "models.json"),
-    modelsStorePath: path.join(stateDirectory, "model-catalog.json"),
+    credentials: new InMemoryCredentialStore(),
+    modelsPath: null,
+    refreshOnCreate: false,
     allowModelNetwork: false,
   });
 }

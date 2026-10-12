@@ -6,6 +6,7 @@ import type {
   ProviderId,
   SaveProviderInput,
 } from "@everything/provider-contracts";
+import type { ProviderModel } from "@everything/provider-contracts/inference";
 import type { JsonTransport } from "../../http/interface/json-transport.js";
 import type { ProviderConnections } from "../interface/provider-connections.js";
 
@@ -21,6 +22,19 @@ export class HttpProviderConnections implements ProviderConnections {
   // ===========================================
   // Connection operations
   // ===========================================
+
+  /** Discover choices using saved credentials without returning them to the browser. */
+  async models(
+    provider: ProviderId,
+    signal?: AbortSignal,
+  ): Promise<ProviderModel[]> {
+    return (
+      await this.transport.request<{ models: ProviderModel[] }>(
+        `/v1/providers/${provider}/models`,
+        signal ? { signal } : {},
+      )
+    ).models;
+  }
 
   /** Return public metadata only. */
   async list(signal?: AbortSignal): Promise<ProviderConnection[]> {

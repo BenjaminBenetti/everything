@@ -7,6 +7,7 @@ import {
 } from "@everything/provider-contracts";
 import { providerOptions } from "../model/provider-options.js";
 import { ConnectionStatus } from "./connection-status.js";
+import { ConnectionCheckDetails } from "./connection-check-details.js";
 import {
   useProviderAction,
   useProviderConnections,
@@ -51,11 +52,7 @@ export function ApiKeyProviderPage({
       aria-label={providerOptions[provider].title}
     >
       <ConnectionStatus connection={connection} pending={action.isPending} />
-      {connection.verifiedAt && (
-        <p className="connection-detail">
-          Last verified {new Date(connection.verifiedAt).toLocaleString()}.
-        </p>
-      )}
+      <ConnectionCheckDetails connection={connection} />
       <form
         onSubmit={submit}
         className="connection-form"

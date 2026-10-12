@@ -3,6 +3,8 @@ import { Trash2 } from "lucide-react";
 import { TeammateAvatar } from "./teammate-avatar.js";
 import { Button } from "@everything/ui/button";
 import { Dialog } from "@everything/ui/dialog";
+import { providerOptions } from "../../provider/model/provider-options.js";
+import { effortLabels } from "../model/inference-options.js";
 
 /** Inspect a saved profile with separated editing and deletion actions. */
 export function AgentDetails({
@@ -44,6 +46,19 @@ export function AgentDetails({
       <TeammateAvatar avatarId={agent.avatarId} />
       <p className="eyebrow">Description</p>
       <p className="agent-instructions">{agent.systemPrompt}</p>
+      <p className="eyebrow">Model settings</p>
+      {agent.inference ? (
+        <dl className="teammate-model-details">
+          <dt>Provider</dt>
+          <dd>{providerOptions[agent.inference.provider].title}</dd>
+          <dt>Model</dt>
+          <dd>{agent.inference.model}</dd>
+          <dt>Effort level</dt>
+          <dd>{effortLabels[agent.inference.effort]}</dd>
+        </dl>
+      ) : (
+        <p className="muted">No model selected.</p>
+      )}
       <p className="availability-note">Messaging isn’t available yet.</p>
     </Dialog>
   );

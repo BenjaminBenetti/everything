@@ -97,6 +97,7 @@ function fixture() {
     records,
     cipher,
     inputs,
+    verifier,
     service,
     fail: () => {
       failure = true;
@@ -110,6 +111,10 @@ test("encrypts credentials, restores after service restart, and isolates owners"
     .service()
     .save("owner", "anthropic", { apiKey: "secret-test-key" });
   assert.equal(saved.status, "verified");
+  assert.equal(
+    saved.lastCheckedAt,
+    [...state.records.values()][0]!.lastCheckedAt?.toISOString(),
+  );
   assert.ok(!JSON.stringify(saved).includes("secret-test-key"));
   const record = [...state.records.values()][0]!;
   assert.ok(!record.encryptedCredential.includes("secret-test-key"));
@@ -131,9 +136,12 @@ test("encrypts credentials, restores after service restart, and isolates owners"
   assert.equal(state.records.size, 1);
   await state.service().disconnect("owner", "anthropic");
   assert.equal(state.records.size, 0);
+  await assert.rejects(state.service().access("owner", "anthropic"), {
+    code: "PROVIDER_INACTIVE",
+  });
 });
 
-test("failed and stale checks cannot stay green, and failures never expose provider bodies", async () => {
+test("elapsed time preserves connection status, while failed checks revoke access without exposing provider bodies", async () => {
   const state = fixture();
   await state
     .service()
@@ -142,16 +150,119 @@ test("failed and stale checks cannot stay green, and failures never expose provi
   state.records.set(record.id, {
     ...record,
     verifiedAt: new Date(
-      Date.now() - providerLimits.verificationLifetimeMs - 1000,
+      Date.now() - providerLimits.verificationIntervalMs - 1000,
     ),
   });
-  assert.equal((await state.service().list("owner"))[1]?.status, "unverified");
+  assert.equal((await state.service().list("owner"))[1]?.status, "verified");
+  assert.equal(
+    (await state.service().access("owner", "anthropic")).credential.apiKey,
+    "secret-test-key",
+  );
+  await assert.rejects(state.service().access("outsider", "anthropic"), {
+    code: "PROVIDER_INACTIVE",
+  });
   state.fail();
   const failed = await state.service().verify("owner", "anthropic");
   assert.equal(failed.status, "error");
   assert.equal(failed.verifiedAt, null);
+  assert.ok(failed.lastCheckedAt);
   assert.ok(!JSON.stringify(failed).includes("secret-test-key"));
   assert.equal((await state.service().list("owner"))[1]?.status, "error");
+  await assert.rejects(state.service().access("owner", "anthropic"), {
+    code: "PROVIDER_INACTIVE",
+  });
+});
+
+test("automatic checks respect the persisted 24-hour boundary across concurrent calls and restarts", async (context) => {
+  const start = new Date("2026-01-01T00:00:00Z").getTime();
+  context.mock.timers.enable({ apis: ["Date"], now: start });
+  const state = fixture();
+  const service = state.service();
+  const saved = await service.save("owner", "openai-compatible", {
+    baseUrl: "http://model.local/v1",
+    apiKey: "secret-test-key",
+  });
+  assert.equal(providerLimits.verificationIntervalMs, 24 * 60 * 60 * 1000);
+  context.mock.timers.setTime(
+    start + providerLimits.verificationIntervalMs - 1,
+  );
+  await service.verifyIfDue("owner", "openai-compatible");
+  assert.equal(state.inputs.length, 1);
+  assert.equal(
+    (await service.list("owner"))[2]?.lastCheckedAt,
+    saved.lastCheckedAt,
+  );
+  context.mock.timers.setTime(start + providerLimits.verificationIntervalMs);
+  await Promise.all(
+    Array.from({ length: 5 }, () =>
+      service.verifyIfDue("owner", "openai-compatible"),
+    ),
+  );
+  assert.equal(state.inputs.length, 2);
+  assert.equal(
+    (await service.list("owner"))[2]?.lastCheckedAt,
+    new Date().toISOString(),
+  );
+  await state.service().verifyIfDue("owner", "openai-compatible");
+  await state.service().verifyIfDue("outsider", "openai-compatible");
+  assert.equal(state.inputs.length, 2);
+  await service.disconnect("owner", "openai-compatible");
+  context.mock.timers.setTime(
+    start + 2 * providerLimits.verificationIntervalMs,
+  );
+  await service.verifyIfDue("owner", "openai-compatible");
+  assert.equal(state.inputs.length, 2);
+});
+
+test("failed automatic checks retain their attempt time and wait a day before retrying", async (context) => {
+  const start = new Date("2026-01-01T00:00:00Z").getTime();
+  context.mock.timers.enable({ apis: ["Date"], now: start });
+  const state = fixture();
+  await state
+    .service()
+    .save("owner", "anthropic", { apiKey: "secret-test-key" });
+  state.fail();
+  context.mock.timers.setTime(start + providerLimits.verificationIntervalMs);
+  await state.service().verifyIfDue("owner", "anthropic");
+  const failed = (await state.service().list("owner"))[1]!;
+  assert.equal(failed.status, "error");
+  assert.equal(failed.lastCheckedAt, new Date().toISOString());
+  await state.service().verifyIfDue("owner", "anthropic");
+  assert.equal(state.inputs.length, 2);
+  context.mock.timers.setTime(
+    start + 2 * providerLimits.verificationIntervalMs,
+  );
+  await state.service().verifyIfDue("owner", "anthropic");
+  assert.equal(state.inputs.length, 3);
+});
+
+test("a pending daily refresh keeps the previous successful result visible and records the attempt first", async (context) => {
+  const state = fixture();
+  const service = state.service();
+  await service.save("owner", "anthropic", { apiKey: "secret-test-key" });
+  const record = [...state.records.values()][0]!;
+  state.records.set(record.id, { ...record, lastCheckedAt: null });
+  let begin!: () => void;
+  let finish!: (model: string) => void;
+  const started = new Promise<void>((resolve) => {
+    begin = resolve;
+  });
+  const result = new Promise<string>((resolve) => {
+    finish = resolve;
+  });
+  context.mock.method(state.verifier, "verify", async () => {
+    begin();
+    return result;
+  });
+  const refresh = service.verifyIfDue("owner", "anthropic");
+  await started;
+  const pending = (await service.list("owner"))[1]!;
+  assert.equal(pending.status, "verified");
+  assert.equal(pending.verifiedAt, record.verifiedAt?.toISOString());
+  assert.ok(pending.lastCheckedAt);
+  finish("test-model");
+  await refresh;
+  assert.equal((await state.service().list("owner"))[1]?.status, "verified");
 });
 
 test("a changed API destination never receives a previously saved key implicitly", async () => {

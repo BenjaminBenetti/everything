@@ -19,6 +19,7 @@ function fixture() {
     async create({ ownerId }: OwnerScope, agent: CreateAgentInput) {
       const saved = {
         ...agent,
+        inference: agent.inference ?? null,
         avatarId: agent.avatarId ?? defaultAgentAvatarId,
         id: String(stored.length + 1),
         ownerId,
@@ -38,7 +39,15 @@ function fixture() {
       deleted.push(id);
     },
   };
-  return { service: new AgentService(repository), deleted };
+  return {
+    service: new AgentService(repository, {
+      /** Existing callers can still create profiles before choosing inference. */
+      async validate() {
+        throw new Error("Unexpected inference selection");
+      },
+    }),
+    deleted,
+  };
 }
 
 test("new agents belong to their creator and are listed only for them", async () => {

@@ -18,6 +18,7 @@ function fixture() {
   let created = 0;
   let disposed = 0;
   let peakConcurrency = 0;
+  let inference: AgentDefinition["inference"] = null;
   const agents: Pick<AgentCatalog, "get" | "delete"> = {
     /** Reject identities that do not own the definition. */
     async get(ownerId, id) {
@@ -29,6 +30,7 @@ function fixture() {
         name: "User chosen name",
         systemPrompt: "Reply deliberately",
         avatarId: "avatar-01",
+        inference,
         createdAt: "",
       };
     },
@@ -101,6 +103,10 @@ function fixture() {
     lifecycle,
     recorded,
     running,
+    /** Simulate a durable profile edit between turns. */
+    selectModel(selection: AgentDefinition["inference"]) {
+      inference = selection;
+    },
     /** Read counters after asynchronous work settles. */
     metrics() {
       return { created, disposed, peakConcurrency };
@@ -124,6 +130,25 @@ test("serializes rapid messages, interrupting earlier turns without overlapping 
   assert.equal((await f.service.status("owner", "one")).status, "running");
   await f.service.interrupt("owner", "one");
   assert.equal((await f.service.status("owner", "one")).status, "idle");
+  await f.service.close();
+});
+
+test("editing model settings reloads the runtime on the next turn without creating another conversation", async () => {
+  const f = fixture();
+  await f.service.send("owner", "one", "Before editing");
+  f.selectModel({
+    provider: "anthropic",
+    model: "selected-model",
+    effort: "high",
+  });
+  await f.service.send("owner", "one", "After editing");
+  assert.equal(f.metrics().created, 2);
+  assert.equal(f.metrics().disposed, 1);
+  assert.equal(f.metrics().peakConcurrency, 1);
+  assert.deepEqual(
+    (await f.service.list("owner", "one")).map((message) => message.text),
+    ["Before editing", "After editing"],
+  );
   await f.service.close();
 });
 

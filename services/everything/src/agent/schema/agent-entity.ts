@@ -15,6 +15,7 @@ export const AgentEntity = new EntitySchema<AgentDefinition>({
     ownerId: { name: "owner_id", type: "text" },
     name: { type: "text" },
     systemPrompt: { name: "system_prompt", type: "text" },
+    inference: { type: "jsonb", nullable: true },
     avatarId: {
       name: "avatar_id",
       type: "text",
