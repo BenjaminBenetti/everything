@@ -2,6 +2,7 @@
 @import "@everything/ui/tokens.css";
 @import "@everything/ui/styles.css";
 @import "../../agent/style/teammate-profile.css";
+@import "../../agent/style/avatar-animation.css";
 @source "../../../../../lib/ui/src";
 @theme inline {
   --color-page: var(--surface-page);

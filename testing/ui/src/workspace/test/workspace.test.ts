@@ -531,6 +531,10 @@ test("deletion requires confirmation, preserves teammates on cancellation or fai
       await Promise.all(
         document
           .getAnimations()
+          .filter(
+            (animation) =>
+              animation.effect?.getTiming().iterations !== Infinity,
+          )
           .map((animation) => animation.finished.catch(() => undefined)),
       );
     });
