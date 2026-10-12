@@ -33,6 +33,13 @@ import { PiModelCapabilities } from "../../runtime/adapter/pi-model-capabilities
 import { PiInferenceRuntimeFactory } from "../../runtime/adapter/pi-inference-runtime.js";
 import { PostgresProviderCheckRepository } from "../../provider/repository/postgres-provider-check-repository.js";
 import { ProviderCheckScheduler } from "../../provider/service/provider-check-scheduler.js";
+import {
+  KubernetesWorkspacePods,
+  createWorkspacePodClients,
+} from "../../workspace/adapter/kubernetes-workspace-pods.js";
+import { HttpWorkspaceTools } from "../../workspace/adapter/http-workspace-tools.js";
+import { PostgresWorkspaceTargetRepository } from "../../workspace/repository/postgres-workspace-target-repository.js";
+import { WorkspaceReconciler } from "../../workspace/service/workspace-reconciler.js";
 
 /** Assemble concrete adapters once at the process boundary and own their lifecycle. */
 async function main(): Promise<void> {
@@ -70,7 +77,18 @@ async function main(): Promise<void> {
   );
   const agentRepository = new PostgresAgentRepository(database);
   const agents = new AgentService(agentRepository, models);
-  const workspaces = new FileSystemWorkspaces(config.agentsDirectory);
+  const workspaces = new WorkspaceReconciler(
+    new PostgresWorkspaceTargetRepository(database),
+    new KubernetesWorkspacePods(createWorkspacePodClients(), {
+      ...config.workspacePods,
+      key: config.sessionEncryptionKey,
+    }),
+    new FileSystemWorkspaces(config.agentsDirectory),
+    (agentId) =>
+      console.warn("Teammate workspace reconciliation failed; it will retry.", {
+        agentId,
+      }),
+  );
   const artifactGateway = new HttpArtifactGateway(
     config.artifactService.url,
     new KeycloakClientCredentials({
@@ -87,6 +105,10 @@ async function main(): Promise<void> {
       new PiInferenceRuntimeFactory(providers, models, capabilities),
       workspaces,
       new ArtifactWorkbench(artifactGateway),
+      new HttpWorkspaceTools(
+        config.workspacePods.namespace,
+        config.sessionEncryptionKey,
+      ),
     ),
     workspaces,
   );
@@ -122,11 +144,13 @@ async function main(): Promise<void> {
   app.addHook("onClose", async () => {
     await providerChecks.close();
     await conversations.close();
+    await workspaces.close();
     await database.destroy();
   });
   closeOnTermination(app);
   await app.listen({ host: "0.0.0.0", port: config.port });
   providerChecks.start();
+  workspaces.start();
 }
 
 /** Drain requests and Pi tool writes before Kubernetes terminates the pod. */

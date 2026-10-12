@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import type { WorkspaceTools } from "../../workspace/interface/workspace-tools.js";
+import { workspaceToolNames } from "../tool/workspace-tools.js";
 import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -176,6 +178,7 @@ async function fixture(context: TestContext) {
     inference,
     new FileSystemWorkspaces(directory),
     {} as ArtifactWorkbench,
+    {} as WorkspaceTools,
   );
   const definition: AgentDefinition = {
     id: "teammate",
@@ -260,8 +263,12 @@ test("repeated automatic compaction retains visible replies and reopens the same
   const request = f.requests.filter((item) => item.tools?.length).at(-2)!;
   assert.deepEqual(
     request.tools!.map((tool) => tool.function.name).sort(),
-    [sendMessageToolName, ...Object.values(artifactToolNames)].sort(),
-    "the reopened chat retains messaging and artifact tools after compaction",
+    [
+      sendMessageToolName,
+      ...Object.values(artifactToolNames),
+      ...Object.values(workspaceToolNames),
+    ].sort(),
+    "the reopened chat retains messaging, artifact, and workspace tools after compaction",
   );
   assert.ok(
     JSON.stringify(request.messages).includes("Keep helping with Kiwi"),

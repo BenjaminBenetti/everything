@@ -20,7 +20,6 @@ import { useAgents } from "../../agent/component/agent-directory-provider.js";
 import { useSession } from "../../session/component/session-provider.js";
 import { useWorkspaceDialogs } from "./workspace-dialogs.js";
 import { useProviders } from "../../provider/component/provider-connections-context.js";
-import { ConversationHeading } from "../../conversation/component/conversation-heading.js";
 
 const navigation = [
   { path: "/", label: "Home", icon: House },
@@ -160,19 +159,13 @@ export function WorkspaceShell() {
       <div className="main">
         <header className={`topbar ${activeAgent ? "chat-topbar" : ""}`}>
           {activeAgent ? (
-            <>
-              <Link
-                to="/team"
-                className="icon-button chat-back"
-                aria-label="Back to your team"
-              >
-                <ArrowLeft aria-hidden="true" />
-              </Link>
-              <ConversationHeading
-                agent={activeAgent}
-                onDetails={() => open({ kind: "details", agent: activeAgent })}
-              />
-            </>
+            <Link
+              to="/team"
+              className="icon-button"
+              aria-label="Back to your team"
+            >
+              <ArrowLeft aria-hidden="true" />
+            </Link>
           ) : (
             <>
               <Brand className="mobile-wordmark" />

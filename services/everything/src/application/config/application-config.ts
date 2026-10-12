@@ -23,6 +23,12 @@ export interface ApplicationConfig {
   readonly stateDirectory: string;
   /** Directory holding one subdirectory of files per agent. */
   readonly agentsDirectory: string;
+  /** Internal tools pods are reconciled from the chart's reusable StatefulSet template. */
+  readonly workspacePods: {
+    readonly namespace: string;
+    readonly templateName: string;
+    readonly claimName: string;
+  };
   /** The artifact service's internal API and the client credentials used to call it. */
   readonly artifactService: {
     readonly url: string;
@@ -55,6 +61,11 @@ export function loadApplicationConfig(
     databasePassword: settings.DATABASE_PASSWORD,
     stateDirectory: settings.PI_STATE_DIRECTORY,
     agentsDirectory: path.resolve(settings.AGENTS_DIRECTORY),
+    workspacePods: {
+      namespace: settings.WORKSPACE_NAMESPACE,
+      templateName: settings.WORKSPACE_TEMPLATE_NAME,
+      claimName: settings.WORKSPACE_CLAIM_NAME,
+    },
     artifactService: {
       url: settings.ARTIFACT_SERVICE_URL,
       clientId: settings.ARTIFACT_CLIENT_ID,

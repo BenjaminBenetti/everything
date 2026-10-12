@@ -13,6 +13,7 @@ lib/
   agent-contracts/ Browser-safe agent DTOs and validation limits
   artifact-contracts/ Artifact representations and limits shared by services and the UI
   conversation-contracts/ Browser-safe chat messages, pagination, and progress
+  workspace-contracts/ File and shell request schemas and bounded result contracts
   ui/              Shared React controls, branding, and six-theme design tokens
 services/
   everything/      API + main-agent lifecycle + Pi runtime
@@ -20,6 +21,7 @@ services/
     container/     Everything image
   ui/              React + Tailwind PWA and stateless UI host
   artifact/        Artifact records, files, builds, workloads, and the artifact host
+  teammate/        Internal file and Bash API, one always-running pod per teammate
   registry/        Image registry for dynamic artifacts
   keycloak/        Authentication: optimized Keycloak image
   postgres/        Database: initialization, access rules, image
@@ -43,7 +45,7 @@ Use Node 24.11+ and pnpm 10.34.6 (`corepack enable`, then `corepack prepare pnpm
 pnpm install --frozen-lockfile
 pnpm build           # Compile code, type-check tests, lint and render the Helm chart, check scripts
 pnpm test            # All workspace unit tests
-pnpm build:images    # Build all six container images
+pnpm build:images    # Build all service container images
 pnpm cluster:up      # Build, load, and deploy the local stack
 pnpm cluster:forward # Serve the stack at http://localhost:8080 and artifacts at :8081
 pnpm cluster:down    # Delete the local stack and all of its data (asks first; --yes skips)

@@ -88,13 +88,13 @@ export class ConversationService
     });
   }
 
-  /** Stop the runtime, delete the agent's files, then its definition and visible messages; a failure can be retried. */
+  /** Stop work, remove desired state, then clean up its pod and files; reconciliation retries interrupted cleanup. */
   async delete(ownerId: string, agentId: string): Promise<void> {
     await this.locks.run(agentId, async () => {
       await this.agents.get(ownerId, agentId);
       await this.unloadRuntime(agentId);
-      await this.workspaces.remove(agentId);
       await this.agents.delete(ownerId, agentId);
+      await this.workspaces.remove(agentId);
     });
   }
 

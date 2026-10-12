@@ -22,6 +22,9 @@ export const environmentSchema = Type.Object({
   DATABASE_PASSWORD: required,
   PI_STATE_DIRECTORY: required,
   AGENTS_DIRECTORY: Type.String({ pattern: "^/" }),
+  WORKSPACE_NAMESPACE: required,
+  WORKSPACE_TEMPLATE_NAME: required,
+  WORKSPACE_CLAIM_NAME: required,
   /** Internal API of the artifact service, reachable inside the cluster. */
   ARTIFACT_SERVICE_URL: Type.String({ pattern: "^https?://[^/]+$" }),
   /** Keycloak client whose service account calls the artifact service. */

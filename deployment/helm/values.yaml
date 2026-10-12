@@ -301,11 +301,25 @@ services:
       XDG_CACHE_HOME: /state/cache
       # Each agent keeps its files in a subdirectory named by its ID.
       AGENTS_DIRECTORY: /agents
+      WORKSPACE_NAMESPACE: "{{ .Release.Namespace }}"
+      WORKSPACE_TEMPLATE_NAME: teammate
+      WORKSPACE_CLAIM_NAME: '{{ include "stack.claimName" (dict "name" "everything" "volumeName" "agents") }}'
       ARTIFACT_SERVICE_URL: http://artifact:8081
       ARTIFACT_CLIENT_ID: everything-artifact-client
       ARTIFACT_CLIENT_SECRET:
         secretName: artifact-auth
         key: client-secret
+    apiAccess:
+      "{{ .Release.Namespace }}":
+        - apiGroups: [apps]
+          resources: [statefulsets]
+          verbs: [get, list, create, patch, delete]
+        - apiGroups: [""]
+          resources: [services]
+          verbs: [get, list, create, patch, delete]
+        - apiGroups: [""]
+          resources: [pods]
+          verbs: [get, list]
     ports:
       http: { containerPort: 8080, servicePort: 8080 }
     ingress:
@@ -335,6 +349,39 @@ services:
         mountPath: /agents
         persistentVolume: { size: 10Gi }
       tmp: { mountPath: /tmp, emptyDir: {} }
+
+  # Everything copies this pod template into one singleton StatefulSet for each persisted teammate.
+  # Keeping the template as a zero-replica service makes image loading and configuration generic.
+  teammate:
+    workload: StatefulSet
+    replicas: 0
+    image: everything-teammate
+    terminationGracePeriodSeconds: 10
+    env:
+      PORT: "8080"
+      WORKSPACE_DIRECTORY: /workspace
+    ports:
+      http: { containerPort: 8080 }
+    probes:
+      startup:
+        httpGet: { path: /health, port: http }
+        periodSeconds: 2
+        failureThreshold: 30
+      readiness:
+        httpGet: { path: /health, port: http }
+        periodSeconds: 5
+      liveness:
+        httpGet: { path: /health, port: http }
+        periodSeconds: 10
+    resources:
+      requests: { cpu: 25m, memory: 64Mi }
+      limits: { cpu: "1", memory: 512Mi }
+    volumes:
+      # Reconciliation substitutes the existing workspace PVC with this teammate's ID as subPath.
+      workspace: { mountPath: /workspace, emptyDir: {} }
+      # Hide Pi's configuration and conversation files behind a read-only empty mount.
+      private: { mountPath: /workspace/.pi, emptyDir: {}, readOnly: true }
+      tmp: { mountPath: /tmp, emptyDir: { sizeLimit: 256Mi } }
 
   registry:
     # Images are files on its disk; one copy owns them.

@@ -132,7 +132,12 @@ test("one conversation opens from team cards, loads all history, replies, and su
     .click();
   await expect(page).toHaveURL(/\/team\/avery$/);
   await expect(page).toHaveTitle("Avery · Everything");
-  await expect(page.locator(".chat-teammate")).toContainText("o3-mini · High");
+  const teammate = page.getByRole("complementary", {
+    name: "Avery teammate info",
+  });
+  await expect(teammate).toContainText("OpenAI-compatible API");
+  await expect(teammate).toContainText("o3-mini");
+  await expect(teammate).toContainText("High");
   const log = page.getByRole("log", { name: "Conversation with Avery" });
   await expect(log.getByRole("article")).toHaveCount(100);
   await page

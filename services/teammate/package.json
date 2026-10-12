@@ -1,0 +1,31 @@
+{
+  "name": "@everything/teammate",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.11.0"
+  },
+  "files": [
+    "build"
+  ],
+  "scripts": {
+    "build": "rm -rf build && tsc -p tsconfig.build.json",
+    "check": "tsc -p tsconfig.json",
+    "start": "node build/application/bootstrap/main.js",
+    "test": "node --import tsx --test \"src/**/*.test.ts\"",
+    "build:image": "bash ../../deployment/script/build-image.sh services/teammate everything-teammate:foundation"
+  },
+  "dependencies": {
+    "@everything/errors": "workspace:*",
+    "@everything/workspace-contracts": "workspace:*",
+    "env-schema": "8.0.1",
+    "fastify": "5.12.5",
+    "typebox": "1.1.33"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsx": "^4.20.0",
+    "typescript": "7.0.2"
+  }
+}

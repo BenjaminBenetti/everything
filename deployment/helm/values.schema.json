@@ -395,6 +395,9 @@
       "additionalProperties": false,
       "required": ["mountPath"],
       "properties": {
+        "readOnly": {
+          "type": "boolean"
+        },
         "mountPath": {
           "type": "string",
           "pattern": "^/"

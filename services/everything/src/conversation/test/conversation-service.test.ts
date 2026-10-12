@@ -207,15 +207,15 @@ test("shutdown tolerates an agent deleted while shutdown waits for its lock", as
   assert.equal(f.metrics().disposed, 1);
 });
 
-test("deletion stops the runtime, then removes the agent's files, then its definition", async () => {
+test("deletion stops the runtime, removes desired state, then cleans up the workspace", async () => {
   const f = fixture();
   await f.service.send("owner", "one", "work");
   await f.service.delete("owner", "one");
   assert.equal(f.running.size, 0);
   assert.deepEqual(f.lifecycle, [
     "runtime-disposed:one",
-    "files-removed:one",
     "definition-deleted:one",
+    "files-removed:one",
   ]);
   await assert.rejects(f.service.send("owner", "one", "later"), {
     code: "AGENT_NOT_FOUND",

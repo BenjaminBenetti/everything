@@ -6,6 +6,7 @@ import { useWorkspaceDialogs } from "../../workspace/component/workspace-dialogs
 import { useConversation } from "../hook/use-conversation.js";
 import { MessageComposer } from "../component/message-composer.js";
 import { MessageHistory } from "../component/message-history.js";
+import { ConversationTeammateCard } from "../component/conversation-teammate-card.js";
 
 /** Resolve the teammate's sole conversation from the directory, including direct links. */
 export function ConversationPage() {
@@ -38,7 +39,7 @@ export function ConversationPage() {
   return <TeammateConversation key={agent.id} agent={agent} />;
 }
 
-/** Present chat independently from provider setup, runtime sessions, and private model context. */
+/** Present the teammate's ongoing conversation alongside their profile and editing action. */
 function TeammateConversation({ agent }: { agent: Agent }) {
   const { open } = useWorkspaceDialogs();
   const { history, snapshot, send, stop, older } = useConversation(agent.id);
@@ -52,6 +53,10 @@ function TeammateConversation({ agent }: { agent: Agent }) {
     runtime?.error;
   return (
     <section className="chat-page" aria-label={`Chat with ${agent.name}`}>
+      <ConversationTeammateCard
+        agent={agent}
+        onEdit={() => open({ kind: "editor", agent })}
+      />
       {snapshot.isPending ? (
         <p className="chat-loading" role="status">
           Loading your messages…

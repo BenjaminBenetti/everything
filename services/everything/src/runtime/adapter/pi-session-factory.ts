@@ -21,6 +21,8 @@ import { sendMessageTool } from "../tool/send-message-tool.js";
 import { PiAgentSession } from "./pi-agent-session.js";
 import type { InferenceRuntimeFactory } from "../interface/inference-runtime.js";
 import { compactionPolicy } from "../model/compaction-policy.js";
+import type { WorkspaceTools } from "../../workspace/interface/workspace-tools.js";
+import { workspaceTools } from "../tool/workspace-tools.js";
 
 /** Pi's per-agent configuration and session paths inside the agent's workspace. */
 interface AgentDirectories {
@@ -35,11 +37,12 @@ export class PiSessionFactory implements AgentSessionFactory {
   // Construction
   // ===========================================
 
-  /** Receive owner-scoped inference, the teammates' working directories, and the shared artifacts. */
+  /** Receive owner-scoped inference, working directories, shared artifacts, and isolated workspace tools. */
   constructor(
     private readonly inference: InferenceRuntimeFactory,
     private readonly workspaces: Pick<AgentWorkspaces, "directory">,
     private readonly artifacts: ArtifactWorkbench,
+    private readonly workspace: WorkspaceTools,
   ) {}
 
   // ===========================================
@@ -74,6 +77,7 @@ export class PiSessionFactory implements AgentSessionFactory {
     });
     const tools = [
       sendMessageTool(sendMessage),
+      ...workspaceTools(this.workspace, agent.id),
       ...artifactTools(this.artifacts, {
         ownerId: agent.ownerId,
         author: { id: agent.id, name: agent.name },

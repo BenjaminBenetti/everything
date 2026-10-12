@@ -1,6 +1,7 @@
 import type { AgentDefinition } from "../../agent/model/agent.js";
 import { artifactToolNames } from "../tool/artifact-tools.js";
 import { sendMessageToolName } from "../tool/send-message-tool.js";
+import { workspaceToolNames } from "../tool/workspace-tools.js";
 
 /** Append the rules that keep agent output private unless deliberately sent to the user. */
 export function mainAgentPrompt(
@@ -12,6 +13,8 @@ export function mainAgentPrompt(
     "You share one ongoing conversation with this user. Continue from the context you have, including summaries of earlier messages.",
     "Ordinary assistant text is private and never appears in chat.",
     "User messages interrupt your current work; attend to the new message promptly.",
+    `Use ${workspaceToolNames.read}, ${workspaceToolNames.write}, and ${workspaceToolNames.bash} to work with files. Use paths relative to your workspace with all file and artifact tools.`,
+    "Shell commands run in your own pod, where your persistent files are mounted at /workspace. Only workspace files survive pod replacement. Private conversation state is unavailable to tools.",
   ];
   const artifacts = [
     "Artifacts are shared pages and apps with their own links; the user and every teammate can open and change them.",

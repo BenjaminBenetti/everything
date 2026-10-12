@@ -21,6 +21,7 @@ import { PiModelCapabilities } from "../adapter/pi-model-capabilities.js";
 import { createModelRuntime } from "../factory/model-runtime.js";
 import { ProviderInactiveError } from "../../provider/error/provider-errors.js";
 import { mainAgentPrompt } from "../prompt/main-agent-prompt.js";
+import type { WorkspaceTools } from "../../workspace/interface/workspace-tools.js";
 
 const agent: AgentDefinition = {
   id: "agent-id",
@@ -49,6 +50,7 @@ test("refuses to open a session until a provider is connected, before touching t
     disconnectedModels,
     new FileSystemWorkspaces(agentsDirectory),
     {} as ArtifactWorkbench,
+    {} as WorkspaceTools,
   );
   await assert.rejects(
     factory.create(agent, async () => {}),
@@ -140,6 +142,7 @@ test("Pi sends only the teammate's initial context, applies saved inference, and
     inference,
     new FileSystemWorkspaces(directory),
     {} as ArtifactWorkbench,
+    {} as WorkspaceTools,
   );
   const definition: AgentDefinition = {
     ...agent,
@@ -157,6 +160,11 @@ test("Pi sends only the teammate's initial context, applies saved inference, and
   assert.equal(requests[0]?.body.model, "o3-mini");
   assert.equal(requests[0]?.body.reasoning_effort, "high");
   assert.equal(requests[0]?.authorization, "Bearer first-owner-key");
+  const toolNames = (
+    requests[0]!.body.tools as { function: { name: string } }[]
+  ).map((tool) => tool.function.name);
+  for (const name of ["file_read", "file_write", "bash"])
+    assert.ok(toolNames.includes(name), name);
   const initialMessages = requests[0]!.body.messages as {
     role: string;
     content: unknown;
