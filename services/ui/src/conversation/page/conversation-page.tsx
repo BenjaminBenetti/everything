@@ -39,12 +39,12 @@ export function ConversationPage() {
   return <TeammateConversation key={agent.id} agent={agent} />;
 }
 
-/** Present the teammate's ongoing conversation alongside their profile and editing action. */
+/** Present the teammate's ongoing conversation alongside their profile and live background count. */
 function TeammateConversation({ agent }: { agent: Agent }) {
   const { open } = useWorkspaceDialogs();
   const { history, snapshot, send, older } = useConversation(agent.id);
   const runtime = snapshot.data?.runtime;
-  // Only writing a message shows; other work stays out of sight.
+  // The typing indicator tracks only messages; background activity appears in the teammate card.
   const typing = runtime?.status === "running" && runtime.typing;
   const error =
     send.error?.message ??
@@ -55,6 +55,7 @@ function TeammateConversation({ agent }: { agent: Agent }) {
     <section className="chat-page" aria-label={`Chat with ${agent.name}`}>
       <ConversationTeammateCard
         agent={agent}
+        backgroundCount={runtime?.backgroundCount ?? 0}
         onEdit={() => open({ kind: "editor", agent })}
       />
       {snapshot.isPending ? (

@@ -5,7 +5,7 @@ import { useSession } from "../../session/component/session-provider.js";
 import { useConversationClient } from "../component/conversation-provider.js";
 import { prependHistory, refreshHistory } from "../model/message-history.js";
 
-/** Coordinate polling, explicit submissions, and history pages within one mounted teammate. */
+/** Coordinate history and progress, keeping the background indicator current through its idle grace period. */
 export function useConversation(agentId: string) {
   const client = useConversationClient();
   const { profile } = useSession();
@@ -20,9 +20,14 @@ export function useConversation(agentId: string) {
     },
     enabled: !!profile,
     retry: false,
-    // While the teammate works, check every second so its typing indicator appears as it writes.
-    refetchInterval: (query) =>
-      query.state.data?.runtime.status === "running" ? 1000 : 5000,
+    // Keep polling every second while a displayed background count is waiting to expire.
+    refetchInterval: (query) => {
+      const runtime = query.state.data?.runtime;
+      return runtime?.status === "running" ||
+        (runtime?.backgroundCount ?? 0) > 0
+        ? 1000
+        : 5000;
+    },
   });
   useEffect(() => {
     if (snapshot.data)

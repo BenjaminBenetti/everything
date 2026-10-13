@@ -1,4 +1,3 @@
-import { spawn } from "node:child_process";
 import {
   workspaceLimits,
   type BashInput,
@@ -6,24 +5,25 @@ import {
 } from "@everything/workspace-contracts";
 import type { WorkspaceDirectories } from "../../workspace/interface/workspace-files.js";
 import type { CommandRunner } from "../interface/command-runner.js";
+import type { CommandProcessFactory } from "../interface/command-process-factory.js";
 import { commandEnvironment } from "../model/command-environment.js";
-import { WorkspaceBusyError } from "../../workspace/error/workspace-errors.js";
 
-/** Execute commands in the teammate container, with bounded output and process-group cancellation. */
+/** Run concurrent commands with independently bounded output, cancellation, and cleanup. */
 export class BashRunner implements CommandRunner {
   // ===========================================
   // Construction and state
   // ===========================================
 
-  private active: AbortController | undefined;
+  private readonly active = new Set<AbortController>();
+  private closed = false;
 
   /**
-   * Receive workspace path policy, a container-wide descendant cleanup operation, and the variables
+   * Receive workspace path policy, isolated command creation, and the variables
    * commands inherit, which default to the allowlisted part of this process's environment.
    */
   constructor(
     private readonly files: WorkspaceDirectories,
-    private readonly reap: () => void = () => {},
+    private readonly processes: CommandProcessFactory,
     private readonly environment = commandEnvironment(process.env),
   ) {}
 
@@ -38,24 +38,19 @@ export class BashRunner implements CommandRunner {
    */
   async run(input: BashInput, signal?: AbortSignal): Promise<BashResult> {
     signal?.throwIfAborted();
-    if (this.active) throw new WorkspaceBusyError();
+    if (this.closed) throw new Error("Command interrupted.");
     const cancellation = new AbortController();
-    this.active = cancellation;
+    this.active.add(cancellation);
     try {
       const home = await this.files.directory();
       const cwd = await this.files.directory(input.cwd);
       signal?.throwIfAborted();
+      if (cancellation.signal.aborted) throw new Error("Command interrupted.");
       return await new Promise<BashResult>((resolve, reject) => {
-        const child = spawn(
-          "/bin/bash",
-          ["--noprofile", "--norc", "-c", input.command],
-          {
-            cwd,
-            detached: true,
-            stdio: ["ignore", "pipe", "pipe"],
-            env: { ...this.environment, HOME: home },
-          },
-        );
+        const child = this.processes.spawn(input.command, cwd, {
+          ...this.environment,
+          HOME: home,
+        });
         const chunks: Buffer[] = [];
         let size = 0;
         let truncated = false;
@@ -67,17 +62,9 @@ export class BashRunner implements CommandRunner {
           size += Math.min(chunk.length, Math.max(remaining, 0));
           if (chunk.length > remaining) truncated = true;
         };
-        /** Stop the process group immediately so interruptions do not leave writers behind. */
+        /** Ask this command's supervisor to kill and reap only its descendants. */
         const kill = (): void => {
-          if (child.pid) {
-            try {
-              process.kill(-child.pid, "SIGKILL");
-            } catch (error) {
-              if ((error as NodeJS.ErrnoException).code !== "ESRCH")
-                throw error;
-            }
-          }
-          this.reap();
+          child.kill("SIGTERM");
         };
         const timer = setTimeout(
           () => {
@@ -93,8 +80,7 @@ export class BashRunner implements CommandRunner {
         child.stderr.on("data", collect);
         signal?.addEventListener("abort", kill, { once: true });
         cancellation.signal.addEventListener("abort", kill, { once: true });
-        // `exit` precedes `close`: descendants may still have inherited the output pipes.
-        child.once("exit", kill);
+        // The supervisor exits only after descendants have released their inherited pipes.
         child.once("error", reject);
         child.once("close", (exitCode, exitSignal) => {
           clearTimeout(timer);
@@ -114,12 +100,13 @@ export class BashRunner implements CommandRunner {
         if (signal?.aborted || cancellation.signal.aborted) kill();
       });
     } finally {
-      this.active = undefined;
+      this.active.delete(cancellation);
     }
   }
 
-  /** Stop the active command while the API drains for pod termination. */
+  /** Stop every active command and reject new work while the API drains for pod termination. */
   close(): void {
-    this.active?.abort();
+    this.closed = true;
+    for (const cancellation of this.active) cancellation.abort();
   }
 }

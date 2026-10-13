@@ -16,6 +16,7 @@ import type { AgentSession } from "../interface/agent-session.js";
 import { AgentRuntime } from "../service/agent-runtime.js";
 import { artifactToolNames } from "../tool/artifact-tools.js";
 import { sendMessageToolName } from "../tool/send-message-tool.js";
+import { forkToolNames } from "../tool/fork-tools.js";
 
 interface CompletionRequest {
   model: string;
@@ -272,6 +273,7 @@ test("repeated automatic compaction retains visible replies and reopens the same
       sendMessageToolName,
       ...Object.values(artifactToolNames),
       ...Object.values(workspaceToolNames),
+      ...Object.values(forkToolNames),
     ].sort(),
     "the reopened chat retains messaging, artifact, and workspace tools after compaction",
   );

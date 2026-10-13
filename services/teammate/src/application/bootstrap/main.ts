@@ -3,6 +3,7 @@ import { Type, type Static } from "typebox";
 import { workspaceMountPath } from "@everything/workspace-contracts/mount";
 import { WorkspaceFiles } from "../../workspace/service/workspace-files.js";
 import { BashRunner } from "../../shell/service/bash-runner.js";
+import { LinuxCommandProcessFactory } from "../../shell/adapter/linux-command-process-factory.js";
 import { createHttpApplication } from "../factory/http-application.js";
 
 const settingsSchema = Type.Object({
@@ -22,15 +23,7 @@ async function main(): Promise<void> {
     schema: settingsSchema,
   });
   const files = new WorkspaceFiles(settings.WORKSPACE_DIRECTORY);
-  /** Linux excludes namespace PID 1 and the caller; no other pod shares this PID namespace. */
-  const reap = (): void => {
-    try {
-      process.kill(-1, "SIGKILL");
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
-    }
-  };
-  const bash = new BashRunner(files, reap);
+  const bash = new BashRunner(files, new LinuxCommandProcessFactory());
   const app = createHttpApplication(files, bash, settings.WORKSPACE_TOKEN);
   /** Stop work before allowing Kubernetes to replace the pod. */
   const shutdown = (): void => {

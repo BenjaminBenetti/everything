@@ -20,6 +20,7 @@ async function workspace(context: BrowserContext, withModel = true) {
       status: "idle",
       compacting: false,
       typing: false,
+      backgroundCount: 0,
       sessionId: "private-session-id",
       runId: null as string | null,
       error: null as string | null,
@@ -67,6 +68,7 @@ async function workspace(context: BrowserContext, withModel = true) {
             status: "idle",
             compacting: false,
             typing: false,
+            backgroundCount: 0,
           },
     }),
   );
@@ -93,6 +95,7 @@ async function workspace(context: BrowserContext, withModel = true) {
           status: "running",
           compacting: false,
           typing: false,
+          backgroundCount: 0,
           sessionId: "private-session-id",
           runId: "private-run-id",
           error: null,
@@ -138,6 +141,10 @@ test("one conversation opens from team cards, loads all history, replies, and su
   await expect(teammate).toContainText("OpenAI-compatible API");
   await expect(teammate).toContainText("o3-mini");
   await expect(teammate).toContainText("High");
+  const background = teammate.getByRole("status", {
+    name: "Active background teammates",
+  });
+  await expect(background).toHaveCount(0);
   const log = page.getByRole("log", { name: "Conversation with Avery" });
   await expect(log.getByRole("article")).toHaveCount(100);
   await page
@@ -167,19 +174,28 @@ test("one conversation opens from team cards, loads all history, replies, and su
   await expect(log.getByRole("article").last()).toContainText(
     "Keep working on Kiwi\nk",
   );
-  // Working, including summarizing, shows nothing; only writing a message shows typing bubbles.
+  // Background work updates the card; only writing a message shows typing bubbles.
   const typing = page.getByText("Avery is typing", { exact: true });
   state.runtime.compacting = true;
+  state.runtime.backgroundCount = 2;
+  await expect(background).toHaveText("2 background");
   await page.waitForTimeout(1500);
+  await page.screenshot({ path: info.outputPath("background-working.png") });
   await expect(typing).toHaveCount(0);
   await expect(page.getByText(/replying|Summarizing/)).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Stop reply" })).toHaveCount(0);
   state.runtime.compacting = false;
   state.runtime.typing = true;
+  state.runtime.backgroundCount = 1;
+  await expect(background).toHaveText("1 background");
   await expect(typing).toBeAttached({ timeout: 5000 });
   await expect(page.locator(".chat-typing-bubble")).toBeVisible();
   state.runtime.typing = false;
   state.runtime.status = "idle";
+  await expect(typing).toHaveCount(0);
+  await expect(background).toHaveText("1 background");
+  state.runtime.backgroundCount = 0;
+  await expect(background).toHaveCount(0, { timeout: 3000 });
   state.messages.push({
     id: "reply-kiwi",
     role: "assistant",
@@ -191,6 +207,7 @@ test("one conversation opens from team cards, loads all history, replies, and su
   ).toBeVisible({ timeout: 10000 });
   await expect(log.getByRole("article")).toHaveCount(207);
   await expect(typing).toHaveCount(0);
+  await expect(background).toHaveCount(0);
   await expect(page.getByText("private-session-id")).toHaveCount(0);
   await expect(page.getByRole("button", { name: /new chat/i })).toHaveCount(0);
   await expect(

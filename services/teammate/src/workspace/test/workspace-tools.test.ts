@@ -13,13 +13,14 @@ import { test, type TestContext } from "node:test";
 import { workspaceLimits } from "@everything/workspace-contracts";
 import { WorkspaceFiles } from "../service/workspace-files.js";
 import { BashRunner } from "../../shell/service/bash-runner.js";
+import { LinuxCommandProcessFactory } from "../../shell/adapter/linux-command-process-factory.js";
 import { createHttpApplication } from "../../application/factory/http-application.js";
 
-/** Provide a real temporary workspace and a test API without container-wide process cleanup. */
+/** Provide a real temporary workspace and the same command supervisor as the production API. */
 async function fixture(context: TestContext) {
   const root = await mkdtemp(path.join(tmpdir(), "teammate-tools-"));
   const files = new WorkspaceFiles(root);
-  const bash = new BashRunner(files);
+  const bash = new BashRunner(files, new LinuxCommandProcessFactory());
   const app = createHttpApplication(files, bash, "test-token");
   context.after(async () => {
     bash.close();
@@ -113,9 +114,7 @@ test("Bash bounds output, times out, cancels promptly, and kills background chil
   const cancellation = new AbortController();
   const pending = bash.run({ command: "sleep 20" }, cancellation.signal);
   await new Promise((resolve) => setTimeout(resolve, 50));
-  await assert.rejects(bash.run({ command: "true" }), {
-    code: "WORKSPACE_BUSY",
-  });
+  assert.equal((await bash.run({ command: "true" })).exitCode, 0);
   cancellation.abort();
   await assert.rejects(pending, /interrupted/);
   await bash.run({ command: "(sleep 0.3; echo leaked > orphan) &" });
@@ -204,8 +203,19 @@ test("disconnecting a real HTTP caller cancels its running command", async (cont
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
   assert.equal(await readFile(path.join(root, "started"), "utf8"), "ready\n");
+  const independent = fetch(`${address}/bash`, {
+    method: "POST",
+    headers: {
+      authorization: "Bearer test-token",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ command: "sleep 0.2; printf independent" }),
+  });
   cancellation.abort();
   await assert.rejects(pending);
+  const response = await independent;
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).output, "independent");
   await new Promise((resolve) => setTimeout(resolve, 700));
   await assert.rejects(readFile(path.join(root, "finished")), {
     code: "ENOENT",

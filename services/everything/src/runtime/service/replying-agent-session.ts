@@ -3,7 +3,7 @@ import {
   outcomeDeliveryPrompt,
   replyDeliveryPrompt,
 } from "../prompt/reply-delivery-prompt.js";
-import { sendMessageToolName } from "../tool/send-message-tool.js";
+import { sendMessageToolName } from "../model/message-delivery.js";
 
 /** Require deliberate delivery for user turns without treating private model text as a reply. */
 export class ReplyingAgentSession implements AgentSession {
@@ -43,6 +43,11 @@ export class ReplyingAgentSession implements AgentSession {
     return this.session.typing;
   }
 
+  /** Preserve background activity so the runtime can report and stop the whole teammate. */
+  get background(): AgentSession["background"] {
+    return this.session.background;
+  }
+
   // ===========================================
   // User turns
   // ===========================================
@@ -65,10 +70,10 @@ export class ReplyingAgentSession implements AgentSession {
       await this.session.prompt(outcomeDeliveryPrompt);
   }
 
-  /** Stop both ordinary generation and any pending delivery correction. */
-  async abort(): Promise<void> {
+  /** Stop delivery correction and pass through whether the caller also cancelled background work. */
+  async abort(scope: "turn" | "all" = "all"): Promise<void> {
     this.stopped = true;
-    await this.session.abort();
+    await this.session.abort(scope);
   }
 
   /** Release the underlying session after its current turn has settled. */

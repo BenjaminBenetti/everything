@@ -28,6 +28,8 @@ export interface RuntimeStatus {
   readonly compacting: boolean;
   /** Whether the teammate is writing a message to the user right now. */
   readonly typing: boolean;
+  /** Background teammates running now or idle for less than ten seconds; excludes the main session. */
+  readonly backgroundCount: number;
   readonly sessionId: string | null;
   readonly runId: string | null;
   readonly error: string | null;

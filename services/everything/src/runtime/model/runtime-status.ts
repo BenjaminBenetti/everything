@@ -6,6 +6,7 @@ export const unloadedRuntimeStatus: RuntimeStatus = Object.freeze({
   status: "idle",
   compacting: false,
   typing: false,
+  backgroundCount: 0,
   sessionId: null,
   runId: null,
   error: null,

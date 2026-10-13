@@ -7,6 +7,8 @@ FROM golang:1.27.2-trixie AS go
 
 FROM node:24.21.0-trixie-slim AS build
 WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends gcc libc6-dev \
+    && rm -rf /var/lib/apt/lists/*
 RUN corepack enable
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY lib/errors/package.json ./lib/errors/package.json

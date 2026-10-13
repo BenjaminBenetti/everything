@@ -9,11 +9,15 @@
   "files": [
     "build"
   ],
+  "imports": {
+    "#command-supervisor": "./build/shell/adapter/command-supervisor"
+  },
   "scripts": {
-    "build": "rm -rf build && tsc -p tsconfig.build.json",
+    "build": "rm -rf build && tsc -p tsconfig.build.json && pnpm build:supervisor",
+    "build:supervisor": "mkdir -p build/shell/adapter && cc -std=c11 -O2 -Wall -Wextra -Werror src/shell/adapter/command-supervisor.c -o build/shell/adapter/command-supervisor",
     "check": "tsc -p tsconfig.json",
     "start": "node build/application/bootstrap/main.js",
-    "test": "node --import tsx --test \"src/**/*.test.ts\"",
+    "test": "pnpm build:supervisor && node --import tsx --test \"src/**/*.test.ts\"",
     "build:image": "bash ../../deployment/script/build-image.sh services/teammate everything-teammate:foundation"
   },
   "dependencies": {

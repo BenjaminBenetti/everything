@@ -2,8 +2,8 @@ import type { BashInput, BashResult } from "@everything/workspace-contracts";
 
 /** Command execution and lifecycle operations consumed by the HTTP server. */
 export interface CommandRunner {
-  /** Execute one interruptible command. */
+  /** Execute an interruptible command independently of other active commands. */
   run(input: BashInput, signal?: AbortSignal): Promise<BashResult>;
-  /** Interrupt active execution before server shutdown. */
+  /** Interrupt all active commands before server shutdown. */
   close(): void;
 }

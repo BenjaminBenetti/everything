@@ -6,6 +6,7 @@ import { test } from "node:test";
 import { WorkspaceFiles } from "../../workspace/service/workspace-files.js";
 import { BashRunner } from "../service/bash-runner.js";
 import { commandEnvironment } from "../model/command-environment.js";
+import { LinuxCommandProcessFactory } from "../adapter/linux-command-process-factory.js";
 
 test("command environment forwards only allowlisted variables, with minimal fallbacks", () => {
   assert.deepEqual(
@@ -34,7 +35,7 @@ test("Bash uses the workspace as HOME from any working directory and sees only t
   await mkdir(path.join(root, "project"));
   const bash = new BashRunner(
     new WorkspaceFiles(root),
-    undefined,
+    new LinuxCommandProcessFactory(),
     commandEnvironment({
       PATH: process.env.PATH,
       GEM_HOME: "/workspace/.local/share/gem",

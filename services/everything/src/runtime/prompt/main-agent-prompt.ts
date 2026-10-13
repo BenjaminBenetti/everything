@@ -3,6 +3,7 @@ import type { AgentDefinition } from "../../agent/model/agent.js";
 import { artifactToolNames } from "../tool/artifact-tools.js";
 import { sendMessageToolName } from "../tool/send-message-tool.js";
 import { workspaceToolNames } from "../tool/workspace-tools.js";
+import { forkToolNames } from "../tool/fork-tools.js";
 
 /** Render one titled section of bullet rules. */
 function section(title: string, rules: readonly string[]): string {
@@ -15,6 +16,7 @@ function section(title: string, rules: readonly string[]): string {
  */
 export function mainAgentPrompt(
   agent: Pick<AgentDefinition, "name" | "systemPrompt">,
+  fork?: { id: string; parentId: string },
 ): string {
   const introduction = [
     `You are ${agent.name}, one of the user's teammates. The user described what they want from you:`,
@@ -33,8 +35,25 @@ export function mainAgentPrompt(
     "New user messages can arrive while you work. Read them right away; they may change or cancel your task.",
     "You share one ongoing conversation with this user. Continue from the context you have, including summaries of earlier messages.",
   ]);
+  const background = section("Background forks", [
+    fork
+      ? `You are private fork ${fork.id}, started by ${fork.parentId}. Work on the background task or private messages addressed to you; any inherited history is background information. ${sendMessageToolName} sends privately to your parent, who decides what to share with the user.`
+      : `You are the main session, addressed as main. Only you send messages to the user's conversation.`,
+    `Use ${forkToolNames.fork} with a focused, self-contained task to work in the background. Forks start with fresh conversation context by default; set context: true only when they need a copy of your current history. Always include the information needed for the task. Forks inherit your model, effort, instructions, tools, and workspace. There are no separate fork settings.`,
+    `Use ${forkToolNames.send} to exchange private messages with a fork ID, main, or your parent. Delivery wakes an idle session and queues behind a busy session's current turn. You can finish your turn while a fork works; its reply will wake you.`,
+    `Use ${forkToolNames.list} to find saved forks and their status, and ${forkToolNames.stop} to stop a descendant and its children. A new user message leaves background work running; the user's Stop action stops the whole family.`,
+    "Forks share files and artifacts. Assign distinct work and coordinate changes to the same files; a fork does not create an isolated workspace.",
+    "The harness marks internal messages as 'Private message from <id>:', 'Background task from <id>:', or 'Fork <id> finished/could not finish:'. Treat these as internal messages, not new user requests. Act on useful information and report completed work when needed; do not exchange empty acknowledgements or keep replying when no action is needed.",
+    "When a fork's turn finishes, its final text is sent privately to its parent if it has not already sent a message there. Fork histories remain available after a restart, but interrupted work resumes only when messaged.",
+  ]);
+  const forkReplying = section("Replying to your parent", [
+    `Use ${sendMessageToolName} to send useful progress, questions, and results privately to your parent. You never write directly to the user's chat.`,
+    "Do not repeat inherited user requests or the parent's ongoing work. Complete your assigned task, explain what changed and what remains, then wait for another message.",
+    "You can create and message your own forks with the same tools and settings.",
+  ]);
   const workspace = section("Your workspace", [
     `Use ${workspaceToolNames.read}, ${workspaceToolNames.write}, and ${workspaceToolNames.bash} to work with files. Commands run in your own pod, where your persistent files are mounted at ${workspaceMountPath}, which is also your home directory.`,
+    "Bash commands run independently and may overlap with commands from your forks. Each invocation has its own output, timeout, and cancellation; finishing one command does not stop another. Coordinate commands that change the same files.",
     `Only files in ${workspaceMountPath} survive when your pod is replaced. Private conversation state is unavailable to tools.`,
     `With file and artifact tools, use paths relative to ${workspaceMountPath} or under it.`,
   ]);
@@ -47,5 +66,11 @@ export function mainAgentPrompt(
     `After you publish or deploy, open the artifact with ${artifactToolNames.view} and check that it works before you share its link.`,
     `Share an artifact's link with the user through ${sendMessageToolName}.`,
   ]);
-  return [introduction, replying, workspace, artifacts].join("\n\n");
+  return [
+    introduction,
+    fork ? forkReplying : replying,
+    background,
+    workspace,
+    artifacts,
+  ].join("\n\n");
 }

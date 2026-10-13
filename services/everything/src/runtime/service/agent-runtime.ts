@@ -12,7 +12,7 @@ export class AgentRuntime {
   // State
   // ===========================================
 
-  private current: RuntimeStatus;
+  private current: Omit<RuntimeStatus, "backgroundCount">;
   private completion: Promise<void> = Promise.resolve();
 
   // ===========================================
@@ -35,12 +35,21 @@ export class AgentRuntime {
   // Accessors
   // ===========================================
 
-  /** Current status; every transition replaces it, so readers never see a partial update. */
+  /** Combine the latest turn state with live activity and background teammate counts. */
   get status(): RuntimeStatus {
+    const background = this.session.background;
+    const running = this.current.status === "running" || background?.running;
     return {
       ...this.current,
-      compacting: this.current.status === "running" && this.session.compacting,
-      typing: this.current.status === "running" && this.session.typing,
+      status: running
+        ? "running"
+        : background?.failed
+          ? "error"
+          : this.current.status,
+      error: this.current.error ?? (background?.failed ? runFailure : null),
+      compacting: Boolean(running && this.session.compacting),
+      typing: Boolean(running && this.session.typing),
+      backgroundCount: background?.activeCount ?? 0,
     };
   }
 
@@ -65,9 +74,9 @@ export class AgentRuntime {
     return runId;
   }
 
-  /** Abort the active turn and wait for it to settle so it cannot overwrite a newer turn's status. */
-  async stop(): Promise<void> {
-    await this.session.abort();
+  /** Abort selected work and settle the active user turn before accepting a replacement. */
+  async stop(scope: "turn" | "all" = "all"): Promise<void> {
+    await this.session.abort(scope);
     await this.completion;
     this.current = { ...this.current, status: "idle", error: null };
   }
