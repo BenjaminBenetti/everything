@@ -1,4 +1,4 @@
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import type { Agent } from "@everything/agent-contracts";
 import { Button } from "@everything/ui/button";
 import { useAgents } from "../../agent/component/agent-directory-provider.js";
@@ -42,7 +42,10 @@ export function ConversationPage() {
 /** Present the teammate's ongoing conversation alongside their profile and live background count. */
 function TeammateConversation({ agent }: { agent: Agent }) {
   const { open } = useWorkspaceDialogs();
-  const { history, snapshot, send, older } = useConversation(agent.id);
+  const [search] = useSearchParams();
+  const targetMessageId = search.get("message") || undefined;
+  const { history, snapshot, send, older, targetFound, retryTarget } =
+    useConversation(agent.id, targetMessageId);
   const runtime = snapshot.data?.runtime;
   // The typing indicator tracks only messages; background activity appears in the teammate card.
   const typing = runtime?.status === "running" && runtime.typing;
@@ -64,7 +67,10 @@ function TeammateConversation({ agent }: { agent: Agent }) {
         </p>
       ) : (
         <MessageHistory
+          agentId={agent.id}
           name={agent.name}
+          targetMessageId={targetMessageId}
+          readEnabled={!targetMessageId || targetFound}
           messages={history?.messages ?? []}
           hasOlder={!!history?.nextCursor}
           loadingOlder={older.isPending}
@@ -74,6 +80,28 @@ function TeammateConversation({ agent }: { agent: Agent }) {
         />
       )}
       <div className="chat-footer">
+        {targetMessageId && !targetFound && !snapshot.isPending && (
+          <div className="chat-setup" role="status">
+            <p>
+              {older.isError
+                ? "The message couldn’t load."
+                : history?.nextCursor
+                  ? "Finding the original message…"
+                  : "This message is no longer available."}
+            </p>
+            {older.isError && (
+              <Button variant="light" onClick={retryTarget}>
+                Try again
+              </Button>
+            )}
+            <Link
+              className="text-link"
+              to={`/team/${encodeURIComponent(agent.id)}`}
+            >
+              Return to latest messages
+            </Link>
+          </div>
+        )}
         {error && (
           <div className="chat-error" role="alert">
             <p>{error}</p>

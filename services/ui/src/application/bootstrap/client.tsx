@@ -18,6 +18,7 @@ import "../../workspace/style/application.css";
 import "../../provider/style/provider.css";
 import "../../conversation/style/conversation.css";
 import "../../conversation/style/message-markdown.css";
+import "../../update/style/updates.css";
 import { HttpConversationClient } from "../../conversation/adapter/http-conversation-client.js";
 
 initializeTheme();

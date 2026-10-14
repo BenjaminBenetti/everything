@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import type { MessagePage } from "@everything/conversation-contracts";
 import { useSession } from "../../session/component/session-provider.js";
@@ -6,10 +6,11 @@ import { useConversationClient } from "../component/conversation-provider.js";
 import { prependHistory, refreshHistory } from "../model/message-history.js";
 
 /** Coordinate history and progress, keeping the background indicator current through its idle grace period. */
-export function useConversation(agentId: string) {
+export function useConversation(agentId: string, targetMessageId?: string) {
   const client = useConversationClient();
   const { profile } = useSession();
   const [history, setHistory] = useState<MessagePage>();
+  const searchedCursor = useRef<string | undefined>(undefined);
   const snapshot = useQuery({
     queryKey: ["conversation", profile?.subject, agentId],
     /** Read progress first so an idle result is followed by all committed replies. */
@@ -52,5 +53,43 @@ export function useConversation(agentId: string) {
           : current,
       ),
   });
-  return { history, snapshot, send, older };
+  const targetFound = !!history?.messages.some(
+    (message) => message.id === targetMessageId,
+  );
+  useEffect(() => {
+    searchedCursor.current = undefined;
+  }, [targetMessageId]);
+  useEffect(() => {
+    const cursor = history?.nextCursor;
+    if (
+      !targetMessageId ||
+      targetFound ||
+      !cursor ||
+      older.isPending ||
+      older.isError ||
+      searchedCursor.current === cursor
+    )
+      return;
+    searchedCursor.current = cursor;
+    older.mutate(cursor);
+  }, [
+    history,
+    targetMessageId,
+    targetFound,
+    older.isPending,
+    older.isError,
+    older.mutate,
+  ]);
+  return {
+    history,
+    snapshot,
+    send,
+    older,
+    targetFound,
+    /** Allow an interrupted deep-link lookup to resume at the last durable history cursor. */
+    retryTarget: () => {
+      searchedCursor.current = undefined;
+      older.reset();
+    },
+  };
 }

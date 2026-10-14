@@ -9,6 +9,7 @@ import { ProviderConnections1791936000000 } from "../migration/1791936000000-pro
 import { AgentEntity } from "../../agent/schema/agent-entity.js";
 import { MessageEntity } from "../../conversation/schema/message-entity.js";
 import { InitialSchema1791676800000 } from "../migration/1791676800000-initial-schema.js";
+import { MessageReads1792195200000 } from "../migration/1792195200000-message-reads.js";
 
 /** Connection settings for the service's own PostgreSQL database. */
 export interface DatabaseConnectionSettings {
@@ -39,6 +40,7 @@ export function createApplicationDatabase(
       ProviderConnections1791936000000,
       AgentInference1792022400000,
       ProviderChecks1792108800000,
+      MessageReads1792195200000,
     ],
     migrationsTableName: "everything_migrations",
     migrationsTransactionMode: "all",

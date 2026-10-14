@@ -14,6 +14,7 @@ import { AgentService } from "../../agent/service/agent-service.js";
 import { AgentEditingService } from "../../agent/service/agent-editing-service.js";
 import { PostgresMessageRepository } from "../../conversation/repository/postgres-message-repository.js";
 import { ConversationService } from "../../conversation/service/conversation-service.js";
+import { UpdateService } from "../../update/service/update-service.js";
 import { createApplicationDatabase } from "../../persistence/factory/application-database.js";
 import { PiSessionFactory } from "../../runtime/adapter/pi-session-factory.js";
 import { createModelRuntime } from "../../runtime/factory/model-runtime.js";
@@ -109,9 +110,10 @@ async function main(): Promise<void> {
       reason: error instanceof Error ? error.message : "unknown",
     }),
   );
+  const messages = new PostgresMessageRepository(database);
   const conversations = new ConversationService(
     agents,
-    new PostgresMessageRepository(database),
+    messages,
     new PiSessionFactory(
       new PiInferenceRuntimeFactory(providers, models, capabilities),
       workspaces,
@@ -132,6 +134,7 @@ async function main(): Promise<void> {
     profiles: new AgentEditingService(agentRepository, models),
     removal: conversations,
     conversations,
+    updates: new UpdateService(messages),
     artifacts: new ArtifactLibraryService(artifactGateway),
     workers,
     verifier,

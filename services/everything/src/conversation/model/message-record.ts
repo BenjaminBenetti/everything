@@ -7,4 +7,6 @@ export interface MessageRecord extends ConversationMessage {
   readonly agent?: AgentDefinition;
   /** Insertion order; PostgreSQL bigint values are mapped to strings. */
   readonly sequence: string;
+  /** The first explicit receipt, or null until the owner has seen this message. */
+  readonly readAt: string | null;
 }

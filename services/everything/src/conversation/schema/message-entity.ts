@@ -1,5 +1,8 @@
 import { EntitySchema } from "typeorm";
-import { baseColumns } from "@everything/persistence/schema";
+import {
+  baseColumns,
+  timestampTransformer,
+} from "@everything/persistence/schema";
 import { messageTextMaxLength } from "../model/message.js";
 import type { MessageRecord } from "../model/message-record.js";
 
@@ -16,6 +19,12 @@ export const MessageEntity = new EntitySchema<MessageRecord>({
     },
     role: { type: "text" },
     text: { type: "text" },
+    readAt: {
+      name: "read_at",
+      type: "timestamptz",
+      nullable: true,
+      transformer: timestampTransformer,
+    },
   },
   relations: {
     agent: {
@@ -32,6 +41,11 @@ export const MessageEntity = new EntitySchema<MessageRecord>({
   },
   indices: [
     { name: "messages_agent_sequence", columns: ["agentId", "sequence"] },
+    {
+      name: "messages_unread",
+      columns: ["agentId", "sequence"],
+      where: "role = 'assistant' AND read_at IS NULL",
+    },
   ],
   uniques: [{ name: "messages_sequence_key", columns: ["sequence"] }],
   checks: [

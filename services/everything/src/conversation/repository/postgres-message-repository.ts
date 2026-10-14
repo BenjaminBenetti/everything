@@ -1,7 +1,14 @@
 import { randomUUID } from "node:crypto";
-import { LessThan, type DataSource, type FindOptionsWhere } from "typeorm";
+import {
+  In,
+  IsNull,
+  LessThan,
+  type DataSource,
+  type FindOptionsWhere,
+} from "typeorm";
 import {
   messagePageSize,
+  updatePageSize,
   type MessagePage,
 } from "@everything/conversation-contracts";
 import { BaseRepository } from "@everything/persistence/repository";
@@ -15,11 +22,16 @@ import type {
 import type { ConversationMessage, MessageRole } from "../model/message.js";
 import type { MessageRecord } from "../model/message-record.js";
 import { MessageEntity } from "../schema/message-entity.js";
+import type { OwnerScope } from "@everything/persistence/repository";
+import type {
+  MessageUpdates,
+  UnreadMessagePage,
+} from "../../update/interface/message-updates.js";
 
 /** Persist chat through ORM relations with transactional ownership checks. */
 export class PostgresMessageRepository
   extends BaseRepository<ConversationMessage, MessageScope, MessageRecord>
-  implements MessageRepository
+  implements MessageRepository, MessageUpdates
 {
   // ===========================================
   // Construction
@@ -78,6 +90,63 @@ export class PostgresMessageRepository
       messages,
       nextCursor: records.length > messagePageSize ? messages[0]!.id : null,
     };
+  }
+
+  /** Read only deliberately delivered assistant messages; a read cursor still bounds the next page. */
+  async unread(
+    { ownerId }: OwnerScope,
+    before?: string,
+  ): Promise<UnreadMessagePage> {
+    let where: FindOptionsWhere<MessageRecord> = {
+      agent: { ownerId },
+      role: "assistant",
+      readAt: IsNull(),
+    };
+    if (before) {
+      const cursor = await this.orm.findOneBy({
+        agent: { ownerId },
+        id: before,
+        role: "assistant",
+      });
+      if (!cursor) return { messages: [], nextCursor: null };
+      where = { ...where, sequence: LessThan(cursor.sequence) };
+    }
+    const records = await this.orm.find({
+      where,
+      order: { sequence: "DESC" },
+      take: updatePageSize + 1,
+    });
+    const messages = records
+      .slice(0, updatePageSize)
+      .map((record) => ({ ...this.toEntity(record), agentId: record.agentId }));
+    return {
+      messages,
+      nextCursor: records.length > updatePageSize ? messages.at(-1)!.id : null,
+    };
+  }
+
+  /** Lock and verify the parent in the same transaction as the exact, monotonic receipt update. */
+  async markRead(
+    { ownerId, agentId }: MessageScope,
+    messageIds: readonly string[],
+  ): Promise<void> {
+    await serializableTransaction(this.orm.manager, async (manager) => {
+      const agent = await manager.getRepository(AgentEntity).findOne({
+        where: { id: agentId, ownerId },
+        lock: { mode: "pessimistic_read" },
+      });
+      if (!agent) throw new AgentNotFoundError();
+      if (!messageIds.length) return;
+      await manager.getRepository(MessageEntity).update(
+        {
+          agentId: agent.id,
+          id: In([...messageIds]),
+          role: "assistant",
+          readAt: IsNull(),
+        },
+        { readAt: new Date().toISOString() },
+      );
+    });
   }
 
   // ===========================================

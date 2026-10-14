@@ -1,10 +1,10 @@
-import { ArrowRight, Check, Smartphone } from "lucide-react";
+import { ArrowRight, Smartphone } from "lucide-react";
 import { Link } from "react-router-dom";
 import { PageHeading } from "../../workspace/component/page-heading.js";
-import { EmptyState } from "../../workspace/component/empty-state.js";
+import { UpdateFeed } from "../../update/component/update-feed.js";
 import { useWorkspaceDialogs } from "../../workspace/component/workspace-dialogs.js";
 
-/** Provide entry points into the team and future update integrations. */
+/** Show recent unread updates and entry points into the team. */
 export function HomePage() {
   const { open } = useWorkspaceDialogs();
   return (
@@ -22,14 +22,7 @@ export function HomePage() {
               View all <ArrowRight aria-hidden="true" />
             </Link>
           </div>
-          <div className="updates-feed">
-            <EmptyState icon={Check} title="No updates yet">
-              <p>You’re all caught up. Open a teammate to continue chatting.</p>
-              <Link className="text-link" to="/team">
-                View your team <ArrowRight aria-hidden="true" />
-              </Link>
-            </EmptyState>
-          </div>
+          <UpdateFeed limit={8} />
         </section>
         <aside className="dashboard-recent" aria-labelledby="recent-heading">
           <div className="section-heading">

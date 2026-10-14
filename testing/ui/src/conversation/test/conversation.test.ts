@@ -119,6 +119,12 @@ async function workspace(context: BrowserContext, withModel = true) {
       });
     },
   );
+  await context.route("**/v1/agents/*/messages/read", (route) =>
+    route.fulfill({ status: 204 }),
+  );
+  await context.route("**/v1/updates", (route) =>
+    route.fulfill({ json: { updates: [], nextCursor: null } }),
+  );
   return state;
 }
 

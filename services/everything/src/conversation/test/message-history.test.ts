@@ -23,6 +23,7 @@ test("history pages use scoped insertion cursors, preserve tied timestamps, and 
     role: "user",
     text: String(index + 1),
     sequence: String(index + 1),
+    readAt: null,
     createdAt: "2026-10-12T00:00:00Z",
   }));
   let upperBound = 206;
