@@ -6,6 +6,7 @@ import { test } from "node:test";
 import { WorkspaceFiles } from "../../workspace/service/workspace-files.js";
 import { BashRunner } from "../service/bash-runner.js";
 import { commandEnvironment } from "../model/command-environment.js";
+import { LinuxCommandProcessFactory } from "../adapter/linux-command-process-factory.js";
 
 const home = "/workspace/6f1c1f6e-8c7e-4c4b-9a43-2d8b8f7c8f11";
 
@@ -43,7 +44,7 @@ test("Bash uses the workspace as HOME from any working directory and sees only t
   await mkdir(path.join(root, "project"));
   const bash = new BashRunner(
     new WorkspaceFiles(root, path.join(root, "shared")),
-    undefined,
+    new LinuxCommandProcessFactory(),
     commandEnvironment(
       { PATH: process.env.PATH, WORKSPACE_TOKEN: "never inherited" },
       root,

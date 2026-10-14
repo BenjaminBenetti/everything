@@ -487,7 +487,8 @@ services:
       # and serves only the socket it shares with Everything's container.
       docker:
         image: everything-docker
-        args: [dockerd, --host=unix:///run/docker-socket/docker.sock, --group=1000]
+        args:
+          [dockerd, --host=unix:///run/docker-socket/docker.sock, --group=1000]
         containerSecurityContext:
           privileged: true
           runAsNonRoot: false
@@ -499,7 +500,11 @@ services:
             exec:
               {
                 command:
-                  [docker, --host=unix:///run/docker-socket/docker.sock, version],
+                  [
+                    docker,
+                    --host=unix:///run/docker-socket/docker.sock,
+                    version,
+                  ],
               }
             initialDelaySeconds: 30
             periodSeconds: 30

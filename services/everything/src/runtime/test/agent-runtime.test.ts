@@ -39,6 +39,7 @@ test("refuses to overlap turns until the active one is stopped", async () => {
     compacting: false,
     typing: false,
     sessionId: "session",
+    backgroundCount: 0,
     runId: first,
     error: null,
   });

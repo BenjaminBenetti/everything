@@ -5,12 +5,14 @@ import { TeammateAvatar } from "../../agent/component/teammate-avatar.js";
 import { effortLabels } from "../../agent/model/inference-options.js";
 import { providerOptions } from "../../provider/model/provider-options.js";
 
-/** Show the teammate's idle avatar, identity, model settings, and editing action beside their conversation. */
+/** Show teammate details with an animated background indicator only while its count is positive. */
 export function ConversationTeammateCard({
   agent,
+  backgroundCount,
   onEdit,
 }: {
   agent: Agent;
+  backgroundCount: number;
   onEdit: () => void;
 }) {
   return (
@@ -47,6 +49,16 @@ export function ConversationTeammateCard({
       ) : (
         <p className="chat-teammate-setup">
           Choose a model to start messaging.
+        </p>
+      )}
+      {backgroundCount > 0 && (
+        <p
+          className="chat-teammate-background"
+          role="status"
+          aria-label="Active background teammates"
+        >
+          <span className="chat-teammate-background-dot" aria-hidden="true" />
+          {backgroundCount} background
         </p>
       )}
     </aside>

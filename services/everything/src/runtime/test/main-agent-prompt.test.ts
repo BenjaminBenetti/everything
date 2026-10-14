@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { mainAgentPrompt } from "../prompt/main-agent-prompt.js";
+import { forkToolNames } from "../tool/fork-tools.js";
 
 const agentId = "6f1c1f6e-8c7e-4c4b-9a43-2d8b8f7c8f11";
 
@@ -77,7 +78,11 @@ test("the prompt treats Fleet instances as workers for long-running and backgrou
   );
   assert.match(workers, /Fleet instances are your workers/);
   assert.match(workers, /more than about 10 minutes/);
-  assert.match(workers, /in-process subagents/);
+  assert.ok(
+    workers.includes(
+      `Give shorter tasks to a fork with ${forkToolNames.fork}.`,
+    ),
+  );
   assert.match(workers, /a template folder/);
   assert.match(
     workers,

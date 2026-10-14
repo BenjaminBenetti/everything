@@ -13,10 +13,19 @@ export interface AgentSession {
   readonly lastToolName: string | undefined;
   /** Whether the model is writing a message to the user, until that message is delivered. */
   readonly typing: boolean;
+  /** Optional work owned by internal sessions, including a main turn awakened by a fork. */
+  readonly background?:
+    | {
+        readonly running: boolean;
+        readonly failed: boolean;
+        /** Displayed fork count, including a ten-second idle grace period and excluding the main session. */
+        readonly activeCount: number;
+      }
+    | undefined;
   /** Run the model until it settles; ordinary model text is never a user message. */
   prompt(text: string): Promise<void>;
-  /** Abort active generation and wait for its tool execution to settle. */
-  abort(): Promise<void>;
+  /** Abort the main turn or, by default, all background work, waiting for tools to settle. */
+  abort(scope?: "turn" | "all"): Promise<void>;
   /** Release runtime resources after work has stopped, closing connections such as MCP servers'. */
   dispose(): Promise<void>;
 }

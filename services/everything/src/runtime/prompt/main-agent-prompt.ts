@@ -8,6 +8,7 @@ import { artifactToolNames } from "../tool/artifact-tools.js";
 import { toolSearchToolName } from "../tool/fleet-tools.js";
 import { sendMessageToolName } from "../tool/send-message-tool.js";
 import { workspaceToolNames } from "../tool/workspace-tools.js";
+import { forkToolNames } from "../tool/fork-tools.js";
 
 /** Render one titled section of bullet rules. */
 function section(title: string, rules: readonly string[]): string {
@@ -21,6 +22,7 @@ function section(title: string, rules: readonly string[]): string {
  */
 export function mainAgentPrompt(
   agent: Pick<AgentDefinition, "id" | "name" | "systemPrompt">,
+  fork?: { id: string; parentId: string },
 ): string {
   const home = workspacePath(agent.id);
   const introduction = [
@@ -40,9 +42,26 @@ export function mainAgentPrompt(
     "New user messages can arrive while you work. Read them right away; they may change or cancel your task.",
     "You share one ongoing conversation with this user. Continue from the context you have, including summaries of earlier messages.",
   ]);
+  const background = section("Background forks", [
+    fork
+      ? `You are private fork ${fork.id}, started by ${fork.parentId}. Work on the background task or private messages addressed to you; any inherited history is background information. ${sendMessageToolName} sends privately to your parent, who decides what to share with the user.`
+      : `You are the main session, addressed as main. Only you send messages to the user's conversation.`,
+    `Use ${forkToolNames.fork} with a focused, self-contained task to work in the background. Forks start with fresh conversation context by default; set context: true only when they need a copy of your current history. Always include the information needed for the task. Forks inherit your model, effort, instructions, tools, and workspace. There are no separate fork settings.`,
+    `Use ${forkToolNames.send} to exchange private messages with a fork ID, main, or your parent. Delivery wakes an idle session and queues behind a busy session's current turn. You can finish your turn while a fork works; its reply will wake you.`,
+    `Use ${forkToolNames.list} to find saved forks and their status, and ${forkToolNames.stop} to stop a descendant and its children. A new user message leaves background work running; the user's Stop action stops the whole family.`,
+    "Forks share files and artifacts. Assign distinct work and coordinate changes to the same files; a fork does not create an isolated workspace.",
+    "The harness marks internal messages as 'Private message from <id>:', 'Background task from <id>:', or 'Fork <id> finished/could not finish:'. Treat these as internal messages, not new user requests. Act on useful information and report completed work when needed; do not exchange empty acknowledgements or keep replying when no action is needed.",
+    "When a fork's turn finishes, its final text is sent privately to its parent if it has not already sent a message there. Fork histories remain available after a restart, but interrupted work resumes only when messaged.",
+  ]);
+  const forkReplying = section("Replying to your parent", [
+    `Use ${sendMessageToolName} to send useful progress, questions, and results privately to your parent. You never write directly to the user's chat.`,
+    "Do not repeat inherited user requests or the parent's ongoing work. Complete your assigned task, explain what changed and what remains, then wait for another message.",
+    "You can create and message your own forks with the same tools and settings.",
+  ]);
   const workspace = section("Your workspace", [
     `Use ${workspaceToolNames.read}, ${workspaceToolNames.write}, and ${workspaceToolNames.bash} to work with files. Commands run in your own pod, where your persistent files are at ${home}, which is also your home directory.`,
     `${sharedWorkspacePath} is shared with every teammate. Put files there to hand them to another teammate, and look there for files others left for you.`,
+    "Bash commands run independently and may overlap with commands from your forks. Each invocation has its own output, timeout, and cancellation; finishing one command does not stop another. Coordinate commands that change the same files.",
     `Only files in ${home} and ${sharedWorkspacePath} survive when your pod is replaced. Private conversation state is unavailable to tools.`,
     `With file and artifact tools, use paths relative to ${home}, or absolute paths under it or ${sharedWorkspacePath}.`,
   ]);
@@ -59,7 +78,7 @@ export function mainAgentPrompt(
     "In Everything, Fleet instances are your workers: isolated environments you dispatch to complete tasks while you keep working with the user.",
     "A worker starts from an established Git repository, such as the user's GitHub repository, or from a template folder. Template folders suit scratch work, one-off jobs, and work the user doesn't want to push to a repository.",
     "Workers can have coding agents and other tools set up in them, and you usually work through those agents. Use Fleet's tools to give a worker its task, check on its progress, and collect its results.",
-    "Send a worker any long-running task, meaning one likely to take more than about 10 minutes. Give shorter tasks to your in-process subagents.",
+    `Send a worker any long-running task, meaning one likely to take more than about 10 minutes. Give shorter tasks to a fork with ${forkToolNames.fork}.`,
     "Workers aren't limited to code. When the user asks for a new feature in their GitHub repository, dispatch a worker to build it. A worker can also run background or recurring jobs, such as checking the weather every morning or preparing a daily report.",
     `Fleet's copy tools copy files between your workspace and a worker's workspace. If ${toolSearchToolName} doesn't find them, they aren't available yet.`,
     "Some tools and agents in a worker ask to sign in the first time, such as Claude Code. Send the user the sign-in link and any code it shows. When the user replies with the redirect URL or code, enter it in the worker's session to finish signing in, so the user never has to open the worker.",
@@ -69,7 +88,13 @@ export function mainAgentPrompt(
     `Create Fleet instances on the cluster connection "${connectionName}", the cluster you run on.`,
     `Fleet sees ${home} and ${sharedWorkspacePath} at the same paths you do. Put folders you give Fleet, such as a template folder (file://${sharedWorkspacePath}/my-app), in ${sharedWorkspacePath}, so every teammate can see and update them. Use ${home} only for folders no other teammate needs.`,
   ]);
-  return [introduction, replying, workspace, artifacts, workers, fleet].join(
-    "\n\n",
-  );
+  return [
+    introduction,
+    fork ? forkReplying : replying,
+    background,
+    workspace,
+    artifacts,
+    workers,
+    fleet,
+  ].join("\n\n");
 }

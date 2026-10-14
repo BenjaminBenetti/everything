@@ -54,7 +54,7 @@ export class ConversationService
     return this.messages.page({ ownerId, agentId }, before);
   }
 
-  /** Interrupt previous work, persist the new input, and start an asynchronous run. */
+  /** Interrupt the main turn, retain background forks, and persist and start the new user input. */
   async send(
     ownerId: string,
     agentId: string,
@@ -64,7 +64,7 @@ export class ConversationService
       if (this.closing) throw new ServiceShuttingDownError();
       const agent = await this.agents.get(ownerId, agentId);
       const runtime = await this.loadRuntime(agent);
-      await runtime.stop();
+      await runtime.stop("turn");
       const message = await this.messages.append(
         { ownerId, agentId },
         "user",

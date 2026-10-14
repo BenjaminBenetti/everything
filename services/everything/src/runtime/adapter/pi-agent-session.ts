@@ -1,12 +1,12 @@
 import type { AgentSession as PiSession } from "@earendil-works/pi-coding-agent";
-import type { AgentSession } from "../interface/agent-session.js";
-import { sendMessageToolName } from "../tool/send-message-tool.js";
+import type { ForkableSession } from "../interface/session-forks.js";
+import { sendMessageToolName } from "../model/message-delivery.js";
 
 /** An event a Pi session reports while it works. */
 type PiSessionEvent = Parameters<Parameters<PiSession["subscribe"]>[0]>[0];
 
 /** Adapts a native Pi session to the application's runtime contract. */
-export class PiAgentSession implements AgentSession {
+export class PiAgentSession implements ForkableSession {
   // ===========================================
   // State
   // ===========================================
@@ -42,6 +42,11 @@ export class PiAgentSession implements AgentSession {
   /** Whether the model is writing a message to the user, until that message is delivered. */
   get typing(): boolean {
     return this.writing;
+  }
+
+  /** Return private final text only to the owning background-session coordinator. */
+  get lastResponse(): string | undefined {
+    return this.session.getLastAssistantText();
   }
 
   /** Run through compaction/recovery and surface safe failures, including swallowed summary errors. */
