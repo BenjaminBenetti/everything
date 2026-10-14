@@ -100,7 +100,7 @@ test(
       assert.equal(first.updates[0]!.messageId, messages.at(-1)!.id);
       assert.equal(
         first.updates[0]!.summary,
-        "Result 54 is ready. Can you review it?",
+        "**Result 54** is ready. Can you review it?",
       );
       assert.deepEqual(
         await service.list("owner"),
@@ -164,6 +164,72 @@ test(
         ).readAt,
         null,
       );
+      // Claims are owner-scoped, atomic, durable, and do not infer from feed reads.
+      assert.equal(await repository.claimSummary(scope, foreign.id), undefined);
+      assert.equal(
+        await repository.claimSummary(
+          { ownerId: "other", agentId },
+          messages.at(-2)!.id,
+        ),
+        undefined,
+      );
+      assert.equal(
+        await repository.claimSummary(scope, selected),
+        undefined,
+        "Already read replies need no model call",
+      );
+      const summaryId = messages.at(-2)!.id;
+      const claims = await Promise.all([
+        repository.claimSummary(scope, summaryId),
+        repository.claimSummary(scope, summaryId),
+      ]);
+      assert.equal(claims.filter(Boolean).length, 1);
+      assert.equal(claims.find(Boolean)!.ownerId, "owner");
+      assert.equal(claims.find(Boolean)!.text, messages.at(-2)!.text);
+      await repository.finishSummary(
+        { ownerId: "other", agentId },
+        summaryId,
+        "Foreign write",
+      );
+      assert.equal(
+        (
+          await database
+            .getRepository(MessageEntity)
+            .findOneByOrFail({ id: summaryId })
+        ).summaryStatus,
+        "generating",
+      );
+      await repository.finishSummary(
+        scope,
+        summaryId,
+        "The result is ready for review.",
+      );
+      await repository.finishSummary(
+        scope,
+        summaryId,
+        "A duplicate must not overwrite the summary.",
+      );
+      const failedId = messages.at(-3)!.id;
+      await repository.claimSummary(scope, failedId);
+      await repository.finishSummary(scope, failedId, null);
+      const abandonedId = messages.at(-4)!.id;
+      await repository.claimSummary(scope, abandonedId);
+      await database
+        .getRepository(MessageEntity)
+        .update(
+          { id: abandonedId, agentId },
+          { summaryStartedAt: new Date(Date.now() - 180_000).toISOString() },
+        );
+      const due = await repository.pendingSummaries({
+        createdBefore: new Date(Date.now() + 60_000),
+      });
+      assert.equal(
+        due.some((target) =>
+          [summaryId, failedId, abandonedId, selected].includes(target.id),
+        ),
+        false,
+      );
+      assert.ok(due.every((target) => target.ownerId && target.agentId));
       // Recreate the connection and service to prove no process or browser-local state is required.
       await database.destroy();
       database = createApplicationDatabase(settings);
@@ -185,9 +251,27 @@ test(
         ),
         "Unseen gaps remain unread",
       );
+      const generated = persisted.updates.find(
+        (update) => update.messageId === summaryId,
+      )!;
+      assert.equal(generated.summary, "The result is ready for review.");
+      assert.equal(generated.summaryStatus, "ready");
+      assert.equal(
+        persisted.updates.find((update) => update.messageId === failedId)!
+          .summaryStatus,
+        "unavailable",
+      );
+      assert.equal(
+        persisted.updates.find((update) => update.messageId === abandonedId)!
+          .summaryStatus,
+        "unavailable",
+      );
+      for (const id of [summaryId, failedId, abandonedId])
+        assert.equal(await repository.claimSummary(scope, id), undefined);
       const history = await repository.page(scope);
       assert.ok(history.messages.some((message) => message.id === selected));
       assert.equal("readAt" in history.messages[0]!, false);
+      assert.equal("updateSummary" in history.messages[0]!, false);
       await database
         .getRepository(AgentEntity)
         .delete({ id: agentId, ownerId: "owner" });

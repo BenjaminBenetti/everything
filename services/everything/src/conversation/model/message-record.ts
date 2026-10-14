@@ -1,3 +1,4 @@
+import type { StoredSummaryStatus } from "../../update/model/message-summary.js";
 import type { AgentDefinition } from "../../agent/model/agent.js";
 import type { ConversationMessage } from "./message.js";
 
@@ -9,4 +10,7 @@ export interface MessageRecord extends ConversationMessage {
   readonly sequence: string;
   /** The first explicit receipt, or null until the owner has seen this message. */
   readonly readAt: string | null;
+  readonly updateSummary: string | null;
+  readonly summaryStatus: StoredSummaryStatus;
+  readonly summaryStartedAt: string | null;
 }

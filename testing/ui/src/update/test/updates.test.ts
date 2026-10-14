@@ -6,6 +6,8 @@ interface Message {
   role: "user" | "assistant";
   text: string;
   createdAt: string;
+  summary?: string;
+  summaryStatus?: "pending" | "ready" | "unavailable";
 }
 
 /** Model persistent server state separately from browser contexts, with controllable delivery and failures. */
@@ -22,7 +24,7 @@ function serverState() {
     feedFetches: 0,
     /** Deliver only public conversation content into the mock API. */
     append(text: string, role: Message["role"] = "assistant") {
-      const message = {
+      const message: Message = {
         id: randomUUID(),
         role,
         text,
@@ -125,7 +127,8 @@ async function workspace(
     const updates = unread.slice(0, 50).map((message) => ({
       messageId: message.id,
       agentId: "avery",
-      summary: message.text,
+      summary: message.summary ?? message.text,
+      summaryStatus: message.summaryStatus ?? "ready",
       createdAt: message.createdAt,
     }));
     return route.fulfill({
@@ -364,4 +367,100 @@ test("another client observes durable receipts, feed pagination stays deduplicat
   } finally {
     await secondContext.close();
   }
+});
+
+test("an old update stays in view after reconnecting across more than one history page", async ({
+  page,
+  context,
+}) => {
+  const state = serverState();
+  for (let index = 0; index < 80; index++)
+    state.append(`Earlier input ${index}`, "user");
+  const target = state.append(
+    "Keep this original decision in view while catching up.",
+  );
+  for (let index = 0; index < 125; index++)
+    state.append(`Saved input ${index}`, "user");
+  await workspace(context, state);
+  await page.goto("/updates");
+  await page.getByText(target.text, { exact: true }).click();
+  await expect(page.locator(".update-target")).toBeInViewport();
+  await expect.poll(() => state.read.has(target.id)).toBe(true);
+  await attention(page, false, false);
+  for (let index = 0; index < 110; index++)
+    state.append(`Arrived while away ${index}`, "user");
+  const unread = state.append(
+    "This new reply should remain unread while reviewing the old message.",
+  );
+  await attention(page, true, true);
+  await expect(page.getByText(unread.text, { exact: true })).toBeAttached();
+  await expect(page.locator(".update-target")).toBeInViewport();
+  await page.waitForTimeout(1500);
+  expect(state.read.has(unread.id)).toBe(false);
+});
+
+test("model summaries and labeled fallbacks retain source links and clear only seen messages", async ({
+  page,
+  context,
+}, info) => {
+  const state = serverState();
+  const first = state.append(
+    "I finished checking the build. All twelve checks passed, including the mobile layout and keyboard navigation checks. The release notes are drafted, but two questions remain before publication: the rollout date and whether to include the beta group. Please review those two questions.",
+  );
+  first.summaryStatus = "pending";
+  for (let index = 0; index < 20; index++)
+    state.append(`Earlier planning input ${index}`, "user");
+  const second = state.append(
+    "I compared the two onboarding flows. The shorter flow removes three steps, but the accessibility review has not finished. I need you to choose whether to wait for that review or continue with the longer flow for this release.",
+  );
+  second.summary =
+    "Choose whether to wait for the shorter flow’s accessibility review or release the longer flow.";
+  second.summaryStatus = "ready";
+  const fallback = state.append(
+    "The setup example uses `2 ** 3` in `__init__.py`. Please keep those identifiers unchanged.",
+  );
+  fallback.summaryStatus = "unavailable";
+  await workspace(context, state);
+  await page.goto("/updates");
+  await expect(
+    page.getByText("Preparing summary · Message preview", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Summary unavailable · Message preview", { exact: true }),
+  ).toBeVisible();
+  expect(state.read.size).toBe(0);
+  // The provider response is controlled test data; the real inference adapter is verified by API tests.
+  first.summary =
+    "Twelve build checks passed. Review the rollout date and beta-group scope before publication.";
+  first.summaryStatus = "ready";
+  await expect(page.getByText(first.summary, { exact: true })).toBeVisible({
+    timeout: 10_000,
+  });
+  await expect(page.getByText("AI summary", { exact: true })).toHaveCount(2);
+  await expect(page.getByText(first.text, { exact: true })).toHaveCount(0);
+  await page.screenshot({
+    path: info.outputPath("01-populated-summaries.png"),
+    fullPage: true,
+    animations: "disabled",
+  });
+  await page.getByText(first.summary, { exact: true }).click();
+  await expect(page.locator(".update-target")).toContainText(first.text);
+  await expect(page.locator(".update-target")).toBeInViewport();
+  await expect.poll(() => state.read.has(first.id)).toBe(true);
+  await page.screenshot({
+    path: info.outputPath("02-original-message-seen.png"),
+    fullPage: true,
+    animations: "disabled",
+  });
+  await page.goto("/updates");
+  await expect(page.locator(".update-row")).toHaveCount(2);
+  await expect(page.getByText(first.summary, { exact: true })).toHaveCount(0);
+  await expect(page.getByText(second.summary, { exact: true })).toBeVisible();
+  expect(state.read.has(second.id)).toBe(false);
+  expect(state.read.has(fallback.id)).toBe(false);
+  await page.screenshot({
+    path: info.outputPath("03-unseen-messages-remain.png"),
+    fullPage: true,
+    animations: "disabled",
+  });
 });

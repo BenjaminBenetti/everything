@@ -49,14 +49,18 @@ export function MessageHistory({
       positionedTarget.current = undefined;
       return;
     }
-    if (positionedTarget.current === targetMessageId) return;
-    follow.current = false;
     const target = [
       ...(viewport.current?.querySelectorAll<HTMLElement>(
         "[data-message-id]",
       ) ?? []),
     ].find((element) => element.dataset.messageId === targetMessageId);
-    if (target) {
+    if (!target) {
+      positionedTarget.current = undefined;
+      follow.current = false;
+      return;
+    }
+    if (positionedTarget.current !== targetMessageId) {
+      follow.current = false;
       previousHeight.current = null;
       target.scrollIntoView({ block: "center" });
       positionedTarget.current = targetMessageId;

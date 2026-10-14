@@ -65,3 +65,10 @@
     display: none;
   }
 }
+
+.update-summary-kind {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 10px;
+  color: var(--text-secondary);
+}

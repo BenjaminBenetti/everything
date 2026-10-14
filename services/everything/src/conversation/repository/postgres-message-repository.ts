@@ -3,6 +3,7 @@ import {
   In,
   IsNull,
   LessThan,
+  LessThanOrEqual,
   type DataSource,
   type FindOptionsWhere,
 } from "typeorm";
@@ -28,10 +29,19 @@ import type {
   UnreadMessagePage,
 } from "../../update/interface/message-updates.js";
 
+import type {
+  MessageSummaryStore,
+  SummaryDueScope,
+} from "../../update/interface/message-summary-store.js";
+import type {
+  MessageSummaryInput,
+  MessageSummaryTarget,
+} from "../../update/model/message-summary.js";
+
 /** Persist chat through ORM relations with transactional ownership checks. */
 export class PostgresMessageRepository
   extends BaseRepository<ConversationMessage, MessageScope, MessageRecord>
-  implements MessageRepository, MessageUpdates
+  implements MessageRepository, MessageUpdates, MessageSummaryStore
 {
   // ===========================================
   // Construction
@@ -116,9 +126,13 @@ export class PostgresMessageRepository
       order: { sequence: "DESC" },
       take: updatePageSize + 1,
     });
-    const messages = records
-      .slice(0, updatePageSize)
-      .map((record) => ({ ...this.toEntity(record), agentId: record.agentId }));
+    const messages = records.slice(0, updatePageSize).map((record) => ({
+      ...this.toEntity(record),
+      agentId: record.agentId,
+      updateSummary: record.updateSummary,
+      summaryStatus: record.summaryStatus,
+      summaryStartedAt: record.summaryStartedAt,
+    }));
     return {
       messages,
       nextCursor: records.length > updatePageSize ? messages.at(-1)!.id : null,
@@ -145,6 +159,102 @@ export class PostgresMessageRepository
           readAt: IsNull(),
         },
         { readAt: new Date().toISOString() },
+      );
+    });
+  }
+
+  /** Discover only old-enough unread public replies, under an explicit internal maintenance scope. */
+  async pendingSummaries({
+    createdBefore,
+  }: SummaryDueScope): Promise<MessageSummaryTarget[]> {
+    if (
+      !(createdBefore instanceof Date) ||
+      !Number.isFinite(createdBefore.getTime())
+    )
+      throw new Error("Summary discovery requires a valid cutoff");
+    const records = await this.orm.find({
+      where: {
+        role: "assistant",
+        readAt: IsNull(),
+        summaryStatus: "pending",
+        createdAt: LessThanOrEqual(createdBefore.toISOString()),
+      },
+      relations: { agent: true },
+      order: { sequence: "ASC" },
+      take: 10,
+    });
+    return records.map((record) => ({
+      id: record.id,
+      agentId: record.agentId,
+      ownerId: record.agent!.ownerId,
+      createdAt: record.createdAt,
+    }));
+  }
+
+  /** Commit the sole attempt before external inference; recheck ownership and unread state while locked. */
+  async claimSummary(
+    { ownerId, agentId }: MessageScope,
+    messageId: string,
+  ): Promise<MessageSummaryInput | undefined> {
+    return serializableTransaction(this.orm.manager, async (manager) => {
+      const agent = await manager.getRepository(AgentEntity).findOne({
+        where: { id: agentId, ownerId },
+        lock: { mode: "pessimistic_read" },
+      });
+      if (!agent) return undefined;
+      const repository = manager.getRepository(MessageEntity);
+      const message = await repository.findOne({
+        where: {
+          id: messageId,
+          agentId: agent.id,
+          role: "assistant",
+          readAt: IsNull(),
+          summaryStatus: "pending",
+        },
+        lock: { mode: "pessimistic_write" },
+      });
+      if (!message) return undefined;
+      await repository.update(
+        { id: message.id, agentId: agent.id, summaryStatus: "pending" },
+        {
+          summaryStatus: "generating",
+          summaryStartedAt: new Date().toISOString(),
+        },
+      );
+      return {
+        id: message.id,
+        agentId: agent.id,
+        ownerId: agent.ownerId,
+        createdAt: message.createdAt,
+        text: message.text,
+        inference: agent.inference,
+      };
+    });
+  }
+
+  /** Save a result once without resurrecting deleted conversations or repeating a failed request. */
+  async finishSummary(
+    { ownerId, agentId }: MessageScope,
+    messageId: string,
+    summary: string | null,
+  ): Promise<void> {
+    await serializableTransaction(this.orm.manager, async (manager) => {
+      const agent = await manager.getRepository(AgentEntity).findOne({
+        where: { id: agentId, ownerId },
+        lock: { mode: "pessimistic_read" },
+      });
+      if (!agent) return;
+      await manager.getRepository(MessageEntity).update(
+        {
+          id: messageId,
+          agentId: agent.id,
+          role: "assistant",
+          summaryStatus: "generating",
+        },
+        {
+          updateSummary: summary,
+          summaryStatus: summary === null ? "failed" : "ready",
+        },
       );
     });
   }

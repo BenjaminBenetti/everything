@@ -9,6 +9,8 @@ export interface MessageUpdate {
   readonly messageId: string;
   readonly agentId: string;
   readonly summary: string;
+  /** Whether this is a cached model summary or a clearly labeled source preview. */
+  readonly summaryStatus: "pending" | "ready" | "unavailable";
   readonly createdAt: string;
 }
 

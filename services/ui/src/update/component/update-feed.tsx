@@ -68,6 +68,13 @@ export function UpdateFeed({ limit }: { limit?: number }) {
                         })}
                       </time>
                     </div>
+                    <span className="update-summary-kind">
+                      {update.summaryStatus === "ready"
+                        ? "AI summary"
+                        : update.summaryStatus === "pending"
+                          ? "Preparing summary · Message preview"
+                          : "Summary unavailable · Message preview"}
+                    </span>
                     <p>{update.summary}</p>
                   </div>
                   <MessageSquare className="update-icon" aria-hidden="true" />

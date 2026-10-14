@@ -17,6 +17,14 @@ export const MessageEntity = new EntitySchema<MessageRecord>({
       type: "bigint",
       generated: "increment",
     },
+    updateSummary: { name: "update_summary", type: "text", nullable: true },
+    summaryStatus: { name: "summary_status", type: "text", default: "pending" },
+    summaryStartedAt: {
+      name: "summary_started_at",
+      type: "timestamptz",
+      nullable: true,
+      transformer: timestampTransformer,
+    },
     role: { type: "text" },
     text: { type: "text" },
     readAt: {
@@ -40,6 +48,12 @@ export const MessageEntity = new EntitySchema<MessageRecord>({
     },
   },
   indices: [
+    {
+      name: "messages_pending_summary",
+      columns: ["createdAt", "sequence"],
+      where:
+        "role = 'assistant' AND read_at IS NULL AND summary_status = 'pending'",
+    },
     { name: "messages_agent_sequence", columns: ["agentId", "sequence"] },
     {
       name: "messages_unread",
@@ -49,6 +63,16 @@ export const MessageEntity = new EntitySchema<MessageRecord>({
   ],
   uniques: [{ name: "messages_sequence_key", columns: ["sequence"] }],
   checks: [
+    {
+      name: "messages_summary_status_check",
+      expression:
+        "summary_status IN ('pending', 'generating', 'ready', 'failed')",
+    },
+    {
+      name: "messages_update_summary_check",
+      expression:
+        "update_summary IS NULL OR length(update_summary) BETWEEN 1 AND 280",
+    },
     {
       name: "messages_role_check",
       expression: "role IN ('user', 'assistant')",
