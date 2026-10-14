@@ -80,7 +80,7 @@ function TeammateConversation({ agent }: { agent: Agent }) {
         />
       )}
       <div className="chat-footer">
-        {targetMessageId && !targetFound && !snapshot.isPending && (
+        {targetMessageId && !targetFound && !!history && !snapshot.isError && (
           <div className="chat-setup" role="status">
             <p>
               {older.isError

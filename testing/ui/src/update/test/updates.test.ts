@@ -352,6 +352,9 @@ test("another client observes durable receipts, feed pagination stays deduplicat
     state.failHistory = true;
     await page.locator(".update-row").first().click();
     await expect(page.getByRole("button", { name: "Reconnect" })).toBeVisible();
+    await expect(
+      page.getByText("This message is no longer available.", { exact: true }),
+    ).toHaveCount(0);
     const receipts = state.receipts.length;
     await page.waitForTimeout(1000);
     expect(state.receipts.length).toBe(receipts);
