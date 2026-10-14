@@ -15,6 +15,8 @@ export interface WorkspaceFileAccess {
 
 /** The shell needs path resolution without direct file access. */
 export interface WorkspaceDirectories {
-  /** Resolve a directory under the teammate's workspace. */
+  /** The teammate's own workspace, which is also its home. */
+  readonly home: string;
+  /** Resolve a directory in the teammate's workspace or the shared folder. */
   directory(value?: string): Promise<string>;
 }

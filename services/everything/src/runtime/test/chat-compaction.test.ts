@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { test, type TestContext } from "node:test";
 import { PiSessionFactory } from "../adapter/pi-session-factory.js";
+import { stoppedFleet } from "./fleet-mcp-fixtures.js";
 import { PiInferenceRuntimeFactory } from "../adapter/pi-inference-runtime.js";
 import { PiModelCapabilities } from "../adapter/pi-model-capabilities.js";
 import { createModelRuntime } from "../factory/model-runtime.js";
@@ -16,6 +17,7 @@ import type { AgentSession } from "../interface/agent-session.js";
 import { AgentRuntime } from "../service/agent-runtime.js";
 import { artifactToolNames } from "../tool/artifact-tools.js";
 import { sendMessageToolName } from "../tool/send-message-tool.js";
+import { toolSearchToolName } from "../tool/fleet-tools.js";
 
 interface CompletionRequest {
   model: string;
@@ -184,6 +186,7 @@ async function fixture(context: TestContext) {
     new FileSystemWorkspaces(directory),
     {} as ArtifactWorkbench,
     {} as WorkspaceTools,
+    stoppedFleet,
   );
   const definition: AgentDefinition = {
     id: "teammate",
@@ -202,7 +205,7 @@ async function fixture(context: TestContext) {
   context.after(async () => {
     for (const session of sessions) {
       await session.abort();
-      session.dispose();
+      await session.dispose();
     }
   });
   return {
@@ -260,7 +263,7 @@ test("repeated automatic compaction retains visible replies and reopens the same
         JSON.stringify(request.messages).includes("previous-summary"),
       ),
   );
-  session.dispose();
+  await session.dispose();
   const reopened = await f.open();
   assert.equal(reopened.id, session.id);
   f.state.pressure = false;
@@ -272,8 +275,9 @@ test("repeated automatic compaction retains visible replies and reopens the same
       sendMessageToolName,
       ...Object.values(artifactToolNames),
       ...Object.values(workspaceToolNames),
+      toolSearchToolName,
     ].sort(),
-    "the reopened chat retains messaging, artifact, and workspace tools after compaction",
+    "the reopened chat retains messaging, artifact, workspace, and tool search tools after compaction",
   );
   assert.ok(
     JSON.stringify(request.messages).includes("Keep helping with Kiwi"),

@@ -1015,18 +1015,19 @@
 }
 
 /* ===========================================
-   Personal preferences
+   Preferences and settings
    =========================================== */
-.preferences-dialog {
+.preferences-dialog,
+.settings-dialog {
   width: 590px;
 }
-.preferences-section-heading {
+.settings-section-heading {
   display: flex;
   align-items: center;
   gap: 11px;
   margin: 0 0 18px;
 }
-.preferences-section-icon {
+.settings-section-icon {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1036,20 +1037,20 @@
   background: var(--surface-selected);
   color: var(--text-accent);
 }
-.preferences-section-icon svg {
+.settings-section-icon svg {
   width: 18px;
   height: 18px;
 }
-.preferences-section-heading h3 {
+.settings-section-heading h3 {
   font-size: 13px;
   font-weight: 550;
 }
-.preferences-section-heading p {
+.settings-section-heading p {
   margin-top: 5px;
   color: var(--text-secondary);
   font-size: 11px;
 }
-.preferences-footer {
+.settings-footer {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1058,15 +1059,30 @@
   padding-top: 19px;
   border-top: 1px solid var(--border-default);
 }
-.preferences-footer > span {
+.settings-footer > span {
   display: flex;
   align-items: center;
   gap: 6px;
   font-size: 10px;
   color: var(--text-secondary);
 }
-.preferences-footer > span svg {
+.settings-footer > span svg {
   width: 13px;
   height: 13px;
   color: var(--text-accent);
+}
+.settings-switch {
+  padding: 14px 16px;
+  border: 1px solid var(--border-default);
+  border-radius: 11px;
+  background: var(--surface-subtle);
+}
+.settings-status {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.5;
 }

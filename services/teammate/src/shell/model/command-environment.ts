@@ -1,21 +1,17 @@
 /**
  * Variables commands inherit from the API process, as defined by the teammate image: the locale,
- * toolchain locations, user-level install and cache directories, and the system browser. Everything
- * else, including the pod's API token and the API's own settings, never reaches a command.
+ * toolchain locations, cache directories, and the system browser. Everything else, including the
+ * pod's API token and the API's own settings, never reaches a command.
  */
 export const commandVariables = [
   "PATH",
   "LANG",
   "TMPDIR",
   "XDG_CACHE_HOME",
-  "NPM_CONFIG_PREFIX",
   "NPM_CONFIG_CACHE",
   "NPM_CONFIG_UPDATE_NOTIFIER",
   "PIP_DISABLE_PIP_VERSION_CHECK",
-  "GEM_HOME",
   "BUNDLE_USER_CACHE",
-  "GOPATH",
-  "GOBIN",
   "GOMODCACHE",
   "CHROME_PATH",
   "PUPPETEER_EXECUTABLE_PATH",
@@ -31,14 +27,28 @@ const fallbacks: Readonly<Record<string, string>> = {
   TMPDIR: "/tmp",
 };
 
-/** Copy only the allowlisted variables from `source`, falling back to a minimal shell environment. */
+/**
+ * Copy only the allowlisted variables from `source`, falling back to a minimal shell environment, and
+ * make `home`, the teammate's workspace, the home of user-level installs: npm, gem, and Go install
+ * there and their programs come first on PATH, so they persist with the workspace's files.
+ */
 export function commandEnvironment(
   source: NodeJS.ProcessEnv,
+  home: string,
 ): Readonly<Record<string, string>> {
   const environment: Record<string, string> = { ...fallbacks };
   for (const name of commandVariables) {
     const value = source[name];
     if (value !== undefined) environment[name] = value;
   }
-  return environment;
+  const local = `${home}/.local`;
+  return {
+    ...environment,
+    HOME: home,
+    PATH: `${local}/bin:${local}/share/gem/bin:${environment.PATH}`,
+    NPM_CONFIG_PREFIX: local,
+    GEM_HOME: `${local}/share/gem`,
+    GOPATH: `${local}/share/go`,
+    GOBIN: `${local}/bin`,
+  };
 }

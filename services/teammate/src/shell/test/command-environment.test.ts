@@ -7,23 +7,32 @@ import { WorkspaceFiles } from "../../workspace/service/workspace-files.js";
 import { BashRunner } from "../service/bash-runner.js";
 import { commandEnvironment } from "../model/command-environment.js";
 
-test("command environment forwards only allowlisted variables, with minimal fallbacks", () => {
+const home = "/workspace/6f1c1f6e-8c7e-4c4b-9a43-2d8b8f7c8f11";
+
+test("command environment forwards only allowlisted variables and installs into the workspace", () => {
   assert.deepEqual(
-    commandEnvironment({
-      PATH: "/workspace/.local/bin:/usr/bin:/bin",
-      GOPATH: "/workspace/.local/share/go",
-      CHROME_PATH: "/usr/bin/chromium",
-      WORKSPACE_TOKEN: "a".repeat(64),
-      NODE_ENV: "production",
-      PORT: "8080",
-      HOME: "/elsewhere",
-    }),
+    commandEnvironment(
+      {
+        PATH: "/usr/bin:/bin",
+        GOPATH: "/elsewhere/go",
+        CHROME_PATH: "/usr/bin/chromium",
+        WORKSPACE_TOKEN: "a".repeat(64),
+        NODE_ENV: "production",
+        PORT: "8080",
+        HOME: "/elsewhere",
+      },
+      home,
+    ),
     {
-      PATH: "/workspace/.local/bin:/usr/bin:/bin",
+      PATH: `${home}/.local/bin:${home}/.local/share/gem/bin:/usr/bin:/bin`,
       LANG: "C.UTF-8",
       TMPDIR: "/tmp",
-      GOPATH: "/workspace/.local/share/go",
       CHROME_PATH: "/usr/bin/chromium",
+      HOME: home,
+      NPM_CONFIG_PREFIX: `${home}/.local`,
+      GEM_HOME: `${home}/.local/share/gem`,
+      GOPATH: `${home}/.local/share/go`,
+      GOBIN: `${home}/.local/bin`,
     },
   );
 });
@@ -33,13 +42,12 @@ test("Bash uses the workspace as HOME from any working directory and sees only t
   context.after(() => rm(root, { recursive: true, force: true }));
   await mkdir(path.join(root, "project"));
   const bash = new BashRunner(
-    new WorkspaceFiles(root),
+    new WorkspaceFiles(root, path.join(root, "shared")),
     undefined,
-    commandEnvironment({
-      PATH: process.env.PATH,
-      GEM_HOME: "/workspace/.local/share/gem",
-      WORKSPACE_TOKEN: "never inherited",
-    }),
+    commandEnvironment(
+      { PATH: process.env.PATH, WORKSPACE_TOKEN: "never inherited" },
+      root,
+    ),
   );
   const result = await bash.run({
     command:
@@ -48,6 +56,6 @@ test("Bash uses the workspace as HOME from any working directory and sees only t
   });
   assert.equal(
     result.output,
-    `${root}|${path.join(root, "project")}|/workspace/.local/share/gem|/tmp|unset`,
+    `${root}|${path.join(root, "project")}|${root}/.local/share/gem|/tmp|unset`,
   );
 });

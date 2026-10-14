@@ -14,12 +14,15 @@ local_port=8080
 local_origin=http://localhost:$local_port
 # The artifact host's entrypoint, forwarded to the same port; it matches global.artifactOrigin.
 artifact_local_port=8081
-# Namespaces of dynamic artifacts and their builds, created by deployment/cluster/namespace.yaml.
-artifact_namespaces=(everything-artifacts everything-builds)
 
 # Render the release's manifests; extra arguments, such as --values, are passed to Helm.
 render_stack() {
   helm template "$release" "$chart" --namespace "$namespace" "$@"
+}
+
+# List the namespaces the chart creates for dynamic artifacts, their builds, and Fleet instances.
+workload_namespaces() {
+  render_stack --values "$dev_values" --show-only templates/namespaces.yaml | sed -n 's/^  name: *//p'
 }
 
 # List every container image the release runs; arguments are passed to render_stack.

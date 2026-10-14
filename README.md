@@ -16,13 +16,14 @@ lib/
   workspace-contracts/ File and shell request schemas and bounded result contracts
   ui/              Shared React controls, branding, and six-theme design tokens
 services/
-  everything/      API + main-agent lifecycle + Pi runtime
+  everything/      API + main-agent lifecycle + Pi runtime + fleetd supervision
     src/           <domain>/<type>/<file>
     container/     Everything image
   ui/              React + Tailwind PWA and stateless UI host
   artifact/        Artifact records, files, builds, workloads, and the artifact host
   teammate/        Internal file and Bash API, one always-running pod per teammate
-  registry/        Image registry for dynamic artifacts
+  registry/        Image registry for dynamic artifacts and Fleet's images
+  docker/          Docker engine sidecar that fleetd builds devcontainer images with
   keycloak/        Authentication: optimized Keycloak image
   postgres/        Database: initialization, access rules, image
 testing/
@@ -30,12 +31,12 @@ testing/
   ui/              Playwright checks against the deployed app and real Keycloak
 deployment/
   helm/            The Helm chart: generic templates, one values entry per service, Keycloak realm, prod values
-  cluster/         Namespace applied before the release
+  cluster/         Namespaces applied before the release
   script/          Local cluster commands, chart checks, restart orchestration
 planning/          Architecture documents and archived UI concept
 ```
 
-Everything and Pi share a process and pod because their lifecycle is coupled. Keycloak and PostgreSQL communicate across service boundaries; they do not import Everything's code. Each service owns its image; one Helm chart in `deployment/helm` deploys them all, and adding a service is a values entry (see [adding a service](deployment/documentation/foundation.md#adding-a-service)). Application database migrations belong to Everything. Agents run on the model provider connected through the application; no provider or model is a deployment setting. The UI is a separate stateless Deployment, serving the React/Tailwind app at `/`. The artifact service tracks the artifacts teammates share, builds and runs dynamic ones, and serves them on an origin of their own (see [artifacts](deployment/documentation/foundation.md#artifacts)). Fleet remains external.
+Everything and Pi share a process and pod because their lifecycle is coupled. Keycloak and PostgreSQL communicate across service boundaries; they do not import Everything's code. Each service owns its image; one Helm chart in `deployment/helm` deploys them all, and adding a service is a values entry (see [adding a service](deployment/documentation/foundation.md#adding-a-service)). Application database migrations belong to Everything. Agents run on the model provider connected through the application; no provider or model is a deployment setting. The UI is a separate stateless Deployment, serving the React/Tailwind app at `/`. The artifact service tracks the artifacts teammates share, builds and runs dynamic ones, and serves them on an origin of their own (see [artifacts](deployment/documentation/foundation.md#artifacts)). fleetd, Fleet's daemon, runs inside Everything's container in the version the chart pins, connected to the cluster, and every teammate gets its MCP tools to run work in Fleet instances (see [Fleet](deployment/documentation/foundation.md#fleet)).
 
 Shared libraries follow the same domain/type structure as services and have specific responsibilities. `@everything/persistence` provides `BaseEntity`, `OwnedEntity`, the `Repository` contract, `OwnerScope`, and an abstract `BaseRepository` with TypeORM-backed lookup/list/delete implementations. `@everything/security` provides the verified `Identity`, `TokenVerifier` contract, Keycloak verification, a Fastify authentication adapter, browser session contracts, the confidential password-grant adapter, and session encryption. `@everything/errors` provides `ApplicationError`. Services consume each library through public package exports and `workspace:*` dependencies. TypeScript packages extend `tsconfig.base.json`; each package's `tsconfig.json` type-checks sources and tests, and `tsconfig.build.json` emits `build/` without tests. See [repository conventions](AGENTS.md) for the rules.
 

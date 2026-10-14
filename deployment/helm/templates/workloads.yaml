@@ -31,7 +31,7 @@ spec:
       labels:
         {{- include "stack.labels" $context | nindent 8 }}
     spec:
-      {{- if $service.apiAccess }}
+      {{- if or $service.apiAccess $service.clusterApiAccess }}
       # Only services granted Kubernetes API access receive a service account token.
       serviceAccountName: {{ $name }}
       automountServiceAccountToken: true
@@ -43,6 +43,44 @@ spec:
       {{- end }}
       securityContext:
         {{- toYaml $service.podSecurityContext | nindent 8 }}
+      {{- with $service.sidecars }}
+      # Native sidecars: each starts before the main container and stops after it.
+      initContainers:
+        {{- range $sidecarName, $sidecar := . }}
+        - name: {{ $sidecarName }}
+          image: {{ include "stack.image" (dict "root" $ "name" (printf "%s.sidecars.%s" $name $sidecarName) "image" $sidecar.image) }}
+          imagePullPolicy: {{ $.Values.global.image.pullPolicy }}
+          restartPolicy: Always
+          {{- with $sidecar.args }}
+          args:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          securityContext:
+            {{- toYaml ($sidecar.containerSecurityContext | default $service.containerSecurityContext) | nindent 12 }}
+          {{- with $sidecar.env }}
+          env:
+            {{- include "stack.env" (dict "root" $ "env" .) | trim | nindent 12 }}
+          {{- end }}
+          {{- range $probe, $spec := $sidecar.probes }}
+          {{ $probe }}Probe:
+            {{- toYaml $spec | nindent 12 }}
+          {{- end }}
+          {{- with $sidecar.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with $sidecar.volumeMounts }}
+          volumeMounts:
+            {{- range $volumeName, $mountPath := . }}
+            {{- if not (hasKey $service.volumes $volumeName) }}
+            {{- fail (printf "services.%s.sidecars.%s mounts volume %q, which the service does not declare" $name $sidecarName $volumeName) }}
+            {{- end }}
+            - name: {{ $volumeName }}
+              mountPath: {{ $mountPath }}
+            {{- end }}
+          {{- end }}
+        {{- end }}
+      {{- end }}
       containers:
         - name: {{ $service.containerName | default $name }}
           image: {{ include "stack.image" (dict "root" $ "name" $name "image" $service.image) }}
@@ -55,17 +93,7 @@ spec:
             {{- toYaml $service.containerSecurityContext | nindent 12 }}
           {{- with $service.env }}
           env:
-            {{- range $variable, $value := . }}
-            - name: {{ $variable }}
-              {{- if kindIs "map" $value }}
-              valueFrom:
-                secretKeyRef:
-                  name: {{ tpl $value.secretName $ }}
-                  key: {{ $value.key }}
-              {{- else }}
-              value: {{ tpl (toString $value) $ | quote }}
-              {{- end }}
-            {{- end }}
+            {{- include "stack.env" (dict "root" $ "env" .) | trim | nindent 12 }}
           {{- end }}
           {{- with $service.ports }}
           ports:
@@ -84,11 +112,13 @@ spec:
           {{- end }}
           volumeMounts:
             {{- range $volumeName, $volume := $service.volumes }}
+            {{- if $volume.mountPath }}
             - name: {{ $volumeName }}
               mountPath: {{ $volume.mountPath }}
               {{- if or $volume.secret $volume.readOnly }}
               readOnly: true
               {{- end }}
+            {{- end }}
             {{- end }}
       volumes:
         {{- range $volumeName, $volume := $service.volumes }}

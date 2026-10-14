@@ -116,6 +116,12 @@ importers:
         specifier: 7.0.2
         version: 7.0.2
 
+  lib/settings-contracts:
+    devDependencies:
+      typescript:
+        specifier: 7.0.2
+        version: 7.0.2
+
   lib/ui:
     dependencies:
       '@radix-ui/react-dialog':
@@ -227,6 +233,8 @@ importers:
         specifier: 7.0.2
         version: 7.0.2
 
+  services/docker: {}
+
   services/everything:
     dependencies:
       '@anthropic-ai/sdk':
@@ -262,6 +270,9 @@ importers:
       '@everything/security':
         specifier: workspace:*
         version: link:../../lib/security
+      '@everything/settings-contracts':
+        specifier: workspace:*
+        version: link:../../lib/settings-contracts
       '@everything/workspace-contracts':
         specifier: workspace:*
         version: link:../../lib/workspace-contracts
@@ -289,6 +300,9 @@ importers:
       openai:
         specifier: 7.19.0
         version: 7.19.0(@aws-sdk/credential-provider-node@3.972.85)(@smithy/hash-node@4.5.2)(@smithy/signature-v4@5.7.4)(undici@8.10.2)(ws@8.22.0)
+      p-retry:
+        specifier: 8.0.1
+        version: 8.0.1
       pg:
         specifier: 8.23.1
         version: 8.23.1
@@ -366,6 +380,9 @@ importers:
       '@everything/security':
         specifier: workspace:*
         version: link:../../lib/security
+      '@everything/settings-contracts':
+        specifier: workspace:*
+        version: link:../../lib/settings-contracts
       '@everything/ui':
         specifier: workspace:*
         version: link:../../lib/ui

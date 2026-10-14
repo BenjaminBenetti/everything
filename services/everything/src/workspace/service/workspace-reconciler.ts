@@ -61,6 +61,11 @@ export class WorkspaceReconciler implements AgentWorkspaces {
   // Workspace lifecycle
   // ===========================================
 
+  /** The folder every agent shares, beside their workspaces. */
+  get shared(): string {
+    return this.files.shared;
+  }
+
   /** Keep the model session and artifact tools on the existing durable workspace path. */
   directory(agentId: string): string {
     return this.files.directory(agentId);

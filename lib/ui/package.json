@@ -16,6 +16,10 @@
       "types": "./build/control/component/select.d.ts",
       "default": "./build/control/component/select.js"
     },
+    "./switch": {
+      "types": "./build/control/component/switch.d.ts",
+      "default": "./build/control/component/switch.js"
+    },
     "./dialog": {
       "types": "./build/dialog/component/dialog.d.ts",
       "default": "./build/dialog/component/dialog.js"

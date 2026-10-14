@@ -1,10 +1,16 @@
 # Remote clusters: images come from a registry, and the cluster's ingress controller exposes the
-# application and the artifact host. Replace the example registry, tag, and hosts. TLS for the hosts
-# is configured by the cluster, for example with `global.ingress.annotations` and
-# `global.artifactIngress.annotations` for a certificate issuer.
+# application, the artifact host, and the artifact registry. Replace the example registry, tag, and
+# hosts. TLS for the hosts is configured by the cluster, for example with each Ingress's
+# `annotations` for a certificate issuer and `tlsSecretName` for the Secret it issues. Nodes pull
+# from the artifact registry over HTTPS, so its certificate must be one they trust, and its Ingress
+# must accept image uploads of any size, for example with ingress-nginx's
+# `nginx.ingress.kubernetes.io/proxy-body-size: "0"` annotation.
 #
-# Pass the credentials in a separate values file kept out of Git, with every key under `secrets` in
-# values.yaml set:
+# Create the release's namespace, which admits Everything's privileged Docker sidecar; the chart
+# creates the namespaces its services run workloads in. Pass the credentials in a separate values
+# file kept out of Git, with every key under `secrets` in values.yaml set:
+#   kubectl create namespace everything
+#   kubectl label namespace everything pod-security.kubernetes.io/enforce=privileged
 #   helm upgrade everything deployment/helm --install --namespace everything \
 #     --values deployment/helm/values.prod.yaml --values <credentials file>
 global:
@@ -17,6 +23,8 @@ global:
   # A sibling of the application's hostname, so the two are different origins on the same site.
   externalArtifactHostname: artifacts.example.com
   artifactOrigin: "https://{{ .Values.global.externalArtifactHostname }}"
+  # Served by the artifact registry's own Ingress, which takes this host by default.
+  externalRegistryHostname: images.example.com
   ingress:
     host: "{{ .Values.global.externalHostname }}"
   artifactIngress:

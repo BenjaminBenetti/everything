@@ -23,6 +23,8 @@ import { ProviderConnectionsProvider } from "../../provider/component/provider-c
 import type { ConversationClient } from "../../conversation/interface/conversation-client.js";
 import { ConversationProvider } from "../../conversation/component/conversation-provider.js";
 import { ConversationPage } from "../../conversation/page/conversation-page.js";
+import type { WorkspaceSettings } from "../../settings/interface/workspace-settings.js";
+import { WorkspaceSettingsProvider } from "../../settings/component/workspace-settings-provider.js";
 
 /** Application composition accepts capabilities, making real and test transports interchangeable. */
 export function Application({
@@ -31,6 +33,7 @@ export function Application({
   artifacts,
   connections,
   conversations,
+  settings,
   queryClient,
 }: {
   session: BrowserSession;
@@ -38,6 +41,7 @@ export function Application({
   artifacts: ArtifactLibrary;
   connections: ProviderConnections;
   conversations: ConversationClient;
+  settings: WorkspaceSettings;
   queryClient: QueryClient;
 }) {
   return (
@@ -47,7 +51,9 @@ export function Application({
           <ArtifactLibraryProvider library={artifacts}>
             <ProviderConnectionsProvider connections={connections}>
               <ConversationProvider client={conversations}>
-                <AuthenticatedRoutes />
+                <WorkspaceSettingsProvider settings={settings}>
+                  <AuthenticatedRoutes />
+                </WorkspaceSettingsProvider>
               </ConversationProvider>
             </ProviderConnectionsProvider>
           </ArtifactLibraryProvider>

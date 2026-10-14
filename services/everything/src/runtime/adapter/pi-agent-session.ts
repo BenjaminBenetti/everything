@@ -83,9 +83,18 @@ export class PiAgentSession implements AgentSession {
     await this.session.abort();
   }
 
-  /** Release Pi listeners and resources. */
-  dispose(): void {
-    this.session.dispose();
+  /**
+   * End the session for its extensions, which closes its MCP connections, then release Pi's
+   * listeners and resources. Pi's own dispose does not notify extensions.
+   */
+  async dispose(): Promise<void> {
+    try {
+      const extensions = this.session.extensionRunner;
+      if (extensions.hasHandlers("session_shutdown"))
+        await extensions.emit({ type: "session_shutdown", reason: "quit" });
+    } finally {
+      this.session.dispose();
+    }
   }
 
   // ===========================================

@@ -1,0 +1,18 @@
+meta {
+  name: Reject unauthenticated worker settings
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/v1/settings/workers
+  body: none
+  auth: none
+}
+
+tests {
+  test("Reject unauthenticated worker settings", () => {
+    expect(res.status).to.equal(401);
+    expect(res.body.code).to.equal("UNAUTHENTICATED");
+  });
+}

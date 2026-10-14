@@ -40,6 +40,7 @@ import {
 import { HttpWorkspaceTools } from "../../workspace/adapter/http-workspace-tools.js";
 import { PostgresWorkspaceTargetRepository } from "../../workspace/repository/postgres-workspace-target-repository.js";
 import { WorkspaceReconciler } from "../../workspace/service/workspace-reconciler.js";
+import { createFleetRuntime } from "../../fleet/factory/fleet-runtime.js";
 
 /** Assemble concrete adapters once at the process boundary and own their lifecycle. */
 async function main(): Promise<void> {
@@ -77,13 +78,15 @@ async function main(): Promise<void> {
   );
   const agentRepository = new PostgresAgentRepository(database);
   const agents = new AgentService(agentRepository, models);
+  const workspaceFiles = new FileSystemWorkspaces(config.agentsDirectory);
+  await workspaceFiles.createShared();
   const workspaces = new WorkspaceReconciler(
     new PostgresWorkspaceTargetRepository(database),
     new KubernetesWorkspacePods(createWorkspacePodClients(), {
       ...config.workspacePods,
       key: config.sessionEncryptionKey,
     }),
-    new FileSystemWorkspaces(config.agentsDirectory),
+    workspaceFiles,
     (agentId) =>
       console.warn("Teammate workspace reconciliation failed; it will retry.", {
         agentId,
@@ -101,6 +104,11 @@ async function main(): Promise<void> {
       clientSecret: config.artifactService.clientSecret,
     }),
   );
+  const { host: fleet, workers } = createFleetRuntime(config.fleet, (error) =>
+    console.warn("Fleet failed; Everything will retry.", {
+      reason: error instanceof Error ? error.message : "unknown",
+    }),
+  );
   const conversations = new ConversationService(
     agents,
     new PostgresMessageRepository(database),
@@ -112,6 +120,7 @@ async function main(): Promise<void> {
         config.workspacePods.namespace,
         config.sessionEncryptionKey,
       ),
+      fleet,
     ),
     workspaces,
   );
@@ -124,6 +133,7 @@ async function main(): Promise<void> {
     removal: conversations,
     conversations,
     artifacts: new ArtifactLibraryService(artifactGateway),
+    workers,
     verifier,
     sessions: new SessionService(
       new PostgresSessionRepository(database),
@@ -148,12 +158,14 @@ async function main(): Promise<void> {
     await providerChecks.close();
     await conversations.close();
     await workspaces.close();
+    await fleet.close();
     await database.destroy();
   });
   closeOnTermination(app);
   await app.listen({ host: "0.0.0.0", port: config.port });
   providerChecks.start();
   workspaces.start();
+  fleet.start();
 }
 
 /** Drain requests and Pi tool writes before Kubernetes terminates the pod. */

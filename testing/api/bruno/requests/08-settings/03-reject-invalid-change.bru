@@ -1,0 +1,28 @@
+meta {
+  name: Reject an invalid worker settings change
+  type: http
+  seq: 3
+}
+
+put {
+  url: {{baseUrl}}/v1/settings/workers
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+  Authorization: Bearer {{accessToken}}
+}
+
+body:json {
+  {
+    "privileged": "yes"
+  }
+}
+
+tests {
+  test("Reject a worker setting that is not a boolean", () => {
+    expect(res.status).to.equal(400);
+  });
+}

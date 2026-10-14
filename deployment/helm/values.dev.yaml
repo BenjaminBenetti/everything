@@ -1,6 +1,6 @@
-# Local development credentials, realm seed, and ingress entrypoints, passed by cluster:up after
-# values.yaml. These are fixed, public values for a stack reachable only on this machine; never use
-# them for another deployment.
+# Local development credentials, realm seed, ingress entrypoints, and registry trust, passed by
+# cluster:up after values.yaml. These are fixed, public values for a stack reachable only on this
+# machine; never use them for another deployment.
 global:
   # Traefik serves the application on its `web` entrypoint and the artifact host on its `artifacts`
   # entrypoint (see .devcontainer/install-traefik.sh); cluster:forward exposes them at 8080 and 8081.
@@ -10,6 +10,13 @@ global:
   artifactIngress:
     annotations:
       traefik.ingress.kubernetes.io/router.entrypoints: artifacts
+  # The registry's hostname is served over HTTPS on Traefik's `websecure` entrypoint, with Traefik's
+  # self-signed default certificate. cluster:up makes the hostname reach Traefik from the node, and
+  # the Corefile rule from .devcontainer/install-traefik.sh does the same for pods.
+  registryIngress:
+    annotations:
+      traefik.ingress.kubernetes.io/router.entrypoints: websecure
+      traefik.ingress.kubernetes.io/router.tls: "true"
 
 secrets:
   database-credentials:
@@ -27,6 +34,21 @@ secrets:
   registry-credentials:
     username: everything
     password: dev-registry-password
+
+# Fleet and its Docker engine accept the registry's self-signed certificate, as cluster:up configures
+# the node's container runtime to.
+services:
+  everything:
+    env:
+      FLEET_REGISTRY_INSECURE: "true"
+    sidecars:
+      docker:
+        # The base arguments from values.yaml, plus the registry's hostname, global.externalRegistryHostname.
+        args:
+          - dockerd
+          - --host=unix:///run/docker-socket/docker.sock
+          - --group=1000
+          - --insecure-registry=registry.everything.test
 
 keycloakRealm:
   developmentSeed:

@@ -1,0 +1,24 @@
+meta {
+  name: Read worker settings
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/v1/settings/workers
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+tests {
+  test("Read whether workers run privileged from Fleet's connection", () => {
+    expect(res.status).to.equal(200);
+    expect(Object.keys(res.body)).to.deep.equal(["privileged"]);
+    expect(res.body.privileged).to.be.a("boolean");
+    bru.setVar("workersPrivileged", res.body.privileged);
+  });
+}

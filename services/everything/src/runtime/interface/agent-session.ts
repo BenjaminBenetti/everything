@@ -17,8 +17,8 @@ export interface AgentSession {
   prompt(text: string): Promise<void>;
   /** Abort active generation and wait for its tool execution to settle. */
   abort(): Promise<void>;
-  /** Release runtime resources after work has stopped. */
-  dispose(): void;
+  /** Release runtime resources after work has stopped, closing connections such as MCP servers'. */
+  dispose(): Promise<void>;
 }
 
 /** Opens durable agent sessions for the conversation service. */

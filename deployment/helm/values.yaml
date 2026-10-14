@@ -28,14 +28,31 @@ global:
     host: ""
     # Controller-specific settings, such as a certificate issuer.
     annotations: {}
+    # Secret holding the host's TLS certificate, for controllers and issuers that take it from the
+    # Ingress; empty leaves TLS to the controller's own configuration. Requires `host`.
+    tlsSecretName: ""
   # The artifact host's Ingress, with the same settings; services join it with `ingress.site: artifacts`.
   artifactIngress:
     className: ""
     host: ""
     annotations: {}
-  # Namespaces for dynamic artifacts and their image builds, created by deployment/cluster/namespace.yaml.
-  artifactNamespace: everything-artifacts
-  buildNamespace: everything-builds
+    tlsSecretName: ""
+  # Hostname of the artifact registry, through which nodes pull artifact and Fleet images and Fleet
+  # pushes its images. It is served over HTTPS by its own Ingress, so it needs a certificate the
+  # nodes trust; the development stack uses a name under .test that cluster:up makes reachable.
+  externalRegistryHostname: registry.everything.test
+  # The registry's Ingress, with the same settings; services join it with `ingress.site: registry`.
+  registryIngress:
+    className: ""
+    host: "{{ .Values.global.externalRegistryHostname }}"
+    annotations: {}
+    tlsSecretName: ""
+  # Namespaces for dynamic artifacts, their image builds, and Fleet's instances. They are named after
+  # the release's namespace, so each installation has its own, and templates/namespaces.yaml creates
+  # them.
+  artifactNamespace: "{{ .Release.Namespace }}-artifacts"
+  buildNamespace: "{{ .Release.Namespace }}-builds"
+  fleetNamespace: "{{ .Release.Namespace }}-fleet"
   # Storage class for persistent volumes that do not name one; empty uses the cluster's default class.
   storageClassName: ""
 
@@ -81,9 +98,26 @@ artifactRegistry:
   credentialsSecret: registry-credentials
   # Address build jobs push to, inside the cluster.
   pushHost: "registry.{{ .Release.Namespace }}.svc.cluster.local:5000"
-  # Address nodes pull from: the registry's node port through each node's own localhost, which
-  # container runtimes reach over plain HTTP.
-  pullHost: localhost:30500
+  # Address nodes pull from: the registry's Ingress.
+  pullHost: "{{ .Values.global.externalRegistryHostname }}"
+
+# Fleet (github.com/BenjaminBenetti/fleet-man) runs delegated agents in instances on the cluster.
+# fleetd runs inside Everything's container, which downloads this release when it starts and checks
+# each file against its pinned SHA-256 before using it.
+fleet:
+  version: v3.0.3-beta
+  # Each release file is downloaded from <releaseUrl>/<version>/<file>.
+  releaseUrl: https://github.com/BenjaminBenetti/fleet-man/releases/download
+  # SHA-256 of every file Everything installs: fleetd for Everything's architecture, and the pod build
+  # and tmux bundle Fleet copies into instances on nodes of either architecture. Update them together
+  # with the version.
+  checksums:
+    fleet-linux-amd64: 638a1f9f9db84ce590a72edf56237118bffea519ab6f5fdc667955d2f63cc550
+    fleet-linux-arm64: 0295d15fadb2199fd87df1e6bd96879e00a9c88df53f1419e790cb574ac563e1
+    fleet-pod-linux-amd64: 85598b2ff6fffd23b3eb2ddc9d577448722ef0f42ec56bcd8883a4210ca5af24
+    fleet-pod-linux-arm64: 7e4191729a2386f23f95401b38138f7d237eaf7df3acbd37a79799a823810dfb
+    fleet-tmux-linux-amd64.tar.gz: a15f9be287746ab8389226ee5f117ede5bc5601c63c42284ea55655af70b282a
+    fleet-tmux-linux-arm64.tar.gz: 30e19752c4d987bbdf942e147e8dcfa425c3446cff01a76b72df7129b283c39f
 
 # Volumes mounted by more than one service, such as files one service writes and another serves.
 # Each becomes a claim named after its key, kept on uninstall; services mount it with `sharedVolume`.
@@ -108,7 +142,8 @@ serviceDefaults:
   rolloutWave: 2
   # Container name; defaults to the service name.
   containerName: ""
-  # The namespace enforces the restricted Pod Security Standard.
+  # Containers run as an unprivileged user with a read-only root filesystem unless the service
+  # overrides these settings.
   podSecurityContext:
     runAsNonRoot: true
     runAsUser: 1000
@@ -122,25 +157,32 @@ serviceDefaults:
   args: []
   # Variable name to a literal value, or to `{ secretName, key }` for a Secret value.
   env: {}
-  # Port name to `{ containerPort, servicePort, nodePort? }`; ports with a servicePort are exposed by
-  # a Service named after the service, which becomes a NodePort Service when a port sets nodePort.
+  # Port name to `{ containerPort, servicePort? }`; ports with a servicePort are exposed by a Service
+  # named after the service.
   ports: {}
   # Route these path prefixes to the named exposed port, on the application's origin or, with
-  # `site: artifacts`, on the artifact host.
+  # `site: artifacts` or `site: registry`, on the artifact host or the registry's hostname.
   #   ingress: { port: http, paths: [/v1] }
   ingress: {}
   # Kubernetes API access: namespace (rendered as a template) to RBAC rules. A service with access
   # runs with its own ServiceAccount and a Role in each namespace; others get no API token.
   apiAccess: {}
+  # Cluster-wide Kubernetes API access: RBAC rules for a ClusterRole bound to the service's account.
+  clusterApiAccess: []
   # `startup`, `readiness`, and `liveness` probe specifications.
   probes: {}
   resources: {}
-  # Volume name to `mountPath` plus exactly one source:
+  # Volume name to `mountPath` plus exactly one source. Omit `mountPath` for a volume only sidecars mount.
   #   persistentVolume: { size, accessModes?, storageClassName? }  claim <service>-<volume>, kept on uninstall
   #   sharedVolume: <name>                                         an entry in `sharedVolumes`
   #   secret: <secret name>                                        mounted read-only
   #   emptyDir: {}                                                 scratch space; the root filesystem is read-only
   volumes: {}
+  # Containers that run beside the main one for the pod's whole life, by name. Each starts before
+  # the main container and stops after it, and takes `image`, `args`, `env`,
+  # `containerSecurityContext` (replacing the service's), `probes`, `resources`, and `volumeMounts`,
+  # a map of the service's volume names to mount paths.
+  sidecars: {}
 
 # Each entry becomes a Deployment or StatefulSet, its persistent volume claims, a Service for exposed ports, and
 # Ingress paths. To add a microservice, add an entry here and a workspace under services/ with a
@@ -299,8 +341,9 @@ services:
         key: everything
       PI_STATE_DIRECTORY: /state/pi
       XDG_CACHE_HOME: /state/cache
-      # Each agent keeps its files in a subdirectory named by its ID.
-      AGENTS_DIRECTORY: /agents
+      # Each agent keeps its files in a subdirectory named by its ID, beside the folder all agents
+      # share; teammate pods mount them at the same paths, so a path means the same file everywhere.
+      AGENTS_DIRECTORY: /workspace
       WORKSPACE_NAMESPACE: "{{ .Release.Namespace }}"
       WORKSPACE_TEMPLATE_NAME: teammate
       WORKSPACE_CLAIM_NAME: '{{ include "stack.claimName" (dict "name" "everything" "volumeName" "agents") }}'
@@ -311,6 +354,24 @@ services:
       ARTIFACT_CLIENT_SECRET:
         secretName: artifact-auth
         key: client-secret
+      # fleetd runs in this container. Its home, on the fleet volume, holds its state, cluster
+      # connection, Docker login, and repository checkouts.
+      FLEET_HOME: /fleet
+      FLEET_VERSION: "{{ .Values.fleet.version }}"
+      FLEET_RELEASE_URL: "{{ .Values.fleet.releaseUrl }}"
+      FLEET_CHECKSUMS: "{{ toJson .Values.fleet.checksums }}"
+      FLEET_NAMESPACE: "{{ tpl .Values.global.fleetNamespace . }}"
+      FLEET_STORAGE_CLASS: "{{ .Values.global.storageClassName }}"
+      # Fleet pushes images to and names them by the address nodes pull them from.
+      FLEET_REGISTRY: "{{ tpl .Values.artifactRegistry.pullHost . }}"
+      REGISTRY_USERNAME:
+        secretName: "{{ .Values.artifactRegistry.credentialsSecret }}"
+        key: username
+      REGISTRY_PASSWORD:
+        secretName: "{{ .Values.artifactRegistry.credentialsSecret }}"
+        key: password
+      # Fleet builds devcontainer images with the docker sidecar's engine.
+      DOCKER_HOST: unix:///run/docker-socket/docker.sock
     apiAccess:
       "{{ .Release.Namespace }}":
         - apiGroups: [apps]
@@ -322,6 +383,65 @@ services:
         - apiGroups: [""]
           resources: [pods]
           verbs: [get, list]
+      # Fleet's instances, with their jobs, caches, disks, and network policies.
+      "{{ tpl .Values.global.fleetNamespace . }}":
+        - apiGroups: [apps]
+          resources: [statefulsets, deployments]
+          verbs: [create, get, list, watch, patch, delete]
+        - apiGroups: [apps]
+          resources: [replicasets]
+          verbs: [get, list]
+        - apiGroups: [batch]
+          resources: [jobs]
+          verbs: [create, get, list, watch, patch, delete]
+        - apiGroups: [""]
+          resources: [pods]
+          verbs: [create, get, list, watch, delete]
+        - apiGroups: [""]
+          resources: [pods/exec, pods/portforward]
+          verbs: [create, get]
+        - apiGroups: [""]
+          resources: [pods/log]
+          verbs: [get]
+        - apiGroups: [""]
+          resources: [events, limitranges, resourcequotas]
+          verbs: [get, list]
+        - apiGroups: [""]
+          resources: [persistentvolumeclaims, secrets, configmaps, services]
+          verbs: [create, get, list, patch, delete]
+        - apiGroups: [coordination.k8s.io]
+          resources: [leases]
+          verbs: [create, get, update]
+        - apiGroups: [networking.k8s.io]
+          resources: [networkpolicies]
+          verbs: [create, get, list, patch, delete]
+        - apiGroups: [snapshot.storage.k8s.io]
+          resources: [volumesnapshots]
+          verbs: [create, get, list, delete]
+        - apiGroups: [rbac.authorization.k8s.io]
+          resources: [rolebindings]
+          verbs: [list]
+        - apiGroups: [metrics.k8s.io]
+          resources: [pods]
+          verbs: [list]
+        - apiGroups: [policy]
+          resources: [poddisruptionbudgets]
+          verbs: [create, get, list, patch, delete]
+    # Cluster-wide reads that let Fleet choose storage classes, see node architectures and capacity,
+    # move instances off drained nodes, and recognise the cluster.
+    clusterApiAccess:
+      - apiGroups: [""]
+        resources: [nodes, persistentvolumes, namespaces]
+        verbs: [get, list, watch]
+      - apiGroups: [storage.k8s.io]
+        resources: [storageclasses, csinodes, csidrivers, volumeattachments]
+        verbs: [get, list, watch]
+      - apiGroups: [snapshot.storage.k8s.io]
+        resources: [volumesnapshotclasses]
+        verbs: [get, list, watch]
+      - apiGroups: [node.k8s.io]
+        resources: [runtimeclasses]
+        verbs: [get, list, watch]
     ports:
       http: { containerPort: 8080, servicePort: 8080 }
     ingress:
@@ -338,19 +458,58 @@ services:
       liveness:
         httpGet: { path: /health/live, port: http }
         periodSeconds: 10
+    # The limits cover Pi, fleetd, and the devcontainer CLI and Git commands fleetd runs.
     resources:
       requests: { cpu: 100m, memory: 3Gi }
-      limits: { cpu: "1", memory: 4Gi }
+      limits: { cpu: "2", memory: 4Gi }
     volumes:
       # Pi provider credentials and model catalog.
       state:
         mountPath: /state
         persistentVolume: { size: 1Gi }
-      # Files of every agent; agents are created at runtime, so this volume is shared rather than per agent.
+      # Files of every agent and the folder they share; agents are created at runtime, so this volume
+      # is shared rather than per agent.
       agents:
-        mountPath: /agents
+        mountPath: /workspace
         persistentVolume: { size: 10Gi }
+      # Fleet's home: the pinned release, Fleet's state and logins, and repository checkouts.
+      fleet:
+        mountPath: /fleet
+        persistentVolume: { size: 32Gi }
+      # The docker sidecar's socket, its only listener. It's kept out of dockerd's /run/docker, whose PID
+      # files would otherwise outlive a restart in this volume and stop dockerd from starting again.
+      docker-socket: { mountPath: /run/docker-socket, emptyDir: {} }
+      # Docker's images and build cache: mounted only by the sidecar, and rebuilt with the pod.
+      docker-data: { emptyDir: {} }
       tmp: { mountPath: /tmp, emptyDir: {} }
+    sidecars:
+      # The Docker engine fleetd builds devcontainer images with. It needs a privileged container,
+      # and serves only the socket it shares with Everything's container.
+      docker:
+        image: everything-docker
+        args: [dockerd, --host=unix:///run/docker-socket/docker.sock, --group=1000]
+        containerSecurityContext:
+          privileged: true
+          runAsNonRoot: false
+          runAsUser: 0
+          runAsGroup: 0
+          seccompProfile: { type: Unconfined }
+        probes:
+          liveness:
+            exec:
+              {
+                command:
+                  [docker, --host=unix:///run/docker-socket/docker.sock, version],
+              }
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 10
+        resources:
+          requests: { cpu: 100m, memory: 256Mi }
+          limits: { cpu: "4", memory: 8Gi }
+        volumeMounts:
+          docker-socket: /run/docker-socket
+          docker-data: /var/lib/docker
 
   # Everything copies this pod template into one singleton StatefulSet for each persisted teammate.
   # Keeping the template as a zero-replica service makes image loading and configuration generic.
@@ -359,9 +518,9 @@ services:
     replicas: 0
     image: everything-teammate
     terminationGracePeriodSeconds: 10
+    # Reconciliation adds WORKSPACE_DIRECTORY, the teammate's own folder, and its workspace token.
     env:
       PORT: "8080"
-      WORKSPACE_DIRECTORY: /workspace
     ports:
       http: { containerPort: 8080 }
     probes:
@@ -380,9 +539,12 @@ services:
       requests: { cpu: 25m, memory: 64Mi }
       limits: { cpu: "2", memory: 2Gi }
     volumes:
-      # Reconciliation substitutes the existing workspace PVC with this teammate's ID as subPath.
+      # Reconciliation substitutes the agents volume, mounting this teammate's folder at
+      # /workspace/<agent id> and the shared folder at /workspace/shared, as Everything sees them.
       workspace: { mountPath: /workspace, emptyDir: {} }
-      # Hide Pi's configuration and conversation files behind a read-only empty mount.
+      shared: { mountPath: /workspace/shared, emptyDir: {} }
+      # Hide Pi's configuration and conversation files behind a read-only empty mount, which
+      # reconciliation moves to /workspace/<agent id>/.pi.
       private: { mountPath: /workspace/.pi, emptyDir: {}, readOnly: true }
       # Package and build caches live here and are rebuilt after the pod is replaced. Exceeding the
       # limit evicts the pod, which clears them.
@@ -406,8 +568,13 @@ services:
       REGISTRY_AUTH_HTPASSWD_PATH: /auth/htpasswd
       OTEL_TRACES_EXPORTER: none
     ports:
-      # Nodes pull artifact images through this node port; see artifactRegistry.pullHost.
-      http: { containerPort: 5000, servicePort: 5000, nodePort: 30500 }
+      http: { containerPort: 5000, servicePort: 5000 }
+    # Nodes pull images, and Fleet pushes them, through the registry's own Ingress (see
+    # artifactRegistry.pullHost); build jobs push to the Service inside the cluster.
+    ingress:
+      site: registry
+      port: http
+      paths: [/v2]
     probes:
       readiness:
         httpGet: { path: /, port: http }
@@ -445,8 +612,8 @@ services:
       ARTIFACT_DATA_DATABASE: artifact_data
       ARTIFACT_DATABASE_HOST: "postgres.{{ .Release.Namespace }}.svc.cluster.local:5432"
       CONTENT_DIRECTORY: /content
-      ARTIFACT_NAMESPACE: "{{ .Values.global.artifactNamespace }}"
-      BUILD_NAMESPACE: "{{ .Values.global.buildNamespace }}"
+      ARTIFACT_NAMESPACE: "{{ tpl .Values.global.artifactNamespace . }}"
+      BUILD_NAMESPACE: "{{ tpl .Values.global.buildNamespace . }}"
       ARTIFACT_STORAGE_CLASS: "{{ .Values.global.storageClassName }}"
       REGISTRY_URL: http://registry:5000
       REGISTRY_USERNAME:
@@ -472,7 +639,7 @@ services:
       port: http
       paths: [/]
     apiAccess:
-      "{{ .Values.global.artifactNamespace }}":
+      "{{ tpl .Values.global.artifactNamespace . }}":
         - apiGroups: [apps]
           resources: [deployments, statefulsets]
           verbs: [get, list, watch, create, update, patch, delete]
@@ -482,7 +649,7 @@ services:
         - apiGroups: [""]
           resources: [pods, pods/log]
           verbs: [get, list, watch]
-      "{{ .Values.global.buildNamespace }}":
+      "{{ tpl .Values.global.buildNamespace . }}":
         - apiGroups: [batch]
           resources: [jobs]
           verbs: [get, list, watch, create, delete]

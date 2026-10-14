@@ -48,6 +48,24 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version }}
 {{- with .root.Values.global.image.registry }}{{ trimSuffix "/" . }}/{{ end }}{{ $image }}:{{ .root.Values.global.image.tag }}
 {{- end }}
 
+{{/*
+A container's `env` list from a map of variable name to a literal value, rendered as a template, or
+to `{ secretName, key }` for a Secret value.
+*/}}
+{{- define "stack.env" -}}
+{{- range $variable, $value := .env }}
+- name: {{ $variable }}
+  {{- if kindIs "map" $value }}
+  valueFrom:
+    secretKeyRef:
+      name: {{ tpl $value.secretName $.root }}
+      key: {{ $value.key }}
+  {{- else }}
+  value: {{ tpl (toString $value) $.root | quote }}
+  {{- end }}
+{{- end }}
+{{- end }}
+
 {{/* Claim name for a service's persistent volume: `<service>-<volume>`. */}}
 {{- define "stack.claimName" -}}
 {{ printf "%s-%s" .name .volumeName }}

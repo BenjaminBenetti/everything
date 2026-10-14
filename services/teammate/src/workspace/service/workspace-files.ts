@@ -15,7 +15,10 @@ import type {
   WorkspaceDirectories,
 } from "../interface/workspace-files.js";
 
-/** Workspace-only file operations; the pod mount is the outer security boundary. */
+/**
+ * File operations in the teammate's own workspace and the folder all teammates share; the pod's
+ * mounts are the outer security boundary.
+ */
 export class WorkspaceFiles
   implements WorkspaceFileAccess, WorkspaceDirectories
 {
@@ -23,8 +26,16 @@ export class WorkspaceFiles
   // Construction
   // ===========================================
 
-  /** Use only the volume mounted for this teammate. */
-  constructor(private readonly root: string) {}
+  /** Use the teammate's workspace, `root`, and the shared folder, `shared`. */
+  constructor(
+    private readonly root: string,
+    private readonly shared: string,
+  ) {}
+
+  /** The teammate's own workspace, which is also its home. */
+  get home(): string {
+    return this.root;
+  }
 
   // ===========================================
   // Files
@@ -86,38 +97,47 @@ export class WorkspaceFiles
     }
   }
 
-  /** Resolve a working directory without entering private runtime state or leaving the volume. */
+  /** Resolve a working directory without entering private runtime state or leaving the mounts. */
   async directory(value = "."): Promise<string> {
     return this.resolve(value);
   }
 
-  /** Reject traversal and symlink ancestors; the kernel also confines all paths to this pod's mounts. */
+  /**
+   * Resolve a path relative to the workspace, or absolute in it or the shared folder. Reject traversal
+   * and symlink ancestors; the kernel also confines all paths to this pod's mounts.
+   */
   private async resolve(value: string, createParents = false): Promise<string> {
     const target = path.resolve(this.root, value);
-    const relative = path.relative(this.root, target);
-    if (
-      relative === ".." ||
-      relative.startsWith(`..${path.sep}`) ||
-      path.isAbsolute(relative) ||
-      relative.split(path.sep)[0] === ".pi" ||
-      value.includes("\0")
-    )
+    if (value.includes("\0") || !this.permits(target))
       throw new FileAccessError(
-        "Use a path inside your workspace. Private conversation files are unavailable.",
+        "Use a path inside your workspace or the shared folder. Private conversation files are unavailable.",
       );
     const parent = createParents ? path.dirname(target) : target;
     if (createParents) await mkdir(parent, { recursive: true });
     const resolved = await realpath(parent).catch(() => {
       throw new FileAccessError();
     });
-    const fromRoot = path.relative(this.root, resolved);
-    if (
-      fromRoot === ".." ||
-      fromRoot.startsWith(`..${path.sep}`) ||
-      path.isAbsolute(fromRoot) ||
-      fromRoot.split(path.sep)[0] === ".pi"
-    )
-      throw new FileAccessError();
+    if (!this.permits(resolved)) throw new FileAccessError();
     return target;
   }
+
+  /** Whether `location` is in the workspace outside its private runtime state, or in the shared folder. */
+  private permits(location: string): boolean {
+    return (
+      (isInside(this.root, location) &&
+        !isInside(path.join(this.root, ".pi"), location)) ||
+      isInside(this.shared, location)
+    );
+  }
+}
+
+/** Whether `location` is `directory` or inside it. */
+function isInside(directory: string, location: string): boolean {
+  const relative = path.relative(directory, location);
+  return (
+    relative === "" ||
+    (relative !== ".." &&
+      !relative.startsWith(`..${path.sep}`) &&
+      !path.isAbsolute(relative))
+  );
 }

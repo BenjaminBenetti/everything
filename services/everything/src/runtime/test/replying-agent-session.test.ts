@@ -32,7 +32,7 @@ function fixture(
     /** The controllable test prompt determines when cancellation settles. */
     async abort() {},
     /** This fixture owns no external resources. */
-    dispose() {},
+    async dispose() {},
   };
   return { session: new ReplyingAgentSession(session, delivered), prompts };
 }

@@ -1,7 +1,11 @@
-{{- /* One Ingress per site: the application's origin, and the artifact host's separate origin. */ -}}
+{{- /*
+One Ingress per site: the application's origin, the artifact host's separate origin, and the
+registry's hostname.
+*/ -}}
 {{- $sites := dict
   "application" (dict "name" .Release.Name "settings" .Values.global.ingress)
-  "artifacts" (dict "name" (printf "%s-artifacts" .Release.Name) "settings" .Values.global.artifactIngress) }}
+  "artifacts" (dict "name" (printf "%s-artifacts" .Release.Name) "settings" .Values.global.artifactIngress)
+  "registry" (dict "name" (printf "%s-registry" .Release.Name) "settings" .Values.global.registryIngress) }}
 {{- $paths := dict }}
 {{- range $name, $_ := .Values.services }}
 {{- $service := include "stack.service" (dict "root" $ "name" $name) | fromYaml }}
@@ -28,6 +32,12 @@ metadata:
 spec:
   {{- with $ingress.className }}
   ingressClassName: {{ . }}
+  {{- end }}
+  {{- with $ingress.tlsSecretName }}
+  tls:
+    - hosts:
+        - {{ tpl (required (printf "the %s Ingress needs a host for its TLS certificate" $site) $ingress.host) $ | quote }}
+      secretName: {{ . }}
   {{- end }}
   rules:
     {{- if $ingress.host }}

@@ -12,7 +12,7 @@ const kubernetesName = Type.String({
   maxLength: 253,
 });
 
-/** A host with an optional port, such as `localhost:30500`. */
+/** A host with an optional port, such as `registry.example.com` or `registry:5000`. */
 const hostAndPort = Type.String({ pattern: "^[A-Za-z0-9.-]+(:[0-9]+)?$" });
 
 /** Runtime-validated deployment configuration, shared with TypeScript through TypeBox. */

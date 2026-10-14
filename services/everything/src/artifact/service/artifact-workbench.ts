@@ -22,11 +22,12 @@ import { checkoutFiles } from "./artifact-checkout.js";
 import { inWorkspace, workspaceDirectory } from "./workspace-path.js";
 import { snapshotDirectory, type Snapshot } from "./workspace-snapshot.js";
 
-/** The teammate using artifact tools: its owner, identity, and working directory. */
+/** The teammate using artifact tools: its owner, identity, working directory, and the shared folder. */
 export interface WorkbenchContext {
   readonly ownerId: string;
   readonly author: ArtifactAuthor;
   readonly workspace: string;
+  readonly shared: string;
   /** The teammate's private runtime state inside its workspace, never uploaded. */
   readonly privateDirectory: string;
 }
@@ -151,7 +152,10 @@ export class ArtifactWorkbench {
       ),
     );
     return {
-      directory: path.relative(context.workspace, target) || ".",
+      // Relative to the workspace, or absolute in the shared folder.
+      directory: target.startsWith(`${context.workspace}${path.sep}`)
+        ? path.relative(context.workspace, target)
+        : target,
       origin: source.origin,
       number: source.number,
       release: source.release,

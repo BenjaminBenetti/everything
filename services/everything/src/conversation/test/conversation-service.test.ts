@@ -92,7 +92,7 @@ function fixture() {
           completions.get(agent.id)?.();
         },
         /** Record lifecycle cleanup. */
-        dispose() {
+        async dispose() {
           lifecycle.push(`runtime-disposed:${agent.id}`);
           disposed++;
         },

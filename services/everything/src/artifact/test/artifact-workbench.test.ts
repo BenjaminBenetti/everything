@@ -24,12 +24,15 @@ import {
   type WorkbenchContext,
 } from "../service/artifact-workbench.js";
 
-/** A teammate whose workspace holds an app and its private conversation files. */
+/** A teammate whose workspace holds an app and its private conversation files, beside a shared folder. */
 async function teammate(context: {
   after: (cleanup: () => Promise<void>) => void;
 }): Promise<WorkbenchContext> {
-  const workspace = await mkdtemp(path.join(tmpdir(), "artifact-workbench-"));
-  context.after(() => rm(workspace, { recursive: true, force: true }));
+  const parent = await mkdtemp(path.join(tmpdir(), "artifact-workbench-"));
+  context.after(() => rm(parent, { recursive: true, force: true }));
+  const workspace = path.join(parent, "agent");
+  const shared = path.join(parent, "shared");
+  await mkdir(shared, { recursive: true });
   for (const [file, content] of Object.entries({
     "app/Dockerfile": "FROM scratch",
     "app/server.js": "serve()",
@@ -43,6 +46,7 @@ async function teammate(context: {
     ownerId: "owner",
     author: { id: "agent", name: "Ada" },
     workspace,
+    shared,
     privateDirectory: path.join(workspace, ".pi"),
   };
 }
@@ -97,11 +101,14 @@ function replacing(file: string): ArtifactFile {
   };
 }
 
-test("publish, build, and checkout accept /workspace paths and report paths as the teammate sees them", async (context) => {
+test("publish, build, and checkout accept absolute paths in the workspace and the shared folder", async (context) => {
   const teammateContext = await teammate(context);
+  const { workspace, shared } = teammateContext;
   const { gateway, calls } = recordingGateway([replacing("index.html")]);
   const workbench = new ArtifactWorkbench(gateway);
-  await workbench.build(teammateContext, "app", { context: "/workspace/app" });
+  await workbench.build(teammateContext, "app", {
+    context: `${workspace}/app`,
+  });
   assert.deepEqual(
     calls
       .find((call) => call.method === "build")!
@@ -109,7 +116,7 @@ test("publish, build, and checkout accept /workspace paths and report paths as t
     ["Dockerfile", "server.js"],
   );
   await workbench.publish(teammateContext, "site", {
-    directory: "/workspace/app",
+    directory: `${workspace}/app`,
   });
   assert.deepEqual(
     calls
@@ -118,14 +125,19 @@ test("publish, build, and checkout accept /workspace paths and report paths as t
     ["Dockerfile", "server.js"],
   );
   const checkout = await workbench.checkout(teammateContext, "site", {
-    directory: "/workspace/copy",
+    directory: `${workspace}/copy`,
   });
   assert.equal(checkout.directory, "copy");
   assert.equal(
-    await readFile(
-      path.join(teammateContext.workspace, "copy/index.html"),
-      "utf8",
-    ),
+    await readFile(path.join(workspace, "copy/index.html"), "utf8"),
+    "replaced",
+  );
+  const handoff = await workbench.checkout(teammateContext, "site", {
+    directory: `${shared}/handoff`,
+  });
+  assert.equal(handoff.directory, path.join(shared, "handoff"));
+  assert.equal(
+    await readFile(path.join(shared, "handoff/index.html"), "utf8"),
     "replaced",
   );
 });
@@ -135,7 +147,7 @@ test("publish, build, and checkout refuse the private directory before using the
   const { gateway, calls } = recordingGateway([replacing("chat.jsonl")]);
   const workbench = new ArtifactWorkbench(gateway);
   const refusals = [
-    ...[".pi", "/workspace/.pi", "notes", ".pi/sessions"].map(
+    ...[".pi", `${teammateContext.workspace}/.pi`, "notes", ".pi/sessions"].map(
       (directory) => () =>
         workbench.publish(teammateContext, "site", { directory }),
     ),
@@ -143,7 +155,11 @@ test("publish, build, and checkout refuse the private directory before using the
       (directory) => () =>
         workbench.build(teammateContext, "app", { context: directory }),
     ),
-    ...[".pi/sessions", "notes/sessions", "/workspace/.pi"].map(
+    ...[
+      ".pi/sessions",
+      "notes/sessions",
+      `${teammateContext.workspace}/.pi`,
+    ].map(
       (directory) => () =>
         workbench.checkout(teammateContext, "site", {
           directory,
@@ -157,10 +173,6 @@ test("publish, build, and checkout refuse the private directory before using the
       (failure: Error) => failure,
     );
     assert.match(error.message, /Private conversation files are unavailable\./);
-    assert.ok(
-      !error.message.includes(teammateContext.workspace),
-      error.message,
-    );
   }
   assert.deepEqual(calls, []);
   assert.equal(
@@ -181,7 +193,9 @@ test("the workspace root is refused for every upload and checkout, before the ar
   const workbench = new ArtifactWorkbench(gateway);
   const whole = /is your whole workspace/;
   await assert.rejects(
-    workbench.publish(teammateContext, "site", { directory: "/workspace" }),
+    workbench.publish(teammateContext, "site", {
+      directory: teammateContext.workspace,
+    }),
     whole,
   );
   await assert.rejects(
@@ -202,7 +216,7 @@ test("the workspace root is refused for every upload and checkout, before the ar
   assert.equal(await read(".pi/sessions/chat.jsonl"), "private");
 });
 
-test("file system failures name paths under /workspace, never where the workspace lives", async (context) => {
+test("file system failures name the path in the workspace that failed", async (context) => {
   const teammateContext = await teammate(context);
   const { gateway } = recordingGateway([replacing("server.js/index.html")]);
   const error = await new ArtifactWorkbench(gateway)
@@ -213,6 +227,6 @@ test("file system failures name paths under /workspace, never where the workspac
     );
   assert.equal(
     error.message,
-    'Couldn\'t use "/workspace/app/server.js": file already exists.',
+    `Couldn't use "${teammateContext.workspace}/app/server.js": file already exists.`,
   );
 });

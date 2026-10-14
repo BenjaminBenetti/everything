@@ -32,3 +32,14 @@ test("refuses IDs that would resolve outside a single agent directory", async (c
     await assert.rejects(workspaces.remove(id), /inside the root/);
   assert.equal(existsSync(path.join(root, "other-agent")), true);
 });
+
+test("creates the shared folder beside the agents' directories without listing it as one", async (context) => {
+  const { root, workspaces } = await fixture(context);
+  const agentId = "6f1c1f6e-8c7e-4c4b-9a43-2d8b8f7c8f11";
+  await mkdir(workspaces.directory(agentId));
+  await workspaces.createShared();
+  await workspaces.createShared();
+  assert.equal(workspaces.shared, path.join(root, "shared"));
+  assert.equal(existsSync(workspaces.shared), true);
+  assert.deepEqual(await workspaces.list(), [agentId]);
+});

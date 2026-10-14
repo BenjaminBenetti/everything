@@ -31,6 +31,8 @@ import { chatGptCallbackController } from "../../provider/controller/chatgpt-cal
 import type { ProviderConnections } from "../../provider/interface/provider-connections.js";
 import type { ProviderModels } from "../../provider/interface/provider-models.js";
 import { providerModelController } from "../../provider/controller/provider-model-controller.js";
+import { settingsController } from "../../settings/controller/settings-controller.js";
+import type { WorkerSettingsOperations } from "../../settings/interface/worker-settings.js";
 
 /** Use cases and transport settings supplied by the composition root. */
 export interface HttpDependencies {
@@ -45,6 +47,7 @@ export interface HttpDependencies {
   readonly removal: AgentRemoval;
   readonly conversations: ConversationOperations;
   readonly artifacts: ArtifactLibrary;
+  readonly workers: WorkerSettingsOperations;
   readonly readiness: ReadinessCheck;
 }
 
@@ -125,5 +128,6 @@ function protectedApi(
     await agentController(scope, dependencies.agents, dependencies.removal);
     await agentEditingController(scope, dependencies.profiles);
     await artifactController(scope, dependencies.artifacts);
+    await settingsController(scope, dependencies.workers);
   };
 }

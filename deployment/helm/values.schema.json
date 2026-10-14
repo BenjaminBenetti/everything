@@ -7,6 +7,7 @@
     "secrets",
     "keycloakRealm",
     "artifactRegistry",
+    "fleet",
     "sharedVolumes",
     "serviceDefaults",
     "services"
@@ -26,8 +27,11 @@
         "externalArtifactHostname",
         "artifactOrigin",
         "artifactIngress",
+        "externalRegistryHostname",
+        "registryIngress",
         "artifactNamespace",
-        "buildNamespace"
+        "buildNamespace",
+        "fleetNamespace"
       ],
       "properties": {
         "image": {
@@ -65,6 +69,11 @@
           "minLength": 1,
           "pattern": "^[A-Za-z0-9][A-Za-z0-9.-]*$"
         },
+        "externalRegistryHostname": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9.-]*$"
+        },
         "realm": {
           "type": "string",
           "minLength": 1
@@ -74,49 +83,28 @@
           "minLength": 1
         },
         "ingress": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "className": {
-              "type": "string"
-            },
-            "host": {
-              "type": "string"
-            },
-            "annotations": {
-              "type": "object",
-              "additionalProperties": {
-                "type": "string"
-              }
-            }
-          }
+          "$ref": "#/definitions/ingressSettings"
         },
         "artifactIngress": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "className": {
-              "type": "string"
-            },
-            "host": {
-              "type": "string"
-            },
-            "annotations": {
-              "type": "object",
-              "additionalProperties": {
-                "type": "string"
-              }
-            }
-          }
+          "$ref": "#/definitions/ingressSettings"
+        },
+        "registryIngress": {
+          "$ref": "#/definitions/ingressSettings"
         },
         "storageClassName": {
           "type": "string"
         },
         "artifactNamespace": {
-          "$ref": "#/definitions/dnsLabel"
+          "type": "string",
+          "minLength": 1
         },
         "buildNamespace": {
-          "$ref": "#/definitions/dnsLabel"
+          "type": "string",
+          "minLength": 1
+        },
+        "fleetNamespace": {
+          "type": "string",
+          "minLength": 1
         }
       }
     },
@@ -176,6 +164,53 @@
         "pullHost": {
           "type": "string",
           "minLength": 1
+        }
+      }
+    },
+    "fleet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "releaseUrl", "checksums"],
+      "properties": {
+        "version": {
+          "type": "string",
+          "pattern": "^v[0-9A-Za-z][0-9A-Za-z.+-]*$"
+        },
+        "releaseUrl": {
+          "type": "string",
+          "pattern": "^https://[^?#]*[^/?#]$"
+        },
+        "checksums": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "fleet-linux-amd64",
+            "fleet-linux-arm64",
+            "fleet-pod-linux-amd64",
+            "fleet-pod-linux-arm64",
+            "fleet-tmux-linux-amd64.tar.gz",
+            "fleet-tmux-linux-arm64.tar.gz"
+          ],
+          "properties": {
+            "fleet-linux-amd64": {
+              "$ref": "#/definitions/sha256"
+            },
+            "fleet-linux-arm64": {
+              "$ref": "#/definitions/sha256"
+            },
+            "fleet-pod-linux-amd64": {
+              "$ref": "#/definitions/sha256"
+            },
+            "fleet-pod-linux-arm64": {
+              "$ref": "#/definitions/sha256"
+            },
+            "fleet-tmux-linux-amd64.tar.gz": {
+              "$ref": "#/definitions/sha256"
+            },
+            "fleet-tmux-linux-arm64.tar.gz": {
+              "$ref": "#/definitions/sha256"
+            }
+          }
         }
       }
     },
@@ -277,29 +312,7 @@
           }
         },
         "env": {
-          "type": "object",
-          "additionalProperties": {
-            "oneOf": [
-              {
-                "type": ["string", "number", "boolean"]
-              },
-              {
-                "type": "object",
-                "additionalProperties": false,
-                "required": ["secretName", "key"],
-                "properties": {
-                  "secretName": {
-                    "type": "string",
-                    "minLength": 1
-                  },
-                  "key": {
-                    "type": "string",
-                    "minLength": 1
-                  }
-                }
-              }
-            ]
-          }
+          "$ref": "#/definitions/env"
         },
         "ports": {
           "type": "object",
@@ -318,11 +331,6 @@
               "servicePort": {
                 "type": "integer",
                 "minimum": 1
-              },
-              "nodePort": {
-                "type": "integer",
-                "minimum": 30000,
-                "maximum": 32767
               }
             }
           }
@@ -344,7 +352,7 @@
               }
             },
             "site": {
-              "enum": ["application", "artifacts"]
+              "enum": ["application", "artifacts", "registry"]
             }
           },
           "dependencies": {
@@ -361,20 +369,14 @@
             }
           }
         },
-        "probes": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "startup": {
-              "type": "object"
-            },
-            "readiness": {
-              "type": "object"
-            },
-            "liveness": {
-              "type": "object"
-            }
+        "clusterApiAccess": {
+          "type": "array",
+          "items": {
+            "type": "object"
           }
+        },
+        "probes": {
+          "$ref": "#/definitions/probes"
         },
         "resources": {
           "type": "object"
@@ -387,13 +389,21 @@
           "additionalProperties": {
             "$ref": "#/definitions/volume"
           }
+        },
+        "sidecars": {
+          "type": "object",
+          "propertyNames": {
+            "$ref": "#/definitions/dnsLabel"
+          },
+          "additionalProperties": {
+            "$ref": "#/definitions/sidecar"
+          }
         }
       }
     },
     "volume": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["mountPath"],
       "properties": {
         "readOnly": {
           "type": "boolean"
@@ -430,6 +440,110 @@
           "required": ["emptyDir"]
         }
       ]
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "env": {
+      "type": "object",
+      "additionalProperties": {
+        "oneOf": [
+          {
+            "type": ["string", "number", "boolean"]
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["secretName", "key"],
+            "properties": {
+              "secretName": {
+                "type": "string",
+                "minLength": 1
+              },
+              "key": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        ]
+      }
+    },
+    "probes": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "startup": {
+          "type": "object"
+        },
+        "readiness": {
+          "type": "object"
+        },
+        "liveness": {
+          "type": "object"
+        }
+      }
+    },
+    "sidecar": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["image"],
+      "properties": {
+        "image": {
+          "type": "string",
+          "minLength": 1
+        },
+        "args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "env": {
+          "$ref": "#/definitions/env"
+        },
+        "containerSecurityContext": {
+          "type": "object"
+        },
+        "probes": {
+          "$ref": "#/definitions/probes"
+        },
+        "resources": {
+          "type": "object"
+        },
+        "volumeMounts": {
+          "type": "object",
+          "propertyNames": {
+            "$ref": "#/definitions/dnsLabel"
+          },
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^/"
+          }
+        }
+      }
+    },
+    "ingressSettings": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "className": {
+          "type": "string"
+        },
+        "host": {
+          "type": "string"
+        },
+        "annotations": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "tlsSecretName": {
+          "type": "string"
+        }
+      }
     }
   }
 }

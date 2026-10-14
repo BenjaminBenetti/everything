@@ -1,0 +1,22 @@
+{
+  "name": "@everything/settings-contracts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "files": [
+    "build"
+  ],
+  "exports": {
+    ".": {
+      "types": "./build/settings/model/settings.d.ts",
+      "default": "./build/settings/model/settings.js"
+    }
+  },
+  "scripts": {
+    "build": "rm -rf build && tsc -p tsconfig.build.json",
+    "check": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "typescript": "7.0.2"
+  }
+}

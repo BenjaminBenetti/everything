@@ -20,13 +20,21 @@ import { checkoutFiles } from "../service/artifact-checkout.js";
 import { inWorkspace, workspaceDirectory } from "../service/workspace-path.js";
 import { snapshotDirectory } from "../service/workspace-snapshot.js";
 
-/** A temporary workspace, removed after the test. */
+/** A temporary teammate workspace beside a shared folder, as in `/workspace`, removed after the test. */
 async function workspace(context: {
   after: (cleanup: () => Promise<void>) => void;
 }) {
-  const root = await mkdtemp(path.join(tmpdir(), "artifact-workspace-"));
-  context.after(() => rm(root, { recursive: true, force: true }));
+  const parent = await mkdtemp(path.join(tmpdir(), "artifact-workspace-"));
+  context.after(() => rm(parent, { recursive: true, force: true }));
+  await mkdir(path.join(parent, "shared"));
+  const root = path.join(parent, "agent");
+  await mkdir(root);
   return root;
+}
+
+/** The shared folder beside a workspace from `workspace`. */
+function sharedOf(root: string): string {
+  return path.join(path.dirname(root), "shared");
 }
 
 /** Write files relative to a root, creating directories as needed. */
@@ -40,9 +48,13 @@ async function write(
   }
 }
 
-/** The workspace as the artifact tools see it, with its private directory. */
+/** The workspace as the artifact tools see it, with the shared folder and its private directory. */
 function location(root: string) {
-  return { workspace: root, privateDirectory: path.join(root, ".pi") };
+  return {
+    workspace: root,
+    shared: sharedOf(root),
+    privateDirectory: path.join(root, ".pi"),
+  };
 }
 
 /** A source file entry for content, as the artifact service lists it. */
@@ -106,13 +118,19 @@ test("workspace directories must stay inside the workspace, including through sy
   );
 });
 
-test("absolute paths name the workspace as the teammate's pod mounts it", async (context) => {
+test("absolute paths in the workspace and the shared folder are used as they are", async (context) => {
   const root = await workspace(context);
+  const shared = sharedOf(root);
   await mkdir(path.join(root, "app"));
+  await mkdir(path.join(shared, "handoff"));
+  await mkdir(path.join(path.dirname(root), "other-agent"));
+  await symlink(path.join(shared, "handoff"), path.join(root, "handoff"));
   const at = location(root);
   for (const [directory, expected] of [
-    ["/workspace/app", path.join(root, "app")],
-    ["/workspace/app/../app/", path.join(root, "app")],
+    [`${root}/app`, path.join(root, "app")],
+    [`${root}/app/../app/`, path.join(root, "app")],
+    [`${shared}/handoff`, path.join(shared, "handoff")],
+    ["handoff", path.join(root, "handoff")],
   ] as const)
     assert.equal(
       await workspaceDirectory(at, directory, { mustExist: true }),
@@ -120,21 +138,24 @@ test("absolute paths name the workspace as the teammate's pod mounts it", async 
       directory,
     );
   assert.equal(
-    await workspaceDirectory(at, "/workspace/new/copy", { mustExist: false }),
-    path.join(root, "new/copy"),
+    await workspaceDirectory(at, `${shared}/new/copy`, { mustExist: false }),
+    path.join(shared, "new/copy"),
   );
-  // The workspace's location in this process means nothing to the teammate.
   for (const directory of [
-    path.join(root, "app"),
-    "/workspace/../etc",
-    "/workspaces/app",
-    "/workspace\0/app",
+    `${root}/../other-agent`,
+    path.join(path.dirname(root), "other-agent"),
+    "/etc",
+    `${root}\0/app`,
   ]) {
     const message = await failure(
       workspaceDirectory(at, directory, { mustExist: false }),
     );
-    assert.match(message, /outside your workspace/, directory);
-    assert.match(message, /under \/workspace\./, directory);
+    assert.match(
+      message,
+      /outside your workspace and the shared folder/,
+      directory,
+    );
+    assert.ok(message.includes(`under ${root} or ${shared}.`), directory);
   }
 });
 
@@ -143,14 +164,7 @@ test("the workspace itself is refused, since it also holds the teammate's tools 
   await mkdir(path.join(root, "app"));
   await symlink(root, path.join(root, "home"));
   const at = location(root);
-  for (const directory of [
-    ".",
-    "./",
-    "app/..",
-    "/workspace",
-    "/workspace/",
-    "home",
-  ])
+  for (const directory of [".", "./", "app/..", root, `${root}/`, "home"])
     await assert.rejects(
       workspaceDirectory(at, directory, { mustExist: false }),
       /is your whole workspace, which also holds your installed tools and settings\. Use a directory inside it/,
@@ -162,7 +176,7 @@ test("the workspace itself is refused, since it also holds the teammate's tools 
   );
 });
 
-test("refusals and file system failures never reveal where the workspace lives", async (context) => {
+test("file system failures name the path that failed when the teammate can see it", async (context) => {
   const root = await workspace(context);
   await mkdir(path.join(root, ".pi"));
   await writeFile(path.join(root, "notes.txt"), "notes");
@@ -179,17 +193,20 @@ test("refusals and file system failures never reveal where the workspace lives",
       ),
     ),
   ];
-  for (const message of messages) {
-    assert.ok(!message.includes(root), message);
-    assert.doesNotMatch(message, /\/agents|\/tmp/);
-  }
+  assert.match(messages[0]!, /outside your workspace and the shared folder/);
+  assert.match(messages[1]!, /not a directory in your workspace/);
+  assert.match(messages[2]!, /Private conversation files are unavailable/);
   assert.equal(
     messages[3],
-    'Couldn\'t use "/workspace/notes.txt/x": not a directory.',
+    `Couldn't use "${root}/notes.txt/x": not a directory.`,
   );
   assert.equal(
     messages[4],
-    'Couldn\'t use "/workspace": no such file or directory.',
+    `Couldn't use "${root}/gone": no such file or directory.`,
+  );
+  assert.equal(
+    await failure(inWorkspace(at, () => readFile("/no-such-file"))),
+    "A file outside your workspace couldn't be used: no such file or directory.",
   );
   const unrelated = new Error("plain failure");
   await assert.rejects(
@@ -214,8 +231,8 @@ test("the private directory is refused by name, by absolute path, and through sy
     [".pi/sessions", true],
     [".pi/new", false],
     ["site/../.pi", true],
-    ["/workspace/.pi", true],
-    ["/workspace/.pi/sessions", false],
+    [`${root}/.pi`, true],
+    [`${root}/.pi/sessions`, false],
     ["notes", true],
     ["notes/sessions", true],
     ["notes/new", false],

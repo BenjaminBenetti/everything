@@ -75,7 +75,7 @@ export class AgentRuntime {
   /** Stop active work and release the session's resources. */
   async close(): Promise<void> {
     await this.stop();
-    this.session.dispose();
+    await this.session.dispose();
   }
 
   // ===========================================

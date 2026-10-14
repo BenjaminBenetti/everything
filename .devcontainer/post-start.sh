@@ -71,3 +71,8 @@ minikube addons enable metrics-server ||
 # failure only warns; rerun the script once the network is available.
 bash "$(dirname "$0")/install-traefik.sh" ||
     echo "WARNING: Traefik was not installed; rerun .devcontainer/install-traefik.sh." >&2
+
+# Minikube rewrites the node's hosts file when it starts, so map a deployed stack's registry hostname
+# to the ingress again.
+bash "$(dirname "$0")/../deployment/script/configure-local-registry.sh" ||
+    echo "WARNING: the node cannot pull from the stack's registry; rerun deployment/script/configure-local-registry.sh." >&2

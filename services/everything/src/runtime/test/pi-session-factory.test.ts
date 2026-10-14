@@ -15,6 +15,7 @@ import type { AgentDefinition } from "../../agent/model/agent.js";
 import type { ArtifactWorkbench } from "../../artifact/service/artifact-workbench.js";
 import { FileSystemWorkspaces } from "../../workspace/service/file-system-workspaces.js";
 import { PiSessionFactory } from "../adapter/pi-session-factory.js";
+import { stoppedFleet } from "./fleet-mcp-fixtures.js";
 import type { InferenceRuntimeFactory } from "../interface/inference-runtime.js";
 import { PiInferenceRuntimeFactory } from "../adapter/pi-inference-runtime.js";
 import { PiModelCapabilities } from "../adapter/pi-model-capabilities.js";
@@ -51,6 +52,7 @@ test("refuses to open a session until a provider is connected, before touching t
     new FileSystemWorkspaces(agentsDirectory),
     {} as ArtifactWorkbench,
     {} as WorkspaceTools,
+    stoppedFleet,
   );
   await assert.rejects(
     factory.create(agent, async () => {}),
@@ -145,6 +147,7 @@ test("Pi sends only the teammate's initial context, applies saved inference, and
     new FileSystemWorkspaces(directory),
     {} as ArtifactWorkbench,
     {} as WorkspaceTools,
+    stoppedFleet,
   );
   const definition: AgentDefinition = {
     ...agent,
@@ -185,12 +188,8 @@ test("Pi sends only the teammate's initial context, applies saved inference, and
   assert.ok(["system", "developer"].includes(initialMessages[0]!.role));
   assert.equal(
     initialMessages[0]!.content,
-    `${mainAgentPrompt(definition)}\n\n<cwd>\n/workspace\n</cwd>`,
-    "the provider receives saved instructions, harness rules, and the workspace path as the teammate's pod names it",
-  );
-  assert.ok(
-    !JSON.stringify(requests[0]!.body).includes(workspace),
-    "where this process keeps the teammate's files never reaches the model",
+    `${mainAgentPrompt(definition)}\n\n<cwd>\n${workspace}\n</cwd>`,
+    "the provider receives saved instructions, harness rules, and the workspace path, which the teammate's pod mounts at the same place",
   );
   assert.equal(initialMessages[1]!.role, "user");
   assert.ok(
@@ -203,7 +202,7 @@ test("Pi sends only the teammate's initial context, applies saved inference, and
   apiKey = "";
   await session.prompt("Second message");
   assert.equal(requests[1]?.authorization, null);
-  session.dispose();
+  await session.dispose();
   const edited = await factory.create(
     {
       ...definition,

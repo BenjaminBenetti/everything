@@ -1,0 +1,18 @@
+{{- /*
+The namespaces the release's services create workloads in. Everything is a single-user application,
+so each admits privileged pods: the Docker-in-Docker devcontainers of Fleet's instances need them.
+*/ -}}
+{{- range $namespace := list .Values.global.artifactNamespace .Values.global.buildNamespace .Values.global.fleetNamespace }}
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ tpl $namespace $ }}
+  labels:
+    {{- include "stack.commonLabels" $ | nindent 4 }}
+    pod-security.kubernetes.io/enforce: privileged
+  annotations:
+    # They hold the artifacts, builds, and instances the services created; uninstalling the release
+    # keeps them, and deleting a namespace discards what it holds.
+    helm.sh/resource-policy: keep
+{{- end }}

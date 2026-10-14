@@ -35,7 +35,7 @@ test("oversized tools responses are cancelled before they can exhaust Everything
   assert.equal(cancelled, true);
 });
 
-test("tools pods mount only their workspace, preserve resource limits, and receive no controller credential", () => {
+test("tools pods mount only their workspace and the shared folder at Everything's paths, with the workspace as the account's home, preserve resource limits, and receive no controller credential", () => {
   const source = {
     metadata: { labels: { "app.kubernetes.io/name": "teammate" } },
     spec: {
@@ -47,12 +47,14 @@ test("tools pods mount only their workspace, preserve resource limits, and recei
           env: [{ name: "WORKSPACE_DIRECTORY", value: "/workspace" }],
           volumeMounts: [
             { name: "workspace", mountPath: "/workspace" },
+            { name: "shared", mountPath: "/workspace/shared" },
             { name: "private", mountPath: "/workspace/.pi", readOnly: true },
           ],
         },
       ],
       volumes: [
         { name: "workspace", emptyDir: {} },
+        { name: "shared", emptyDir: {} },
         { name: "private", emptyDir: {} },
       ],
     },
@@ -66,12 +68,38 @@ test("tools pods mount only their workspace, preserve resource limits, and recei
   const spec = workload.spec!.template.spec!;
   assert.equal(workload.spec!.replicas, 1);
   assert.equal(spec.automountServiceAccountToken, false);
-  assert.equal(spec.containers[0]!.volumeMounts![0]!.subPath, id);
-  assert.equal(spec.containers[0]!.volumeMounts![1]!.readOnly, true);
-  assert.deepEqual(spec.volumes![0], {
-    name: "workspace",
-    persistentVolumeClaim: { claimName: "everything-agents" },
+  assert.deepEqual(spec.containers[0]!.volumeMounts, [
+    { name: "workspace", mountPath: `/workspace/${id}`, subPath: id },
+    { name: "shared", mountPath: "/workspace/shared", subPath: "shared" },
+    { name: "private", mountPath: `/workspace/${id}/.pi`, readOnly: true },
+    {
+      name: "account",
+      mountPath: "/etc/passwd",
+      subPath: "passwd",
+      readOnly: true,
+    },
+  ]);
+  const account = spec.initContainers![0]!;
+  assert.equal(account.image, "everything-teammate:test");
+  assert.deepEqual(account.env, [
+    { name: "HOME_DIRECTORY", value: `/workspace/${id}` },
+  ]);
+  assert.match(account.command!.at(-1)!, /\/etc\/passwd > \/account\/passwd$/);
+  assert.deepEqual(spec.volumes!.at(-1), {
+    name: "account",
+    emptyDir: { sizeLimit: "1Mi" },
   });
+  for (const volume of spec.volumes!.slice(0, 2))
+    assert.deepEqual(volume.persistentVolumeClaim, {
+      claimName: "everything-agents",
+    });
+  assert.deepEqual(spec.volumes![2], { name: "private", emptyDir: {} });
+  assert.deepEqual(
+    spec.containers[0]!.env!.find(
+      (variable) => variable.name === "WORKSPACE_DIRECTORY",
+    ),
+    { name: "WORKSPACE_DIRECTORY", value: `/workspace/${id}` },
+  );
   assert.deepEqual(
     spec.containers[0]!.resources,
     source.spec.containers[0]!.resources,

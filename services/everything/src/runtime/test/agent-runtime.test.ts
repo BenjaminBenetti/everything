@@ -24,7 +24,7 @@ function session() {
       finish?.();
     },
     /** Record resource release. */
-    dispose() {
+    async dispose() {
       disposed = true;
     },
   };

@@ -1,6 +1,11 @@
-import { workspaceMountPath } from "@everything/workspace-contracts/mount";
+import {
+  sharedWorkspacePath,
+  workspacePath,
+} from "@everything/workspace-contracts/mount";
 import type { AgentDefinition } from "../../agent/model/agent.js";
+import { connectionName } from "../../fleet/model/fleet-connection.js";
 import { artifactToolNames } from "../tool/artifact-tools.js";
+import { toolSearchToolName } from "../tool/fleet-tools.js";
 import { sendMessageToolName } from "../tool/send-message-tool.js";
 import { workspaceToolNames } from "../tool/workspace-tools.js";
 
@@ -11,11 +16,13 @@ function section(title: string, rules: readonly string[]): string {
 
 /**
  * Introduce the teammate with the description its user wrote, then the rules for replying, working
- * in its pod, and sharing artifacts. Model text stays private unless deliberately sent to the user.
+ * in its pod, sharing artifacts, dispatching workers, and using Fleet. Model text stays private
+ * unless deliberately sent to the user.
  */
 export function mainAgentPrompt(
-  agent: Pick<AgentDefinition, "name" | "systemPrompt">,
+  agent: Pick<AgentDefinition, "id" | "name" | "systemPrompt">,
 ): string {
+  const home = workspacePath(agent.id);
   const introduction = [
     `You are ${agent.name}, one of the user's teammates. The user described what they want from you:`,
     `<description>\n${agent.systemPrompt}\n</description>`,
@@ -34,9 +41,10 @@ export function mainAgentPrompt(
     "You share one ongoing conversation with this user. Continue from the context you have, including summaries of earlier messages.",
   ]);
   const workspace = section("Your workspace", [
-    `Use ${workspaceToolNames.read}, ${workspaceToolNames.write}, and ${workspaceToolNames.bash} to work with files. Commands run in your own pod, where your persistent files are mounted at ${workspaceMountPath}, which is also your home directory.`,
-    `Only files in ${workspaceMountPath} survive when your pod is replaced. Private conversation state is unavailable to tools.`,
-    `With file and artifact tools, use paths relative to ${workspaceMountPath} or under it.`,
+    `Use ${workspaceToolNames.read}, ${workspaceToolNames.write}, and ${workspaceToolNames.bash} to work with files. Commands run in your own pod, where your persistent files are at ${home}, which is also your home directory.`,
+    `${sharedWorkspacePath} is shared with every teammate. Put files there to hand them to another teammate, and look there for files others left for you.`,
+    `Only files in ${home} and ${sharedWorkspacePath} survive when your pod is replaced. Private conversation state is unavailable to tools.`,
+    `With file and artifact tools, use paths relative to ${home}, or absolute paths under it or ${sharedWorkspacePath}.`,
   ]);
   const artifacts = section("Artifacts", [
     "Artifacts are shared pages and apps with their own links; the user and every teammate can open and change them.",
@@ -47,5 +55,21 @@ export function mainAgentPrompt(
     `After you publish or deploy, open the artifact with ${artifactToolNames.view} and check that it works before you share its link.`,
     `Share an artifact's link with the user through ${sendMessageToolName}.`,
   ]);
-  return [introduction, replying, workspace, artifacts].join("\n\n");
+  const workers = section("Workers", [
+    "In Everything, Fleet instances are your workers: isolated environments you dispatch to complete tasks while you keep working with the user.",
+    "A worker starts from an established Git repository, such as the user's GitHub repository, or from a template folder. Template folders suit scratch work, one-off jobs, and work the user doesn't want to push to a repository.",
+    "Workers can have coding agents and other tools set up in them, and you usually work through those agents. Use Fleet's tools to give a worker its task, check on its progress, and collect its results.",
+    "Send a worker any long-running task, meaning one likely to take more than about 10 minutes. Give shorter tasks to your in-process subagents.",
+    "Workers aren't limited to code. When the user asks for a new feature in their GitHub repository, dispatch a worker to build it. A worker can also run background or recurring jobs, such as checking the weather every morning or preparing a daily report.",
+    `Fleet's copy tools copy files between your workspace and a worker's workspace. If ${toolSearchToolName} doesn't find them, they aren't available yet.`,
+    "Some tools and agents in a worker ask to sign in the first time, such as Claude Code. Send the user the sign-in link and any code it shows. When the user replies with the redirect URL or code, enter it in the worker's session to finish signing in, so the user never has to open the worker.",
+  ]);
+  // Fleet's tools describe themselves; this states only how Fleet fits into Everything.
+  const fleet = section("Fleet", [
+    `Create Fleet instances on the cluster connection "${connectionName}", the cluster you run on.`,
+    `Fleet sees ${home} and ${sharedWorkspacePath} at the same paths you do. Put folders you give Fleet, such as a template folder (file://${sharedWorkspacePath}/my-app), in ${sharedWorkspacePath}, so every teammate can see and update them. Use ${home} only for folders no other teammate needs.`,
+  ]);
+  return [introduction, replying, workspace, artifacts, workers, fleet].join(
+    "\n\n",
+  );
 }

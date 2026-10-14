@@ -6,10 +6,17 @@ import {
   KubernetesObjectApi,
   PatchStrategy,
   type KubernetesObject,
+  type V1Container,
+  type V1PodSpec,
   type V1PodTemplateSpec,
   type V1StatefulSet,
   type V1Service,
 } from "@kubernetes/client-node";
+import {
+  sharedWorkspaceFolder,
+  sharedWorkspacePath,
+  workspacePath,
+} from "@everything/workspace-contracts/mount";
 import type { WorkspacePods } from "../interface/workspace-pods.js";
 import {
   workspaceLabels,
@@ -37,7 +44,11 @@ export function createWorkspacePodClients() {
   };
 }
 
-/** Build a singleton StatefulSet from the chart's zero-replica tools template. */
+/**
+ * Build a singleton StatefulSet from the chart's zero-replica tools template. The pod mounts the
+ * teammate's folder of the workspace volume at `/workspace/<agent id>`, where Everything's container
+ * sees it too, and the shared folder at `/workspace/shared`; it never sees other teammates' folders.
+ */
 export function workspaceStatefulSet(
   agentId: string,
   source: V1PodTemplateSpec,
@@ -70,29 +81,41 @@ export function workspaceStatefulSet(
     },
   };
   const container = template.spec.containers[0]!;
+  const workspace = workspacePath(agentId);
   container.env = [
     ...(container.env ?? []).filter(
-      (variable) => variable.name !== "WORKSPACE_TOKEN",
+      (variable) =>
+        !["WORKSPACE_TOKEN", "WORKSPACE_DIRECTORY"].includes(variable.name),
     ),
+    { name: "WORKSPACE_DIRECTORY", value: workspace },
     { name: "WORKSPACE_TOKEN", value: workspaceToken(settings.key, agentId) },
   ];
-  const mount = container.volumeMounts?.find(
-    (volume) => volume.name === "workspace",
-  );
-  if (
-    !mount ||
-    !template.spec.volumes?.some((volume) => volume.name === "workspace")
-  )
-    throw new Error("Workspace template must mount the workspace volume");
-  mount.subPath = agentId;
-  template.spec.volumes = template.spec.volumes.map((volume) =>
-    volume.name === "workspace"
+  const mounts = {
+    workspace: { mountPath: workspace, subPath: agentId },
+    shared: { mountPath: sharedWorkspacePath, subPath: sharedWorkspaceFolder },
+    // Hides Pi's private conversation state inside the workspace.
+    private: { mountPath: `${workspace}/.pi` },
+  };
+  for (const [name, mount] of Object.entries(mounts)) {
+    const volumeMount = container.volumeMounts?.find(
+      (volume) => volume.name === name,
+    );
+    if (
+      !volumeMount ||
+      !template.spec.volumes?.some((volume) => volume.name === name)
+    )
+      throw new Error(`Workspace template must mount the ${name} volume`);
+    Object.assign(volumeMount, mount);
+  }
+  template.spec.volumes = template.spec.volumes!.map((volume) =>
+    volume.name === "workspace" || volume.name === "shared"
       ? {
-          name: "workspace",
+          name: volume.name,
           persistentVolumeClaim: { claimName: settings.claimName },
         }
       : volume,
   );
+  withWorkspaceHome(template.spec, container, workspace);
   return {
     apiVersion: "apps/v1",
     kind: "StatefulSet",
@@ -104,6 +127,56 @@ export function workspaceStatefulSet(
       template,
     },
   };
+}
+
+/**
+ * Make the teammate's workspace its account's home. The image's account database names a fixed home,
+ * and its file system is read-only, so an init container copies the database with the pod user's home
+ * set to `workspace` and the container mounts the copy over `/etc/passwd`. Programs that read the
+ * database rather than HOME, such as OpenSSH, then find the teammate's `~/.ssh`.
+ */
+function withWorkspaceHome(
+  spec: V1PodSpec,
+  container: V1Container,
+  workspace: string,
+): void {
+  spec.volumes = [
+    ...(spec.volumes ?? []),
+    { name: "account", emptyDir: { sizeLimit: "1Mi" } },
+  ];
+  spec.initContainers = [
+    ...(spec.initContainers ?? []),
+    {
+      name: "account",
+      ...(container.image ? { image: container.image } : {}),
+      ...(container.imagePullPolicy
+        ? { imagePullPolicy: container.imagePullPolicy }
+        : {}),
+      command: [
+        "/bin/sh",
+        "-c",
+        'awk -F: -v OFS=: -v uid="$(id -u)" -v home="$HOME_DIRECTORY" \'$3 == uid { $6 = home } { print }\' /etc/passwd > /account/passwd',
+      ],
+      env: [{ name: "HOME_DIRECTORY", value: workspace }],
+      ...(container.securityContext
+        ? { securityContext: container.securityContext }
+        : {}),
+      resources: {
+        requests: { cpu: "10m", memory: "16Mi" },
+        limits: { cpu: "100m", memory: "32Mi" },
+      },
+      volumeMounts: [{ name: "account", mountPath: "/account" }],
+    },
+  ];
+  container.volumeMounts = [
+    ...(container.volumeMounts ?? []),
+    {
+      name: "account",
+      mountPath: "/etc/passwd",
+      subPath: "passwd",
+      readOnly: true,
+    },
+  ];
 }
 
 /** Let Kubernetes restore missing pods, while Everything reconciles workloads against the database. */

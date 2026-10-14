@@ -72,7 +72,7 @@ export class ReplyingAgentSession implements AgentSession {
   }
 
   /** Release the underlying session after its current turn has settled. */
-  dispose(): void {
-    this.session.dispose();
+  dispose(): Promise<void> {
+    return this.session.dispose();
   }
 }

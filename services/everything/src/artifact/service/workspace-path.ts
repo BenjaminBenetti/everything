@@ -1,13 +1,17 @@
 import { realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import { getSystemErrorMessage } from "node:util";
-import { workspaceMountPath } from "@everything/workspace-contracts/mount";
 import { WorkspacePathError } from "../error/workspace-errors.js";
 
-/** Where a teammate's files live in this process; its pod mounts `workspace` at `workspaceMountPath`. */
+/**
+ * Where a teammate's files live. Its pod mounts its workspace and the shared folder at the same paths
+ * as this process, so a path the teammate names is the path here.
+ */
 export interface WorkspaceLocation {
-  /** The teammate's workspace directory in this process. */
+  /** The teammate's workspace directory. */
   readonly workspace: string;
+  /** The folder every teammate can read and write. */
+  readonly shared: string;
   /** The teammate's private runtime state inside its workspace, which tools never read or write. */
   readonly privateDirectory: string;
 }
@@ -53,45 +57,31 @@ export async function isInsideAny(
 }
 
 /**
- * A directory's path relative to the workspace. Absolute paths are read as the teammate's pod sees
- * them, so only `/workspace` and paths under it are inside; any other absolute path is undefined.
- */
-function workspaceRelative(directory: string): string | undefined {
-  if (!path.posix.isAbsolute(directory)) return directory;
-  const absolute = path.posix.resolve(directory);
-  return isInside(workspaceMountPath, absolute)
-    ? path.posix.relative(workspaceMountPath, absolute)
-    : undefined;
-}
-
-/**
- * Resolve a directory the teammate named, relative to its workspace or absolute under `/workspace`.
- * Refuses paths that leave the workspace or enter its private directory, directly or through
- * symbolic links, and the workspace itself: it is also the teammate's home, holding installed tools
- * and settings that never belong in an artifact.
+ * Resolve a directory the teammate named, relative to its workspace or absolute in it or the shared
+ * folder. Refuses paths that leave both or enter the private directory, directly or through symbolic
+ * links, and the workspace itself: it is also the teammate's home, holding installed tools and
+ * settings that never belong in an artifact.
  */
 export async function workspaceDirectory(
   location: WorkspaceLocation,
   directory: string,
   options: { readonly mustExist: boolean },
 ): Promise<string> {
-  const relative = directory.includes("\0")
+  const areas = [location.workspace, location.shared];
+  const resolved = directory.includes("\0")
     ? undefined
-    : workspaceRelative(directory);
-  const resolved =
-    relative === undefined
-      ? undefined
-      : path.resolve(location.workspace, relative);
+    : path.resolve(location.workspace, directory);
   const root = await realpath(location.workspace);
   const real = resolved === undefined ? undefined : await realTarget(resolved);
+  const realAreas = await Promise.all(areas.map(realTarget));
   if (
     resolved === undefined ||
     real === undefined ||
-    !isInside(location.workspace, resolved) ||
-    !isInside(root, real)
+    !areas.some((area) => isInside(area, resolved)) ||
+    !realAreas.some((area) => isInside(area, real))
   )
     throw new WorkspacePathError(
-      `"${directory}" is outside your workspace. Use a path relative to it, or one under ${workspaceMountPath}.`,
+      `"${directory}" is outside your workspace and the shared folder. Use a path relative to your workspace, or one under ${location.workspace} or ${location.shared}.`,
     );
   if (real === root)
     throw new WorkspacePathError(
@@ -107,17 +97,6 @@ export async function workspaceDirectory(
   return resolved;
 }
 
-/** Name a path in this process as the teammate's pod sees it, or undefined outside the workspace. */
-function teammatePath(
-  roots: readonly string[],
-  local: string,
-): string | undefined {
-  const root = roots.find((candidate) => isInside(candidate, local));
-  return root === undefined
-    ? undefined
-    : path.posix.join(workspaceMountPath, path.relative(root, local));
-}
-
 /** A file system failure from Node, which names the local path it was working on. */
 function isSystemError(error: unknown): error is NodeJS.ErrnoException & {
   path: string;
@@ -130,8 +109,8 @@ function isSystemError(error: unknown): error is NodeJS.ErrnoException & {
 }
 
 /**
- * Run file work in a teammate's workspace, restating file system failures with paths as the
- * teammate sees them, so tool results never reveal where the workspace lives in this process.
+ * Run file work in a teammate's workspace, restating file system failures with the path that failed
+ * when the teammate can see it, and without it otherwise.
  */
 export async function inWorkspace<T>(
   location: WorkspaceLocation,
@@ -141,11 +120,16 @@ export async function inWorkspace<T>(
     return await work();
   } catch (error) {
     if (!isSystemError(error)) throw error;
-    const roots = [
-      location.workspace,
-      await realpath(location.workspace).catch(() => location.workspace),
-    ];
-    const shown = teammatePath(roots, error.path);
+    const visible = [location.workspace, location.shared];
+    const shown = (
+      await Promise.all(
+        visible.map(async (area) => [area, await realTarget(area)]),
+      )
+    )
+      .flat()
+      .some((area) => isInside(area, error.path))
+      ? error.path
+      : undefined;
     const reason =
       typeof error.errno === "number"
         ? getSystemErrorMessage(error.errno)

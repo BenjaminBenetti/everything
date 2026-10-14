@@ -12,7 +12,7 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
       className="preferences-dialog"
       onClose={onClose}
       footer={
-        <div className="preferences-footer">
+        <div className="settings-footer">
           <span>
             <Check aria-hidden="true" />
             Saved on this device
@@ -21,8 +21,8 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
         </div>
       }
     >
-      <div className="preferences-section-heading">
-        <span className="preferences-section-icon">
+      <div className="settings-section-heading">
+        <span className="settings-section-icon">
           <Palette aria-hidden="true" />
         </span>
         <div>

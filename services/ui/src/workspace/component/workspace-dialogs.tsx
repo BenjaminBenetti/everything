@@ -12,6 +12,7 @@ import { AgentDeletionDialog } from "../../agent/component/agent-deletion-dialog
 import { NotificationDialog } from "../../notification/component/notification-dialog.js";
 import { PreferencesDialog } from "../../preferences/component/preferences-dialog.js";
 import { ProviderDialog } from "../../provider/component/provider-dialog.js";
+import { SettingsDialog } from "../../settings/component/settings-dialog.js";
 
 type WorkspaceDialog =
   | { kind: "editor"; agent?: Agent }
@@ -19,7 +20,8 @@ type WorkspaceDialog =
   | { kind: "deletion"; agent: Agent }
   | { kind: "notifications" }
   | { kind: "provider" }
-  | { kind: "preferences" };
+  | { kind: "preferences" }
+  | { kind: "settings" };
 interface WorkspaceDialogs {
   /** Open a workspace action and remember its keyboard focus target. */
   open(dialog: WorkspaceDialog): void;
@@ -96,6 +98,7 @@ export function WorkspaceDialogsProvider({
       )}
       {dialog?.kind === "provider" && <ProviderDialog onClose={close} />}
       {dialog?.kind === "preferences" && <PreferencesDialog onClose={close} />}
+      {dialog?.kind === "settings" && <SettingsDialog onClose={close} />}
       <div
         className={`toast ${notice ? "visible" : ""}`}
         role="status"

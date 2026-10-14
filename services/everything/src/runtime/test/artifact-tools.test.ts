@@ -7,11 +7,14 @@ import type {
 import { mainAgentPrompt } from "../prompt/main-agent-prompt.js";
 import { artifactToolNames, artifactTools } from "../tool/artifact-tools.js";
 
+const agentId = "6f1c1f6e-8c7e-4c4b-9a43-2d8b8f7c8f11";
+
 const context: WorkbenchContext = {
   ownerId: "owner",
   author: { id: "agent", name: "Ada" },
-  workspace: "/agents/agent",
-  privateDirectory: "/agents/agent/.pi",
+  workspace: "/workspace/agent",
+  shared: "/workspace/shared",
+  privateDirectory: "/workspace/agent/.pi",
 };
 
 test("teammates get every artifact tool, each described for the model", () => {
@@ -77,7 +80,11 @@ test("tools act for the teammate and report results as text", async () => {
 });
 
 test("the prompt explains shared artifacts and how to change one safely", () => {
-  const prompt = mainAgentPrompt({ name: "Ada", systemPrompt: "Help." });
+  const prompt = mainAgentPrompt({
+    id: agentId,
+    name: "Ada",
+    systemPrompt: "Help.",
+  });
   for (const name of [
     artifactToolNames.list,
     artifactToolNames.checkout,
@@ -85,14 +92,22 @@ test("the prompt explains shared artifacts and how to change one safely", () => 
   ])
     assert.ok(prompt.includes(name), name);
   assert.match(prompt, /basedOn/);
-  assert.match(
-    prompt,
-    /mounted at \/workspace, which is also your home directory\./,
+  assert.ok(
+    prompt.includes(
+      `your persistent files are at /workspace/${agentId}, which is also your home directory.`,
+    ),
+  );
+  assert.ok(
+    prompt.includes("/workspace/shared is shared with every teammate."),
   );
 });
 
 test("dynamic artifacts are told to serve routes from / and use BASE_PATH only for links", () => {
-  const prompt = mainAgentPrompt({ name: "Ada", systemPrompt: "Help." });
+  const prompt = mainAgentPrompt({
+    id: agentId,
+    name: "Ada",
+    systemPrompt: "Help.",
+  });
   const tools = artifactTools({} as ArtifactWorkbench, context);
   const description = (name: string) =>
     tools.find((tool) => tool.name === name)!.description;
@@ -152,7 +167,7 @@ test("view_artifact returns a teammate pass with quoted curl and Chromium comman
   assert.match(reported.commands.renderedHtml, /--dump-dom '/);
   assert.match(view.description, /share the artifact's own link instead/);
   assert.match(
-    mainAgentPrompt({ name: "Ada", systemPrompt: "Help." }),
+    mainAgentPrompt({ id: agentId, name: "Ada", systemPrompt: "Help." }),
     new RegExp(
       `publish or deploy, open the artifact with ${artifactToolNames.view}`,
     ),

@@ -1,0 +1,5 @@
+#!/bin/sh
+# Run Fleet's client as Everything runs fleetd: with Fleet's home on its own volume, so every client
+# reaches the same daemon, kubeconfig, and Docker login.
+export HOME="${FLEET_HOME:?FLEET_HOME is not set}"
+exec "$HOME/.fleet/bin/fleet" "$@"

@@ -15,18 +15,25 @@ import { WorkspaceFiles } from "../service/workspace-files.js";
 import { BashRunner } from "../../shell/service/bash-runner.js";
 import { createHttpApplication } from "../../application/factory/http-application.js";
 
-/** Provide a real temporary workspace and a test API without container-wide process cleanup. */
+/**
+ * Provide a real temporary workspace beside a shared folder, as `/workspace/<id>` and
+ * `/workspace/shared` are, and a test API without container-wide process cleanup.
+ */
 async function fixture(context: TestContext) {
-  const root = await mkdtemp(path.join(tmpdir(), "teammate-tools-"));
-  const files = new WorkspaceFiles(root);
+  const parent = await mkdtemp(path.join(tmpdir(), "teammate-tools-"));
+  const root = path.join(parent, "teammate");
+  const shared = path.join(parent, "shared");
+  await mkdir(root);
+  await mkdir(shared);
+  const files = new WorkspaceFiles(root, shared);
   const bash = new BashRunner(files);
   const app = createHttpApplication(files, bash, "test-token");
   context.after(async () => {
     bash.close();
     await app.close();
-    await rm(root, { recursive: true, force: true });
+    await rm(parent, { recursive: true, force: true });
   });
-  return { root, files, bash, app };
+  return { parent, root, shared, files, bash, app };
 }
 
 test("file tools create parents, replace content, and expose bounded continuation reads", async (context) => {
@@ -59,14 +66,39 @@ test("file tools create parents, replace content, and expose bounded continuatio
   );
 });
 
-test("files reject traversal, symlinks leaving the workspace, and private conversation state", async (context) => {
-  const { root, files } = await fixture(context);
+test("files reach the shared folder by its absolute path, also through a link in the workspace", async (context) => {
+  const { root, shared, files, bash } = await fixture(context);
+  await files.write({
+    path: path.join(shared, "handoff/notes.md"),
+    content: "for every teammate",
+  });
+  assert.equal(
+    await readFile(path.join(shared, "handoff/notes.md"), "utf8"),
+    "for every teammate",
+  );
+  await symlink(shared, path.join(root, "team"));
+  assert.equal(
+    (await files.read({ path: "team/handoff/notes.md" })).content,
+    "for every teammate",
+  );
+  assert.equal(
+    (await bash.run({ command: "cat handoff/notes.md", cwd: shared })).output,
+    "for every teammate",
+  );
+});
+
+test("files reject traversal, other teammates' workspaces, symlinks leaving the workspace, and private conversation state", async (context) => {
+  const { parent, root, files } = await fixture(context);
+  await mkdir(path.join(parent, "other-teammate"));
+  await writeFile(path.join(parent, "other-teammate/notes"), "theirs");
   await mkdir(path.join(root, ".pi"));
   await writeFile(path.join(root, ".pi/session"), "private");
   await symlink("/etc", path.join(root, "escape"));
   await symlink(path.join(root, ".pi"), path.join(root, "alias"));
   for (const target of [
     "../outside",
+    "../other-teammate/notes",
+    path.join(parent, "other-teammate/notes"),
     "/etc/passwd",
     ".pi/session",
     "escape/passwd",

@@ -337,6 +337,7 @@
     padding: 0 12px;
   }
   .chat-topbar .notification-button,
+  .chat-topbar .settings-button,
   .chat-topbar .signout-button {
     display: none;
   }

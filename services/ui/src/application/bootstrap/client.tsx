@@ -7,6 +7,7 @@ import { initializeTheme } from "@everything/ui/theme";
 import { HttpAgentDirectory } from "../../agent/adapter/http-agent-directory.js";
 import { HttpArtifactLibrary } from "../../artifact/adapter/http-artifact-library.js";
 import { HttpProviderConnections } from "../../provider/adapter/http-provider-connections.js";
+import { HttpWorkspaceSettings } from "../../settings/adapter/http-workspace-settings.js";
 import { createAuthenticatedTransport } from "../../http/adapter/authenticated-transport.js";
 import { Application } from "../component/application.js";
 import { ApplicationErrorBoundary } from "../component/error-boundary.js";
@@ -46,6 +47,9 @@ async function bootstrap(): Promise<void> {
               }
               connections={
                 new HttpProviderConnections(createAuthenticatedTransport())
+              }
+              settings={
+                new HttpWorkspaceSettings(createAuthenticatedTransport())
               }
               queryClient={new QueryClient()}
             />

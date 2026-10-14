@@ -1,13 +1,19 @@
 import envSchema from "env-schema";
 import { Type, type Static } from "typebox";
-import { workspaceMountPath } from "@everything/workspace-contracts/mount";
+import {
+  sharedWorkspacePath,
+  workspaceRoot,
+} from "@everything/workspace-contracts/mount";
 import { WorkspaceFiles } from "../../workspace/service/workspace-files.js";
 import { BashRunner } from "../../shell/service/bash-runner.js";
 import { createHttpApplication } from "../factory/http-application.js";
 
 const settingsSchema = Type.Object({
   PORT: Type.Integer({ default: 8080, minimum: 1, maximum: 65535 }),
-  WORKSPACE_DIRECTORY: Type.String({ const: workspaceMountPath }),
+  /** The teammate's own workspace, `/workspace/<agent id>`, which Everything mounts at the same path. */
+  WORKSPACE_DIRECTORY: Type.String({
+    pattern: `^${workspaceRoot}/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`,
+  }),
   WORKSPACE_TOKEN: Type.String({ pattern: "^[a-f0-9]{64}$" }),
 });
 
@@ -21,7 +27,10 @@ async function main(): Promise<void> {
   const settings = envSchema<Static<typeof settingsSchema>>({
     schema: settingsSchema,
   });
-  const files = new WorkspaceFiles(settings.WORKSPACE_DIRECTORY);
+  const files = new WorkspaceFiles(
+    settings.WORKSPACE_DIRECTORY,
+    sharedWorkspacePath,
+  );
   /** Linux excludes namespace PID 1 and the caller; no other pod shares this PID namespace. */
   const reap = (): void => {
     try {

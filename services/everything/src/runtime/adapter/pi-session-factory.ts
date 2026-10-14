@@ -2,14 +2,15 @@ import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import {
   createAgentSession,
+  createMcpExtension,
+  createToolSearchExtension,
   DefaultResourceLoader,
   SessionManager,
   SettingsManager,
-  type ExtensionAPI,
 } from "@earendil-works/pi-coding-agent";
-import { workspaceMountPath } from "@everything/workspace-contracts/mount";
 import type { AgentDefinition } from "../../agent/model/agent.js";
 import type { ArtifactWorkbench } from "../../artifact/service/artifact-workbench.js";
+import type { FleetMcpServer } from "../../fleet/interface/fleet-mcp-server.js";
 import type { AgentWorkspaces } from "../../workspace/interface/agent-workspaces.js";
 import { ProviderUnavailableError } from "../error/runtime-errors.js";
 import type {
@@ -25,6 +26,11 @@ import type { InferenceRuntimeFactory } from "../interface/inference-runtime.js"
 import { compactionPolicy } from "../model/compaction-policy.js";
 import type { WorkspaceTools } from "../../workspace/interface/workspace-tools.js";
 import { workspaceTools } from "../tool/workspace-tools.js";
+import {
+  fleetToolPattern,
+  fleetTools,
+  toolSearchToolName,
+} from "../tool/fleet-tools.js";
 
 /** Pi's per-agent configuration and session paths inside the agent's workspace. */
 interface AgentDirectories {
@@ -33,28 +39,19 @@ interface AgentDirectories {
   readonly sessionDir: string;
 }
 
-/**
- * Name the working directory in the prompt's `cwd` section as the teammate's pod mounts it. Pi keeps
- * its real working directory, which locates the teammate's saved sessions in this process.
- */
-function podWorkingDirectory(pi: ExtensionAPI): void {
-  pi.on("before_agent_start", (event) => {
-    event.systemPromptOptions.cwd = workspaceMountPath;
-  });
-}
-
 /** Adapts Pi's native session persistence and explicit messaging to the application interface. */
 export class PiSessionFactory implements AgentSessionFactory {
   // ===========================================
   // Construction
   // ===========================================
 
-  /** Receive owner-scoped inference, working directories, shared artifacts, and isolated workspace tools. */
+  /** Receive owner-scoped inference, working directories, shared artifacts, isolated workspace tools, and Fleet. */
   constructor(
     private readonly inference: InferenceRuntimeFactory,
-    private readonly workspaces: Pick<AgentWorkspaces, "directory">,
+    private readonly workspaces: Pick<AgentWorkspaces, "directory" | "shared">,
     private readonly artifacts: ArtifactWorkbench,
     private readonly workspace: WorkspaceTools,
+    private readonly fleet: FleetMcpServer,
   ) {}
 
   // ===========================================
@@ -94,6 +91,7 @@ export class PiSessionFactory implements AgentSessionFactory {
         ownerId: agent.ownerId,
         author: { id: agent.id, name: agent.name },
         workspace: directories.cwd,
+        shared: this.workspaces.shared,
         privateDirectory: directories.agentDir,
       }),
     ];
@@ -105,13 +103,19 @@ export class PiSessionFactory implements AgentSessionFactory {
       resourceLoader,
       settingsManager,
       thinkingLevel: agent.inference.effort,
-      tools: tools.map((tool) => tool.name),
+      tools: [
+        ...tools.map((tool) => tool.name),
+        toolSearchToolName,
+        fleetToolPattern,
+      ],
       customTools: tools,
       sessionManager: SessionManager.continueRecent(
         directories.cwd,
         directories.sessionDir,
       ),
     });
+    // Starting the extensions connects Fleet's MCP server.
+    await session.bindExtensions({});
     return new PiAgentSession(session);
   }
 
@@ -127,8 +131,9 @@ export class PiSessionFactory implements AgentSessionFactory {
   }
 
   /**
-   * Load only the agent's prompt and the harness's own prompt adjustment: no discovered extensions,
-   * skills, templates, themes, or context files.
+   * Load only the agent's prompt and Fleet's MCP server: no discovered extensions, MCP configuration,
+   * skills, templates, themes, or context files. Pi's working directory is the teammate's workspace,
+   * at the same path in its pod, so the prompt's `cwd` section names it as the teammate's tools do.
    */
   private async isolatedResources(
     agent: AgentDefinition,
@@ -142,10 +147,19 @@ export class PiSessionFactory implements AgentSessionFactory {
       noExtensions: true,
       extensionFactories: [
         {
-          name: "pod-working-directory",
-          factory: podWorkingDirectory,
+          name: "mcp",
+          // Teammates connect only the servers the harness registers, never an mcp.json.
+          factory: createMcpExtension({
+            loadConfig: () => ({ servers: [], errors: [] }),
+          }),
           hidden: true,
         },
+        {
+          name: "tool-search",
+          factory: createToolSearchExtension(),
+          hidden: true,
+        },
+        { name: "fleet-tools", factory: fleetTools(this.fleet), hidden: true },
       ],
       noSkills: true,
       noPromptTemplates: true,

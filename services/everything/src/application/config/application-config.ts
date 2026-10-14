@@ -1,7 +1,10 @@
 import path from "node:path";
 import envSchema from "env-schema";
+import { Value } from "typebox/value";
+import type { FleetSettings } from "../../fleet/model/fleet-settings.js";
 import {
   environmentSchema,
+  fleetChecksumsSchema,
   type EnvironmentSettings,
 } from "../schema/environment-schema.js";
 
@@ -39,6 +42,8 @@ export interface ApplicationConfig {
     readonly clientId: string;
     readonly clientSecret: string;
   };
+  /** The Fleet release fleetd runs from, its home, its cluster connection, and its registry. */
+  readonly fleet: FleetSettings;
 }
 
 /** Validate deployment settings with env-schema and normalize paths. */
@@ -75,6 +80,25 @@ export function loadApplicationConfig(
       hostUrl: settings.ARTIFACT_HOST_URL,
       clientId: settings.ARTIFACT_CLIENT_ID,
       clientSecret: settings.ARTIFACT_CLIENT_SECRET,
+    },
+    fleet: {
+      home: path.resolve(settings.FLEET_HOME),
+      release: {
+        version: settings.FLEET_VERSION,
+        url: settings.FLEET_RELEASE_URL,
+        checksums: Value.Parse(
+          fleetChecksumsSchema,
+          JSON.parse(settings.FLEET_CHECKSUMS),
+        ),
+      },
+      namespace: settings.FLEET_NAMESPACE,
+      storageClass: settings.FLEET_STORAGE_CLASS,
+      registry: {
+        host: settings.FLEET_REGISTRY,
+        insecure: settings.FLEET_REGISTRY_INSECURE,
+        username: settings.REGISTRY_USERNAME,
+        password: settings.REGISTRY_PASSWORD,
+      },
     },
   };
 }

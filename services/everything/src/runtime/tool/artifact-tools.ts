@@ -198,7 +198,7 @@ export function artifactTools(
           directory: Type.String({
             minLength: 1,
             description:
-              "Directory in your workspace to copy into; it must be empty unless overwrite is true.",
+              "Directory in your workspace or the shared folder to copy into; it must be empty unless overwrite is true.",
           }),
           revision: Type.Optional(
             Type.Integer({
@@ -237,7 +237,8 @@ export function artifactTools(
           directory: Type.Optional(
             Type.String({
               minLength: 1,
-              description: "Directory in your workspace to publish.",
+              description:
+                "Directory in your workspace or the shared folder to publish.",
             }),
           ),
           revision: Type.Optional(
@@ -265,7 +266,8 @@ export function artifactTools(
           artifact: artifactReference,
           context: Type.String({
             minLength: 1,
-            description: "Directory in your workspace to build from.",
+            description:
+              "Directory in your workspace or the shared folder to build from.",
           }),
           dockerfile: Type.Optional(
             Type.String({

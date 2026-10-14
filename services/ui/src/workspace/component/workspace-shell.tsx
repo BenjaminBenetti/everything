@@ -8,8 +8,9 @@ import {
   Grid2X2,
   House,
   LogOut,
-  Plus,
   Plug,
+  Plus,
+  Settings,
 } from "lucide-react";
 import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import { Brand } from "@everything/ui/brand";
@@ -194,6 +195,13 @@ export function WorkspaceShell() {
               onClick={() => open({ kind: "notifications" })}
             >
               <Bell aria-hidden="true" />
+            </IconButton>
+            <IconButton
+              label="Settings"
+              className="settings-button"
+              onClick={() => open({ kind: "settings" })}
+            >
+              <Settings aria-hidden="true" />
             </IconButton>
             <IconButton
               label="Sign out"

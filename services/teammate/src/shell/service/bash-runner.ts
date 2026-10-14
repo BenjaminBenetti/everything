@@ -19,12 +19,13 @@ export class BashRunner implements CommandRunner {
 
   /**
    * Receive workspace path policy, a container-wide descendant cleanup operation, and the variables
-   * commands inherit, which default to the allowlisted part of this process's environment.
+   * commands inherit, which default to the allowlisted part of this process's environment with the
+   * workspace as home.
    */
   constructor(
     private readonly files: WorkspaceDirectories,
     private readonly reap: () => void = () => {},
-    private readonly environment = commandEnvironment(process.env),
+    private readonly environment = commandEnvironment(process.env, files.home),
   ) {}
 
   // ===========================================

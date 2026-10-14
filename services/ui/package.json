@@ -22,6 +22,7 @@
     "@everything/artifact-contracts": "workspace:*",
     "@everything/conversation-contracts": "workspace:*",
     "@everything/provider-contracts": "workspace:*",
+    "@everything/settings-contracts": "workspace:*",
     "@everything/security": "workspace:*",
     "@everything/ui": "workspace:*",
     "@fastify/helmet": "13.0.2",
