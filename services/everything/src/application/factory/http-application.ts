@@ -33,6 +33,10 @@ import type { ProviderModels } from "../../provider/interface/provider-models.js
 import { providerModelController } from "../../provider/controller/provider-model-controller.js";
 import { settingsController } from "../../settings/controller/settings-controller.js";
 import type { WorkerSettingsOperations } from "../../settings/interface/worker-settings.js";
+import type { WorkspaceInstances } from "../../workspace/interface/workspace-instances.js";
+import { workspaceInstanceController } from "../../workspace/controller/workspace-instance-controller.js";
+import type { WorkspaceActivityReader } from "../../workspace/interface/workspace-activity.js";
+import { workspaceActivityController } from "../../workspace/controller/workspace-activity-controller.js";
 import type { UpdateOperations } from "../../update/interface/update-operations.js";
 import { updateController } from "../../update/controller/update-controller.js";
 
@@ -51,6 +55,8 @@ export interface HttpDependencies {
   readonly updates: UpdateOperations;
   readonly artifacts: ArtifactLibrary;
   readonly workers: WorkerSettingsOperations;
+  readonly workspaces: WorkspaceInstances;
+  readonly workspaceActivity: WorkspaceActivityReader;
   readonly readiness: ReadinessCheck;
 }
 
@@ -133,5 +139,7 @@ function protectedApi(
     await agentEditingController(scope, dependencies.profiles);
     await artifactController(scope, dependencies.artifacts);
     await settingsController(scope, dependencies.workers);
+    await workspaceInstanceController(scope, dependencies.workspaces);
+    await workspaceActivityController(scope, dependencies.workspaceActivity);
   };
 }

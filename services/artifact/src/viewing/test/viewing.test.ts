@@ -158,7 +158,7 @@ test("the artifact host signs viewers in, serves files with validators, and expl
   assert.equal(signedOut.statusCode, 302);
   assert.equal(
     signedOut.headers.location,
-    "http://localhost:8080/artifacts/open?slug=site&path=%2Fdocs%3Fx%3D1",
+    "http://localhost:8080/apps/open?slug=site&path=%2Fdocs%3Fx%3D1",
   );
   assert.equal((await app.inject({ url: "/site/" })).statusCode, 401);
 
@@ -203,7 +203,26 @@ test("the artifact host signs viewers in, serves files with validators, and expl
   );
   const stopped = await app.inject({ url: "/app/", headers });
   assert.equal(stopped.statusCode, 503);
-  assert.match(stopped.body, /This artifact is stopped/);
+  assert.match(stopped.body, /This app is stopped/);
+  await artifacts.update({ ownerId: owner }, site.id, {
+    running: false,
+    updatedBy: ada,
+  });
+  const pausedPage = await app.inject({
+    url: "/site/",
+    headers: { ...headers, "if-none-match": `"${page.sha256}"` },
+  });
+  assert.equal(
+    pausedPage.statusCode,
+    503,
+    "a paused page cannot be reopened through a cached file validator",
+  );
+  assert.match(pausedPage.body, /This app is stopped/);
+  await artifacts.update({ ownerId: owner }, site.id, {
+    running: true,
+    updatedBy: ada,
+  });
+  assert.equal((await app.inject({ url: "/site/", headers })).body, "hello");
   assert.equal(
     (await app.inject({ url: "/missing/", headers })).statusCode,
     404,
@@ -344,7 +363,7 @@ test("a teammate pass views its static or dynamic artifact as a bearer token, an
   for (const url of ["/app/", "/foreign/", "/missing/"]) {
     const refused = await host.inject({ url, headers: bearer(sitePass.token) });
     assert.equal(refused.statusCode, 404, url);
-    assert.match(refused.body, /Artifact not found/);
+    assert.match(refused.body, /App not found/);
   }
 
   const appPass = await passes.issue(owner, "app", {});
@@ -374,7 +393,7 @@ test("a teammate pass views its static or dynamic artifact as a bearer token, an
     { cookie: "everything-teammate-pass=set-by-an-app" },
   ]) {
     const notAPass = await host.inject({ url: "/site/", headers });
-    assert.match(notAPass.body, /Sign in to view this artifact/);
+    assert.match(notAPass.body, /Sign in to view this app/);
   }
 });
 

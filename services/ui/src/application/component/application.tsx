@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import type { BrowserSession } from "@everything/security/browser";
 import { Brand } from "@everything/ui/brand";
 import type { AgentDirectory } from "../../agent/interface/agent-directory.js";
@@ -27,6 +27,9 @@ import { ConversationProvider } from "../../conversation/component/conversation-
 import { ConversationPage } from "../../conversation/page/conversation-page.js";
 import type { WorkspaceSettings } from "../../settings/interface/workspace-settings.js";
 import { WorkspaceSettingsProvider } from "../../settings/component/workspace-settings-provider.js";
+import type { WorkspaceDirectory } from "../../workspace/interface/workspace-directory.js";
+import { WorkspaceDirectoryProvider } from "../../workspace/component/workspace-directory-provider.js";
+import { WorkspacesPage } from "../../workspace/page/workspaces-page.js";
 
 /** Application composition accepts capabilities, making real and test transports interchangeable. */
 export function Application({
@@ -37,6 +40,7 @@ export function Application({
   conversations,
   updates,
   settings,
+  workspaces,
   queryClient,
 }: {
   session: BrowserSession;
@@ -46,6 +50,7 @@ export function Application({
   conversations: ConversationClient;
   updates: UpdateClient;
   settings: WorkspaceSettings;
+  workspaces: WorkspaceDirectory;
   queryClient: QueryClient;
 }) {
   return (
@@ -57,7 +62,9 @@ export function Application({
               <ConversationProvider client={conversations}>
                 <UpdateProvider client={updates}>
                   <WorkspaceSettingsProvider settings={settings}>
-                    <AuthenticatedRoutes />
+                    <WorkspaceDirectoryProvider directory={workspaces}>
+                      <AuthenticatedRoutes />
+                    </WorkspaceDirectoryProvider>
                   </WorkspaceSettingsProvider>
                 </UpdateProvider>
               </ConversationProvider>
@@ -72,6 +79,7 @@ export function Application({
 /** Mount private pages only after session restoration, retaining the current route. */
 function AuthenticatedRoutes() {
   const { profile, loading } = useSession();
+  const { search, hash } = useLocation();
   if (loading)
     return (
       <main className="startup-screen">
@@ -83,13 +91,26 @@ function AuthenticatedRoutes() {
   return (
     <WorkspaceDialogsProvider>
       <Routes>
-        <Route path="artifacts/open" element={<ArtifactOpenPage />} />
+        <Route path="apps/open" element={<ArtifactOpenPage />} />
+        <Route
+          path="artifacts/open"
+          element={
+            <Navigate replace to={{ pathname: "/apps/open", search, hash }} />
+          }
+        />
         <Route element={<WorkspaceShell />}>
           <Route index element={<HomePage />} />
           <Route path="team" element={<TeamPage />} />
           <Route path="team/:agentId" element={<ConversationPage />} />
           <Route path="updates" element={<UpdatesPage />} />
-          <Route path="artifacts" element={<ArtifactsPage />} />
+          <Route path="apps" element={<ArtifactsPage />} />
+          <Route
+            path="artifacts"
+            element={
+              <Navigate replace to={{ pathname: "/apps", search, hash }} />
+            }
+          />
+          <Route path="workspaces" element={<WorkspacesPage />} />
           <Route path="login" element={<Navigate replace to="/" />} />
           <Route path="*" element={<Navigate replace to="/" />} />
         </Route>

@@ -7,6 +7,7 @@ import { useConversation } from "../hook/use-conversation.js";
 import { MessageComposer } from "../component/message-composer.js";
 import { MessageHistory } from "../component/message-history.js";
 import { ConversationTeammateCard } from "../component/conversation-teammate-card.js";
+import { ConversationWorkspacesCard } from "../component/conversation-workspaces-card.js";
 
 /** Resolve the teammate's sole conversation from the directory, including direct links. */
 export function ConversationPage() {
@@ -56,11 +57,18 @@ function TeammateConversation({ agent }: { agent: Agent }) {
     runtime?.error;
   return (
     <section className="chat-page" aria-label={`Chat with ${agent.name}`}>
-      <ConversationTeammateCard
-        agent={agent}
-        backgroundCount={runtime?.backgroundCount ?? 0}
-        onEdit={() => open({ kind: "editor", agent })}
-      />
+      <div className="chat-sidebar">
+        <ConversationTeammateCard
+          agent={agent}
+          backgroundCount={runtime?.backgroundCount ?? 0}
+          onEdit={() => open({ kind: "editor", agent })}
+        />
+        <ConversationWorkspacesCard
+          agentId={agent.id}
+          name={agent.name}
+          avatarId={agent.avatarId}
+        />
+      </div>
       {snapshot.isPending ? (
         <p className="chat-loading" role="status">
           Loading your messages…

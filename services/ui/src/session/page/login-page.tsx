@@ -5,7 +5,7 @@ import { Brand, GridArt } from "@everything/ui/brand";
 import { Button } from "@everything/ui/button";
 import { useSession } from "../component/session-provider.js";
 
-/** Collect credentials on the concept welcome screen through the session boundary. */
+/** Show the welcome message and collect credentials through the session boundary. */
 export function LoginPage() {
   const { signIn, error: initializationError } = useSession();
   const [pending, setPending] = useState(false);
@@ -42,13 +42,11 @@ export function LoginPage() {
           <h1>
             Your work.
             <br />
-            <em>Your team.</em>
-          </h1>
-          <p>
-            Create teammates, customize their profiles,
+            Your life.
             <br />
-            and manage your team in one place.
-          </p>
+            <em>Your everything.</em>
+          </h1>
+          <p>Create teammates to help you do just about anything.</p>
         </div>
         <div className="welcome-bottom">
           <span className="dot" />

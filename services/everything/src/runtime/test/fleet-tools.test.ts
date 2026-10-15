@@ -16,6 +16,7 @@ import { PiSessionFactory } from "../adapter/pi-session-factory.js";
 import { createModelRuntime } from "../factory/model-runtime.js";
 import { fleetToolName, toolSearchToolName } from "../tool/fleet-tools.js";
 import { startFakeFleetMcp } from "./fleet-mcp-fixtures.js";
+import type { WorkspaceActivityRecorder } from "../../workspace/interface/workspace-activity.js";
 
 /** What Pi sent to the model. */
 interface CompletionRequest {
@@ -80,7 +81,14 @@ function completion(delta: Record<string, unknown>, finish: string): Response {
  * Real Pi sessions whose model searches for Fleet's tools, lists Fleet's instances once `fleet_list`
  * is declared, and finishes once the result arrives.
  */
-async function fixture(context: TestContext, fleet: FleetMcpServer) {
+async function fixture(
+  context: TestContext,
+  fleet: FleetMcpServer,
+  options?: {
+    activity?: WorkspaceActivityRecorder;
+    respond?: (request: CompletionRequest) => Response;
+  },
+) {
   const directory = await mkdtemp(path.join(tmpdir(), "everything-fleet-"));
   context.after(() => rm(directory, { recursive: true, force: true }));
   const requests: CompletionRequest[] = [];
@@ -105,6 +113,7 @@ async function fixture(context: TestContext, fleet: FleetMcpServer) {
     async (_input, init) => {
       const body = JSON.parse(String(init?.body)) as CompletionRequest;
       requests.push(body);
+      if (options?.respond) return options.respond(body);
       const offered = offeredTools(body);
       const last = body.messages.at(-1);
       const id = `call-${requests.length}`;
@@ -124,6 +133,7 @@ async function fixture(context: TestContext, fleet: FleetMcpServer) {
     {} as ArtifactWorkbench,
     {} as WorkspaceTools,
     fleet,
+    options?.activity,
   );
   return { directory, factory, requests };
 }
@@ -196,4 +206,94 @@ test("a teammate opened while Fleet starts receives Fleet's tools once it runs",
     await sleep(20);
   await session.prompt("After Fleet runs");
   assert.deepEqual(server.calls, [{ name: "fleet_list", arguments: {} }]);
+});
+
+test("real Fleet calls from main, child, and nested forks retain the root teammate identity while another chat stays separate", async (context) => {
+  const server = await startFakeFleetMcp("fleet-secret-token", true);
+  context.after(() => server.close());
+  const interactions: { agentId: string; ownerId: string; name: string }[] = [];
+  const steps = new Map<string, number>();
+  const exec = fleetToolName("fleet_exec");
+  const { factory } = await fixture(
+    context,
+    { endpoint: server.endpoint, whenRunning: async () => server.endpoint },
+    {
+      activity: {
+        /** Record the immutable session binding separately from any Fleet input. */
+        async touch(scope, workspace) {
+          interactions.push({ ...scope, name: workspace.name });
+        },
+      },
+      /** Script actual Pi tool discovery, execution, and fork creation without external inference. */
+      respond(request) {
+        const system = String(request.messages[0]!.content);
+        const fork = system.match(
+          /You are private fork ([^,]+), started by ([^.\n]+)/,
+        );
+        const kind = system.includes("/other-chat")
+          ? "other"
+          : fork
+            ? fork[2] === "main"
+              ? "child"
+              : "nested"
+            : "main";
+        const id = fork?.[1] ?? kind;
+        const index = steps.get(id) ?? 0;
+        if (!offeredTools(request).includes(exec))
+          return toolCall(`${id}-search`, toolSearchToolName, {
+            query: "fleet exec command",
+          });
+        steps.set(id, index + 1);
+        if (index === 0)
+          return toolCall(`${id}-exec`, exec, {
+            fleet: "web",
+            instance: "shared-preview",
+            command: ["echo", kind],
+          });
+        if (index === 1 && ["main", "child"].includes(kind))
+          return toolCall(`${id}-fork`, "fork", {
+            task: "Use the shared preview workspace.",
+          });
+        return completion({ content: "Finished the workspace check." }, "stop");
+      },
+    },
+  );
+  const main = await factory.create(teammate, async () => {});
+  context.after(() => main.dispose());
+  await main.prompt("Use workspaces in the main session and private forks.");
+  const deadline = Date.now() + 10_000;
+  while (
+    (interactions.length < 6 || main.background?.running) &&
+    Date.now() < deadline
+  )
+    await sleep(20);
+  assert.equal(main.background?.running, false);
+  assert.deepEqual(
+    interactions,
+    Array.from({ length: 6 }, () => ({
+      agentId: "teammate",
+      ownerId: "owner",
+      name: "shared-preview",
+    })),
+  );
+  assert.deepEqual(
+    server.calls
+      .filter((call) => call.name === "fleet_exec")
+      .map((call) => (call.arguments as { command: string[] }).command[1]),
+    ["main", "child", "nested"],
+  );
+  const other = await factory.create(
+    { ...teammate, id: "other-chat" },
+    async () => {},
+  );
+  context.after(() => other.dispose());
+  await other.prompt("Use the same workspace from a different chat.");
+  assert.deepEqual(
+    interactions.slice(6),
+    Array.from({ length: 2 }, () => ({
+      agentId: "other-chat",
+      ownerId: "owner",
+      name: "shared-preview",
+    })),
+  );
 });

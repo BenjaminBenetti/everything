@@ -322,6 +322,10 @@ test("hidden and unfocused tabs never acknowledge fetched messages; returning an
   await expect
     .poll(() => state.read.has(hidden.id), { timeout: 10_000 })
     .toBe(true);
+  // On short viewports the earlier message may have scrolled away; it counts once seen again.
+  await page
+    .getByText(unfocused.text, { exact: true })
+    .scrollIntoViewIfNeeded();
   await expect.poll(() => state.read.has(unfocused.id)).toBe(true);
   await page.reload();
   await page.goto("/updates");

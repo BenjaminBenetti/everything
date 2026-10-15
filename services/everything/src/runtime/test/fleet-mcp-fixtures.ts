@@ -39,7 +39,7 @@ async function message(request: IncomingMessage): Promise<JsonRpcMessage> {
  * offering `fleet_list`. It records every JSON-RPC method it receives, `DELETE` for a session the
  * client ends, and every tool call.
  */
-export async function startFakeFleetMcp(token: string) {
+export async function startFakeFleetMcp(token: string, instanceTools = false) {
   const methods: string[] = [];
   const calls: ReceivedCall[] = [];
   const server = createServer(async (request, response) => {
@@ -81,6 +81,23 @@ export async function startFakeFleetMcp(token: string) {
       case "tools/list":
         return reply({
           tools: [
+            ...(instanceTools
+              ? [
+                  {
+                    name: "fleet_exec",
+                    description: "Run a command in one Fleet instance.",
+                    inputSchema: {
+                      type: "object",
+                      properties: {
+                        fleet: { type: "string" },
+                        instance: { type: "string" },
+                        command: { type: "array", items: { type: "string" } },
+                      },
+                      required: ["fleet", "instance", "command"],
+                    },
+                  },
+                ]
+              : []),
             {
               name: "fleet_list",
               description: "List devcontainer instances across fleets.",

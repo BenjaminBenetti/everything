@@ -11,7 +11,7 @@ import {
  * Store updates as directly owned records of any kind. Each kind adds typed references to its source,
  * which cascade on deletion. Existing messages get no updates, the same as having been read.
  */
-export class Updates1792195200000 implements MigrationInterface {
+export class Updates1792281600000 implements MigrationInterface {
   /** Create the updates table with its source references, summary state, and partial work indexes. */
   async up(runner: QueryRunner): Promise<void> {
     await runner.createTable(

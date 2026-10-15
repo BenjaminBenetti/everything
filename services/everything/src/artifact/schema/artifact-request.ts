@@ -23,3 +23,12 @@ export const artifactViewBody = Type.Object(
 
 /** Validated request to open an artifact. */
 export type ArtifactViewBody = Static<typeof artifactViewBody>;
+
+/** Public lifecycle requests identify an app from the authenticated owner's library. */
+export const appParams = Type.Object(
+  { appId: Type.String({ format: "uuid" }) },
+  { additionalProperties: false },
+);
+
+/** Validated app identifier for a manual lifecycle request. */
+export type AppParams = Static<typeof appParams>;

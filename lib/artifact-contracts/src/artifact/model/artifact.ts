@@ -50,7 +50,7 @@ export const reservedEnvironmentNames = [
   "PGPASSWORD",
 ] as const;
 
-/** The main agent that made a change; the name is recorded as it was at the time. */
+/** The teammate or user that made a change; the name is recorded as it was at the time. */
 export interface ArtifactAuthor {
   readonly id: string;
   readonly name: string;

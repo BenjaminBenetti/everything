@@ -45,6 +45,11 @@ import { HttpWorkspaceTools } from "../../workspace/adapter/http-workspace-tools
 import { PostgresWorkspaceTargetRepository } from "../../workspace/repository/postgres-workspace-target-repository.js";
 import { WorkspaceReconciler } from "../../workspace/service/workspace-reconciler.js";
 import { createFleetRuntime } from "../../fleet/factory/fleet-runtime.js";
+import { PostgresWorkspaceInteractionRepository } from "../../workspace/repository/postgres-workspace-interaction-repository.js";
+import {
+  WorkspaceActivity,
+  recentWorkspaceListing,
+} from "../../workspace/service/workspace-activity.js";
 
 /** Assemble concrete adapters once at the process boundary and own their lifecycle. */
 async function main(): Promise<void> {
@@ -108,7 +113,11 @@ async function main(): Promise<void> {
       clientSecret: config.artifactService.clientSecret,
     }),
   );
-  const { host: fleet, workers } = createFleetRuntime(config.fleet, (error) =>
+  const {
+    host: fleet,
+    workers,
+    workspaces: workspaceInstances,
+  } = createFleetRuntime(config.fleet, (error) =>
     console.warn("Fleet failed; Everything will retry.", {
       reason: error instanceof Error ? error.message : "unknown",
     }),
@@ -119,6 +128,14 @@ async function main(): Promise<void> {
     capabilities,
   );
   const updates = new PostgresUpdateRepository(database);
+  const workspaceActivity = new WorkspaceActivity(
+    agents,
+    new PostgresWorkspaceInteractionRepository(
+      database,
+      recentWorkspaceListing,
+    ),
+    workspaceInstances,
+  );
   const conversations = new ConversationService(
     agents,
     new PostgresMessageRepository(database),
@@ -131,6 +148,7 @@ async function main(): Promise<void> {
         config.sessionEncryptionKey,
       ),
       fleet,
+      workspaceActivity,
     ),
     workspaces,
   );
@@ -145,6 +163,8 @@ async function main(): Promise<void> {
     updates: new UpdateService(updates),
     artifacts: new ArtifactLibraryService(artifactGateway),
     workers,
+    workspaces: workspaceInstances,
+    workspaceActivity,
     verifier,
     sessions: new SessionService(
       new PostgresSessionRepository(database),

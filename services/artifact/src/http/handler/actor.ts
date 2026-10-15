@@ -2,7 +2,7 @@ import type { FastifyRequest } from "fastify";
 import type { ArtifactAuthor } from "@everything/artifact-contracts";
 import { MissingActorError } from "../../artifact/error/artifact-errors.js";
 
-/** Headers naming the main agent on whose behalf Everything calls; the name is URI-encoded. */
+/** Headers naming the teammate or user on whose behalf Everything calls; the name is URI-encoded. */
 export const actorHeaders = {
   id: "x-everything-actor-id",
   name: "x-everything-actor-name",
@@ -11,7 +11,7 @@ export const actorHeaders = {
 /** Longest accepted actor ID or name. */
 const actorFieldLength = 200;
 
-/** Read the acting main agent from trusted headers set by Everything. */
+/** Read the acting teammate or user from trusted headers set by Everything. */
 export function requestActor(request: FastifyRequest): ArtifactAuthor {
   const id = request.headers[actorHeaders.id];
   const encodedName = request.headers[actorHeaders.name];

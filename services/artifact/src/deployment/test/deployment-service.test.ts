@@ -1,3 +1,4 @@
+import { ArtifactLifecycleService } from "../../artifact/service/artifact-lifecycle-service.js";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { ArtifactLock } from "../../artifact/service/artifact-lock.js";
@@ -45,7 +46,22 @@ async function fixture() {
     new ArtifactLookup(artifacts),
     new ArtifactLock(),
   );
-  return { app, artifacts, builds, deployments, reconciled, scope, service };
+  const lifecycle = new ArtifactLifecycleService(
+    artifacts,
+    new ArtifactLookup(artifacts),
+    new ArtifactLock(),
+    { reconcile: async (app) => void reconciled.push(app) },
+  );
+  return {
+    app,
+    artifacts,
+    builds,
+    deployments,
+    reconciled,
+    scope,
+    service,
+    lifecycle,
+  };
 }
 
 test("a first deployment uses the defaults, runs the latest successful build, and is reconciled", async () => {
@@ -116,9 +132,9 @@ test("deployments refuse reserved variables, unfinished builds, and stale releas
 });
 
 test("stopping keeps the deployment and reconciles the artifact as stopped", async () => {
-  const { reconciled, service } = await fixture();
+  const { reconciled, service, lifecycle } = await fixture();
   await service.deploy(owner, ada, "app", {});
-  const stopped = await service.stop(owner, ada, "app");
+  const stopped = await lifecycle.stop(owner, ada, "app");
   assert.equal(stopped.running, false);
   assert.equal(stopped.liveDeployment, 1);
   assert.equal(reconciled.at(-1)?.running, false);

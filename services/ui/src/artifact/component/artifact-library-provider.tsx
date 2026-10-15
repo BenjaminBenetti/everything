@@ -27,19 +27,22 @@ export function useArtifactLibrary(): ArtifactLibrary {
   return library;
 }
 
-/** One cancellable query of the user's artifacts, refreshed while running apps start. */
+/** Keep app queries and mutations scoped to the signed-in account. */
+export function useArtifactQueryKey() {
+  const { profile } = useSession();
+  return ["artifacts", profile?.subject] as const;
+}
+
+/** Refresh apps while this page is open so teammate actions and runtime changes remain visible. */
 export function useArtifacts() {
   const library = useArtifactLibrary();
-  const { profile } = useSession();
+  const queryKey = useArtifactQueryKey();
   return useQuery({
-    queryKey: ["artifacts", profile?.subject],
+    queryKey,
     queryFn: ({ signal }) => library.list(signal),
-    enabled: !!profile,
-    staleTime: 15_000,
-    refetchInterval: (query) =>
-      query.state.data?.some((artifact) => artifact.status === "starting")
-        ? 5_000
-        : false,
+    enabled: !!queryKey[1],
+    staleTime: 5_000,
+    refetchInterval: 5_000,
     retry: false,
   });
 }

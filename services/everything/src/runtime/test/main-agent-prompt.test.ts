@@ -38,7 +38,7 @@ test("the prompt groups its rules into titled sections", () => {
   for (const title of [
     "Replying to the user",
     "Your workspace",
-    "Artifacts",
+    "Apps",
     "Workers",
     "Fleet",
   ])

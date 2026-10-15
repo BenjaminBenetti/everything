@@ -15,7 +15,7 @@ import type { AgentDefinition } from "../../agent/model/agent.js";
 import type { ArtifactWorkbench } from "../../artifact/service/artifact-workbench.js";
 import type { AgentSession } from "../interface/agent-session.js";
 import { AgentRuntime } from "../service/agent-runtime.js";
-import { artifactToolNames } from "../tool/artifact-tools.js";
+import { appToolNames } from "../tool/app-tools.js";
 import { sendMessageToolName } from "../tool/send-message-tool.js";
 import { toolSearchToolName } from "../tool/fleet-tools.js";
 import { forkToolNames } from "../tool/fork-tools.js";
@@ -274,12 +274,12 @@ test("repeated automatic compaction retains visible replies and reopens the same
     request.tools!.map((tool) => tool.function.name).sort(),
     [
       sendMessageToolName,
-      ...Object.values(artifactToolNames),
+      ...Object.values(appToolNames),
       ...Object.values(workspaceToolNames),
       ...Object.values(forkToolNames),
       toolSearchToolName,
     ].sort(),
-    "the reopened chat retains messaging, fork, artifact, workspace, and tool search tools after compaction",
+    "the reopened chat retains messaging, fork, app, workspace, and tool search tools after compaction",
   );
   assert.ok(
     JSON.stringify(request.messages).includes("Keep helping with Kiwi"),

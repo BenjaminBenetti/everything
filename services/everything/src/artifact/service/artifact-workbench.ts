@@ -264,7 +264,7 @@ export class ArtifactWorkbench {
     return this.gateway.deploy(this.actor(context), reference, input);
   }
 
-  /** Stop a dynamic artifact. */
+  /** Stop a published app while retaining its release and data. */
   stop(context: WorkbenchContext, reference: string): Promise<ArtifactDetails> {
     return this.gateway.stop(this.actor(context), reference);
   }

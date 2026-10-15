@@ -23,10 +23,14 @@ import { viewPassController } from "../../viewing/controller/view-pass-controlle
 import type { ViewAccess } from "../../viewing/service/view-access.js";
 import type { ViewPasses } from "../../viewing/service/view-passes.js";
 
+import { artifactLifecycleController } from "../../artifact/controller/artifact-lifecycle-controller.js";
+import type { ArtifactLifecycleService } from "../../artifact/service/artifact-lifecycle-service.js";
+
 /** Use cases served by the internal API. */
 export interface InternalDependencies {
   readonly verifier: TokenVerifier;
   readonly artifacts: ArtifactService;
+  readonly lifecycle: ArtifactLifecycleService;
   readonly revisions: RevisionService;
   readonly builds: BuildService;
   readonly deployments: DeploymentService;
@@ -74,6 +78,11 @@ export async function createInternalApplication(
     async (scope) => {
       requireAuthentication(scope, dependencies.verifier);
       await artifactController(scope, dependencies.artifacts);
+      await artifactLifecycleController(
+        scope,
+        dependencies.lifecycle,
+        dependencies.artifacts,
+      );
       await revisionController(
         scope,
         dependencies.revisions,

@@ -9,7 +9,9 @@ import { ProviderConnections1791936000000 } from "../migration/1791936000000-pro
 import { AgentEntity } from "../../agent/schema/agent-entity.js";
 import { MessageEntity } from "../../conversation/schema/message-entity.js";
 import { InitialSchema1791676800000 } from "../migration/1791676800000-initial-schema.js";
-import { Updates1792195200000 } from "../migration/1792195200000-updates.js";
+import { WorkspaceInteractionEntity } from "../../workspace/schema/workspace-interaction-entity.js";
+import { WorkspaceInteractions1792195200000 } from "../migration/1792195200000-workspace-interactions.js";
+import { Updates1792281600000 } from "../migration/1792281600000-updates.js";
 import { UpdateEntity } from "../../update/schema/update-entity.js";
 
 /** Connection settings for the service's own PostgreSQL database. */
@@ -39,6 +41,7 @@ export function createApplicationDatabase(
       UpdateEntity,
       SessionEntity,
       ProviderEntity,
+      WorkspaceInteractionEntity,
     ],
     migrations: [
       InitialSchema1791676800000,
@@ -47,7 +50,8 @@ export function createApplicationDatabase(
       ProviderConnections1791936000000,
       AgentInference1792022400000,
       ProviderChecks1792108800000,
-      Updates1792195200000,
+      WorkspaceInteractions1792195200000,
+      Updates1792281600000,
     ],
     migrationsTableName: "everything_migrations",
     migrationsTransactionMode: "all",

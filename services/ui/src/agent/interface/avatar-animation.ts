@@ -11,6 +11,8 @@ export interface AvatarAnimationProps {
 export interface AvatarAnimationLookup {
   /** Resolve an optional effect; unknown names retain the still artwork. */
   get(name: string): ComponentType<AvatarAnimationProps> | undefined;
+  /** Resolve an optional still pose when motion is disabled or the effect is out of view. */
+  getStill(name: string): ComponentType<AvatarAnimationProps> | undefined;
 }
 
 /** Pixel coordinates and face color for one eye in the 128 × 128 artwork. */

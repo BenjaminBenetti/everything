@@ -7,6 +7,14 @@
     "build"
   ],
   "exports": {
+    "./activity": {
+      "types": "./build/workspace/model/activity.d.ts",
+      "default": "./build/workspace/model/activity.js"
+    },
+    "./instance": {
+      "types": "./build/workspace/model/instance.d.ts",
+      "default": "./build/workspace/model/instance.js"
+    },
     ".": {
       "types": "./build/workspace/schema/operations.d.ts",
       "default": "./build/workspace/schema/operations.js"

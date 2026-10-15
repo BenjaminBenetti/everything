@@ -348,7 +348,7 @@ services:
       WORKSPACE_TEMPLATE_NAME: teammate
       WORKSPACE_CLAIM_NAME: '{{ include "stack.claimName" (dict "name" "everything" "volumeName" "agents") }}'
       ARTIFACT_SERVICE_URL: http://artifact:8081
-      # The artifact host as teammate pods reach it, over plain HTTP, when view_artifact gives them a pass.
+      # The artifact host as teammate pods reach it, over plain HTTP, when view_app gives them a pass.
       ARTIFACT_HOST_URL: "http://artifact.{{ .Release.Namespace }}.svc.cluster.local:8080"
       ARTIFACT_CLIENT_ID: everything-artifact-client
       ARTIFACT_CLIENT_SECRET:

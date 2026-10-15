@@ -32,7 +32,7 @@
 /* ===========================================
    Floating teammate info
    =========================================== */
-.chat-teammate-card {
+.chat-sidebar {
   position: absolute;
   top: 24px;
   right: 24px;
@@ -41,6 +41,13 @@
   min-width: 0;
   max-height: calc(100% - 48px);
   overflow-y: auto;
+  display: grid;
+  gap: 12px;
+  grid-auto-rows: max-content;
+}
+.chat-teammate-card,
+.chat-workspaces-card {
+  min-width: 0;
   padding: 18px;
   background: var(--surface-panel);
   border: 1px solid var(--border-default);
@@ -136,6 +143,73 @@
     opacity: 1;
     transform: scale(1);
   }
+}
+
+/* ===========================================
+   Recent workspace activity
+   =========================================== */
+.chat-workspaces-card h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 550;
+}
+.chat-workspaces-card h2 svg {
+  width: 15px;
+  height: 15px;
+  color: var(--text-secondary);
+}
+.chat-workspaces-notice {
+  margin-top: 12px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.7;
+}
+.chat-workspace-list {
+  list-style: none;
+  padding: 0;
+  margin: 10px -8px -6px;
+}
+.chat-workspace-row {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 7px;
+  font-size: 11px;
+  transition: background 180ms ease;
+}
+.chat-workspace-row.is-active {
+  background: var(--surface-selected);
+}
+.chat-workspace-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-workspace-row .workspace-instance-status {
+  font-size: 10px;
+  white-space: nowrap;
+}
+.chat-workspace-activity {
+  display: block;
+  width: 36px;
+  height: 36px;
+}
+.chat-workspace-activity > span,
+.chat-workspace-activity .teammate-avatar {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.chat-workspace-activity .teammate-avatar {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
 }
 
 /* ===========================================
@@ -285,13 +359,9 @@
   color: var(--text-primary);
 }
 .chat-composer {
-  background: var(--surface-panel);
-  border: 1px solid var(--border-default);
+  border-color: var(--border-default);
   border-radius: 14px;
   padding: 16px;
-}
-.chat-composer:focus-within {
-  border-color: var(--border-active);
 }
 .chat-composer textarea {
   display: block;
@@ -307,9 +377,6 @@
   font: inherit;
   font-size: 14px;
   line-height: 1.6;
-}
-.chat-composer textarea:focus {
-  outline: none;
 }
 .chat-composer textarea::placeholder {
   color: var(--text-secondary);
@@ -351,13 +418,34 @@
       "history"
       "footer";
   }
-  .chat-teammate-card {
+  .chat-sidebar {
     position: static;
+    display: flex;
+    flex-direction: column;
     grid-area: teammate;
     z-index: auto;
     width: auto;
-    max-height: none;
+    max-height: min(36dvh, 320px);
     margin: 20px 28px 0;
+  }
+  .chat-teammate-card {
+    flex-shrink: 0;
+  }
+  .chat-workspaces-card {
+    display: flex;
+    flex-direction: column;
+    min-height: 100px;
+    overflow: hidden;
+  }
+  .chat-workspaces-card h2 {
+    flex-shrink: 0;
+  }
+  .chat-workspace-list {
+    min-height: 0;
+    overflow-y: auto;
+  }
+  .chat-teammate-card,
+  .chat-workspaces-card {
     padding: 12px 16px;
   }
   .chat-teammate-model {
@@ -381,8 +469,11 @@
   .chat-topbar .signout-button {
     display: none;
   }
-  .chat-teammate-card {
+  .chat-sidebar {
     margin: 12px 12px 0;
+  }
+  .chat-teammate-card,
+  .chat-workspaces-card {
     padding: 12px 14px;
   }
   .chat-teammate-card .teammate-avatar {

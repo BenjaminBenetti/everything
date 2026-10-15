@@ -72,6 +72,11 @@ async function workspace(context: BrowserContext, withModel = true) {
           },
     }),
   );
+  await context.route("**/v1/agents/*/workspaces", (route) =>
+    route.fulfill({
+      json: { workspaces: [], observedAt: new Date().toISOString() },
+    }),
+  );
   await context.route(
     /\/v1\/agents\/[^/]+\/messages(?:\?.*)?$/,
     async (route) => {

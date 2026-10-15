@@ -18,7 +18,7 @@ import type {
   UpdateArtifactInput,
 } from "@everything/artifact-contracts";
 
-/** The user whose artifacts are changed, and the teammate making the change. */
+/** The owner whose apps are changed, and the teammate or user making the change. */
 export interface ArtifactActor {
   readonly ownerId: string;
   readonly author: ArtifactAuthor;
@@ -67,8 +67,12 @@ export interface ArtifactGateway {
     reference: string,
     input: UpdateArtifactInput,
   ): Promise<ArtifactDetails>;
-  /** Delete an artifact and everything it owns. */
-  delete(actor: ArtifactActor, reference: string): Promise<void>;
+  /** Delete an app and its data, optionally requiring it to remain stopped. */
+  delete(
+    actor: ArtifactActor,
+    reference: string,
+    requireStopped?: boolean,
+  ): Promise<void>;
   /** Return the hashes, from those given, that the service does not store yet. */
   missingContent(hashes: readonly string[]): Promise<string[]>;
   /** Upload one file's content under its hash. */
@@ -112,7 +116,9 @@ export interface ArtifactGateway {
     reference: string,
     input: DeployInput,
   ): Promise<ArtifactDetails>;
-  /** Stop a dynamic artifact's app. */
+  /** Resume an app's saved release and runtime settings. */
+  start(actor: ArtifactActor, reference: string): Promise<ArtifactDetails>;
+  /** Stop a published app while preserving its release and data. */
   stop(actor: ArtifactActor, reference: string): Promise<ArtifactDetails>;
   /** Read recent output of a dynamic artifact's app. */
   logs(

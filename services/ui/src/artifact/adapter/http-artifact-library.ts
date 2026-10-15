@@ -39,4 +39,31 @@ export class HttpArtifactLibrary implements ArtifactLibrary {
     );
     return view.url;
   }
+
+  /** Resume the saved release without publishing a new one. */
+  async start(id: string): Promise<void> {
+    await this.transport.request(
+      `/v1/artifacts/${encodeURIComponent(id)}/start`,
+      {
+        method: "POST",
+      },
+    );
+  }
+
+  /** Stop serving the app while retaining its files and data. */
+  async stop(id: string): Promise<void> {
+    await this.transport.request(
+      `/v1/artifacts/${encodeURIComponent(id)}/stop`,
+      {
+        method: "POST",
+      },
+    );
+  }
+
+  /** Permanently remove a stopped or unpublished app. */
+  async delete(id: string): Promise<void> {
+    await this.transport.request(`/v1/artifacts/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    });
+  }
 }

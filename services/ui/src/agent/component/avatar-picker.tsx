@@ -1,7 +1,7 @@
 import { useId, useState } from "react";
-import { Search } from "lucide-react";
 import type { AgentAvatarId } from "@everything/agent-contracts/avatar";
 import { ChoiceCard } from "@everything/ui/choice-card";
+import { SearchInput } from "@everything/ui/search-input";
 import { TeammateAvatar } from "./teammate-avatar.js";
 import {
   avatarCategories,
@@ -28,17 +28,14 @@ export function AvatarPicker({
   );
   return (
     <div className="avatar-picker">
-      <label className="search avatar-search">
-        <Search aria-hidden="true" />
-        <span className="sr-only">Search avatars</span>
-        <input
-          autoFocus
-          type="search"
-          placeholder="Find an avatar…"
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-        />
-      </label>
+      <SearchInput
+        className="avatar-search"
+        label="Search avatars"
+        autoFocus
+        placeholder="Find an avatar…"
+        value={search}
+        onChange={(event) => setSearch(event.target.value)}
+      />
       <div
         className="avatar-categories"
         role="group"

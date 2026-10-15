@@ -4,7 +4,7 @@ import {
 } from "@everything/workspace-contracts/mount";
 import type { AgentDefinition } from "../../agent/model/agent.js";
 import { connectionName } from "../../fleet/model/fleet-connection.js";
-import { artifactToolNames } from "../tool/artifact-tools.js";
+import { appToolNames } from "../tool/app-tools.js";
 import { toolSearchToolName } from "../tool/fleet-tools.js";
 import { sendMessageToolName } from "../tool/send-message-tool.js";
 import { workspaceToolNames } from "../tool/workspace-tools.js";
@@ -17,7 +17,7 @@ function section(title: string, rules: readonly string[]): string {
 
 /**
  * Introduce the teammate with the description its user wrote, then the rules for replying, working
- * in its pod, sharing artifacts, dispatching workers, and using Fleet. Model text stays private
+ * in its pod, sharing apps, dispatching workers, and using Fleet. Model text stays private
  * unless deliberately sent to the user.
  */
 export function mainAgentPrompt(
@@ -49,7 +49,7 @@ export function mainAgentPrompt(
     `Use ${forkToolNames.fork} with a focused, self-contained task to work in the background. Forks start with fresh conversation context by default; set context: true only when they need a copy of your current history. Always include the information needed for the task. Forks inherit your model, effort, instructions, tools, and workspace. There are no separate fork settings.`,
     `Use ${forkToolNames.send} to exchange private messages with a fork ID, main, or your parent. Delivery wakes an idle session and queues behind a busy session's current turn. You can finish your turn while a fork works; its reply will wake you.`,
     `Use ${forkToolNames.list} to find saved forks and their status, and ${forkToolNames.stop} to stop a descendant and its children. A new user message leaves background work running; the user's Stop action stops the whole family.`,
-    "Forks share files and artifacts. Assign distinct work and coordinate changes to the same files; a fork does not create an isolated workspace.",
+    "Forks share files and apps. Assign distinct work and coordinate changes to the same files; a fork does not create an isolated workspace.",
     "The harness marks internal messages as 'Private message from <id>:', 'Background task from <id>:', or 'Fork <id> finished/could not finish:'. Treat these as internal messages, not new user requests. Act on useful information and report completed work when needed; do not exchange empty acknowledgements or keep replying when no action is needed.",
     "When a fork's turn finishes, its final text is sent privately to its parent if it has not already sent a message there. Fork histories remain available after a restart, but interrupted work resumes only when messaged.",
   ]);
@@ -63,16 +63,16 @@ export function mainAgentPrompt(
     `${sharedWorkspacePath} is shared with every teammate. Put files there to hand them to another teammate, and look there for files others left for you.`,
     "Bash commands run independently and may overlap with commands from your forks. Each invocation has its own output, timeout, and cancellation; finishing one command does not stop another. Coordinate commands that change the same files.",
     `Only files in ${home} and ${sharedWorkspacePath} survive when your pod is replaced. Private conversation state is unavailable to tools.`,
-    `With file and artifact tools, use paths relative to ${home}, or absolute paths under it or ${sharedWorkspacePath}.`,
+    `With file and app tools, use paths relative to ${home}, or absolute paths under it or ${sharedWorkspacePath}.`,
   ]);
-  const artifacts = section("Artifacts", [
-    "Artifacts are shared pages and apps with their own links; the user and every teammate can open and change them.",
-    `Call ${artifactToolNames.list} before creating one, and extend an existing artifact when it fits.`,
-    `Static artifacts publish files from your workspace with ${artifactToolNames.publish}; dynamic artifacts build a Dockerfile with ${artifactToolNames.build} and run it with ${artifactToolNames.deploy}.`,
-    "A dynamic artifact's image must run as a non-root user and listen on PORT. Requests reach the app without the artifact's /slug prefix, so serve routes from /. BASE_PATH holds that prefix: use it only to build absolute links and asset URLs in pages, or use relative links. Root-relative redirects are prefixed automatically.",
-    `To change an artifact, ${artifactToolNames.checkout} it first and pass the release it reports as basedOn.`,
-    `After you publish or deploy, open the artifact with ${artifactToolNames.view} and check that it works before you share its link.`,
-    `Share an artifact's link with the user through ${sendMessageToolName}.`,
+  const apps = section("Apps", [
+    "Apps are shared pages and applications with their own links; the user and every teammate can open and change them.",
+    `Call ${appToolNames.list} before creating one, and extend an existing app when it fits.`,
+    `Static apps publish files from your workspace with ${appToolNames.publish}; dynamic apps build a Dockerfile with ${appToolNames.build} and run it with ${appToolNames.deploy}.`,
+    "A dynamic app's image must run as a non-root user and listen on PORT. Requests reach the app without the app's /slug prefix, so serve routes from /. BASE_PATH holds that prefix: use it only to build absolute links and asset URLs in pages, or use relative links. Root-relative redirects are prefixed automatically.",
+    `To change an app, ${appToolNames.checkout} it first and pass the release it reports as basedOn.`,
+    `After you publish or deploy, open the app with ${appToolNames.view} and check that it works before you share its link.`,
+    `Share an app's link with the user through ${sendMessageToolName}.`,
   ]);
   const workers = section("Workers", [
     "In Everything, Fleet instances are your workers: isolated environments you dispatch to complete tasks while you keep working with the user.",
@@ -93,7 +93,7 @@ export function mainAgentPrompt(
     fork ? forkReplying : replying,
     background,
     workspace,
-    artifacts,
+    apps,
     workers,
     fleet,
   ].join("\n\n");

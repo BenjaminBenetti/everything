@@ -16,7 +16,7 @@ import type { DeploymentService } from "../service/deployment-service.js";
 /** Lines of output returned when the caller does not ask for a number. */
 const defaultLogLines = 200;
 
-/** Register deployment, stop, and log endpoints of the internal API. */
+/** Register deployment and log endpoints of the internal API. */
 export async function deploymentController(
   app: FastifyInstance,
   deployments: DeploymentService,
@@ -34,20 +34,6 @@ export async function deploymentController(
         request.body,
       );
       return artifacts.details(ownerId, deployed.id);
-    },
-  );
-
-  app.post<{ Params: ArtifactParams }>(
-    "/owners/:ownerId/artifacts/:artifact/stop",
-    { schema: { params: artifactParams } },
-    async (request) => {
-      const { ownerId, artifact } = request.params;
-      const stopped = await deployments.stop(
-        ownerId,
-        requestActor(request),
-        artifact,
-      );
-      return artifacts.details(ownerId, stopped.id);
     },
   );
 

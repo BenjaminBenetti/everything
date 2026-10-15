@@ -19,7 +19,7 @@ export interface Artifact extends OwnedEntity {
   readonly liveRevision: number | null;
   /** Release number of a dynamic artifact's live deployment. */
   readonly liveDeployment: number | null;
-  /** Whether a dynamic artifact's live deployment should be running. */
+  /** Whether the published page or live deployment should be available. */
   readonly running: boolean;
   /** Size of a dynamic artifact's disk, fixed once the disk exists. */
   readonly diskGi: number | null;

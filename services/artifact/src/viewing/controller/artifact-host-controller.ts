@@ -126,7 +126,7 @@ export async function artifactHostController(
   ): FastifyReply {
     if (!isNavigation(request))
       return explain(reply, 401, hostMessages.signInRequired);
-    const target = new URL("/artifacts/open", publicOrigin);
+    const target = new URL("/apps/open", publicOrigin);
     target.searchParams.set("slug", slug);
     target.searchParams.set("path", pathAndQuery);
     return reply
@@ -178,7 +178,7 @@ export async function artifactHostController(
   );
 
   app.get("/", async (_request, reply) =>
-    reply.redirect(new URL("/artifacts", publicOrigin).toString(), 302),
+    reply.redirect(new URL("/apps", publicOrigin).toString(), 302),
   );
 
   app.route<{ Params: { slug: string } }>({
@@ -225,6 +225,8 @@ export async function artifactHostController(
     }
     if (request.method !== "GET" && request.method !== "HEAD")
       return reply.code(405).header("Allow", "GET, HEAD").send();
+    if (artifact.liveRevision !== null && !artifact.running)
+      return explain(reply, 503, hostMessages.stopped);
     let path: string;
     try {
       path = decodeURIComponent(rawPath);

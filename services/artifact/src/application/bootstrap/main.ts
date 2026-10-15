@@ -36,6 +36,8 @@ import { createInternalApplication } from "../factory/internal-application.js";
 import { createPublicApplication } from "../factory/public-application.js";
 import { PeriodicTask } from "../service/periodic-task.js";
 
+import { ArtifactLifecycleService } from "../../artifact/service/artifact-lifecycle-service.js";
+
 /** Assemble concrete adapters once at the process boundary and own their lifecycle. */
 async function main(): Promise<void> {
   process.umask(0o077);
@@ -112,6 +114,12 @@ async function main(): Promise<void> {
       audience: config.audience,
     }),
     artifacts,
+    lifecycle: new ArtifactLifecycleService(
+      artifactRepository,
+      lookup,
+      lock,
+      reconciler,
+    ),
     revisions: new RevisionService(
       artifactRepository,
       revisionRepository,

@@ -30,6 +30,15 @@ export const artifactParams = Type.Object(
 /** Validated route parameters naming one artifact. */
 export type ArtifactParams = Static<typeof artifactParams>;
 
+/** Require an app to stay stopped while the owner confirms deletion. */
+export const deleteArtifactQuery = Type.Object(
+  { requireStopped: Type.Optional(Type.Literal("true")) },
+  { additionalProperties: false },
+);
+
+/** Validated deletion policy sent by the trusted gateway. */
+export type DeleteArtifactQuery = Static<typeof deleteArtifactQuery>;
+
 /** Request body for creating an artifact. */
 export const createArtifactBody = Type.Object(
   {

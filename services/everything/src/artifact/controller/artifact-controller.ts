@@ -3,6 +3,8 @@ import { subject } from "@everything/security/fastify";
 import type { ArtifactLibrary } from "../interface/artifact-library.js";
 import {
   artifactViewBody,
+  appParams,
+  type AppParams,
   type ArtifactViewBody,
 } from "../schema/artifact-request.js";
 
@@ -23,5 +25,24 @@ export async function artifactController(
         slug: request.body.slug,
         ...(request.body.path !== undefined ? { path: request.body.path } : {}),
       }),
+  );
+
+  for (const action of ["start", "stop"] as const) {
+    app.post<{ Params: AppParams }>(
+      `/artifacts/:appId/${action}`,
+      { schema: { params: appParams } },
+      async (request, reply) => {
+        await artifacts[action](subject(request), request.params.appId);
+        return reply.code(204).send();
+      },
+    );
+  }
+  app.delete<{ Params: AppParams }>(
+    "/artifacts/:appId",
+    { schema: { params: appParams } },
+    async (request, reply) => {
+      await artifacts.delete(subject(request), request.params.appId);
+      return reply.code(204).send();
+    },
   );
 }

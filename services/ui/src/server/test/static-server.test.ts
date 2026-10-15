@@ -25,9 +25,10 @@ test("serves deep links and probes without swallowing API or asset misses", asyn
     "/",
     "/team",
     "/team/06eb92d4-3ee3-4a6a-93d1-1a984d7691cb",
+    "/workspaces",
     "/updates",
-    "/artifacts",
-    "/artifacts/open",
+    "/apps",
+    "/apps/open",
   ]) {
     const response = await app.inject({ url });
     assert.equal(response.statusCode, 200, url);
@@ -41,6 +42,19 @@ test("serves deep links and probes without swallowing API or asset misses", asyn
       String(response.headers["content-security-policy"]),
       /img-src 'self' data: https:/,
     );
+  }
+
+  for (const [url, destination] of [
+    ["/artifacts", "/apps"],
+    [
+      "/artifacts/open?slug=trip-planner&path=%2Fdays%3Fday%3D2",
+      "/apps/open?slug=trip-planner&path=%2Fdays%3Fday%3D2",
+    ],
+  ]) {
+    const response = await app.inject({ url: url! });
+    assert.equal(response.statusCode, 308);
+    assert.equal(response.headers.location, destination);
+    assert.equal(response.headers["cache-control"], "no-store");
   }
 
   assert.equal((await app.inject({ url: "/ui-health" })).statusCode, 200);

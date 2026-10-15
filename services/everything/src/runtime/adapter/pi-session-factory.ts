@@ -19,7 +19,7 @@ import type {
   MessageDelivery,
 } from "../interface/agent-session.js";
 import { mainAgentPrompt } from "../prompt/main-agent-prompt.js";
-import { artifactTools } from "../tool/artifact-tools.js";
+import { appTools } from "../tool/app-tools.js";
 import { sendMessageTool } from "../tool/send-message-tool.js";
 import { PiAgentSession } from "./pi-agent-session.js";
 import type {
@@ -38,6 +38,8 @@ import { forkTools } from "../tool/fork-tools.js";
 import type { SessionForkOperations } from "../interface/session-forks.js";
 import { ForkingAgentSession } from "../service/forking-agent-session.js";
 import { PiForkHistory } from "./pi-fork-history.js";
+import type { WorkspaceActivityRecorder } from "../../workspace/interface/workspace-activity.js";
+import { fleetWorkspaceActivity } from "../tool/fleet-workspace-activity.js";
 
 /** Pi's per-agent configuration and session paths inside the agent's workspace. */
 interface AgentDirectories {
@@ -52,13 +54,14 @@ export class PiSessionFactory implements AgentSessionFactory {
   // Construction
   // ===========================================
 
-  /** Receive owner-scoped inference, working directories, shared artifacts, isolated workspace tools, and Fleet. */
+  /** Receive owner-scoped inference, workspace tools, Fleet, and optional interaction recording. */
   constructor(
     private readonly inference: InferenceRuntimeFactory,
     private readonly workspaces: Pick<AgentWorkspaces, "directory" | "shared">,
     private readonly artifacts: ArtifactWorkbench,
     private readonly workspace: WorkspaceTools,
     private readonly fleet: FleetMcpServer,
+    private readonly workspaceActivity?: WorkspaceActivityRecorder,
   ) {}
 
   // ===========================================
@@ -160,7 +163,7 @@ export class PiSessionFactory implements AgentSessionFactory {
       sendMessageTool(sendMessage, parentId !== undefined),
       ...forkTools(messaging),
       ...workspaceTools(this.workspace, agent.id),
-      ...artifactTools(this.artifacts, {
+      ...appTools(this.artifacts, {
         ownerId: agent.ownerId,
         author: { id: agent.id, name: agent.name },
         workspace: directories.cwd,
@@ -231,6 +234,18 @@ export class PiSessionFactory implements AgentSessionFactory {
           hidden: true,
         },
         { name: "fleet-tools", factory: fleetTools(this.fleet), hidden: true },
+        ...(this.workspaceActivity
+          ? [
+              {
+                name: "workspace-activity",
+                factory: fleetWorkspaceActivity(this.workspaceActivity, {
+                  ownerId: agent.ownerId,
+                  agentId: agent.id,
+                }),
+                hidden: true,
+              },
+            ]
+          : []),
       ],
       noSkills: true,
       noPromptTemplates: true,

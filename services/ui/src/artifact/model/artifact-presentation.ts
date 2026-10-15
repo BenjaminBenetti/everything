@@ -1,6 +1,7 @@
 import type {
   ArtifactKind,
   ArtifactStatus,
+  ArtifactSummary,
 } from "@everything/artifact-contracts";
 
 /** Plain-language label for each kind of artifact. */
@@ -8,6 +9,36 @@ export const kindLabels: Readonly<Record<ArtifactKind, string>> = {
   static: "Page",
   dynamic: "App",
 };
+
+/** Live pages and running servers lead, followed by starting, failing, stopped, and unpublished apps. */
+const statusOrder: Readonly<Record<ArtifactStatus, number>> = {
+  live: 0,
+  running: 0,
+  starting: 1,
+  failing: 2,
+  stopped: 3,
+  unpublished: 4,
+};
+
+/** Search app titles, descriptions, and slugs, then order by state and newest update without mutating cached data. */
+export function visibleApps(
+  apps: readonly ArtifactSummary[],
+  search: string,
+): ArtifactSummary[] {
+  const term = search.trim().toLocaleLowerCase();
+  return apps
+    .filter((app) =>
+      `${app.title} ${app.description} ${app.slug}`
+        .toLocaleLowerCase()
+        .includes(term),
+    )
+    .sort(
+      (a, b) =>
+        statusOrder[a.status] - statusOrder[b.status] ||
+        Date.parse(b.updatedAt) - Date.parse(a.updatedAt) ||
+        a.id.localeCompare(b.id),
+    );
+}
 
 /** Plain-language label for what a viewer would see now. */
 export const statusLabels: Readonly<Record<ArtifactStatus, string>> = {

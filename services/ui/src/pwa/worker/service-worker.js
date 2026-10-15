@@ -39,7 +39,17 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
   if (url.origin !== self.location.origin || event.request.method !== "GET")
     return;
-  const pages = ["/", "/team", "/updates", "/artifacts", "/login"];
+  const pages = [
+    "/",
+    "/team",
+    "/workspaces",
+    "/updates",
+    "/apps",
+    "/apps/open",
+    "/artifacts",
+    "/artifacts/open",
+    "/login",
+  ];
   const publicAssets = ["/offline.html", "/offline.css", "/brand/icon.svg"];
   if (
     (event.request.mode === "navigate" &&

@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { Pencil, Plus, Search } from "lucide-react";
+import { Pencil, Plus } from "lucide-react";
 import { Button } from "@everything/ui/button";
+import { SearchInput } from "@everything/ui/search-input";
 import { useAgents } from "../component/agent-directory-provider.js";
 import { AgentCard } from "../component/agent-card.js";
 import { PageHeading } from "../../workspace/component/page-heading.js";
@@ -32,16 +33,13 @@ export function TeamPage() {
         <h2 className="section-label">
           Your team <span>{agents.data?.length ?? "—"}</span>
         </h2>
-        <label className="search">
-          <Search aria-hidden="true" />
-          <span className="sr-only">Search teammates</span>
-          <input
-            type="search"
-            placeholder="Find a teammate…"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-          />
-        </label>
+        <SearchInput
+          className="team-search"
+          label="Search teammates"
+          placeholder="Find a teammate…"
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+        />
       </div>
       {agents.isPending && (
         <p className="status-panel" role="status">

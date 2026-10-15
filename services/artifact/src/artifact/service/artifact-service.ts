@@ -14,7 +14,10 @@ import type { WorkloadOrchestrator } from "../../deployment/interface/workload-o
 import type { WorkloadReconciler } from "../../deployment/service/workload-reconciler.js";
 import { RevisionNotFoundError } from "../../revision/error/revision-errors.js";
 import type { RevisionRepository } from "../../revision/interface/revision-repository.js";
-import { SourceNotFoundError } from "../error/artifact-errors.js";
+import {
+  AppMustBeStoppedError,
+  SourceNotFoundError,
+} from "../error/artifact-errors.js";
 import type { ArtifactRepository } from "../interface/artifact-repository.js";
 import type { Artifact } from "../model/artifact.js";
 import {
@@ -114,11 +117,16 @@ export class ArtifactService {
     return this.present(updated ?? (await this.lookup.resolve(ownerId, id)));
   }
 
-  /** Delete the artifact with its builds, workload, disk, database, and history. */
-  async delete(ownerId: string, reference: string): Promise<void> {
+  /** Delete the app and its data; manual deletion requires it to remain stopped under the lock. */
+  async delete(
+    ownerId: string,
+    reference: string,
+    requireStopped = false,
+  ): Promise<void> {
     const { id } = await this.lookup.resolve(ownerId, reference);
     await this.lock.run(id, async () => {
       const artifact = await this.lookup.resolve(ownerId, id);
+      if (requireStopped && artifact.running) throw new AppMustBeStoppedError();
       await this.cleanup.builds.cancel(ownerId, id);
       await this.cleanup.workloads.remove(artifact);
       await this.artifacts.delete({ ownerId }, id);

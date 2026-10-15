@@ -96,9 +96,12 @@ test("real sign-in, all non-chat pages, themes, deep links, and sign-out", async
   await expect(
     page.getByRole("heading", { name: "Updates", exact: true }),
   ).toBeVisible();
-  await navigate(page, "Artifacts");
+  await navigate(page, "Apps");
+  await expect(page).toHaveURL(/\/apps$/);
+  await page.goto("/artifacts");
+  await expect(page).toHaveURL(/\/apps$/);
   await expect(
-    page.getByRole("heading", { name: "Artifacts", exact: true }),
+    page.getByRole("heading", { name: "Apps", exact: true }),
   ).toBeVisible();
   await page.locator('button[aria-label="Open preferences"]:visible').click();
   await expect(
@@ -146,7 +149,7 @@ test("real sign-in, all non-chat pages, themes, deep links, and sign-out", async
   await page.reload();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "sand");
   await expect(
-    page.getByRole("heading", { name: "Artifacts", exact: true }),
+    page.getByRole("heading", { name: "Apps", exact: true }),
   ).toBeVisible();
   await page.getByRole("button", { name: "Notification settings" }).click();
   await expect(page.getByRole("dialog")).toContainText(

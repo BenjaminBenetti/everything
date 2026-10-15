@@ -11,24 +11,36 @@ export class AvatarAnimationRegistry implements AvatarAnimationLookup {
   // ===========================================
   private readonly animations = new Map<
     string,
-    ComponentType<AvatarAnimationProps>
+    {
+      animation: ComponentType<AvatarAnimationProps>;
+      still?: ComponentType<AvatarAnimationProps>;
+    }
   >();
 
   // ===========================================
   // Registration and lookup
   // ===========================================
-  /** Add a named effect, rejecting accidental replacement of an existing animation. */
-  register(name: string, animation: ComponentType<AvatarAnimationProps>): void {
+  /** Add a named effect and optional still pose, rejecting accidental replacement. */
+  register(
+    name: string,
+    animation: ComponentType<AvatarAnimationProps>,
+    still?: ComponentType<AvatarAnimationProps>,
+  ): void {
     if (!name.trim() || this.animations.has(name)) {
       throw new Error(
         `Avatar animation names must be unique and nonempty: ${name}`,
       );
     }
-    this.animations.set(name, animation);
+    this.animations.set(name, { animation, ...(still ? { still } : {}) });
   }
 
   /** Keep unsupported effects optional so the underlying artwork remains visible. */
   get(name: string): ComponentType<AvatarAnimationProps> | undefined {
-    return this.animations.get(name);
+    return this.animations.get(name)?.animation;
+  }
+
+  /** Preserve meaningful props, such as a laptop, while animation playback is stopped. */
+  getStill(name: string): ComponentType<AvatarAnimationProps> | undefined {
+    return this.animations.get(name)?.still;
   }
 }
