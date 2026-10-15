@@ -25,6 +25,7 @@
     "@everything/settings-contracts": "workspace:*",
     "@everything/security": "workspace:*",
     "@everything/ui": "workspace:*",
+    "@everything/workspace-contracts": "workspace:*",
     "@fastify/helmet": "13.0.2",
     "@fastify/static": "10.1.6",
     "@tanstack/react-query": "5.104.1",

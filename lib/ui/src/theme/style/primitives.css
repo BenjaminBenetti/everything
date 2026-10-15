@@ -40,7 +40,8 @@ select:focus-visible {
   outline-offset: 3px;
 }
 input:focus,
-textarea:focus {
+textarea:focus,
+.input-surface:focus-within {
   outline: 2px solid var(--border-active);
   outline-offset: 1px;
 }
@@ -63,6 +64,54 @@ svg {
 button svg {
   pointer-events: none;
 }
+
+/* ===========================================
+   Composite text controls
+   =========================================== */
+.input-surface {
+  min-width: 0;
+  border: 1px solid var(--border-field);
+  border-radius: var(--radius-control);
+  background: var(--surface-panel);
+}
+.input-surface:focus-within {
+  border-color: var(--border-active);
+}
+.input-surface :is(input, textarea):focus {
+  outline: none;
+}
+.search-input {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 10px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+.search-input > svg {
+  width: 14px;
+  height: 14px;
+}
+.search-input input {
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+  min-height: 34px;
+  border: 0;
+  padding: 8px 0;
+  background: transparent;
+  color: var(--text-primary);
+  appearance: none;
+}
+@media (max-width: 650px) {
+  .search-input {
+    font-size: 16px;
+  }
+}
+
+/* ===========================================
+   Buttons
+   =========================================== */
 .button {
   display: inline-flex;
   justify-content: center;

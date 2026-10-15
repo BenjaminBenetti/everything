@@ -8,7 +8,8 @@
   height: 100%;
 }
 .avatar-animation,
-.avatar-idle-eyes {
+.avatar-idle-eyes,
+.avatar-typing-scene {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -39,10 +40,65 @@
     opacity: 1;
   }
 }
-@media (prefers-reduced-motion: reduce) {
-  .avatar-animation {
-    display: none;
+/* ===========================================
+   Typing: shared laptop, alternating hands, and a small forward lean
+   =========================================== */
+.teammate-avatar-artwork:has([data-avatar-animation="typing"]) > img {
+  transform: translate(-4%, -7%) scale(0.88);
+}
+.teammate-avatar-artwork:has(
+    [data-avatar-animation="typing"][data-animation-active="true"]
+  )
+  > img {
+  animation: avatar-typing-lean 1.2s steps(2, end) infinite;
+}
+[data-avatar-animation="typing"][data-animation-active="true"]
+  .avatar-typing-hand {
+  animation: avatar-typing-tap 600ms steps(1, end) infinite;
+  animation-delay: var(--avatar-typing-delay);
+}
+[data-avatar-animation="typing"][data-animation-active="true"] .hand-right {
+  animation-direction: reverse;
+}
+[data-avatar-animation="typing"][data-animation-active="true"]
+  .avatar-laptop-cursor {
+  animation: avatar-typing-cursor 1.2s steps(1, end) infinite;
+}
+@keyframes avatar-typing-tap {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
   }
+  15%,
+  45% {
+    transform: translateY(4px);
+  }
+  30%,
+  75% {
+    transform: translateY(1px);
+  }
+}
+@keyframes avatar-typing-lean {
+  0%,
+  100% {
+    transform: translate(-4%, -7%) scale(0.88);
+  }
+  50% {
+    transform: translate(-3%, -5%) scale(0.88) rotate(1deg);
+  }
+}
+@keyframes avatar-typing-cursor {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
   .avatar-idle-eyes {
     animation: none;
   }

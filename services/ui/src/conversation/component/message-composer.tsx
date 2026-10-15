@@ -1,6 +1,7 @@
 import { useState, type FormEvent, type KeyboardEvent } from "react";
 import { ArrowUp } from "lucide-react";
 import { Button } from "@everything/ui/button";
+import { InputSurface } from "@everything/ui/input-surface";
 import { messageTextMaxLength } from "@everything/conversation-contracts";
 
 /** Keep the draft on failure and expose sending as an explicit action. */
@@ -44,7 +45,11 @@ export function MessageComposer({
   }
 
   return (
-    <form className="chat-composer" onSubmit={(event) => void submit(event)}>
+    <InputSurface
+      as="form"
+      className="chat-composer"
+      onSubmit={(event) => void submit(event)}
+    >
       <label className="sr-only" htmlFor="chat-message">
         Message {name}
       </label>
@@ -66,6 +71,6 @@ export function MessageComposer({
           <span>{sending ? "Sending…" : "Send"}</span>
         </Button>
       </div>
-    </form>
+    </InputSurface>
   );
 }

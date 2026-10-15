@@ -8,11 +8,18 @@ import { FleetDaemon } from "../service/fleet-daemon.js";
 import { FleetHost } from "../service/fleet-host.js";
 import { FleetInstaller } from "../service/fleet-installer.js";
 import { FleetWorkerSettings } from "../service/fleet-worker-settings.js";
+import { KubeConfig, Metrics } from "@kubernetes/client-node";
+import { FleetMcpClient } from "../adapter/fleet-mcp-client.js";
+import { KubernetesFleetResources } from "../adapter/kubernetes-fleet-resources.js";
+import { FleetWorkspaces } from "../service/fleet-workspaces.js";
+import type { WorkspaceInstances } from "../../workspace/interface/workspace-instances.js";
+import type { WorkspaceStates } from "../../workspace/interface/workspace-activity.js";
 
 /** Fleet inside this container, and the worker settings it keeps on its cluster connection. */
 export interface FleetRuntime {
   readonly host: FleetHost;
   readonly workers: FleetWorkerSettings;
+  readonly workspaces: WorkspaceInstances & WorkspaceStates;
 }
 
 /** Assemble Fleet's runtime for this container from the chart's settings. */
@@ -34,5 +41,14 @@ export function createFleetRuntime(
     new FleetMcpDiscovery(home),
     reportFailure,
   );
-  return { host, workers: new FleetWorkerSettings(host, commands) };
+  const kube = new KubeConfig();
+  kube.loadFromDefault();
+  return {
+    host,
+    workers: new FleetWorkerSettings(host, commands),
+    workspaces: new FleetWorkspaces(
+      new FleetMcpClient(host),
+      new KubernetesFleetResources(new Metrics(kube), settings.namespace),
+    ),
+  };
 }

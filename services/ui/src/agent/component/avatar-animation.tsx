@@ -28,12 +28,14 @@ export function AvatarAnimationProvider({
   );
 }
 
-/** Run decorative effects only while visible and permitted by motion preferences. */
+/** Play visible effects when motion is permitted, otherwise retaining an optional still pose. */
 export function AvatarAnimation({
   name,
   ...props
 }: AvatarAnimationProps & { name: string }) {
-  const Animation = useContext(AnimationContext)?.get(name);
+  const animations = useContext(AnimationContext);
+  const Animation = animations?.get(name);
+  const Still = animations?.getStill(name);
   const element = useRef<HTMLSpanElement>(null);
   const [active, setActive] = useState(false);
 
@@ -42,7 +44,7 @@ export function AvatarAnimation({
     const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
     let visible = typeof IntersectionObserver === "undefined";
 
-    /** Unmount effects when hidden, including any timers owned by future effects. */
+    /** Select active playback only while visible and motion is permitted. */
     function updateActivity(): void {
       setActive(visible && !document.hidden && !motion.matches);
     }
@@ -67,6 +69,7 @@ export function AvatarAnimation({
   }, [Animation]);
 
   if (!Animation) return null;
+  const Frame = active ? Animation : Still;
   return (
     <span
       ref={element}
@@ -75,7 +78,7 @@ export function AvatarAnimation({
       data-animation-active={active}
       aria-hidden="true"
     >
-      {active && <Animation {...props} />}
+      {Frame && <Frame {...props} />}
     </span>
   );
 }

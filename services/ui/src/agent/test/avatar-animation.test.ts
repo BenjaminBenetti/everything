@@ -17,10 +17,13 @@ function Wave() {
 test("animation registration supports independent effects and optional unknown names", () => {
   const registry = new AvatarAnimationRegistry();
   registry.register("idle", Blink);
-  registry.register("wave", Wave);
+  registry.register("wave", Wave, Blink);
   assert.equal(registry.get("idle"), Blink);
   assert.equal(registry.get("wave"), Wave);
   assert.equal(registry.get("unavailable"), undefined);
+  assert.equal(registry.getStill("wave"), Blink);
+  assert.equal(registry.getStill("idle"), undefined);
+  assert.equal(registry.getStill("unavailable"), undefined);
 });
 
 test("invalid registration cannot replace an existing effect", () => {

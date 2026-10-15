@@ -8,6 +8,14 @@
     "src/theme/style"
   ],
   "exports": {
+    "./input-surface": {
+      "types": "./build/control/component/input-surface.d.ts",
+      "default": "./build/control/component/input-surface.js"
+    },
+    "./search-input": {
+      "types": "./build/control/component/search-input.d.ts",
+      "default": "./build/control/component/search-input.js"
+    },
     "./button": {
       "types": "./build/control/component/button.d.ts",
       "default": "./build/control/component/button.js"

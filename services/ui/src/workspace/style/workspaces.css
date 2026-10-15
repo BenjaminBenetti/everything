@@ -1,0 +1,226 @@
+/* ===========================================
+   Workspace directory
+   =========================================== */
+.workspace-list-tools {
+  gap: 16px;
+  margin-bottom: 30px;
+}
+.workspace-list-tools .search-input {
+  width: min(100%, 380px);
+}
+.workspace-result-count {
+  color: var(--text-secondary);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.workspace-type-group + .workspace-type-group {
+  margin-top: 30px;
+}
+.workspace-type-heading {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 14px;
+  min-width: 0;
+}
+.workspace-type-heading > svg {
+  width: 17px;
+  height: 17px;
+  flex: none;
+  color: var(--text-secondary);
+}
+.workspace-type-heading h2 {
+  font-size: 14px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.workspace-type-heading > span {
+  padding: 2px 7px;
+  border-radius: 5px;
+  background: var(--surface-selected);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.workspace-instance-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+.workspace-empty-search {
+  padding: 48px 20px;
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+.workspace-empty-search > svg {
+  margin: 0 auto 16px;
+}
+.workspace-empty-search h2 {
+  color: var(--text-primary);
+  font-size: 17px;
+  margin-bottom: 8px;
+}
+.workspace-empty-search .button {
+  margin-top: 18px;
+}
+/* ===========================================
+   Instance cards and resource indicators
+   =========================================== */
+.workspace-instance-card {
+  min-width: 0;
+  padding: 22px 22px 12px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-panel);
+  background: var(--surface-panel);
+  transition: border-color 0.18s;
+}
+.workspace-instance-card:hover {
+  border-color: var(--border-active);
+}
+.workspace-instance-heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.workspace-instance-heading > div {
+  min-width: 0;
+}
+.workspace-instance-icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  color: var(--text-accent);
+  background: var(--surface-selected);
+}
+.workspace-instance-icon svg {
+  width: 21px;
+  height: 21px;
+}
+.workspace-instance-heading h3 {
+  font-size: 16px;
+  font-weight: 550;
+  letter-spacing: -0.3px;
+  overflow-wrap: anywhere;
+}
+.workspace-instance-type {
+  margin-top: 5px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.workspace-instance-type > span {
+  margin-right: 5px;
+}
+.workspace-resources {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 22px;
+}
+.workspace-resources > div {
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-control);
+  padding: 12px;
+  min-width: 0;
+  background: var(--surface-subtle);
+}
+.workspace-resources dt {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary);
+}
+.workspace-resources dt svg {
+  width: 13px;
+  height: 13px;
+}
+.workspace-resources abbr {
+  text-decoration: none;
+}
+.workspace-resources dd {
+  font-size: 14px;
+  margin-top: 8px;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.workspace-instance-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 13px;
+}
+.workspace-instance-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+.workspace-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--status-ready);
+  flex: none;
+}
+.workspace-instance-status.status-running .workspace-status-dot {
+  background: var(--status-connected);
+}
+.workspace-instance-status.status-stopped .workspace-status-dot,
+.workspace-instance-status.status-unknown .workspace-status-dot {
+  background: var(--text-secondary);
+}
+.workspace-instance-status.status-failed .workspace-status-dot {
+  background: var(--status-disconnected);
+}
+.workspace-instance-controls {
+  display: flex;
+  align-items: center;
+  flex: none;
+}
+.workspace-instance-controls .workspace-delete:hover {
+  color: var(--text-danger);
+  background: var(--surface-danger-subtle);
+}
+.workspace-action-spinner {
+  animation: workspace-action-spin 1s linear infinite;
+}
+@keyframes workspace-action-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .workspace-action-spinner {
+    animation: none;
+  }
+}
+@media (min-width: 1400px) {
+  .workspace-instance-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+@media (max-width: 650px) {
+  .workspace-list-tools {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .workspace-list-tools .search-input {
+    width: 100%;
+  }
+  .workspace-instance-grid {
+    grid-template-columns: 1fr;
+    gap: 14px;
+  }
+  .workspace-instance-card {
+    padding: 19px 19px 10px;
+  }
+}

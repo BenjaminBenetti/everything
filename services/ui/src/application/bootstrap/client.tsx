@@ -8,12 +8,14 @@ import { HttpAgentDirectory } from "../../agent/adapter/http-agent-directory.js"
 import { HttpArtifactLibrary } from "../../artifact/adapter/http-artifact-library.js";
 import { HttpProviderConnections } from "../../provider/adapter/http-provider-connections.js";
 import { HttpWorkspaceSettings } from "../../settings/adapter/http-workspace-settings.js";
+import { HttpWorkspaceDirectory } from "../../workspace/adapter/http-workspace-directory.js";
 import { createAuthenticatedTransport } from "../../http/adapter/authenticated-transport.js";
 import { Application } from "../component/application.js";
 import { ApplicationErrorBoundary } from "../component/error-boundary.js";
 import { AvatarAnimationRegistry } from "../../agent/service/avatar-animation-registry.js";
 import { AvatarAnimationProvider } from "../../agent/component/avatar-animation.js";
 import { IdleAvatarAnimation } from "../../agent/component/idle-avatar-animation.js";
+import { TypingAvatarAnimation } from "../../agent/component/typing-avatar-animation.js";
 import "../../workspace/style/application.css";
 import "../../provider/style/provider.css";
 import "../../conversation/style/conversation.css";
@@ -31,6 +33,11 @@ async function bootstrap(): Promise<void> {
   const directory = new HttpAgentDirectory(createAuthenticatedTransport());
   const avatarAnimations = new AvatarAnimationRegistry();
   avatarAnimations.register("idle", IdleAvatarAnimation);
+  avatarAnimations.register(
+    "typing",
+    TypingAvatarAnimation,
+    TypingAvatarAnimation,
+  );
   root.render(
     <StrictMode>
       <ApplicationErrorBoundary>
@@ -50,6 +57,9 @@ async function bootstrap(): Promise<void> {
               }
               settings={
                 new HttpWorkspaceSettings(createAuthenticatedTransport())
+              }
+              workspaces={
+                new HttpWorkspaceDirectory(createAuthenticatedTransport())
               }
               queryClient={new QueryClient()}
             />

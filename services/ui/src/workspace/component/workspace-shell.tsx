@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
   Bell,
+  Boxes,
   ChevronRight,
   Folder,
   Grid2X2,
@@ -24,9 +25,10 @@ import { useProviders } from "../../provider/component/provider-connections-cont
 
 const navigation = [
   { path: "/", label: "Home", icon: House },
-  { path: "/team", label: "Your team", icon: Grid2X2 },
   { path: "/updates", label: "Updates", icon: Bell },
+  { path: "/team", label: "Your team", icon: Grid2X2 },
   { path: "/artifacts", label: "Artifacts", icon: Folder },
+  { path: "/workspaces", label: "Workspaces", icon: Boxes },
 ];
 
 /** Keep workspace navigation stationary while route content changes and scrolls independently. */

@@ -25,6 +25,9 @@ import { ConversationProvider } from "../../conversation/component/conversation-
 import { ConversationPage } from "../../conversation/page/conversation-page.js";
 import type { WorkspaceSettings } from "../../settings/interface/workspace-settings.js";
 import { WorkspaceSettingsProvider } from "../../settings/component/workspace-settings-provider.js";
+import type { WorkspaceDirectory } from "../../workspace/interface/workspace-directory.js";
+import { WorkspaceDirectoryProvider } from "../../workspace/component/workspace-directory-provider.js";
+import { WorkspacesPage } from "../../workspace/page/workspaces-page.js";
 
 /** Application composition accepts capabilities, making real and test transports interchangeable. */
 export function Application({
@@ -34,6 +37,7 @@ export function Application({
   connections,
   conversations,
   settings,
+  workspaces,
   queryClient,
 }: {
   session: BrowserSession;
@@ -42,6 +46,7 @@ export function Application({
   connections: ProviderConnections;
   conversations: ConversationClient;
   settings: WorkspaceSettings;
+  workspaces: WorkspaceDirectory;
   queryClient: QueryClient;
 }) {
   return (
@@ -52,7 +57,9 @@ export function Application({
             <ProviderConnectionsProvider connections={connections}>
               <ConversationProvider client={conversations}>
                 <WorkspaceSettingsProvider settings={settings}>
-                  <AuthenticatedRoutes />
+                  <WorkspaceDirectoryProvider directory={workspaces}>
+                    <AuthenticatedRoutes />
+                  </WorkspaceDirectoryProvider>
                 </WorkspaceSettingsProvider>
               </ConversationProvider>
             </ProviderConnectionsProvider>
@@ -84,6 +91,7 @@ function AuthenticatedRoutes() {
           <Route path="team/:agentId" element={<ConversationPage />} />
           <Route path="updates" element={<UpdatesPage />} />
           <Route path="artifacts" element={<ArtifactsPage />} />
+          <Route path="workspaces" element={<WorkspacesPage />} />
           <Route path="login" element={<Navigate replace to="/" />} />
           <Route path="*" element={<Navigate replace to="/" />} />
         </Route>

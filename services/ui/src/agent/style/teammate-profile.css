@@ -141,14 +141,6 @@
 .avatar-search {
   width: 100%;
   margin-bottom: 16px;
-  padding: 6px 12px;
-  background: var(--surface-panel);
-  border: 1px solid var(--border-default);
-  border-radius: 9px;
-}
-.avatar-picker .avatar-search input {
-  width: 100%;
-  min-width: 0;
 }
 .avatar-categories {
   display: flex;
@@ -225,9 +217,6 @@
     flex: 1;
     min-height: 44px;
     padding: 8px 9px;
-  }
-  .avatar-search input {
-    font-size: 16px;
   }
   .teammate-avatar-field {
     gap: 10px;
