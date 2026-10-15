@@ -399,6 +399,97 @@ test("an old update stays in view after reconnecting across more than one histor
   expect(state.read.has(unread.id)).toBe(false);
 });
 
+test("oversized update links open at the beginning and keep that alignment on reload", async ({
+  page,
+  context,
+}) => {
+  const state = serverState();
+  for (let index = 0; index < 20; index++)
+    state.append(`Earlier input ${index}`, "user");
+  const target = state.append(
+    "## Beginning of the report\n\n" +
+      "This report contains detailed findings that need careful review.\n\n".repeat(
+        60,
+      ) +
+      "End of the report.",
+  );
+  target.summary = "A detailed report is ready for review.";
+  for (let index = 0; index < 125; index++)
+    state.append(`Later input ${index}`, "user");
+  await workspace(context, state);
+  await context.addInitScript(() => {
+    Object.defineProperty(document, "hasFocus", {
+      configurable: true,
+      value: () => false,
+    });
+  });
+  await page.goto("/updates");
+  await page.getByText(target.summary, { exact: true }).click();
+  const article = page.locator(".update-target");
+  /** Inspect the scroll viewport itself: CSS visibility alone accepts an offscreen beginning. */
+  const beginningIsExposed = () =>
+    article.evaluate((element) => {
+      const viewport = element
+        .closest(".chat-history")!
+        .getBoundingClientRect();
+      const message = element.getBoundingClientRect();
+      return (
+        message.height > viewport.height &&
+        Math.abs(message.top - viewport.top) <= 1
+      );
+    });
+  await expect.poll(beginningIsExposed).toBe(true);
+  await page.waitForTimeout(1500);
+  expect(state.read.has(target.id)).toBe(false);
+  await page.reload();
+  await expect(article).toBeAttached();
+  await expect.poll(beginningIsExposed).toBe(true);
+  await attention(page, true, true);
+  await expect.poll(() => state.read.has(target.id)).toBe(true);
+});
+
+test("a long reply stays unread at its tail or middle and needs sustained exposure to its beginning", async ({
+  page,
+  context,
+}) => {
+  const state = serverState();
+  state.append("Please send the detailed report.", "user");
+  await workspace(context, state);
+  await page.goto("/team/avery");
+  await expect(page.getByRole("log")).toBeAttached();
+  await attention(page, true, true);
+  const reply = state.append(
+    "## Beginning of the long reply\n\n" +
+      "These findings take several screens to read.\n\n".repeat(60) +
+      "End of the long reply.",
+  );
+  const article = page.locator(`[data-message-id="${reply.id}"]`);
+  await expect(article).toBeAttached();
+  await expect(
+    page.getByText("End of the long reply.", { exact: true }),
+  ).toBeInViewport();
+  await page.waitForTimeout(1500);
+  expect(state.read.has(reply.id)).toBe(false);
+  await article.evaluate((element) =>
+    element.scrollIntoView({ block: "center" }),
+  );
+  await page.waitForTimeout(1500);
+  expect(state.read.has(reply.id)).toBe(false);
+  await article.evaluate((element) =>
+    element.scrollIntoView({ block: "start" }),
+  );
+  await page.waitForTimeout(300);
+  await attention(page, false, false);
+  await page.waitForTimeout(1500);
+  expect(state.read.has(reply.id)).toBe(false);
+  await attention(page, true, true);
+  await expect.poll(() => state.read.has(reply.id)).toBe(true);
+  await page.goto("/updates");
+  await expect(
+    page.getByRole("heading", { name: "You’re all caught up" }),
+  ).toBeVisible();
+});
+
 test("model summaries and labeled fallbacks retain source links and clear only seen messages", async ({
   page,
   context,

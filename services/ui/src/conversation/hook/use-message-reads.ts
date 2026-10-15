@@ -62,16 +62,20 @@ export function useMessageReads(
       const bounds = root.getBoundingClientRect();
       const top = Math.max(0, bounds.top);
       const bottom = Math.min(window.innerHeight, bounds.bottom);
+      const viewportHeight = bottom - top;
       const ready: string[] = [];
       for (const element of candidates) {
         const id = element.dataset.readMessage!;
         if (acknowledged.current.has(id) || inFlight.current.has(id)) continue;
         const rect = element.getBoundingClientRect();
         const visible = Math.min(bottom, rect.bottom) - Math.max(top, rect.top);
-        // Long messages count once half a viewport is exposed; small bubbles need half their height.
+        // Seeing only a long reply's middle or tail is insufficient, including automatic bottom-following.
+        const beginningClipped =
+          rect.height > viewportHeight && rect.top < top - 1;
         if (
-          bottom <= top ||
-          visible < Math.min(rect.height, bottom - top) / 2
+          viewportHeight <= 0 ||
+          beginningClipped ||
+          visible < Math.min(rect.height, viewportHeight) / 2
         ) {
           exposedSince.delete(id);
           continue;

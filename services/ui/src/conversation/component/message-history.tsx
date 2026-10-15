@@ -62,7 +62,15 @@ export function MessageHistory({
     if (positionedTarget.current !== targetMessageId) {
       follow.current = false;
       previousHeight.current = null;
-      target.scrollIntoView({ block: "center" });
+      const viewportHeight =
+        viewport.current?.clientHeight ?? window.innerHeight;
+      // Start long replies at their beginning instead of dropping the reader into the middle.
+      target.scrollIntoView({
+        block:
+          target.getBoundingClientRect().height > viewportHeight
+            ? "start"
+            : "center",
+      });
       positionedTarget.current = targetMessageId;
     }
   }, [messages, targetMessageId]);
