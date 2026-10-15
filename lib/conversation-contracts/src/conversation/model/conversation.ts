@@ -1,6 +1,7 @@
 /** Message limits shared by the composer, API, persistence, and reply tool. */
 export const messageTextMaxLength = 32000;
 export const messagePageSize = 100;
+export const readReceiptMaxSize = 100;
 
 /** One saved message in a teammate's ongoing conversation. */
 export interface ChatMessage {

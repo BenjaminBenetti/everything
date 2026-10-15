@@ -21,6 +21,11 @@ import { useAgents } from "../../agent/component/agent-directory-provider.js";
 import { useSession } from "../../session/component/session-provider.js";
 import { useWorkspaceDialogs } from "./workspace-dialogs.js";
 import { useProviders } from "../../provider/component/provider-connections-context.js";
+import { useUpdateCount } from "../../update/hook/use-updates.js";
+import {
+  UpdateCountBadge,
+  unreadLinkLabel,
+} from "../../update/component/update-count-badge.js";
 
 const navigation = [
   { path: "/", label: "Home", icon: House },
@@ -38,6 +43,9 @@ export function WorkspaceShell() {
     !providers.isError &&
     providers.data?.some((provider) => provider.status === "verified");
   const { open } = useWorkspaceDialogs();
+  const unreadUpdates = useUpdateCount().data?.unread ?? 0;
+  /** Only Updates carries a count; other destinations have nothing unread. */
+  const unreadFor = (path: string) => (path === "/updates" ? unreadUpdates : 0);
   const cache = useQueryClient();
   const { pathname } = useLocation();
   const content = useRef<HTMLElement>(null);
@@ -98,9 +106,11 @@ export function WorkspaceShell() {
               className={({ isActive }) =>
                 `nav-item ${isActive ? "active" : ""}`
               }
+              aria-label={unreadLinkLabel(itemLabel, unreadFor(path))}
             >
               <Icon aria-hidden="true" />
               {itemLabel}
+              <UpdateCountBadge count={unreadFor(path)} />
             </NavLink>
           ))}
         </nav>
@@ -232,17 +242,24 @@ export function WorkspaceShell() {
         </main>
       </div>
       <nav className="mobile-nav" aria-label="Mobile workspace">
-        {navigation.map(({ path, label: itemLabel, icon: Icon }) => (
-          <NavLink
-            key={path}
-            to={path}
-            end
-            className={({ isActive }) => (isActive ? "active" : "")}
-          >
-            <Icon aria-hidden="true" />
-            {itemLabel === "Your team" ? "Team" : itemLabel}
-          </NavLink>
-        ))}
+        {navigation.map(({ path, label: itemLabel, icon: Icon }) => {
+          const shortLabel = itemLabel === "Your team" ? "Team" : itemLabel;
+          return (
+            <NavLink
+              key={path}
+              to={path}
+              end
+              className={({ isActive }) => (isActive ? "active" : "")}
+              aria-label={unreadLinkLabel(shortLabel, unreadFor(path))}
+            >
+              <span className="mobile-nav-icon">
+                <Icon aria-hidden="true" />
+                <UpdateCountBadge count={unreadFor(path)} />
+              </span>
+              {shortLabel}
+            </NavLink>
+          );
+        })}
       </nav>
     </div>
   );

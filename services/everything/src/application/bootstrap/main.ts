@@ -14,6 +14,10 @@ import { AgentService } from "../../agent/service/agent-service.js";
 import { AgentEditingService } from "../../agent/service/agent-editing-service.js";
 import { PostgresMessageRepository } from "../../conversation/repository/postgres-message-repository.js";
 import { ConversationService } from "../../conversation/service/conversation-service.js";
+import { ModelUpdateSummarizer } from "../../update/adapter/model-update-summarizer.js";
+import { PostgresUpdateRepository } from "../../update/repository/postgres-update-repository.js";
+import { UpdateSummaryScheduler } from "../../update/service/update-summary-scheduler.js";
+import { UpdateService } from "../../update/service/update-service.js";
 import { createApplicationDatabase } from "../../persistence/factory/application-database.js";
 import { PiSessionFactory } from "../../runtime/adapter/pi-session-factory.js";
 import { createModelRuntime } from "../../runtime/factory/model-runtime.js";
@@ -109,11 +113,17 @@ async function main(): Promise<void> {
       reason: error instanceof Error ? error.message : "unknown",
     }),
   );
+  const inference = new PiInferenceRuntimeFactory(
+    providers,
+    models,
+    capabilities,
+  );
+  const updates = new PostgresUpdateRepository(database);
   const conversations = new ConversationService(
     agents,
     new PostgresMessageRepository(database),
     new PiSessionFactory(
-      new PiInferenceRuntimeFactory(providers, models, capabilities),
+      inference,
       workspaces,
       new ArtifactWorkbench(artifactGateway),
       new HttpWorkspaceTools(
@@ -132,6 +142,7 @@ async function main(): Promise<void> {
     profiles: new AgentEditingService(agentRepository, models),
     removal: conversations,
     conversations,
+    updates: new UpdateService(updates),
     artifacts: new ArtifactLibraryService(artifactGateway),
     workers,
     verifier,
@@ -146,6 +157,14 @@ async function main(): Promise<void> {
       await database.getRepository(AgentEntity).exists();
     },
   });
+  const summaries = new UpdateSummaryScheduler(
+    updates,
+    new ModelUpdateSummarizer(inference),
+    () =>
+      app.log.warn(
+        "An update summary could not complete; the update's source remains available.",
+      ),
+  );
   const providerChecks = new ProviderCheckScheduler(
     new PostgresProviderCheckRepository(database),
     providers,
@@ -155,6 +174,7 @@ async function main(): Promise<void> {
       ),
   );
   app.addHook("onClose", async () => {
+    await summaries.close();
     await providerChecks.close();
     await conversations.close();
     await workspaces.close();
@@ -163,6 +183,7 @@ async function main(): Promise<void> {
   });
   closeOnTermination(app);
   await app.listen({ host: "0.0.0.0", port: config.port });
+  summaries.start();
   providerChecks.start();
   workspaces.start();
   fleet.start();

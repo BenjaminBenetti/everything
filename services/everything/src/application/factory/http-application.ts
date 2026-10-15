@@ -33,6 +33,8 @@ import type { ProviderModels } from "../../provider/interface/provider-models.js
 import { providerModelController } from "../../provider/controller/provider-model-controller.js";
 import { settingsController } from "../../settings/controller/settings-controller.js";
 import type { WorkerSettingsOperations } from "../../settings/interface/worker-settings.js";
+import type { UpdateOperations } from "../../update/interface/update-operations.js";
+import { updateController } from "../../update/controller/update-controller.js";
 
 /** Use cases and transport settings supplied by the composition root. */
 export interface HttpDependencies {
@@ -46,6 +48,7 @@ export interface HttpDependencies {
   readonly profiles: AgentEditing;
   readonly removal: AgentRemoval;
   readonly conversations: ConversationOperations;
+  readonly updates: UpdateOperations;
   readonly artifacts: ArtifactLibrary;
   readonly workers: WorkerSettingsOperations;
   readonly readiness: ReadinessCheck;
@@ -125,6 +128,7 @@ function protectedApi(
     await providerController(scope, dependencies.providers);
     await providerModelController(scope, dependencies.models);
     await conversationController(scope, dependencies.conversations);
+    await updateController(scope, dependencies.updates);
     await agentController(scope, dependencies.agents, dependencies.removal);
     await agentEditingController(scope, dependencies.profiles);
     await artifactController(scope, dependencies.artifacts);

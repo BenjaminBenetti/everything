@@ -11,6 +11,7 @@ import { ConversationService } from "../service/conversation-service.js";
 /** Build controllable test doubles for testing concurrency independently of Pi and PostgreSQL. */
 function fixture() {
   const recorded: Array<ConversationMessage & { agentId: string }> = [];
+  const writes: string[] = [];
   const running = new Set<string>();
   const completions = new Map<string, () => void>();
   const deleted = new Set<string>();
@@ -52,6 +53,21 @@ function fixture() {
         createdAt: "",
       };
       recorded.push(message);
+      writes.push(`append:${role}:${text}`);
+      return message;
+    },
+    /** Record a teammate reply committed together with its update. */
+    async deliver({ ownerId, agentId }, text) {
+      assert.equal(ownerId, "owner");
+      const message = {
+        id: String(recorded.length + 1),
+        agentId,
+        role: "assistant" as const,
+        text,
+        createdAt: "",
+      };
+      recorded.push(message);
+      writes.push(`deliver:${text}`);
       return message;
     },
     /** Read the requested agent's messages. */
@@ -65,16 +81,17 @@ function fixture() {
   };
   const sessions: AgentSessionFactory = {
     /** Create a deferred runtime so tests control prompt completion. */
-    async create(agent: AgentDefinition) {
+    async create(agent: AgentDefinition, sendMessage) {
       created++;
       return {
         id: "session-" + agent.id,
         compacting: false,
         lastToolName: undefined,
         typing: false,
-        /** Remain active until aborted, or reject to simulate a provider failure. */
+        /** Remain active until aborted, reply through the delivery tool, or reject on a provider failure. */
         async prompt(text) {
           if (text === "error") throw new Error("secret provider detail");
+          if (text.startsWith("reply:")) return sendMessage(text.slice(6));
           assert.equal(
             running.has(agent.id),
             false,
@@ -109,6 +126,7 @@ function fixture() {
     lifecycle,
     recorded,
     running,
+    writes,
     /** Simulate a durable profile edit between turns. */
     selectModel(selection: AgentDefinition["inference"]) {
       inference = selection;
@@ -157,6 +175,18 @@ test("editing model settings reloads the runtime on the next turn without creati
     ),
     ["Before editing", "After editing"],
   );
+  await f.service.close();
+});
+
+test("user messages are appended without updates, and teammate replies are delivered with one", async () => {
+  const f = fixture();
+  await f.service.send("owner", "one", "reply:Needs your choice: A or B?");
+  while (f.writes.length < 2)
+    await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(f.writes, [
+    "append:user:reply:Needs your choice: A or B?",
+    "deliver:Needs your choice: A or B?",
+  ]);
   await f.service.close();
 });
 

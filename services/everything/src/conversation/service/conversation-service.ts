@@ -145,14 +145,13 @@ export class ConversationService
     this.runtimeDefinitions.delete(agentId);
   }
 
-  /** Persist a message the agent deliberately sent to its owner. */
+  /** Persist a message the agent deliberately sent to its owner, together with its unread update. */
   private async appendReply(
     agent: AgentDefinition,
     text: string,
   ): Promise<void> {
-    await this.messages.append(
+    await this.messages.deliver(
       { ownerId: agent.ownerId, agentId: agent.id },
-      "assistant",
       text,
     );
   }

@@ -15,6 +15,8 @@ import {
   useSession,
 } from "../../session/component/session-provider.js";
 import { LoginPage } from "../../session/page/login-page.js";
+import type { UpdateClient } from "../../update/interface/update-client.js";
+import { UpdateProvider } from "../../update/component/update-provider.js";
 import { UpdatesPage } from "../../update/page/updates-page.js";
 import { WorkspaceDialogsProvider } from "../../workspace/component/workspace-dialogs.js";
 import { WorkspaceShell } from "../../workspace/component/workspace-shell.js";
@@ -33,6 +35,7 @@ export function Application({
   artifacts,
   connections,
   conversations,
+  updates,
   settings,
   queryClient,
 }: {
@@ -41,6 +44,7 @@ export function Application({
   artifacts: ArtifactLibrary;
   connections: ProviderConnections;
   conversations: ConversationClient;
+  updates: UpdateClient;
   settings: WorkspaceSettings;
   queryClient: QueryClient;
 }) {
@@ -51,9 +55,11 @@ export function Application({
           <ArtifactLibraryProvider library={artifacts}>
             <ProviderConnectionsProvider connections={connections}>
               <ConversationProvider client={conversations}>
-                <WorkspaceSettingsProvider settings={settings}>
-                  <AuthenticatedRoutes />
-                </WorkspaceSettingsProvider>
+                <UpdateProvider client={updates}>
+                  <WorkspaceSettingsProvider settings={settings}>
+                    <AuthenticatedRoutes />
+                  </WorkspaceSettingsProvider>
+                </UpdateProvider>
               </ConversationProvider>
             </ProviderConnectionsProvider>
           </ArtifactLibraryProvider>

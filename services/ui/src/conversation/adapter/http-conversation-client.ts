@@ -19,6 +19,17 @@ export class HttpConversationClient implements ConversationClient {
   // Operations
   // ===========================================
 
+  /** Retry-safe receipt for exact messages, never a cursor covering unseen gaps. */
+  read(agentId: string, messageIds: readonly string[]): Promise<void> {
+    return this.transport.request(
+      `/v1/agents/${encodeURIComponent(agentId)}/messages/read`,
+      {
+        method: "POST",
+        body: JSON.stringify({ messageIds }),
+      },
+    );
+  }
+
   /** Use opaque message IDs to retrieve older history without offsets. */
   history(
     agentId: string,

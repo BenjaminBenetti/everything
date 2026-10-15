@@ -16,4 +16,6 @@ export interface ConversationClient {
   status(agentId: string, signal?: AbortSignal): Promise<RuntimeStatus>;
   /** Save input and begin a turn using the teammate's saved model settings. */
   send(agentId: string, text: string): Promise<MessageReceipt>;
+  /** Acknowledge only messages actually visible to the owner. */
+  read(agentId: string, messageIds: readonly string[]): Promise<void>;
 }

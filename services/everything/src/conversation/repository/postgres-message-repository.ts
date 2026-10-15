@@ -1,5 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { LessThan, type DataSource, type FindOptionsWhere } from "typeorm";
+import {
+  LessThan,
+  type DataSource,
+  type EntityManager,
+  type FindOptionsWhere,
+} from "typeorm";
 import {
   messagePageSize,
   type MessagePage,
@@ -15,6 +20,7 @@ import type {
 import type { ConversationMessage, MessageRole } from "../model/message.js";
 import type { MessageRecord } from "../model/message-record.js";
 import { MessageEntity } from "../schema/message-entity.js";
+import { UpdateEntity } from "../../update/schema/update-entity.js";
 
 /** Persist chat through ORM relations with transactional ownership checks. */
 export class PostgresMessageRepository
@@ -38,22 +44,30 @@ export class PostgresMessageRepository
 
   /** Verify and lock the parent while inserting so concurrent deletion cannot invalidate ownership. */
   async append(
-    { ownerId, agentId }: MessageScope,
+    scope: MessageScope,
     role: MessageRole,
     text: string,
   ): Promise<ConversationMessage> {
+    return serializableTransaction(this.orm.manager, async (manager) =>
+      this.toEntity(await this.insert(manager, scope, role, text)),
+    );
+  }
+
+  /** Commit the reply and its unread update together, so neither exists without the other. */
+  async deliver(
+    scope: MessageScope,
+    text: string,
+  ): Promise<ConversationMessage> {
     return serializableTransaction(this.orm.manager, async (manager) => {
-      const agent = await manager.getRepository(AgentEntity).findOne({
-        where: { id: agentId, ownerId },
-        lock: { mode: "pessimistic_read" },
+      const message = await this.insert(manager, scope, "assistant", text);
+      await manager.getRepository(UpdateEntity).insert({
+        id: randomUUID(),
+        ownerId: scope.ownerId,
+        kind: "message",
+        agentId: message.agentId,
+        messageId: message.id,
       });
-      if (!agent) throw new AgentNotFoundError();
-      const repository = manager.getRepository(MessageEntity);
-      return this.toEntity(
-        await repository.save(
-          repository.create({ id: randomUUID(), agentId, role, text }),
-        ),
-      );
+      return this.toEntity(message);
     });
   }
 
@@ -78,6 +92,28 @@ export class PostgresMessageRepository
       messages,
       nextCursor: records.length > messagePageSize ? messages[0]!.id : null,
     };
+  }
+
+  // ===========================================
+  // Persistence
+  // ===========================================
+
+  /** Insert a message after locking the owned teammate within the caller's transaction. */
+  private async insert(
+    manager: EntityManager,
+    { ownerId, agentId }: MessageScope,
+    role: MessageRole,
+    text: string,
+  ): Promise<MessageRecord> {
+    const agent = await manager.getRepository(AgentEntity).findOne({
+      where: { id: agentId, ownerId },
+      lock: { mode: "pessimistic_read" },
+    });
+    if (!agent) throw new AgentNotFoundError();
+    const repository = manager.getRepository(MessageEntity);
+    return repository.save(
+      repository.create({ id: randomUUID(), agentId: agent.id, role, text }),
+    );
   }
 
   // ===========================================

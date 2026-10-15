@@ -2,13 +2,17 @@ import { useLayoutEffect, useRef } from "react";
 import type { ChatMessage } from "@everything/conversation-contracts";
 import { Button } from "@everything/ui/button";
 import { MessageMarkdown } from "./message-markdown.js";
+import { useMessageReads } from "../hook/use-message-reads.js";
 
 /**
  * Render saved Markdown messages, with typing bubbles while the teammate writes a message, and
  * preserve reading position when older history is prepended.
  */
 export function MessageHistory({
+  agentId,
   name,
+  targetMessageId,
+  readEnabled,
   messages,
   hasOlder,
   loadingOlder,
@@ -16,7 +20,10 @@ export function MessageHistory({
   typing,
   onOlder,
 }: {
+  agentId: string;
   name: string;
+  targetMessageId: string | undefined;
+  readEnabled: boolean;
   messages: readonly ChatMessage[];
   hasOlder: boolean;
   loadingOlder: boolean;
@@ -28,9 +35,48 @@ export function MessageHistory({
   const follow = useRef(true);
   const previousHeight = useRef<number | null>(null);
   const newestId = messages.at(-1)?.id;
+  const positionedTarget = useRef<string | undefined>(undefined);
+  const readsFailed = useMessageReads(agentId, viewport, messages, readEnabled);
 
   useLayoutEffect(() => {
-    follow.current = true;
+    follow.current = !targetMessageId;
+    positionedTarget.current = undefined;
+  }, [targetMessageId]);
+
+  useLayoutEffect(() => {
+    if (!targetMessageId) {
+      if (positionedTarget.current) follow.current = true;
+      positionedTarget.current = undefined;
+      return;
+    }
+    const target = [
+      ...(viewport.current?.querySelectorAll<HTMLElement>(
+        "[data-message-id]",
+      ) ?? []),
+    ].find((element) => element.dataset.messageId === targetMessageId);
+    if (!target) {
+      positionedTarget.current = undefined;
+      follow.current = false;
+      return;
+    }
+    if (positionedTarget.current !== targetMessageId) {
+      follow.current = false;
+      previousHeight.current = null;
+      const viewportHeight =
+        viewport.current?.clientHeight ?? window.innerHeight;
+      // Start long replies at their beginning instead of dropping the reader into the middle.
+      target.scrollIntoView({
+        block:
+          target.getBoundingClientRect().height > viewportHeight
+            ? "start"
+            : "center",
+      });
+      positionedTarget.current = targetMessageId;
+    }
+  }, [messages, targetMessageId]);
+
+  useLayoutEffect(() => {
+    if (sentMessageId) follow.current = true;
   }, [sentMessageId]);
 
   useLayoutEffect(() => {
@@ -40,7 +86,14 @@ export function MessageHistory({
       element.scrollTop = element.scrollHeight - previousHeight.current;
       previousHeight.current = null;
     } else if (follow.current) element.scrollTop = element.scrollHeight;
-  }, [messages, loadingOlder, newestId, sentMessageId, typing]);
+  }, [
+    messages,
+    loadingOlder,
+    newestId,
+    sentMessageId,
+    typing,
+    targetMessageId,
+  ]);
 
   /** Anchor the reader's current position while fetching earlier messages. */
   async function loadOlder(): Promise<void> {
@@ -92,8 +145,12 @@ export function MessageHistory({
       >
         {messages.map((message) => (
           <article
-            className={`chat-message ${message.role}`}
+            className={`chat-message ${message.role} ${message.id === targetMessageId ? "update-target" : ""}`}
             key={message.id}
+            data-message-id={message.id}
+            data-read-message={
+              message.role === "assistant" ? message.id : undefined
+            }
             aria-label={`${message.role === "user" ? "You" : name} said`}
           >
             <div className="chat-message-meta">
@@ -130,6 +187,11 @@ export function MessageHistory({
           <h2>Talk with {name}</h2>
           <p>Ask a question or share what you’re working on</p>
         </div>
+      )}
+      {readsFailed && (
+        <p role="status">
+          Read status couldn’t be saved. Retrying when connected…
+        </p>
       )}
     </div>
   );
