@@ -14,8 +14,9 @@ import { AgentService } from "../../agent/service/agent-service.js";
 import { AgentEditingService } from "../../agent/service/agent-editing-service.js";
 import { PostgresMessageRepository } from "../../conversation/repository/postgres-message-repository.js";
 import { ConversationService } from "../../conversation/service/conversation-service.js";
-import { ModelMessageSummarizer } from "../../update/adapter/model-message-summarizer.js";
-import { MessageSummaryScheduler } from "../../update/service/message-summary-scheduler.js";
+import { ModelUpdateSummarizer } from "../../update/adapter/model-update-summarizer.js";
+import { PostgresUpdateRepository } from "../../update/repository/postgres-update-repository.js";
+import { UpdateSummaryScheduler } from "../../update/service/update-summary-scheduler.js";
 import { UpdateService } from "../../update/service/update-service.js";
 import { createApplicationDatabase } from "../../persistence/factory/application-database.js";
 import { PiSessionFactory } from "../../runtime/adapter/pi-session-factory.js";
@@ -117,10 +118,10 @@ async function main(): Promise<void> {
     models,
     capabilities,
   );
-  const messages = new PostgresMessageRepository(database);
+  const updates = new PostgresUpdateRepository(database);
   const conversations = new ConversationService(
     agents,
-    messages,
+    new PostgresMessageRepository(database),
     new PiSessionFactory(
       inference,
       workspaces,
@@ -141,7 +142,7 @@ async function main(): Promise<void> {
     profiles: new AgentEditingService(agentRepository, models),
     removal: conversations,
     conversations,
-    updates: new UpdateService(messages),
+    updates: new UpdateService(updates),
     artifacts: new ArtifactLibraryService(artifactGateway),
     workers,
     verifier,
@@ -156,12 +157,12 @@ async function main(): Promise<void> {
       await database.getRepository(AgentEntity).exists();
     },
   });
-  const summaries = new MessageSummaryScheduler(
-    messages,
-    new ModelMessageSummarizer(inference),
+  const summaries = new UpdateSummaryScheduler(
+    updates,
+    new ModelUpdateSummarizer(inference),
     () =>
       app.log.warn(
-        "A message summary could not complete; the original message remains available.",
+        "An update summary could not complete; the update's source remains available.",
       ),
   );
   const providerChecks = new ProviderCheckScheduler(

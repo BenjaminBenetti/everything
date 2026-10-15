@@ -125,6 +125,9 @@ async function workspace(context: BrowserContext, withModel = true) {
   await context.route("**/v1/updates", (route) =>
     route.fulfill({ json: { updates: [], nextCursor: null } }),
   );
+  await context.route("**/v1/updates/count", (route) =>
+    route.fulfill({ json: { unread: 0 } }),
+  );
   return state;
 }
 
@@ -278,6 +281,8 @@ test("failed sends keep the draft, work shows no controls, and a dropped connect
       (message) => message.text === "Please keep this draft",
     ),
   ).toHaveLength(1);
+  // Let the refresh after sending show the saved message before the connection drops.
+  await expect(page.getByRole("log")).toContainText("Please keep this draft");
   state.failRead = true;
   await expect(
     page.getByRole("button", { name: "Reconnect", exact: true }),

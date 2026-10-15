@@ -4,6 +4,7 @@ import {
   readReceiptMaxSize,
   type ChatMessage,
 } from "@everything/conversation-contracts";
+import { updateQueryRoot } from "../../update/hook/use-updates.js";
 import { useConversationClient } from "../component/conversation-provider.js";
 
 /** Acknowledge messages only after sustained viewport exposure in the focused, visible conversation. */
@@ -69,12 +70,15 @@ export function useMessageReads(
         if (acknowledged.current.has(id) || inFlight.current.has(id)) continue;
         const rect = element.getBoundingClientRect();
         const visible = Math.min(bottom, rect.bottom) - Math.max(top, rect.top);
-        // Seeing only a long reply's middle or tail is insufficient, including automatic bottom-following.
-        const beginningClipped =
-          rect.height > viewportHeight && rect.top < top - 1;
+        // A long reply counts once its beginning or end is in view, including automatic
+        // bottom-following; seeing only its middle is insufficient.
+        const middleOnly =
+          rect.height > viewportHeight &&
+          rect.top < top - 1 &&
+          rect.bottom > bottom + 1;
         if (
           viewportHeight <= 0 ||
-          beginningClipped ||
+          middleOnly ||
           visible < Math.min(rect.height, viewportHeight) / 2
         ) {
           exposedSince.delete(id);
@@ -92,7 +96,8 @@ export function useMessageReads(
         .then(() => {
           ids.forEach((id) => acknowledged.current.add(id));
           if (!stopped) setFailed(false);
-          void cache.invalidateQueries({ queryKey: ["updates"] });
+          // Refresh the feed and the navigation badge together.
+          void cache.invalidateQueries({ queryKey: updateQueryRoot });
         })
         .catch(() => {
           retryAt.current = Date.now() + 5_000;

@@ -150,6 +150,12 @@ importers:
         specifier: 7.0.2
         version: 7.0.2
 
+  lib/update-contracts:
+    devDependencies:
+      typescript:
+        specifier: 7.0.2
+        version: 7.0.2
+
   lib/workspace-contracts:
     dependencies:
       typebox:
@@ -273,6 +279,9 @@ importers:
       '@everything/settings-contracts':
         specifier: workspace:*
         version: link:../../lib/settings-contracts
+      '@everything/update-contracts':
+        specifier: workspace:*
+        version: link:../../lib/update-contracts
       '@everything/workspace-contracts':
         specifier: workspace:*
         version: link:../../lib/workspace-contracts
@@ -386,6 +395,9 @@ importers:
       '@everything/ui':
         specifier: workspace:*
         version: link:../../lib/ui
+      '@everything/update-contracts':
+        specifier: workspace:*
+        version: link:../../lib/update-contracts
       '@fastify/helmet':
         specifier: 13.0.2
         version: 13.0.2

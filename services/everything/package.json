@@ -29,6 +29,7 @@
     "@everything/provider-contracts": "workspace:*",
     "@everything/settings-contracts": "workspace:*",
     "@everything/security": "workspace:*",
+    "@everything/update-contracts": "workspace:*",
     "@everything/workspace-contracts": "workspace:*",
     "@fastify/cookie": "11.1.3",
     "@fastify/helmet": "13.0.2",

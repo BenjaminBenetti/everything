@@ -1,5 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { expect, test, type BrowserContext, type Page } from "@playwright/test";
+import {
+  expect,
+  test,
+  type BrowserContext,
+  type Locator,
+  type Page,
+} from "@playwright/test";
 
 interface Message {
   id: string;
@@ -8,6 +14,11 @@ interface Message {
   createdAt: string;
   summary?: string;
   summaryStatus?: "pending" | "ready" | "unavailable";
+}
+
+/** Update IDs differ from message IDs, so the UI must key and page by one and link by the other. */
+function updateId(message: Message): string {
+  return `update-${message.id}`;
 }
 
 /** Model persistent server state separately from browser contexts, with controllable delivery and failures. */
@@ -110,23 +121,26 @@ async function workspace(
     messageIds.forEach((id) => state.read.add(id));
     return route.fulfill({ status: 204 });
   });
+  /** Unread teammate replies, oldest first, as the server derives updates from them. */
+  const unread = () =>
+    state.messages.filter(
+      (message) => message.role === "assistant" && !state.read.has(message.id),
+    );
   await context.route(/\/v1\/updates(?:\?.*)?$/, (route) => {
     state.feedFetches++;
     if (state.failFeed) return route.fulfill({ status: 503, json: {} });
     const cursor = new URL(route.request().url()).searchParams.get("before");
     const end = cursor
-      ? state.messages.findIndex((message) => message.id === cursor)
+      ? state.messages.findIndex((message) => updateId(message) === cursor)
       : state.messages.length;
-    const unread = state.messages
-      .slice(0, end)
-      .filter(
-        (message) =>
-          message.role === "assistant" && !state.read.has(message.id),
-      )
+    const older = unread()
+      .filter((message) => state.messages.indexOf(message) < end)
       .reverse();
-    const updates = unread.slice(0, 50).map((message) => ({
-      messageId: message.id,
+    const updates = older.slice(0, 50).map((message) => ({
+      id: updateId(message),
+      kind: "message",
       agentId: "avery",
+      messageId: message.id,
       summary: message.summary ?? message.text,
       summaryStatus: message.summaryStatus ?? "ready",
       createdAt: message.createdAt,
@@ -134,10 +148,31 @@ async function workspace(
     return route.fulfill({
       json: {
         updates,
-        nextCursor: unread.length > 50 ? updates.at(-1)!.messageId : null,
+        nextCursor: older.length > 50 ? updates.at(-1)!.id : null,
       },
     });
   });
+  await context.route(/\/v1\/updates\/count(?:\?.*)?$/, (route) =>
+    route.fulfill({ json: { unread: unread().length } }),
+  );
+}
+
+/** The workspace navigation for the current viewport: the sidebar, or the bottom bar on phones. */
+function navigation(page: Page) {
+  return page.getByRole("navigation", {
+    name:
+      (page.viewportSize()?.width ?? 1000) < 650
+        ? "Mobile workspace"
+        : "Workspace",
+    exact: true,
+  });
+}
+
+/** Wait for an element's transitions, such as the route's, whose transform would otherwise hide layout overflow. */
+async function settled(element: Locator) {
+  await element.evaluate((target) =>
+    Promise.all(target.getAnimations().map((animation) => animation.finished)),
+  );
 }
 
 /** Headless tabs do not emulate OS attention consistently; send the same document events explicitly. */
@@ -221,10 +256,27 @@ test("old update links load earlier history, highlight the exact message, and su
   await expect(page.locator(".update-target")).toBeInViewport();
   await expect.poll(() => state.read.has(target.id)).toBe(true);
   expect(state.read.has(newest.id)).toBe(false);
-  await page.screenshot({
-    path: info.outputPath("original-message.png"),
-    fullPage: true,
+  // A soft, rounded tint instead of a square outline.
+  const highlight = page.locator(".update-target");
+  await settled(highlight);
+  const style = await highlight.evaluate((element) => {
+    const computed = getComputedStyle(element);
+    return {
+      radius: parseFloat(computed.borderTopLeftRadius),
+      outline: computed.outlineStyle,
+      background: computed.backgroundColor,
+      shadow: computed.boxShadow,
+    };
   });
+  expect(style.radius).toBeGreaterThan(0);
+  expect(style.outline).toBe("none");
+  expect(style.background).not.toBe("rgba(0, 0, 0, 0)");
+  expect(style.shadow).not.toBe("none");
+  await page.screenshot({ path: info.outputPath("highlight-dark.png") });
+  await page.goto(`${page.url()}&theme=daylight`);
+  await expect(highlight).toBeInViewport();
+  await settled(highlight);
+  await page.screenshot({ path: info.outputPath("highlight-light.png") });
   await page.reload();
   await expect(page.locator(".update-target")).toBeInViewport();
   expect(state.read.has(newest.id)).toBe(false);
@@ -448,7 +500,7 @@ test("oversized update links open at the beginning and keep that alignment on re
   await expect.poll(() => state.read.has(target.id)).toBe(true);
 });
 
-test("a long reply stays unread at its tail or middle and needs sustained exposure to its beginning", async ({
+test("a long reply is read once its end or beginning is seen, but not its middle alone", async ({
   page,
   context,
 }) => {
@@ -458,21 +510,27 @@ test("a long reply stays unread at its tail or middle and needs sustained exposu
   await page.goto("/team/avery");
   await expect(page.getByRole("log")).toBeAttached();
   await attention(page, true, true);
-  const reply = state.append(
-    "## Beginning of the long reply\n\n" +
-      "These findings take several screens to read.\n\n".repeat(60) +
-      "End of the long reply.",
-  );
+  const longReply = (label: string) =>
+    `## Beginning of the ${label}\n\n` +
+    "These findings take several screens to read.\n\n".repeat(60) +
+    `End of the ${label}.`;
+
+  // Following a new reply to its end while watching counts as seeing it.
+  const followed = state.append(longReply("first report"));
+  await expect(
+    page.getByText("End of the first report.", { exact: true }),
+  ).toBeInViewport();
+  await expect.poll(() => state.read.has(followed.id)).toBe(true);
+
+  // A reply delivered while unfocused stays unread while only its middle is in view.
+  await attention(page, true, false);
+  const reply = state.append(longReply("second report"));
   const article = page.locator(`[data-message-id="${reply.id}"]`);
   await expect(article).toBeAttached();
-  await expect(
-    page.getByText("End of the long reply.", { exact: true }),
-  ).toBeInViewport();
-  await page.waitForTimeout(1500);
-  expect(state.read.has(reply.id)).toBe(false);
   await article.evaluate((element) =>
     element.scrollIntoView({ block: "center" }),
   );
+  await attention(page, true, true);
   await page.waitForTimeout(1500);
   expect(state.read.has(reply.id)).toBe(false);
   await article.evaluate((element) =>
@@ -513,11 +571,9 @@ test("model summaries and labeled fallbacks retain source links and clear only s
   fallback.summaryStatus = "unavailable";
   await workspace(context, state);
   await page.goto("/updates");
+  await expect(page.getByText("Summarizing…", { exact: true })).toBeVisible();
   await expect(
-    page.getByText("Preparing summary · Message preview", { exact: true }),
-  ).toBeVisible();
-  await expect(
-    page.getByText("Summary unavailable · Message preview", { exact: true }),
+    page.getByText("Message preview", { exact: true }),
   ).toBeVisible();
   expect(state.read.size).toBe(0);
   // The provider response is controlled test data; the real inference adapter is verified by API tests.
@@ -527,7 +583,10 @@ test("model summaries and labeled fallbacks retain source links and clear only s
   await expect(page.getByText(first.summary, { exact: true })).toBeVisible({
     timeout: 10_000,
   });
-  await expect(page.getByText("AI summary", { exact: true })).toHaveCount(2);
+  // Ready summaries need no label; only the unavailable one still reads as a preview.
+  await expect(page.getByText("Summarizing…", { exact: true })).toHaveCount(0);
+  await expect(page.locator(".update-label")).toHaveCount(1);
+  await expect(page.locator(".update-label")).toHaveText("Message preview");
   await expect(page.getByText(first.text, { exact: true })).toHaveCount(0);
   await page.screenshot({
     path: info.outputPath("01-populated-summaries.png"),
@@ -554,4 +613,98 @@ test("model summaries and labeled fallbacks retain source links and clear only s
     fullPage: true,
     animations: "disabled",
   });
+});
+
+test("the Updates badge counts unread updates, refreshes after a receipt, and hides at zero", async ({
+  page,
+  context,
+}, info) => {
+  const state = serverState();
+  state.append("An earlier result is ready.");
+  state.append("A second result is ready.");
+  // Keep the earlier replies out of view while the newest one is open.
+  for (let index = 0; index < 40; index++)
+    state.append(`Saved input ${index}`, "user");
+  const newest = state.append("The newest result is ready for review.");
+  await workspace(context, state);
+  await page.goto("/");
+  const updates = navigation(page).getByRole("link", { name: /^Updates/ });
+  const badge = updates.locator(".update-count-badge");
+  await expect(updates).toHaveAccessibleName("Updates, 3 unread");
+  await expect(badge).toHaveText("3");
+  await settled(page.locator(".route-content"));
+  await navigation(page).screenshot({
+    path: info.outputPath("nav-badge-dark.png"),
+  });
+  await page.getByText(newest.text, { exact: true }).click();
+  await expect(page.locator(".update-target")).toContainText(newest.text);
+  await expect.poll(() => state.read.has(newest.id)).toBe(true);
+  // The receipt refreshes the count instead of waiting for the next poll.
+  await expect(updates).toHaveAccessibleName("Updates, 2 unread", {
+    timeout: 2_000,
+  });
+  await expect(badge).toHaveText("2");
+  await page.goto("/updates?theme=daylight");
+  for (let index = 0; index < 120; index++)
+    state.append(`Another result ${index}`);
+  await expect(badge).toHaveText("99+", { timeout: 10_000 });
+  await expect(updates).toHaveAccessibleName("Updates, 122 unread");
+  await settled(page.locator(".route-content"));
+  await navigation(page).screenshot({
+    path: info.outputPath("nav-badge-light.png"),
+  });
+  state.messages.forEach((message) => state.read.add(message.id));
+  await expect(badge).toHaveCount(0, { timeout: 10_000 });
+  await expect(updates).toHaveAccessibleName("Updates");
+});
+
+test("many updates scroll only the content area, keeping navigation in place", async ({
+  page,
+  context,
+}, info) => {
+  const state = serverState();
+  for (let index = 0; index < 55; index++)
+    state.append(
+      `Result ${index} is ready. The checks passed and the preview is waiting for your review.`,
+    );
+  await workspace(context, state);
+  const content = page.locator("#workspace-content");
+  /** The document never scrolls; the routed content area is the single scroll container. */
+  const layout = () =>
+    content.evaluate((element) => ({
+      documentScrolls:
+        document.scrollingElement!.scrollHeight > window.innerHeight,
+      contentScrolls: element.scrollHeight > element.clientHeight,
+    }));
+  await page.goto("/");
+  await expect(page.locator(".update-row")).toHaveCount(8);
+  await settled(page.locator(".route-content"));
+  expect((await layout()).documentScrolls).toBe(false);
+  for (const theme of ["midnight", "daylight"]) {
+    await page.goto(`/updates?theme=${theme}`);
+    await expect(page.locator(".update-row")).toHaveCount(50);
+    await settled(page.locator(".route-content"));
+    expect(await layout()).toEqual({
+      documentScrolls: false,
+      contentScrolls: true,
+    });
+    await content.evaluate((element) =>
+      element.scrollTo({ top: element.scrollHeight }),
+    );
+    await expect(
+      page.getByRole("button", { name: "Load more updates" }),
+    ).toBeInViewport();
+    expect(
+      await page.evaluate(() => document.scrollingElement!.scrollTop),
+    ).toBe(0);
+    await expect(navigation(page)).toBeInViewport();
+    await page.screenshot({
+      path: info.outputPath(
+        `updates-scrolled-${theme === "midnight" ? "dark" : "light"}.png`,
+      ),
+    });
+  }
+  await page.getByRole("button", { name: "Load more updates" }).click();
+  await expect(page.locator(".update-row")).toHaveCount(55);
+  expect((await layout()).documentScrolls).toBe(false);
 });

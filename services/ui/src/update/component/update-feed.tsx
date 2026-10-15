@@ -1,22 +1,33 @@
-import { Check, MessageSquare } from "lucide-react";
+import { Check } from "lucide-react";
 import { Link } from "react-router-dom";
+import type { Update } from "@everything/update-contracts";
 import { Button } from "@everything/ui/button";
 import { useAgents } from "../../agent/component/agent-directory-provider.js";
 import { TeammateAvatar } from "../../agent/component/teammate-avatar.js";
 import { EmptyState } from "../../workspace/component/empty-state.js";
 import { useUpdates } from "../hook/use-updates.js";
+import {
+  presentUpdate,
+  summaryLabels,
+  type UpdatePresentation,
+} from "../model/update-presentation.js";
 
-/** Present unread previews without marking the underlying message read on a feed fetch or click. */
+/** Present unread updates without marking their sources read on a feed fetch or click. */
 export function UpdateFeed({ limit }: { limit?: number }) {
   const feed = useUpdates();
   const agents = useAgents();
-  const updates = [
+  const rows = [
     ...new Map(
       feed.data?.pages
         .flatMap((page) => page.updates)
-        .map((update) => [update.messageId, update]),
+        .map((update) => [update.id, update]),
     ).values(),
-  ].slice(0, limit);
+  ]
+    .flatMap((update) => {
+      const presentation = presentUpdate(update, agents.data);
+      return presentation ? [{ update, presentation }] : [];
+    })
+    .slice(0, limit);
   return (
     <div className="updates-feed">
       {feed.isPending && (
@@ -32,7 +43,7 @@ export function UpdateFeed({ limit }: { limit?: number }) {
           </Button>
         </div>
       )}
-      {!feed.isPending && !feed.isError && !updates.length && (
+      {!feed.isPending && !feed.isError && !rows.length && (
         <EmptyState icon={Check} title="You’re all caught up">
           <p>Messages you haven’t seen from your teammates will appear here.</p>
           <Link className="text-link" to="/team">
@@ -40,49 +51,13 @@ export function UpdateFeed({ limit }: { limit?: number }) {
           </Link>
         </EmptyState>
       )}
-      {updates.length > 0 && (
-        <ul className="update-list" aria-label="Unread teammate messages">
-          {updates.map((update) => {
-            const agent = agents.data?.find(
-              (item) => item.id === update.agentId,
-            );
-            return (
-              <li key={update.messageId}>
-                <Link
-                  className="update-row"
-                  to={`/team/${encodeURIComponent(update.agentId)}?message=${encodeURIComponent(update.messageId)}`}
-                >
-                  <TeammateAvatar
-                    avatarId={agent?.avatarId ?? "avatar-01"}
-                    small
-                  />
-                  <div className="update-copy">
-                    <div className="update-meta">
-                      <strong>{agent?.name ?? "Teammate"}</strong>
-                      <time dateTime={update.createdAt}>
-                        {new Date(update.createdAt).toLocaleString([], {
-                          month: "short",
-                          day: "numeric",
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
-                      </time>
-                    </div>
-                    <span className="update-summary-kind">
-                      {update.summaryStatus === "ready"
-                        ? "AI summary"
-                        : update.summaryStatus === "pending"
-                          ? "Preparing summary · Message preview"
-                          : "Summary unavailable · Message preview"}
-                    </span>
-                    <p>{update.summary}</p>
-                  </div>
-                  <MessageSquare className="update-icon" aria-hidden="true" />
-                  <span className="sr-only">Unread. Open message.</span>
-                </Link>
-              </li>
-            );
-          })}
+      {rows.length > 0 && (
+        <ul className="update-list" aria-label="Unread updates">
+          {rows.map(({ update, presentation }) => (
+            <li key={update.id}>
+              <UpdateRow update={update} presentation={presentation} />
+            </li>
+          ))}
         </ul>
       )}
       {!limit && feed.hasNextPage && (
@@ -97,5 +72,44 @@ export function UpdateFeed({ limit }: { limit?: number }) {
         </div>
       )}
     </div>
+  );
+}
+
+/** One update, with its summary as the main line under where it came from and when. */
+function UpdateRow({
+  update,
+  presentation: { to, source, avatarId, icon: Icon, action },
+}: {
+  update: Update;
+  presentation: UpdatePresentation;
+}) {
+  const label = summaryLabels[update.summaryStatus];
+  return (
+    <Link className="update-row" to={to}>
+      {avatarId ? (
+        <TeammateAvatar avatarId={avatarId} small />
+      ) : (
+        <span className="update-kind-icon" aria-hidden="true">
+          <Icon />
+        </span>
+      )}
+      <div className="update-copy">
+        <div className="update-meta">
+          <span className="update-source">{source}</span>
+          {label && <span className="update-label">{label}</span>}
+          <time dateTime={update.createdAt}>
+            {new Date(update.createdAt).toLocaleString([], {
+              month: "short",
+              day: "numeric",
+              hour: "2-digit",
+              minute: "2-digit",
+            })}
+          </time>
+        </div>
+        <p className="update-summary">{update.summary}</p>
+      </div>
+      <Icon className="update-icon" aria-hidden="true" />
+      <span className="sr-only">Unread. {action}.</span>
+    </Link>
   );
 }

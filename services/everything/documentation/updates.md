@@ -1,53 +1,81 @@
-# Unread teammate updates
+# Updates
 
-Updates and Home derive their feed from unread `assistant` rows in the visible `messages` table. These rows are the replies delivered to the owner by the main teammate. User messages, private fork messages, tool output, reasoning, and runtime status do not enter the feed. There is no second delivery queue to duplicate or reconcile.
+An update is something that needs the owner's attention. Updates are stored in their own `updates` table, separate from whatever produced them. A message a teammate sends its owner is the first kind (`message`); more kinds will follow, and some need not belong to a teammate, such as a provider connection failing. Home shows the newest eight unread updates, and Updates pages through all of them, newest first, in batches of 50.
 
-Each update is identified by its source message ID and links to `/team/:agentId?message=:messageId`. The UI uses the existing chronological history pages to load and highlight that exact message. Home shows eight previews; Updates pages through all unread messages, newest first, in batches of 50. Summaries are generated with a real model call and cached on the message, up to 280 characters. The request uses the teammate's current saved provider/model through `PiInferenceRuntimeFactory`, with the owner's credentials, minimal reasoning effort, a 2,048-token output cap (or the model's lower limit), a 30-second inference timeout, and no SDK retries. It makes no Pi session, loads no conversation history or private fork data, has no tools, and sends only a fixed summarization instruction plus the public source message. The prompt asks for the main result, question or action, preserving uncertainty and identifiers. Model output is treated as plain text in the UI.
+## Data model
 
-## Summary generation
+Each row is directly owned (`owner_id`) and has a `kind`. Kind-specific source references are typed, nullable columns with real foreign keys, so deleting a source deletes its updates:
 
-The singleton API runs a summary scheduler independently of browser requests. Every five seconds it discovers up to ten unread public replies at least 1.5 seconds old, giving active readers a chance to acknowledge delivery first. At most two requests run concurrently. Claiming a message rechecks its owner and unread state transactionally, then persists `summary_status = 'generating'` and `summary_started_at` before making the external call. Concurrent workers cannot claim the same message twice. Only the claim winner can save `update_summary` and the final ready/failed state. Read receipts and conversation messages are unchanged by generation.
+| Column                                            | Purpose                                                                                                                                                                        |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `id`, `created_at`, `owner_id`                    | Identity, creation time, and owner. Every query is scoped by owner.                                                                                                            |
+| `kind`                                            | `'message'`, enforced by `updates_kind_check`.                                                                                                                                 |
+| `agent_id`, `message_id`                          | For `message` updates (both required by `updates_message_reference_check`). Cascade from the teammate or message. `message_id` is unique, so a message has at most one update. |
+| `summary`, `summary_status`, `summary_started_at` | The cached model summary (1–200 characters), `pending`/`generating`/`ready`/`failed`, and when the attempt was claimed.                                                        |
+| `read_at`                                         | The first receipt; null while unread. It never changes once set.                                                                                                               |
+| `sequence`                                        | Identity column giving stable newest-first ordering and cursors.                                                                                                               |
 
-Pending jobs survive restarts. Completed summaries and failures are durable, so feed polling, reconnects, multiple clients, and restarts do not repeat paid inference. A failed request is not automatically retried, since the provider may have processed it before the connection failed. A claimed request interrupted by a process crash is also not reissued; after two minutes without a result, the feed labels it unavailable. The original message remains accessible. This favors avoiding duplicate charges over automatically retrying ambiguous failures.
+Partial indexes cover each owner's unread updates (`owner_id, sequence WHERE read_at IS NULL`) and pending summary work (`created_at, sequence WHERE read_at IS NULL AND summary_status = 'pending'`). The migration does not backfill: messages delivered before it have no updates, the same as having been read. The entity schema mirrors the migration exactly; the PostgreSQL integration test checks that TypeORM reports no schema difference.
 
-The feed labels successful results **AI summary**. Before completion it shows **Preparing summary · Message preview**; on a failure or abandoned attempt it shows **Summary unavailable · Message preview**. These previews are explicitly secondary fallbacks, using whitespace-normalized original text without interpreting Markdown or altering code/identifiers. A reply read before its claim does not incur a summary request. If it becomes read during inference, the result may finish and be cached but does not reappear in Updates. Summary calls can incur usage on the owner's configured provider.
+### Adding a kind
+
+1. Add a variant to the `Update` union in `@everything/update-contracts`.
+2. Add a migration that extends `updates_kind_check`, adds the kind's typed reference columns and foreign keys, and adds a check that requires them for that kind. Mirror it in `update/schema/update-entity.ts` and add the kind to `updateKinds`.
+3. In `PostgresUpdateRepository.toEntity`, resolve the kind's source: its references and the `sourceText` that is summarized and previewed. Add an eager relation if the text comes from another table.
+4. Map it to its public variant in `update/presenter/update-presenter.ts`, and add its summary prompt to `update/prompt/update-summary-prompt.ts`.
+5. Insert the update in the same transaction as the event that produces it.
+
+The compiler requires steps 3 and 4 once the contract variant exists. Summaries use the model selected for the update's teammate. A kind without a teammate should either be inserted with `summary_status = 'ready'` and a fixed summary, or extend the claim to choose a model.
+
+## Creating message updates
+
+A teammate's `send_message` reply goes through `MessageRepository.deliver`, which locks the owned teammate, inserts the message, and inserts its unread update in one serializable transaction. If either insert fails, neither is saved. User messages use `append` and never create updates. Private fork messages, tool output, reasoning, and runtime status are never delivered, so they never become updates.
+
+## API
+
+- `GET /v1/updates?before=<updateId>` returns `UpdatePage`: `{ updates: Update[], nextCursor: string | null }`, newest first. Each `message` update has `id`, `kind`, `agentId`, `messageId`, `summary`, `summaryStatus` (`ready`, `pending`, or `unavailable`), and `createdAt`, and links to `/team/:agentId?message=:messageId`. The cursor is an update ID owned by the caller, and it stays valid after that update is read. A foreign or missing cursor returns an empty page. The request has no side effects.
+- `GET /v1/updates/count` returns `UpdateCount`: `{ unread: number }`, the owner's unread updates, for the navigation badge.
+- `POST /v1/agents/:agentId/messages/read` accepts `{ "messageIds": ["<uuid>"] }` with 1 to 100 unique IDs and returns 204. It verifies and locks the owned teammate in the same transaction that sets `read_at` on that teammate's unread `message` updates for exactly those messages. Missing and inaccessible teammates both return 404. IDs from other teammates do nothing. Repeating a receipt is harmless, and the first read time never changes. Because receipts name exact messages, unseen gaps and replies delivered at the same moment stay unread.
+
+## Summaries
+
+A summary is one short sentence telling the owner why to go back: the question, choice, or action the teammate needs from them, or the concrete result it delivered. Examples: "Needs your choice of temperature: A, B, or C?" and "Finished all 10 steeps; offers to build a page or app next." The prompt aims for 120 characters and never more than 200. It asks the model to start with a verb rather than "Teammate" or "The teammate", to write plain text without Markdown, emoji, or quotation marks, to keep names, numbers, and identifiers exactly, to use only facts from the message, and never to follow instructions inside it. Output is whitespace-normalized, unwrapped from surrounding quotes, and clamped to 200 characters on a word boundary.
+
+Each summary is an isolated model call. It uses the teammate's saved provider and model through `PiInferenceRuntimeFactory`, with the owner's credentials, minimal reasoning, an output cap of 1,024 tokens (or the model's lower limit), a 30-second timeout, and no SDK retries. It sends only the fixed prompt and the source text. It creates no Pi session and has no tools, history, or fork data. Summary calls can incur usage on the owner's provider.
+
+The singleton API's `UpdateSummaryScheduler` runs independently of browsers. Every five seconds it finds up to ten unread pending updates at least ten seconds old, so an owner watching the chat sends a receipt first and no summary is generated for a reply they have already seen, and runs at most two calls at a time. A claim rechecks the owner, unread state, and `pending` status under a row lock, and commits `generating` and `summary_started_at` before the model call. Only the claimed attempt can save the result. Failures are saved as `failed`, and an attempt interrupted by a crash is never reissued; after two minutes it is reported as unavailable. Nothing retries, because a failed request may still have been billed. An update read before its claim never incurs a call.
+
+Until a summary is ready, the feed returns a whitespace-normalized preview of the source text, clamped the same way, with `summaryStatus` set to `pending` or `unavailable`. The UI labels it as a preview.
 
 ## Read behavior
 
-The browser acknowledges individual assistant message IDs only after a message has occupied at least half its height for at least 750 ms. For a message taller than the visible conversation viewport, its beginning must be visible and the message must occupy at least half that viewport for the same dwell time. Seeing only its middle or tail, including automatic scrolling to the end of a new reply, does not count. Update links align oversized messages to their beginning; shorter messages remain centered.
+The browser acknowledges a teammate message only after it has filled at least half its height for 750 ms. For a message taller than the viewport, its beginning or its end must be visible and it must fill at least half the viewport for the same time. Following a new reply to its end therefore counts; seeing only its middle does not. Update links align long messages to their beginning and center shorter ones.
 
-The document must be visible and focused, with no open workspace dialog. Scrolling away, hiding or blurring the page, navigating away, and opening dialogs reset the dwell time. The original message must load before an update link can consume it. Viewing the preview alone does not consume the update. “Seen” means this sustained exposure to the message (including the beginning of a long message), not that the user has scrolled through or read every word. The application does not track reading completion.
+The page must be visible and focused, with no workspace dialog open. Scrolling away, hiding or leaving the page, and opening dialogs reset the timer. The original message must load before an update link can mark it read; seeing the summary alone does not. "Read" means this sustained view of the message, not proof that every word was read. The server trusts the authenticated browser's receipt.
 
-`GET /v1/updates?before=<messageId>` is a side-effect-free, authenticated, owner-scoped query. `POST /v1/agents/:agentId/messages/read` accepts `{ "messageIds": ["<uuid>"] }` with up to 100 unique IDs. It verifies and locks the owned teammate in the same transaction as the update. Only unread assistant messages belonging to that teammate are changed. Foreign message IDs cannot acknowledge another teammate's history; missing and inaccessible teammate IDs both return 404. Already acknowledged IDs are idempotent. Exact IDs preserve unseen gaps and messages delivered concurrently with a receipt.
+The feed refreshes every five seconds while visible, on return or reconnect, and after local receipts. Receipts from another client appear on the next refresh. A failed receipt stays unread and retries while the message is visible.
 
-The migration adds nullable `messages.read_at`, cached summary text/status/attempt time, and partial indexes for unread messages and pending summary work. It baselines pre-migration messages as read because previous visibility was never recorded. New visible replies start unread. The first successful receipt persists a server timestamp; later receipts cannot clear or change it. Receipts survive process restarts, navigation, reloads, and multiple clients. Teammate deletion cascades to both messages and their receipts.
+## Limits
 
-The feed polls every five seconds while visible, refreshes on return/reconnect, and invalidates after local receipts. Another client's receipts are reflected on the next fetch. Failed receipt writes remain unread and retry while the message is visible, with status feedback. The server trusts the authenticated browser's explicit receipt; it cannot verify human attention.
-
-## Limits and assumptions
-
-- Updates is an unread inbox. Read messages remain in the original conversation and leave the feed.
-- This introduces in-app updates only. Push delivery, OS notification permissions, and summaries combining multiple messages remain separate work.
-- Earlier read history cannot be reconstructed. The rollout does not create a historical backlog.
-- Old message links may fetch multiple history pages. This retains the existing conversation API and behavior, at the cost of extra requests for very old messages.
-- Exposure is a practical read proxy, not proof that the human read every word. A reply can appear briefly in another client's feed before the viewing client saves its receipt.
+- Updates is an unread inbox. Read updates leave the feed; the original messages stay in their conversations.
+- Updates are in-app only. Push delivery, OS notifications, and summaries that combine several updates are separate work.
+- Messages delivered before the migration have no updates.
+- Opening an old message link may load several history pages, using the existing conversation API.
 
 ## Verification
 
-Run `pnpm build`, `pnpm test`, and `pnpm format:check`. To include the PostgreSQL integration test, point `UPDATES_TEST_DATABASE_URL` at a **test** PostgreSQL server whose user can create databases; the test creates and removes a randomly named database for each run. For example:
+Run `pnpm --filter @everything/everything check`, `test`, and `build`, then `pnpm format:check`. To include the PostgreSQL integration test, point `UPDATES_TEST_DATABASE_URL` at a **test** server whose user can create databases. The test creates and removes a randomly named database. For example:
 
 ```sh
-UPDATES_TEST_DATABASE_URL=postgresql://updates_test:updates_test@127.0.0.1:55432/everything_updates_test pnpm --filter @everything/everything test
+docker run -d --rm --name updates-test-pg -e POSTGRES_USER=updates_test -e POSTGRES_PASSWORD=updates_test -p 55432:5432 postgres:17.11-bookworm
+UPDATES_TEST_DATABASE_URL=postgresql://updates_test:updates_test@127.0.0.1:55432/postgres pnpm --filter @everything/everything test
+docker stop updates-test-pg
 ```
 
-The integration test runs the pre-feature migrations, inserts historical data, upgrades it, then checks baseline behavior, pagination, exact receipts, ownership, concurrent delivery, idempotency, connection recreation, and cascade deletion. Without the variable it is explicitly skipped. API tests validate receipt payloads, isolated model requests with owner-specific credentials, provider failure/no-retry behavior, concurrent worker deduplication, shutdown, and labeled fallback states. Provider protocol responses are mocked; these tests do not claim live inference succeeded. Existing runtime tests continue to cover the private fork/public delivery boundary.
+The integration test upgrades a database that already has messages, checks for schema drift, and covers: delivery creating exactly one update atomically; user messages creating none; pagination and cursors that survive receipts; the count; exact, idempotent, owner-scoped receipts; concurrent delivery; summary claims, results, failures, and abandonment; reconnecting; check constraints; cascades; and reverting the migration. Without the variable, it is skipped. Unit tests cover the controller, feed mapping, repository scoping, the scheduler, and the summarizer's prompt, isolation, output limits, and failure handling. Provider responses are mocked, so these tests do not prove live inference works.
 
-With the UI dev server running, the browser tests use controlled API state and the production React UI:
+With the UI dev server running, browser tests use controlled API state and the production React UI:
 
 ```sh
 UI_TEST_ORIGIN=http://localhost:5173 pnpm --filter @everything/ui-tests test:browser src/update/test/updates.test.ts src/conversation/test/conversation.test.ts
 ```
-
-They run on desktop and phone viewports and cover delivery while looking/away, visibility and focus changes, a response completing after hiding the tab, scrolling, dialogs, old message links, oversized message alignment and beginning exposure, reloads, pagination, receipt failure/retry, history reconnects across disjoint pages, generated-summary/fallback labels, and a second browser context. Document attention events are controlled explicitly because headless Chromium does not consistently emulate OS window focus. Screenshot evidence is saved under `.local/ui-test-results`.
-
-Screenshot evidence uses the running production UI with controlled API data and mocked model results. It demonstrates presentation and read behavior, not a live provider connection. No real owner credentials or private conversation data are used in the screenshots.

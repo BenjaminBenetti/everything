@@ -4,34 +4,30 @@ import {
   agentParams,
   type AgentParams,
 } from "../../agent/schema/agent-request.js";
-import {
-  messageHistoryQuery,
-  type MessageHistoryQuery,
-} from "../../conversation/schema/message-request.js";
 import type { UpdateOperations } from "../interface/update-operations.js";
 import {
   readMessagesBody,
+  updateFeedQuery,
   type ReadMessagesBody,
+  type UpdateFeedQuery,
 } from "../schema/update-request.js";
 
-/** Keep fetching previews separate from the explicit receipt mutation. */
+/** Keep reading the feed and its count separate from the explicit receipt mutation. */
 export async function updateController(
   app: FastifyInstance,
   updates: UpdateOperations,
 ): Promise<void> {
-  app.get<{ Querystring: MessageHistoryQuery }>(
+  app.get<{ Querystring: UpdateFeedQuery }>(
     "/updates",
-    {
-      schema: { querystring: messageHistoryQuery },
-    },
+    { schema: { querystring: updateFeedQuery } },
     (request) => updates.list(subject(request), request.query.before),
   );
 
+  app.get("/updates/count", (request) => updates.count(subject(request)));
+
   app.post<{ Params: AgentParams; Body: ReadMessagesBody }>(
     "/agents/:agentId/messages/read",
-    {
-      schema: { params: agentParams, body: readMessagesBody },
-    },
+    { schema: { params: agentParams, body: readMessagesBody } },
     async (request, reply) => {
       await updates.read(
         subject(request),

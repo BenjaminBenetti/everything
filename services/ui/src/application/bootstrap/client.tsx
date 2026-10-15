@@ -20,6 +20,7 @@ import "../../conversation/style/conversation.css";
 import "../../conversation/style/message-markdown.css";
 import "../../update/style/updates.css";
 import { HttpConversationClient } from "../../conversation/adapter/http-conversation-client.js";
+import { HttpUpdateClient } from "../../update/adapter/http-update-client.js";
 
 initializeTheme();
 const element = document.getElementById("root");
@@ -46,6 +47,7 @@ async function bootstrap(): Promise<void> {
               conversations={
                 new HttpConversationClient(createAuthenticatedTransport())
               }
+              updates={new HttpUpdateClient(createAuthenticatedTransport())}
               connections={
                 new HttpProviderConnections(createAuthenticatedTransport())
               }

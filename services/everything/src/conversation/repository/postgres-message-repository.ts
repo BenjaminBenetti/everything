@@ -1,15 +1,12 @@
 import { randomUUID } from "node:crypto";
 import {
-  In,
-  IsNull,
   LessThan,
-  LessThanOrEqual,
   type DataSource,
+  type EntityManager,
   type FindOptionsWhere,
 } from "typeorm";
 import {
   messagePageSize,
-  updatePageSize,
   type MessagePage,
 } from "@everything/conversation-contracts";
 import { BaseRepository } from "@everything/persistence/repository";
@@ -23,25 +20,12 @@ import type {
 import type { ConversationMessage, MessageRole } from "../model/message.js";
 import type { MessageRecord } from "../model/message-record.js";
 import { MessageEntity } from "../schema/message-entity.js";
-import type { OwnerScope } from "@everything/persistence/repository";
-import type {
-  MessageUpdates,
-  UnreadMessagePage,
-} from "../../update/interface/message-updates.js";
-
-import type {
-  MessageSummaryStore,
-  SummaryDueScope,
-} from "../../update/interface/message-summary-store.js";
-import type {
-  MessageSummaryInput,
-  MessageSummaryTarget,
-} from "../../update/model/message-summary.js";
+import { UpdateEntity } from "../../update/schema/update-entity.js";
 
 /** Persist chat through ORM relations with transactional ownership checks. */
 export class PostgresMessageRepository
   extends BaseRepository<ConversationMessage, MessageScope, MessageRecord>
-  implements MessageRepository, MessageUpdates, MessageSummaryStore
+  implements MessageRepository
 {
   // ===========================================
   // Construction
@@ -60,22 +44,30 @@ export class PostgresMessageRepository
 
   /** Verify and lock the parent while inserting so concurrent deletion cannot invalidate ownership. */
   async append(
-    { ownerId, agentId }: MessageScope,
+    scope: MessageScope,
     role: MessageRole,
     text: string,
   ): Promise<ConversationMessage> {
+    return serializableTransaction(this.orm.manager, async (manager) =>
+      this.toEntity(await this.insert(manager, scope, role, text)),
+    );
+  }
+
+  /** Commit the reply and its unread update together, so neither exists without the other. */
+  async deliver(
+    scope: MessageScope,
+    text: string,
+  ): Promise<ConversationMessage> {
     return serializableTransaction(this.orm.manager, async (manager) => {
-      const agent = await manager.getRepository(AgentEntity).findOne({
-        where: { id: agentId, ownerId },
-        lock: { mode: "pessimistic_read" },
+      const message = await this.insert(manager, scope, "assistant", text);
+      await manager.getRepository(UpdateEntity).insert({
+        id: randomUUID(),
+        ownerId: scope.ownerId,
+        kind: "message",
+        agentId: message.agentId,
+        messageId: message.id,
       });
-      if (!agent) throw new AgentNotFoundError();
-      const repository = manager.getRepository(MessageEntity);
-      return this.toEntity(
-        await repository.save(
-          repository.create({ id: randomUUID(), agentId, role, text }),
-        ),
-      );
+      return this.toEntity(message);
     });
   }
 
@@ -102,161 +94,26 @@ export class PostgresMessageRepository
     };
   }
 
-  /** Read only deliberately delivered assistant messages; a read cursor still bounds the next page. */
-  async unread(
-    { ownerId }: OwnerScope,
-    before?: string,
-  ): Promise<UnreadMessagePage> {
-    let where: FindOptionsWhere<MessageRecord> = {
-      agent: { ownerId },
-      role: "assistant",
-      readAt: IsNull(),
-    };
-    if (before) {
-      const cursor = await this.orm.findOneBy({
-        agent: { ownerId },
-        id: before,
-        role: "assistant",
-      });
-      if (!cursor) return { messages: [], nextCursor: null };
-      where = { ...where, sequence: LessThan(cursor.sequence) };
-    }
-    const records = await this.orm.find({
-      where,
-      order: { sequence: "DESC" },
-      take: updatePageSize + 1,
-    });
-    const messages = records.slice(0, updatePageSize).map((record) => ({
-      ...this.toEntity(record),
-      agentId: record.agentId,
-      updateSummary: record.updateSummary,
-      summaryStatus: record.summaryStatus,
-      summaryStartedAt: record.summaryStartedAt,
-    }));
-    return {
-      messages,
-      nextCursor: records.length > updatePageSize ? messages.at(-1)!.id : null,
-    };
-  }
+  // ===========================================
+  // Persistence
+  // ===========================================
 
-  /** Lock and verify the parent in the same transaction as the exact, monotonic receipt update. */
-  async markRead(
+  /** Insert a message after locking the owned teammate within the caller's transaction. */
+  private async insert(
+    manager: EntityManager,
     { ownerId, agentId }: MessageScope,
-    messageIds: readonly string[],
-  ): Promise<void> {
-    await serializableTransaction(this.orm.manager, async (manager) => {
-      const agent = await manager.getRepository(AgentEntity).findOne({
-        where: { id: agentId, ownerId },
-        lock: { mode: "pessimistic_read" },
-      });
-      if (!agent) throw new AgentNotFoundError();
-      if (!messageIds.length) return;
-      await manager.getRepository(MessageEntity).update(
-        {
-          agentId: agent.id,
-          id: In([...messageIds]),
-          role: "assistant",
-          readAt: IsNull(),
-        },
-        { readAt: new Date().toISOString() },
-      );
+    role: MessageRole,
+    text: string,
+  ): Promise<MessageRecord> {
+    const agent = await manager.getRepository(AgentEntity).findOne({
+      where: { id: agentId, ownerId },
+      lock: { mode: "pessimistic_read" },
     });
-  }
-
-  /** Discover only old-enough unread public replies, under an explicit internal maintenance scope. */
-  async pendingSummaries({
-    createdBefore,
-  }: SummaryDueScope): Promise<MessageSummaryTarget[]> {
-    if (
-      !(createdBefore instanceof Date) ||
-      !Number.isFinite(createdBefore.getTime())
-    )
-      throw new Error("Summary discovery requires a valid cutoff");
-    const records = await this.orm.find({
-      where: {
-        role: "assistant",
-        readAt: IsNull(),
-        summaryStatus: "pending",
-        createdAt: LessThanOrEqual(createdBefore.toISOString()),
-      },
-      relations: { agent: true },
-      order: { sequence: "ASC" },
-      take: 10,
-    });
-    return records.map((record) => ({
-      id: record.id,
-      agentId: record.agentId,
-      ownerId: record.agent!.ownerId,
-      createdAt: record.createdAt,
-    }));
-  }
-
-  /** Commit the sole attempt before external inference; recheck ownership and unread state while locked. */
-  async claimSummary(
-    { ownerId, agentId }: MessageScope,
-    messageId: string,
-  ): Promise<MessageSummaryInput | undefined> {
-    return serializableTransaction(this.orm.manager, async (manager) => {
-      const agent = await manager.getRepository(AgentEntity).findOne({
-        where: { id: agentId, ownerId },
-        lock: { mode: "pessimistic_read" },
-      });
-      if (!agent) return undefined;
-      const repository = manager.getRepository(MessageEntity);
-      const message = await repository.findOne({
-        where: {
-          id: messageId,
-          agentId: agent.id,
-          role: "assistant",
-          readAt: IsNull(),
-          summaryStatus: "pending",
-        },
-        lock: { mode: "pessimistic_write" },
-      });
-      if (!message) return undefined;
-      await repository.update(
-        { id: message.id, agentId: agent.id, summaryStatus: "pending" },
-        {
-          summaryStatus: "generating",
-          summaryStartedAt: new Date().toISOString(),
-        },
-      );
-      return {
-        id: message.id,
-        agentId: agent.id,
-        ownerId: agent.ownerId,
-        createdAt: message.createdAt,
-        text: message.text,
-        inference: agent.inference,
-      };
-    });
-  }
-
-  /** Save a result once without resurrecting deleted conversations or repeating a failed request. */
-  async finishSummary(
-    { ownerId, agentId }: MessageScope,
-    messageId: string,
-    summary: string | null,
-  ): Promise<void> {
-    await serializableTransaction(this.orm.manager, async (manager) => {
-      const agent = await manager.getRepository(AgentEntity).findOne({
-        where: { id: agentId, ownerId },
-        lock: { mode: "pessimistic_read" },
-      });
-      if (!agent) return;
-      await manager.getRepository(MessageEntity).update(
-        {
-          id: messageId,
-          agentId: agent.id,
-          role: "assistant",
-          summaryStatus: "generating",
-        },
-        {
-          updateSummary: summary,
-          summaryStatus: summary === null ? "failed" : "ready",
-        },
-      );
-    });
+    if (!agent) throw new AgentNotFoundError();
+    const repository = manager.getRepository(MessageEntity);
+    return repository.save(
+      repository.create({ id: randomUUID(), agentId: agent.id, role, text }),
+    );
   }
 
   // ===========================================

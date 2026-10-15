@@ -1,24 +1,7 @@
 /** Message limits shared by the composer, API, persistence, and reply tool. */
 export const messageTextMaxLength = 32000;
 export const messagePageSize = 100;
-export const updatePageSize = 50;
 export const readReceiptMaxSize = 100;
-
-/** A grounded preview of one unread, user-visible teammate message. */
-export interface MessageUpdate {
-  readonly messageId: string;
-  readonly agentId: string;
-  readonly summary: string;
-  /** Whether this is a cached model summary or a clearly labeled source preview. */
-  readonly summaryStatus: "pending" | "ready" | "unavailable";
-  readonly createdAt: string;
-}
-
-/** Newest-first unread messages; the cursor remains valid after a message is read. */
-export interface UpdatePage {
-  readonly updates: MessageUpdate[];
-  readonly nextCursor: string | null;
-}
 
 /** One saved message in a teammate's ongoing conversation. */
 export interface ChatMessage {

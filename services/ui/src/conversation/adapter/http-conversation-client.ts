@@ -2,7 +2,6 @@ import type {
   MessagePage,
   MessageReceipt,
   RuntimeStatus,
-  UpdatePage,
 } from "@everything/conversation-contracts";
 import type { JsonTransport } from "../../http/interface/json-transport.js";
 import type { ConversationClient } from "../interface/conversation-client.js";
@@ -19,15 +18,6 @@ export class HttpConversationClient implements ConversationClient {
   // ===========================================
   // Operations
   // ===========================================
-
-  /** Read a bounded unread feed without changing receipt state. */
-  updates(before?: string, signal?: AbortSignal): Promise<UpdatePage> {
-    const query = before ? `?${new URLSearchParams({ before })}` : "";
-    return this.transport.request(
-      `/v1/updates${query}`,
-      signal ? { signal } : {},
-    );
-  }
 
   /** Retry-safe receipt for exact messages, never a cursor covering unseen gaps. */
   read(agentId: string, messageIds: readonly string[]): Promise<void> {
