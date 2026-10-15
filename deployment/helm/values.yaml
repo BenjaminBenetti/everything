@@ -105,17 +105,17 @@ artifactRegistry:
 # fleetd runs inside Everything's container, which downloads this release when it starts and checks
 # each file against its pinned SHA-256 before using it.
 fleet:
-  version: v3.0.3-beta
+  version: v3.1.1-beta
   # Each release file is downloaded from <releaseUrl>/<version>/<file>.
   releaseUrl: https://github.com/BenjaminBenetti/fleet-man/releases/download
   # SHA-256 of every file Everything installs: fleetd for Everything's architecture, and the pod build
   # and tmux bundle Fleet copies into instances on nodes of either architecture. Update them together
   # with the version.
   checksums:
-    fleet-linux-amd64: 638a1f9f9db84ce590a72edf56237118bffea519ab6f5fdc667955d2f63cc550
-    fleet-linux-arm64: 0295d15fadb2199fd87df1e6bd96879e00a9c88df53f1419e790cb574ac563e1
-    fleet-pod-linux-amd64: 85598b2ff6fffd23b3eb2ddc9d577448722ef0f42ec56bcd8883a4210ca5af24
-    fleet-pod-linux-arm64: 7e4191729a2386f23f95401b38138f7d237eaf7df3acbd37a79799a823810dfb
+    fleet-linux-amd64: f06c7bfbee46bf5d9f534beb13841bef8f454671041f2253bf89d637417ce696
+    fleet-linux-arm64: 980d5ae2a87e940274ec24c884cfda7fd4e0af78236dfb545684e9b03f6519c3
+    fleet-pod-linux-amd64: 1c0a5a9739140fffb04bcf65234541ddee0375639c7acee96da0adeeea3c6a07
+    fleet-pod-linux-arm64: b59ba9e0fb12739e2ff5bffead0b7b1db2cc4eb833d816b95cac940f9e7865b1
     fleet-tmux-linux-amd64.tar.gz: a15f9be287746ab8389226ee5f117ede5bc5601c63c42284ea55655af70b282a
     fleet-tmux-linux-arm64.tar.gz: 30e19752c4d987bbdf942e147e8dcfa425c3446cff01a76b72df7129b283c39f
 
