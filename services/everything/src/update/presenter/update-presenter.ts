@@ -3,12 +3,20 @@ import type { StoredUpdate } from "../model/stored-update.js";
 import { abandonedSummaryMs } from "../model/update-summary.js";
 import { clampSummary } from "../service/summary-text.js";
 
-/** Map a stored update to its public variant, previewing the source until a summary is ready. */
-export function representUpdate(update: StoredUpdate, now: number): Update {
+/** Show the source when summaries are disabled, retaining cached results for re-enabling. */
+export function representUpdate(
+  update: StoredUpdate,
+  now: number,
+  summarizeUpdates: boolean,
+): Update {
   const shared = {
     id: update.id,
-    summary: update.summary ?? clampSummary(update.sourceText),
-    summaryStatus: summaryStatus(update, now),
+    summary:
+      (summarizeUpdates ? update.summary : null) ??
+      clampSummary(update.sourceText),
+    summaryStatus: summarizeUpdates
+      ? summaryStatus(update, now)
+      : ("disabled" as const),
     createdAt: update.createdAt,
   };
   switch (update.kind) {
@@ -22,13 +30,13 @@ export function representUpdate(update: StoredUpdate, now: number): Update {
   }
 }
 
-/** Failed and abandoned attempts are unavailable, since neither is ever retried. */
+/** Seen messages without cached summaries remain previews because they no longer need inference. */
 function summaryStatus(
-  { summaryStatus, summaryStartedAt }: StoredUpdate,
+  { summaryStatus, summaryStartedAt, readAt }: StoredUpdate,
   now: number,
 ): UpdateSummaryStatus {
   if (summaryStatus === "ready") return "ready";
-  if (summaryStatus === "failed") return "unavailable";
+  if (readAt !== null || summaryStatus === "failed") return "unavailable";
   if (
     summaryStatus === "generating" &&
     summaryStartedAt !== null &&

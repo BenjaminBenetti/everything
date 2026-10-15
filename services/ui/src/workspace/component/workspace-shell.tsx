@@ -45,7 +45,8 @@ export function WorkspaceShell() {
     !providers.isError &&
     providers.data?.some((provider) => provider.status === "verified");
   const { open } = useWorkspaceDialogs();
-  const unreadUpdates = useUpdateCount().data?.unread ?? 0;
+  const updateCounts = useUpdateCount().data;
+  const unreadUpdates = updateCounts?.unread ?? 0;
   /** Only Updates carries a count; other destinations have nothing unread. */
   const unreadFor = (path: string) => (path === "/updates" ? unreadUpdates : 0);
   const cache = useQueryClient();
@@ -126,18 +127,23 @@ export function WorkspaceShell() {
           </IconButton>
         </div>
         <div className="sidebar-agents">
-          {agents.data?.map((agent) => (
-            <NavLink
-              key={agent.id}
-              className={({ isActive }) =>
-                `side-agent ${isActive ? "active" : ""}`
-              }
-              to={`/team/${encodeURIComponent(agent.id)}`}
-            >
-              <TeammateAvatar avatarId={agent.avatarId} small />
-              <span>{agent.name}</span>
-            </NavLink>
-          ))}
+          {agents.data?.map((agent) => {
+            const unread = updateCounts?.byAgent?.[agent.id] ?? 0;
+            return (
+              <NavLink
+                key={agent.id}
+                className={({ isActive }) =>
+                  `side-agent ${isActive ? "active" : ""}`
+                }
+                to={`/team/${encodeURIComponent(agent.id)}`}
+                aria-label={unreadLinkLabel(agent.name, unread)}
+              >
+                <TeammateAvatar avatarId={agent.avatarId} small />
+                <span className="side-agent-name">{agent.name}</span>
+                <UpdateCountBadge count={unread} />
+              </NavLink>
+            );
+          })}
           {agents.data?.length === 0 && (
             <p className="sidebar-empty">No teammates yet.</p>
           )}

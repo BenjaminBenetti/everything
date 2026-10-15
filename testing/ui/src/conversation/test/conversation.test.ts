@@ -131,7 +131,7 @@ async function workspace(context: BrowserContext, withModel = true) {
     route.fulfill({ json: { updates: [], nextCursor: null } }),
   );
   await context.route("**/v1/updates/count", (route) =>
-    route.fulfill({ json: { unread: 0 } }),
+    route.fulfill({ json: { unread: 0, byAgent: {} } }),
   );
   return state;
 }

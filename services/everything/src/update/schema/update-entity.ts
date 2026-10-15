@@ -42,6 +42,13 @@ export const UpdateEntity = new EntitySchema<UpdateRecord>({
     },
   },
   relations: {
+    generalSettings: {
+      type: "many-to-one",
+      target: "StoredGeneralSettings",
+      nullable: true,
+      createForeignKeyConstraints: false,
+      joinColumn: { name: "owner_id", referencedColumnName: "ownerId" },
+    },
     agent: {
       type: "many-to-one",
       target: "AgentDefinition",
@@ -75,6 +82,11 @@ export const UpdateEntity = new EntitySchema<UpdateRecord>({
       name: "updates_unread",
       columns: ["ownerId", "sequence"],
       where: "read_at IS NULL",
+    },
+    {
+      name: "updates_seen",
+      columns: ["ownerId", "sequence"],
+      where: "read_at IS NOT NULL",
     },
     {
       name: "updates_pending_summary",

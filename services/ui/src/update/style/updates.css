@@ -82,6 +82,51 @@
   padding: 16px 20px;
   border-top: 1px solid var(--border-default);
 }
+.update-more p {
+  margin-bottom: 12px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.updates-caught-up {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 18px 20px;
+}
+.updates-caught-up h2 {
+  margin: 0 0 5px;
+  font-size: 14px;
+  font-weight: 550;
+}
+.updates-caught-up p {
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.55;
+}
+.updates-history {
+  margin-top: 40px;
+}
+.updates-history > h2 {
+  margin: 0 0 12px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 550;
+}
+.updates-history-empty {
+  padding: 18px 20px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+.update-row-seen .update-summary,
+.update-row-seen .update-icon,
+.update-row-seen .update-kind-icon {
+  color: var(--text-secondary);
+}
+.update-row-seen .teammate-avatar,
+.update-row-seen .update-kind-icon {
+  filter: grayscale(65%);
+  opacity: 0.75;
+}
 
 /* ===========================================
    Unread count in navigation
@@ -102,7 +147,8 @@
   line-height: 1;
   font-variant-numeric: tabular-nums;
 }
-.nav-item .update-count-badge {
+.nav-item .update-count-badge,
+.side-agent .update-count-badge {
   margin-left: auto;
 }
 .mobile-nav-icon {
@@ -186,7 +232,8 @@
   }
 }
 @media (max-width: 600px) {
-  .update-row {
+  .update-row,
+  .updates-caught-up {
     gap: 10px;
     padding: 16px;
   }

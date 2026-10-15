@@ -15,6 +15,15 @@ export class HttpUpdateClient implements UpdateClient {
   // Operations
   // ===========================================
 
+  /** Page seen history using an owned update ID as its stable cursor. */
+  seen(before?: string, signal?: AbortSignal): Promise<UpdatePage> {
+    const query = before ? `?${new URLSearchParams({ before })}` : "";
+    return this.transport.request(
+      `/v1/updates/seen${query}`,
+      signal ? { signal } : {},
+    );
+  }
+
   /** Page with the last update ID seen; the cursor stays valid after updates are read. */
   list(before?: string, signal?: AbortSignal): Promise<UpdatePage> {
     const query = before ? `?${new URLSearchParams({ before })}` : "";

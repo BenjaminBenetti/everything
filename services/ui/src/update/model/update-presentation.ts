@@ -26,6 +26,7 @@ export const summaryLabels: Readonly<
   ready: undefined,
   pending: "Summarizing…",
   unavailable: "Message preview",
+  disabled: "Message preview",
 };
 
 /** Describe each kind of update; a new kind needs only a new case here. */

@@ -6,11 +6,13 @@ import { useAgents } from "../component/agent-directory-provider.js";
 import { AgentCard } from "../component/agent-card.js";
 import { PageHeading } from "../../workspace/component/page-heading.js";
 import { useWorkspaceDialogs } from "../../workspace/component/workspace-dialogs.js";
+import { useUpdateCount } from "../../update/hook/use-updates.js";
 
-/** Search and manage durable agent definitions through the shared directory query. */
+/** Search and manage teammates with their unread totals from the shared count query. */
 export function TeamPage() {
   const [search, setSearch] = useState("");
   const agents = useAgents();
+  const updateCounts = useUpdateCount().data;
   const { open } = useWorkspaceDialogs();
   const term = search.trim().toLocaleLowerCase();
   const filtered =
@@ -57,7 +59,11 @@ export function TeamPage() {
       {!agents.isPending && !agents.isError && (
         <div className="agent-grid">
           {filtered.map((agent) => (
-            <AgentCard key={agent.id} agent={agent} />
+            <AgentCard
+              key={agent.id}
+              agent={agent}
+              unreadCount={updateCounts?.byAgent?.[agent.id] ?? 0}
+            />
           ))}
           {!term && (
             <button

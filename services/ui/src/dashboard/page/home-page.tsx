@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { PageHeading } from "../../workspace/component/page-heading.js";
 import { UpdateFeed } from "../../update/component/update-feed.js";
 import { useWorkspaceDialogs } from "../../workspace/component/workspace-dialogs.js";
+import { RecentTeammates } from "../../agent/component/recent-teammates.js";
 
 /** Show recent unread updates and entry points into the team. */
 export function HomePage() {
@@ -26,13 +27,10 @@ export function HomePage() {
         </section>
         <aside className="dashboard-recent" aria-labelledby="recent-heading">
           <div className="section-heading">
-            <h2 id="recent-heading">Your conversations</h2>
+            <h2 id="recent-heading">Recent teammates</h2>
           </div>
           <p className="recent-intro">Pick up where you left off.</p>
-          <p className="recent-empty">
-            Open a teammate to return to your conversation. Your messages stay
-            together in one place.
-          </p>
+          <RecentTeammates />
           <Link className="team-link" to="/team">
             View your team <ArrowRight aria-hidden="true" />
           </Link>

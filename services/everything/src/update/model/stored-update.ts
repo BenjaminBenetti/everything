@@ -21,8 +21,8 @@ export interface StoredMessageUpdate extends StoredUpdateBase {
 /** Every kind of stored update, discriminated by `kind`. */
 export type StoredUpdate = StoredMessageUpdate;
 
-/** Newest-first unread updates and the cursor for the next page. */
-export interface UnreadUpdatePage {
+/** Newest-first updates within a read-state filter and the cursor for the next page. */
+export interface StoredUpdatePage {
   readonly updates: StoredUpdate[];
   readonly nextCursor: string | null;
 }

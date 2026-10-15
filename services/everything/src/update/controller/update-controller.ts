@@ -25,6 +25,12 @@ export async function updateController(
 
   app.get("/updates/count", (request) => updates.count(subject(request)));
 
+  app.get<{ Querystring: UpdateFeedQuery }>(
+    "/updates/seen",
+    { schema: { querystring: updateFeedQuery } },
+    (request) => updates.seen(subject(request), request.query.before),
+  );
+
   app.post<{ Params: AgentParams; Body: ReadMessagesBody }>(
     "/agents/:agentId/messages/read",
     { schema: { params: agentParams, body: readMessagesBody } },

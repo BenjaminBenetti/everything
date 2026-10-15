@@ -30,10 +30,15 @@ function operations(calls: unknown[]): UpdateOperations {
         nextCursor: null,
       };
     },
-    /** Return a fixed unread count. */
+    /** Keep history separate from unread feeds and explicit receipts. */
+    async seen(owner, before) {
+      calls.push(["seen", owner, before]);
+      return { updates: [], nextCursor: null };
+    },
+    /** Return fixed total and teammate unread counts. */
     async count(owner) {
       calls.push(["count", owner]);
-      return { unread: 3 };
+      return { unread: 3, byAgent: { [agentId]: 3 } };
     },
     /** Record the receipt. */
     async read(owner, agent, ids) {
@@ -56,7 +61,7 @@ test("the feed, its count, and explicit receipts stay separate and use the authe
   );
   const count = await app.inject({ url: "/updates/count" });
   assert.equal(count.statusCode, 200);
-  assert.deepEqual(count.json(), { unread: 3 });
+  assert.deepEqual(count.json(), { unread: 3, byAgent: { [agentId]: 3 } });
   assert.deepEqual(calls, [
     ["list", "owner", undefined],
     ["list", "owner", updateId],
@@ -99,6 +104,27 @@ test("the feed, its count, and explicit receipts stay separate and use the authe
       400,
     );
   assert.equal(calls.length, 4);
+});
+
+test("seen history uses the authenticated owner, validates cursors, and never sends receipts", async (context) => {
+  const calls: unknown[] = [];
+  const app = authenticatedTestServer();
+  context.after(() => app.close());
+  await updateController(app, operations(calls));
+  for (const suffix of ["", `?before=${updateId}`]) {
+    const response = await app.inject({ url: `/updates/seen${suffix}` });
+    assert.equal(response.statusCode, 200);
+    assert.deepEqual(response.json(), { updates: [], nextCursor: null });
+  }
+  for (const query of ["before=invalid", "ownerId=other", "limit=100000"])
+    assert.equal(
+      (await app.inject({ url: `/updates/seen?${query}` })).statusCode,
+      400,
+    );
+  assert.deepEqual(calls, [
+    ["seen", "owner", undefined],
+    ["seen", "owner", updateId],
+  ]);
 });
 
 test("inaccessible and missing conversations have the same receipt response", async (context) => {

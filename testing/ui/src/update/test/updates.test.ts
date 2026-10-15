@@ -9,6 +9,7 @@ import {
 
 interface Message {
   id: string;
+  agentId: string;
   role: "user" | "assistant";
   text: string;
   createdAt: string;
@@ -33,10 +34,17 @@ function serverState() {
     historyFetches: 0,
     historyDelay: undefined as Promise<void> | undefined,
     feedFetches: 0,
-    /** Deliver only public conversation content into the mock API. */
-    append(text: string, role: Message["role"] = "assistant") {
+    seenFetches: 0,
+    failSeenPages: false,
+    /** Deliver public conversation content for the selected teammate into the mock API. */
+    append(
+      text: string,
+      role: Message["role"] = "assistant",
+      agentId = "avery",
+    ) {
       const message: Message = {
         id: randomUUID(),
+        agentId,
         role,
         text,
         createdAt: new Date().toISOString(),
@@ -65,24 +73,22 @@ async function workspace(
   await context.route("**/v1/agents", (route) =>
     route.fulfill({
       json: {
-        agents: [
-          {
-            id: "avery",
-            name: "Avery",
-            avatarId: "avatar-03",
-            systemPrompt: "Help with planning",
-            createdAt: "2026-10-14T10:00:00Z",
-            inference: {
-              provider: "openai-compatible",
-              model: "test-model",
-              effort: "high",
-            },
+        agents: ["Avery", "Blake", "Casey"].map((name) => ({
+          id: name.toLowerCase(),
+          name,
+          avatarId: "avatar-03",
+          systemPrompt: "Help with planning",
+          createdAt: "2026-10-14T10:00:00Z",
+          inference: {
+            provider: "openai-compatible",
+            model: "test-model",
+            effort: "high",
           },
-        ],
+        })),
       },
     }),
   );
-  await context.route("**/v1/agents/avery/runtime", (route) =>
+  await context.route("**/v1/agents/*/runtime", (route) =>
     route.fulfill({
       json: {
         status: "running",
@@ -96,29 +102,40 @@ async function workspace(
     }),
   );
   await context.route(
-    /\/v1\/agents\/avery\/messages(?:\?.*)?$/,
+    /\/v1\/agents\/[^/]+\/messages(?:\?.*)?$/,
     async (route) => {
       state.historyFetches++;
       if (state.failHistory) return route.fulfill({ status: 503, json: {} });
-      const cursor = new URL(route.request().url()).searchParams.get("before");
+      const url = new URL(route.request().url());
+      const agentId = url.pathname.split("/")[3];
+      const history = state.messages.filter(
+        (message) => message.agentId === agentId,
+      );
+      const cursor = url.searchParams.get("before");
       const end = cursor
-        ? state.messages.findIndex((message) => message.id === cursor)
-        : state.messages.length;
+        ? history.findIndex((message) => message.id === cursor)
+        : history.length;
       const start = Math.max(0, end - 100);
-      const messages = state.messages.slice(start, end);
+      const messages = history.slice(start, end);
       await state.historyDelay;
       return route.fulfill({
         json: { messages, nextCursor: start > 0 ? messages[0]!.id : null },
       });
     },
   );
-  await context.route("**/v1/agents/avery/messages/read", (route) => {
+  await context.route("**/v1/agents/*/messages/read", (route) => {
     const { messageIds } = route.request().postDataJSON() as {
       messageIds: string[];
     };
     state.receipts.push(messageIds);
     if (state.failReceipts) return route.fulfill({ status: 503, json: {} });
-    messageIds.forEach((id) => state.read.add(id));
+    const agentId = new URL(route.request().url()).pathname.split("/")[3];
+    state.messages
+      .filter(
+        (message) =>
+          message.agentId === agentId && messageIds.includes(message.id),
+      )
+      .forEach((message) => state.read.add(message.id));
     return route.fulfill({ status: 204 });
   });
   /** Unread teammate replies, oldest first, as the server derives updates from them. */
@@ -126,20 +143,30 @@ async function workspace(
     state.messages.filter(
       (message) => message.role === "assistant" && !state.read.has(message.id),
     );
-  await context.route(/\/v1\/updates(?:\?.*)?$/, (route) => {
-    state.feedFetches++;
-    if (state.failFeed) return route.fulfill({ status: 503, json: {} });
-    const cursor = new URL(route.request().url()).searchParams.get("before");
+  await context.route(/\/v1\/updates(?:\/seen)?(?:\?.*)?$/, (route) => {
+    const url = new URL(route.request().url());
+    const seen = url.pathname.endsWith("/seen");
+    if (seen) state.seenFetches++;
+    else state.feedFetches++;
+    const cursor = url.searchParams.get("before");
+    if ((!seen && state.failFeed) || (seen && cursor && state.failSeenPages))
+      return route.fulfill({ status: 503, json: {} });
     const end = cursor
       ? state.messages.findIndex((message) => updateId(message) === cursor)
       : state.messages.length;
-    const older = unread()
+    const items = seen
+      ? state.messages.filter(
+          (message) =>
+            message.role === "assistant" && state.read.has(message.id),
+        )
+      : unread();
+    const older = items
       .filter((message) => state.messages.indexOf(message) < end)
       .reverse();
     const updates = older.slice(0, 50).map((message) => ({
       id: updateId(message),
       kind: "message",
-      agentId: "avery",
+      agentId: message.agentId,
       messageId: message.id,
       summary: message.summary ?? message.text,
       summaryStatus: message.summaryStatus ?? "ready",
@@ -152,9 +179,26 @@ async function workspace(
       },
     });
   });
-  await context.route(/\/v1\/updates\/count(?:\?.*)?$/, (route) =>
-    route.fulfill({ json: { unread: unread().length } }),
-  );
+  await context.route(/\/v1\/updates\/count(?:\?.*)?$/, (route) => {
+    const updates = unread();
+    return route.fulfill({
+      json: {
+        unread: updates.length,
+        byAgent: Object.fromEntries(
+          ["avery", "blake", "casey"]
+            .map(
+              (agentId) =>
+                [
+                  agentId,
+                  updates.filter((message) => message.agentId === agentId)
+                    .length,
+                ] as const,
+            )
+            .filter(([, count]) => count > 0),
+        ),
+      },
+    });
+  });
 }
 
 /** The workspace navigation for the current viewport: the sidebar, or the bottom bar on phones. */
@@ -167,6 +211,110 @@ function navigation(page: Page) {
     exact: true,
   });
 }
+
+test("compact caught-up card precedes muted seen history that scrolls through every page and opens old messages", async ({
+  page,
+  context,
+}, info) => {
+  const state = serverState();
+  for (let index = 0; index < 105; index++) {
+    const message = state.append(`Seen result ${index} is ready to revisit.`);
+    state.read.add(message.id);
+  }
+  await workspace(context, state);
+  await page.goto("/updates");
+  const caughtUp = page.locator(".updates-caught-up");
+  const history = page.getByRole("list", { name: "Seen updates" });
+  const rows = history.getByRole("link");
+  await expect(caughtUp).toBeVisible();
+  await expect(rows).toHaveCount(50);
+  const initialRequests = state.seenFetches;
+  await expect(rows.first()).toContainText("Seen result 104");
+  const card = await caughtUp.boundingBox();
+  const row = await rows.first().boundingBox();
+  const heading = await page
+    .getByRole("heading", { name: "Seen", exact: true })
+    .boundingBox();
+  expect(card!.height).toBeLessThanOrEqual(row!.height + 30);
+  expect(heading!.y - card!.y - card!.height).toBeGreaterThanOrEqual(32);
+  expect(
+    await rows
+      .first()
+      .locator(".update-summary")
+      .evaluate((element) => getComputedStyle(element).color),
+  ).toBe(
+    await page
+      .getByRole("heading", { name: "Seen", exact: true })
+      .evaluate((element) => getComputedStyle(element).color),
+  );
+  await page.screenshot({
+    path: info.outputPath("seen-history.png"),
+    animations: "disabled",
+  });
+  await rows.last().scrollIntoViewIfNeeded();
+  await expect(rows).toHaveCount(100);
+  await rows.last().scrollIntoViewIfNeeded();
+  await expect(rows).toHaveCount(105);
+  await expect(
+    page.getByRole("button", { name: "Load more updates" }),
+  ).toHaveCount(0);
+  expect(state.seenFetches - initialRequests).toBe(2);
+  expect(state.receipts).toEqual([]);
+  const links = await rows.evaluateAll((elements) =>
+    elements.map((element) => element.getAttribute("href")),
+  );
+  expect(new Set(links).size).toBe(105);
+  const oldest = state.messages[0]!;
+  await rows.last().click();
+  await expect(page).toHaveURL(
+    new RegExp(`/team/avery\\?message=${oldest.id}$`),
+  );
+  await expect(page.locator(".update-target")).toContainText(oldest.text);
+  await expect(page.locator(".update-target")).toBeInViewport();
+  expect(state.historyFetches).toBeGreaterThan(1);
+});
+
+test("seen pagination failures retain cards and retry, and reading an unread update moves it into history", async ({
+  page,
+  context,
+}) => {
+  const state = serverState();
+  for (let index = 0; index < 55; index++) {
+    const message = state.append(`Earlier seen result ${index}.`);
+    state.read.add(message.id);
+  }
+  const newest = state.append("This new result still needs attention.");
+  state.failSeenPages = true;
+  await workspace(context, state);
+  await page.goto("/updates?theme=daylight");
+  const unread = page.getByRole("list", { name: "Unread updates" });
+  const seen = page.getByRole("list", { name: "Seen updates" });
+  await expect(unread.getByRole("link")).toHaveCount(1);
+  await expect(seen.getByRole("link")).toHaveCount(50);
+  await seen.getByRole("link").last().scrollIntoViewIfNeeded();
+  await expect(page.getByRole("alert")).toHaveText(
+    "Couldn’t load older updates. Try again.",
+  );
+  await expect(seen.getByRole("link")).toHaveCount(50);
+  const requests = state.seenFetches;
+  await page.waitForTimeout(300);
+  expect(state.seenFetches).toBe(requests);
+  state.failSeenPages = false;
+  await page.getByRole("button", { name: "Try again" }).click();
+  await expect(seen.getByRole("link")).toHaveCount(55);
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await unread.getByRole("link").click();
+  await expect(page.locator(".update-target")).toContainText(newest.text);
+  await expect.poll(() => state.read.has(newest.id)).toBe(true);
+  await navigation(page)
+    .getByRole("link", { name: /^Updates/ })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "You’re all caught up" }),
+  ).toBeVisible();
+  await expect(seen.getByRole("link").first()).toContainText(newest.text);
+  await expect(unread).toHaveCount(0);
+});
 
 /** Wait for an element's transitions, such as the route's, whose transform would otherwise hide layout overflow. */
 async function settled(element: Locator) {
@@ -193,6 +341,140 @@ async function attention(page: Page, visible: boolean, focused: boolean) {
     { visible, focused },
   );
 }
+
+test("teammate badges include every unread page and refresh independently on desktop and phones", async ({
+  page,
+  context,
+}, info) => {
+  const state = serverState();
+  for (let index = 0; index < 105; index++)
+    state.append(`Avery result ${index}`);
+  state.append("Blake's first result", "assistant", "blake");
+  state.append("Blake's second result", "assistant", "blake");
+  state.append("Casey's request", "user", "casey");
+  await workspace(context, state);
+  await page.goto("/updates");
+  await expect(
+    page.getByRole("list", { name: "Unread updates" }).locator(".update-row"),
+  ).toHaveCount(50);
+  await expect(
+    navigation(page).getByRole("link", {
+      name: "Updates, 107 unread",
+      exact: true,
+    }),
+  ).toContainText("99+");
+  await navigation(page)
+    .getByRole("link", { name: /^(Your team|Team)$/ })
+    .click();
+  const avery = page.locator('.agent-open[href="/team/avery"]');
+  const blake = page.locator('.agent-open[href="/team/blake"]');
+  const casey = page.locator('.agent-open[href="/team/casey"]');
+  await expect(avery).toHaveAccessibleName("Chat with Avery, 105 unread");
+  await expect(avery.locator(".update-count-badge")).toHaveText("99+");
+  await expect(blake).toHaveAccessibleName("Chat with Blake, 2 unread");
+  await expect(blake.locator(".update-count-badge")).toHaveText("2");
+  await expect(casey).toHaveAccessibleName("Chat with Casey");
+  await expect(casey.locator(".update-count-badge")).toHaveCount(0);
+  if (info.project.name === "desktop") {
+    await expect(
+      page.locator('.side-agent[href="/team/avery"]'),
+    ).toHaveAccessibleName("Avery, 105 unread");
+    await expect(
+      page.locator('.side-agent[href="/team/avery"] .update-count-badge'),
+    ).toHaveText("99+");
+    await expect(
+      page.locator('.side-agent[href="/team/blake"] .update-count-badge'),
+    ).toHaveText("2");
+    await expect(
+      page.locator('.side-agent[href="/team/casey"] .update-count-badge'),
+    ).toHaveCount(0);
+  }
+  await settled(page.locator(".route-content"));
+  await page.screenshot({
+    path: info.outputPath("teammate-update-counts.png"),
+    fullPage: true,
+    animations: "disabled",
+  });
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true);
+
+  // A receipt in another client clears only Avery while new delivery increases Blake's count.
+  state.messages
+    .filter((message) => message.agentId === "avery")
+    .forEach((message) => state.read.add(message.id));
+  state.append("Blake's latest result", "assistant", "blake");
+  await expect(avery).toHaveAccessibleName("Chat with Avery", {
+    timeout: 10_000,
+  });
+  await expect(avery.locator(".update-count-badge")).toHaveCount(0);
+  await expect(blake).toHaveAccessibleName("Chat with Blake, 3 unread");
+  await expect(blake.locator(".update-count-badge")).toHaveText("3");
+  await expect(
+    navigation(page).getByRole("link", {
+      name: "Updates, 3 unread",
+      exact: true,
+    }),
+  ).toBeVisible();
+  if (info.project.name === "desktop") {
+    await expect(
+      page.locator('.side-agent[href="/team/avery"] .update-count-badge'),
+    ).toHaveCount(0);
+    await expect(
+      page.locator('.side-agent[href="/team/blake"]'),
+    ).toHaveAccessibleName("Blake, 3 unread");
+  }
+});
+
+test("reading a teammate clears its badges while other teammates stay unread", async ({
+  page,
+  context,
+}) => {
+  const state = serverState();
+  const first = state.append("Avery's first reply");
+  const second = state.append("Avery's second reply");
+  const other = state.append("Blake's reply", "assistant", "blake");
+  await workspace(context, state);
+  await page.goto("/team");
+  await page
+    .getByRole("link", { name: "Chat with Avery, 2 unread", exact: true })
+    .click();
+  await expect.poll(() => state.read.has(second.id)).toBe(true);
+  // The phone history shows only the newest reply until the earlier one is scrolled into view.
+  await page.getByText(first.text, { exact: true }).scrollIntoViewIfNeeded();
+  await expect.poll(() => state.read.has(first.id)).toBe(true);
+  expect(state.read.has(other.id)).toBe(false);
+  await expect(
+    navigation(page).getByRole("link", {
+      name: "Updates, 1 unread",
+      exact: true,
+    }),
+  ).toBeVisible();
+  await navigation(page)
+    .getByRole("link", { name: /^(Your team|Team)$/ })
+    .click();
+  await expect(
+    page
+      .getByRole("link", { name: "Chat with Avery", exact: true })
+      .locator(".update-count-badge"),
+  ).toHaveCount(0);
+  await page
+    .getByRole("link", { name: "Chat with Blake, 1 unread", exact: true })
+    .click();
+  await expect.poll(() => state.read.has(other.id)).toBe(true);
+  await expect(
+    navigation(page)
+      .getByRole("link", { name: "Updates", exact: true })
+      .locator(".update-count-badge"),
+  ).toHaveCount(0);
+  await navigation(page)
+    .getByRole("link", { name: /^(Your team|Team)$/ })
+    .click();
+  await expect(page.locator(".agent-card .update-count-badge")).toHaveCount(0);
+  await expect(page.locator(".side-agent .update-count-badge")).toHaveCount(0);
+});
 
 test("looking acknowledges delivery; away messages populate Home and Updates without fetch side effects", async ({
   page,
@@ -221,7 +503,9 @@ test("looking acknowledges delivery; away messages populate Home and Updates wit
   expect(state.read.has(away.id)).toBe(false);
   await page.reload();
   await expect(page.getByText(away.text, { exact: true })).toBeVisible();
-  await expect(page.locator(".update-row")).toHaveCount(1);
+  await expect(
+    page.getByRole("list", { name: "Unread updates" }).locator(".update-row"),
+  ).toHaveCount(1);
   expect(state.read.has(away.id)).toBe(false);
   await page.screenshot({
     path: info.outputPath("updates.png"),
@@ -229,7 +513,10 @@ test("looking acknowledges delivery; away messages populate Home and Updates wit
   });
   await page.goto("/");
   await expect(page.getByText(away.text, { exact: true })).toBeVisible();
-  await page.locator(".update-row").click();
+  await page
+    .getByRole("list", { name: "Unread updates" })
+    .locator(".update-row")
+    .click();
   await expect(page.locator(".update-target")).toContainText(away.text);
   await expect.poll(() => state.read.has(away.id)).toBe(true);
   await page.goto("/updates");
@@ -281,8 +568,12 @@ test("old update links load earlier history, highlight the exact message, and su
   await expect(page.locator(".update-target")).toBeInViewport();
   expect(state.read.has(newest.id)).toBe(false);
   await page.goto("/updates");
-  await expect(page.locator(".update-row")).toHaveCount(1);
-  await expect(page.locator(".update-row")).toContainText(newest.text);
+  await expect(
+    page.getByRole("list", { name: "Unread updates" }).locator(".update-row"),
+  ).toHaveCount(1);
+  await expect(
+    page.getByRole("list", { name: "Unread updates" }).locator(".update-row"),
+  ).toContainText(newest.text);
 });
 
 test("hidden and unfocused tabs never acknowledge fetched messages; returning and receipt retries persist", async ({
@@ -382,9 +673,17 @@ test("another client observes durable receipts, feed pagination stays deduplicat
     state.append(`Unread result ${index}`);
   await workspace(context, state);
   await page.goto("/updates");
-  await expect(page.locator(".update-row")).toHaveCount(50);
-  await page.getByRole("button", { name: "Load more updates" }).click();
-  await expect(page.locator(".update-row")).toHaveCount(55);
+  await expect(
+    page.getByRole("list", { name: "Unread updates" }).locator(".update-row"),
+  ).toHaveCount(50);
+  await page
+    .getByRole("list", { name: "Unread updates" })
+    .locator(".update-row")
+    .last()
+    .scrollIntoViewIfNeeded();
+  await expect(
+    page.getByRole("list", { name: "Unread updates" }).locator(".update-row"),
+  ).toHaveCount(55);
   expect(state.read.size).toBe(0);
   const secondContext = await browser.newContext();
   try {
@@ -395,7 +694,11 @@ test("another client observes durable receipts, feed pagination stays deduplicat
     await other.getByText(latest.text, { exact: true }).click();
     await expect.poll(() => state.read.has(latest.id)).toBe(true);
     await page.bringToFront();
-    await expect(page.getByText(latest.text, { exact: true })).toHaveCount(0, {
+    await expect(
+      page
+        .getByRole("list", { name: "Unread updates" })
+        .getByText(latest.text, { exact: true }),
+    ).toHaveCount(0, {
       timeout: 10_000,
     });
     const ids = await page
@@ -407,9 +710,18 @@ test("another client observes durable receipts, feed pagination stays deduplicat
     await expect(page.getByRole("alert")).toBeVisible();
     state.failFeed = false;
     await page.getByRole("button", { name: "Try again" }).click();
-    await expect(page.locator(".update-row").first()).toBeVisible();
+    await expect(
+      page
+        .getByRole("list", { name: "Unread updates" })
+        .locator(".update-row")
+        .first(),
+    ).toBeVisible();
     state.failHistory = true;
-    await page.locator(".update-row").first().click();
+    await page
+      .getByRole("list", { name: "Unread updates" })
+      .locator(".update-row")
+      .first()
+      .click();
     await expect(page.getByRole("button", { name: "Reconnect" })).toBeVisible();
     await expect(
       page.getByText("This message is no longer available.", { exact: true }),
@@ -607,8 +919,14 @@ test("model summaries and labeled fallbacks retain source links and clear only s
     animations: "disabled",
   });
   await page.goto("/updates");
-  await expect(page.locator(".update-row")).toHaveCount(2);
-  await expect(page.getByText(first.summary, { exact: true })).toHaveCount(0);
+  await expect(
+    page.getByRole("list", { name: "Unread updates" }).locator(".update-row"),
+  ).toHaveCount(2);
+  await expect(
+    page
+      .getByRole("list", { name: "Unread updates" })
+      .getByText(first.summary, { exact: true }),
+  ).toHaveCount(0);
   await expect(page.getByText(second.summary, { exact: true })).toBeVisible();
   expect(state.read.has(second.id)).toBe(false);
   expect(state.read.has(fallback.id)).toBe(false);
@@ -681,12 +999,16 @@ test("many updates scroll only the content area, keeping navigation in place", a
       contentScrolls: element.scrollHeight > element.clientHeight,
     }));
   await page.goto("/");
-  await expect(page.locator(".update-row")).toHaveCount(8);
+  await expect(
+    page.getByRole("list", { name: "Unread updates" }).locator(".update-row"),
+  ).toHaveCount(8);
   await settled(page.locator(".route-content"));
   expect((await layout()).documentScrolls).toBe(false);
   for (const theme of ["midnight", "daylight"]) {
     await page.goto(`/updates?theme=${theme}`);
-    await expect(page.locator(".update-row")).toHaveCount(50);
+    await expect(
+      page.getByRole("list", { name: "Unread updates" }).locator(".update-row"),
+    ).toHaveCount(50);
     await settled(page.locator(".route-content"));
     expect(await layout()).toEqual({
       documentScrolls: false,
@@ -696,8 +1018,8 @@ test("many updates scroll only the content area, keeping navigation in place", a
       element.scrollTo({ top: element.scrollHeight }),
     );
     await expect(
-      page.getByRole("button", { name: "Load more updates" }),
-    ).toBeInViewport();
+      page.getByRole("list", { name: "Unread updates" }).locator(".update-row"),
+    ).toHaveCount(55);
     expect(
       await page.evaluate(() => document.scrollingElement!.scrollTop),
     ).toBe(0);
@@ -708,7 +1030,13 @@ test("many updates scroll only the content area, keeping navigation in place", a
       ),
     });
   }
-  await page.getByRole("button", { name: "Load more updates" }).click();
-  await expect(page.locator(".update-row")).toHaveCount(55);
+  await page
+    .getByRole("list", { name: "Unread updates" })
+    .locator(".update-row")
+    .last()
+    .scrollIntoViewIfNeeded();
+  await expect(
+    page.getByRole("list", { name: "Unread updates" }).locator(".update-row"),
+  ).toHaveCount(55);
   expect((await layout()).documentScrolls).toBe(false);
 });

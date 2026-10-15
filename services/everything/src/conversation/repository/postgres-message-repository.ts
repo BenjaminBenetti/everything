@@ -98,7 +98,7 @@ export class PostgresMessageRepository
   // Persistence
   // ===========================================
 
-  /** Insert a message after locking the owned teammate within the caller's transaction. */
+  /** Insert under the owned teammate's lock, advancing recency only for a user's sent message. */
   private async insert(
     manager: EntityManager,
     { ownerId, agentId }: MessageScope,
@@ -107,13 +107,27 @@ export class PostgresMessageRepository
   ): Promise<MessageRecord> {
     const agent = await manager.getRepository(AgentEntity).findOne({
       where: { id: agentId, ownerId },
-      lock: { mode: "pessimistic_read" },
+      lock: {
+        mode: role === "user" ? "pessimistic_write" : "pessimistic_read",
+      },
     });
     if (!agent) throw new AgentNotFoundError();
     const repository = manager.getRepository(MessageEntity);
-    return repository.save(
+    const message = await repository.save(
       repository.create({ id: randomUUID(), agentId: agent.id, role, text }),
     );
+    if (
+      role === "user" &&
+      (!agent.lastInteractedAt ||
+        Date.parse(message.createdAt) > Date.parse(agent.lastInteractedAt))
+    )
+      await manager
+        .getRepository(AgentEntity)
+        .update(
+          { id: agent.id, ownerId },
+          { lastInteractedAt: message.createdAt },
+        );
+    return message;
   }
 
   // ===========================================

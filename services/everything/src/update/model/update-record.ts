@@ -2,6 +2,7 @@ import type { OwnedEntity } from "@everything/persistence/entity";
 import type { UpdateKind } from "@everything/update-contracts";
 import type { AgentDefinition } from "../../agent/model/agent.js";
 import type { MessageRecord } from "../../conversation/model/message-record.js";
+import type { StoredGeneralSettings } from "../../settings/model/general-settings.js";
 
 /** Kinds the database accepts; each also needs a contract variant, source columns, and a mapping. */
 export const updateKinds = ["message"] as const satisfies readonly UpdateKind[];
@@ -17,6 +18,8 @@ export type StoredSummaryStatus = (typeof storedSummaryStatuses)[number];
 
 /** ORM mapping of one update, with the typed references and relations of every kind's source. */
 export interface UpdateRecord extends OwnedEntity {
+  /** Optional owner preferences; summaries require an explicit opt-in. */
+  readonly generalSettings?: StoredGeneralSettings;
   readonly kind: UpdateKind;
   /** Insertion order; PostgreSQL bigint values are mapped to strings. */
   readonly sequence: string;

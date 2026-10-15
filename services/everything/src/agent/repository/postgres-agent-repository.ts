@@ -13,10 +13,11 @@ import type {
   UpdateAgentInput,
 } from "../model/agent.js";
 import { AgentEntity } from "../schema/agent-entity.js";
+import type { AgentRecord } from "../model/agent-record.js";
 
 /** Persist mapped agent definitions, scoped to their owner. */
 export class PostgresAgentRepository
-  extends BaseRepository<AgentDefinition, OwnerScope>
+  extends BaseRepository<AgentDefinition, OwnerScope, AgentRecord>
   implements AgentRepository, AgentProfileStore
 {
   // ===========================================
@@ -34,20 +35,22 @@ export class PostgresAgentRepository
   // Operations
   // ===========================================
 
-  /** Save a new definition owned by the scope. */
+  /** Save a new definition owned by the scope, excluding interaction metadata from the result. */
   async create(
     { ownerId }: OwnerScope,
     agent: CreateAgentInput,
   ): Promise<AgentDefinition> {
-    return this.orm.save(
-      this.orm.create({
-        id: randomUUID(),
-        ownerId,
-        name: agent.name,
-        systemPrompt: agent.systemPrompt,
-        avatarId: agent.avatarId ?? defaultAgentAvatarId,
-        inference: agent.inference ?? null,
-      }),
+    return this.toEntity(
+      await this.orm.save(
+        this.orm.create({
+          id: randomUUID(),
+          ownerId,
+          name: agent.name,
+          systemPrompt: agent.systemPrompt,
+          avatarId: agent.avatarId ?? defaultAgentAvatarId,
+          inference: agent.inference ?? null,
+        }),
+      ),
     );
   }
 
@@ -71,14 +74,15 @@ export class PostgresAgentRepository
   // ===========================================
 
   /** Apply verified ownership to every inherited ORM operation. */
-  protected scopeWhere({
-    ownerId,
-  }: OwnerScope): FindOptionsWhere<AgentDefinition> {
+  protected scopeWhere({ ownerId }: OwnerScope): FindOptionsWhere<AgentRecord> {
     return { ownerId };
   }
 
-  /** Definitions contain no persistence-only relation fields. */
-  protected toEntity(record: AgentDefinition): AgentDefinition {
-    return record;
+  /** Interaction history is metadata rather than part of the editable teammate profile. */
+  protected toEntity({
+    lastInteractedAt: _lastInteractedAt,
+    ...definition
+  }: AgentRecord): AgentDefinition {
+    return definition;
   }
 }

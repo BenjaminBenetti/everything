@@ -3,7 +3,8 @@ export const updatePageSize = 50;
 export const updateSummaryMaxLength = 200;
 
 /** Whether the summary is a cached model result or a clearly labeled source preview. */
-export type UpdateSummaryStatus = "pending" | "ready" | "unavailable";
+export type UpdateSummaryStatus =
+  "pending" | "ready" | "unavailable" | "disabled";
 
 /** Fields every kind of update shares, independent of what produced it. */
 export interface UpdateBase {
@@ -15,7 +16,7 @@ export interface UpdateBase {
   readonly createdAt: string;
 }
 
-/** A message a teammate sent to its owner that the owner hasn't seen yet. */
+/** A message a teammate sent to its owner, shown in unread updates or seen history. */
 export interface MessageUpdate extends UpdateBase {
   readonly kind: "message";
   readonly agentId: string;
@@ -26,13 +27,15 @@ export interface MessageUpdate extends UpdateBase {
 export type Update = MessageUpdate;
 export type UpdateKind = Update["kind"];
 
-/** Newest-first unread updates; the cursor remains valid after an update is read. */
+/** A newest-first page of updates; the cursor remains valid after an update is read. */
 export interface UpdatePage {
   readonly updates: Update[];
   readonly nextCursor: string | null;
 }
 
-/** The number of unread updates, shown as a badge in navigation. */
+/** Unread totals for navigation and teammate badges, independent of feed pagination. */
 export interface UpdateCount {
   readonly unread: number;
+  /** Positive counts by teammate ID; teammates absent from this map have no unread updates. */
+  readonly byAgent: Readonly<Record<string, number>>;
 }

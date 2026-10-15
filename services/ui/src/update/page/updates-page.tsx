@@ -1,7 +1,7 @@
 import { PageHeading } from "../../workspace/component/page-heading.js";
 import { UpdateFeed } from "../component/update-feed.js";
 
-/** Show unread teammate messages and link back to their exact place in the conversation. */
+/** Keep unread updates first, followed by seen messages that remain accessible in chat. */
 export function UpdatesPage() {
   return (
     <div className="content-inner">
@@ -10,6 +10,13 @@ export function UpdatesPage() {
         description="Catch up on messages you haven’t seen from your teammates."
       />
       <UpdateFeed />
+      <section
+        className="updates-history"
+        aria-labelledby="updates-history-heading"
+      >
+        <h2 id="updates-history-heading">Seen</h2>
+        <UpdateFeed seen />
+      </section>
     </div>
   );
 }

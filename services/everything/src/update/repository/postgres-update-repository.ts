@@ -3,6 +3,7 @@ import {
   IsNull,
   LessThan,
   LessThanOrEqual,
+  Not,
   type DataSource,
   type FindOptionsWhere,
 } from "typeorm";
@@ -11,12 +12,12 @@ import {
   type OwnerScope,
 } from "@everything/persistence/repository";
 import { serializableTransaction } from "@everything/persistence/transaction";
-import { updatePageSize } from "@everything/update-contracts";
+import { updatePageSize, type UpdateCount } from "@everything/update-contracts";
 import { AgentNotFoundError } from "../../agent/error/agent-errors.js";
 import { AgentEntity } from "../../agent/schema/agent-entity.js";
 import type { MessageScope } from "../../conversation/interface/message-repository.js";
 import type { UpdateRepository } from "../interface/update-repository.js";
-import type { StoredUpdate, UnreadUpdatePage } from "../model/stored-update.js";
+import type { StoredUpdate, StoredUpdatePage } from "../model/stored-update.js";
 import type { UpdateRecord } from "../model/update-record.js";
 import type {
   SummaryDueScope,
@@ -46,11 +47,25 @@ export class PostgresUpdateRepository
   // Feed
   // ===========================================
 
-  /** Bound the page by the cursor's insertion order, whether or not the cursor itself is still unread. */
-  async unread(scope: OwnerScope, before?: string): Promise<UnreadUpdatePage> {
+  /** Read unread updates without changing their receipts. */
+  unread(scope: OwnerScope, before?: string): Promise<StoredUpdatePage> {
+    return this.page(scope, before, false);
+  }
+
+  /** Read seen history in original message order, independent of when a receipt arrived. */
+  seen(scope: OwnerScope, before?: string): Promise<StoredUpdatePage> {
+    return this.page(scope, before, true);
+  }
+
+  /** Bound either feed by a stable, owned cursor regardless of its current read state. */
+  private async page(
+    scope: OwnerScope,
+    before: string | undefined,
+    seen: boolean,
+  ): Promise<StoredUpdatePage> {
     let where: FindOptionsWhere<UpdateRecord> = {
       ...this.scopeWhere(scope),
-      readAt: IsNull(),
+      readAt: seen ? Not(IsNull()) : IsNull(),
     };
     if (before) {
       const cursor = await this.orm.findOne({
@@ -74,12 +89,19 @@ export class PostgresUpdateRepository
     };
   }
 
-  /** Count from the unread index alone, without loading any source. */
-  async countUnread(scope: OwnerScope): Promise<number> {
-    return this.orm.count({
+  /** Count all unread references in one snapshot without loading messages or summaries. */
+  async countUnread(scope: OwnerScope): Promise<UpdateCount> {
+    const records = await this.orm.find({
+      select: { id: true, agentId: true },
       where: { ...this.scopeWhere(scope), readAt: IsNull() },
       loadEagerRelations: false,
     });
+    const byAgent = new Map<string, number>();
+    for (const { agentId } of records) {
+      if (agentId !== null)
+        byAgent.set(agentId, (byAgent.get(agentId) ?? 0) + 1);
+    }
+    return { unread: records.length, byAgent: Object.fromEntries(byAgent) };
   }
 
   /** Lock the owned teammate in the same transaction as the exact, first-receipt-only update. */
@@ -111,7 +133,7 @@ export class PostgresUpdateRepository
   // Summaries
   // ===========================================
 
-  /** Discover the oldest unread pending updates under an explicit internal maintenance scope. */
+  /** Filter disabled owners before limiting the batch, so their backlog cannot starve enabled owners. */
   async pendingSummaries({
     createdBefore,
   }: SummaryDueScope): Promise<UpdateSummaryTarget[]> {
@@ -120,12 +142,13 @@ export class PostgresUpdateRepository
       !Number.isFinite(createdBefore.getTime())
     )
       throw new Error("Summary discovery requires a valid cutoff");
+    const due: FindOptionsWhere<UpdateRecord> = {
+      readAt: IsNull(),
+      summaryStatus: "pending",
+      createdAt: LessThanOrEqual(createdBefore.toISOString()),
+    };
     const records = await this.orm.find({
-      where: {
-        readAt: IsNull(),
-        summaryStatus: "pending",
-        createdAt: LessThanOrEqual(createdBefore.toISOString()),
-      },
+      where: { ...due, generalSettings: { summarizeUpdates: true } },
       order: { createdAt: "ASC", sequence: "ASC" },
       take: 10,
       loadEagerRelations: false,

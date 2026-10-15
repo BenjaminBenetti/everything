@@ -11,6 +11,11 @@ import { ArtifactWorkbench } from "../../artifact/service/artifact-workbench.js"
 import { PostgresAgentRepository } from "../../agent/repository/postgres-agent-repository.js";
 import { AgentEntity } from "../../agent/schema/agent-entity.js";
 import { AgentService } from "../../agent/service/agent-service.js";
+import {
+  AgentActivityService,
+  recentAgentListing,
+} from "../../agent/service/agent-activity-service.js";
+import { PostgresAgentActivityRepository } from "../../agent/repository/postgres-agent-activity-repository.js";
 import { AgentEditingService } from "../../agent/service/agent-editing-service.js";
 import { PostgresMessageRepository } from "../../conversation/repository/postgres-message-repository.js";
 import { ConversationService } from "../../conversation/service/conversation-service.js";
@@ -18,6 +23,8 @@ import { ModelUpdateSummarizer } from "../../update/adapter/model-update-summari
 import { PostgresUpdateRepository } from "../../update/repository/postgres-update-repository.js";
 import { UpdateSummaryScheduler } from "../../update/service/update-summary-scheduler.js";
 import { UpdateService } from "../../update/service/update-service.js";
+import { GeneralSettingsService } from "../../settings/service/general-settings-service.js";
+import { PostgresGeneralSettingsRepository } from "../../settings/repository/postgres-general-settings-repository.js";
 import { createApplicationDatabase } from "../../persistence/factory/application-database.js";
 import { PiSessionFactory } from "../../runtime/adapter/pi-session-factory.js";
 import { createModelRuntime } from "../../runtime/factory/model-runtime.js";
@@ -128,6 +135,9 @@ async function main(): Promise<void> {
     capabilities,
   );
   const updates = new PostgresUpdateRepository(database);
+  const generalSettings = new GeneralSettingsService(
+    new PostgresGeneralSettingsRepository(database),
+  );
   const workspaceActivity = new WorkspaceActivity(
     agents,
     new PostgresWorkspaceInteractionRepository(
@@ -158,9 +168,13 @@ async function main(): Promise<void> {
     chatGptRedirectUri: config.chatGptRedirectUri,
     agents,
     profiles: new AgentEditingService(agentRepository, models),
+    agentActivity: new AgentActivityService(
+      new PostgresAgentActivityRepository(database, recentAgentListing),
+    ),
     removal: conversations,
     conversations,
-    updates: new UpdateService(updates),
+    updates: new UpdateService(updates, generalSettings),
+    generalSettings,
     artifacts: new ArtifactLibraryService(artifactGateway),
     workers,
     workspaces: workspaceInstances,
@@ -180,6 +194,7 @@ async function main(): Promise<void> {
   const summaries = new UpdateSummaryScheduler(
     updates,
     new ModelUpdateSummarizer(inference),
+    generalSettings,
     () =>
       app.log.warn(
         "An update summary could not complete; the update's source remains available.",

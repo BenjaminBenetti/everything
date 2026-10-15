@@ -7,3 +7,11 @@ export const workerSettingsBody = Type.Object(
 );
 
 export type WorkerSettingsBody = Static<typeof workerSettingsBody>;
+
+/** A complete replacement of the signed-in owner's general preferences. */
+export const generalSettingsBody = Type.Object(
+  { summarizeUpdates: Type.Boolean() },
+  { additionalProperties: false },
+);
+
+export type GeneralSettingsBody = Static<typeof generalSettingsBody>;

@@ -13,6 +13,11 @@ import { WorkspaceInteractionEntity } from "../../workspace/schema/workspace-int
 import { WorkspaceInteractions1792195200000 } from "../migration/1792195200000-workspace-interactions.js";
 import { Updates1792281600000 } from "../migration/1792281600000-updates.js";
 import { UpdateEntity } from "../../update/schema/update-entity.js";
+import { GeneralSettingsEntity } from "../../settings/schema/general-settings-entity.js";
+import { GeneralSettings1792368000000 } from "../migration/1792368000000-general-settings.js";
+import { GeneralSettingsSummaryDefault1792454400000 } from "../migration/1792454400000-general-settings-summary-default.js";
+import { AgentInteractions1792540800000 } from "../migration/1792540800000-agent-interactions.js";
+import { UpdateHistory1792627200000 } from "../migration/1792627200000-update-history.js";
 
 /** Connection settings for the service's own PostgreSQL database. */
 export interface DatabaseConnectionSettings {
@@ -42,6 +47,7 @@ export function createApplicationDatabase(
       SessionEntity,
       ProviderEntity,
       WorkspaceInteractionEntity,
+      GeneralSettingsEntity,
     ],
     migrations: [
       InitialSchema1791676800000,
@@ -52,6 +58,10 @@ export function createApplicationDatabase(
       ProviderChecks1792108800000,
       WorkspaceInteractions1792195200000,
       Updates1792281600000,
+      GeneralSettings1792368000000,
+      GeneralSettingsSummaryDefault1792454400000,
+      AgentInteractions1792540800000,
+      UpdateHistory1792627200000,
     ],
     migrationsTableName: "everything_migrations",
     migrationsTransactionMode: "all",

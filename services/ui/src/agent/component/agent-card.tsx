@@ -4,9 +4,19 @@ import { TeammateAvatar } from "./teammate-avatar.js";
 import { IconButton } from "@everything/ui/button";
 import { useWorkspaceDialogs } from "../../workspace/component/workspace-dialogs.js";
 import { Link } from "react-router-dom";
+import {
+  UpdateCountBadge,
+  unreadLinkLabel,
+} from "../../update/component/update-count-badge.js";
 
-/** Open the teammate's ongoing conversation, with profile editing kept separately available. */
-export function AgentCard({ agent }: { agent: Agent }) {
+/** Open the teammate's ongoing conversation with its unread count and separate profile controls. */
+export function AgentCard({
+  agent,
+  unreadCount,
+}: {
+  agent: Agent;
+  unreadCount: number;
+}) {
   const { open } = useWorkspaceDialogs();
   return (
     <article className="agent-card">
@@ -26,7 +36,10 @@ export function AgentCard({ agent }: { agent: Agent }) {
       </IconButton>
       <Link
         className="agent-open"
-        aria-label={`Chat with ${agent.name}`}
+        aria-label={
+          unreadLinkLabel(`Chat with ${agent.name}`, unreadCount) ??
+          `Chat with ${agent.name}`
+        }
         to={`/team/${encodeURIComponent(agent.id)}`}
       >
         <TeammateAvatar
@@ -34,7 +47,10 @@ export function AgentCard({ agent }: { agent: Agent }) {
           animation="idle"
           animationSeed={agent.id}
         />
-        <h2>{agent.name}</h2>
+        <h2>
+          <span>{agent.name}</span>
+          <UpdateCountBadge count={unreadCount} />
+        </h2>
         <p className="agent-role">Teammate</p>
         <p className="agent-preview">{agent.systemPrompt}</p>
         <div className="card-bottom">

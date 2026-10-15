@@ -4,6 +4,7 @@ import {
   DataSource,
   IsNull,
   LessThan,
+  Not,
   type FindManyOptions,
   type FindOneOptions,
 } from "typeorm";
@@ -114,22 +115,72 @@ test("a foreign or missing cursor returns nothing rather than broadening the que
     await f.repository.unread({ ownerId: "owner" }, "foreign-update"),
     { updates: [], nextCursor: null },
   );
+  assert.deepEqual(
+    await f.repository.seen({ ownerId: "owner" }, "foreign-update"),
+    { updates: [], nextCursor: null },
+  );
 });
 
-test("the unread count is owner-scoped, and an omitted owner is refused before any query", async (context) => {
+test("seen history filters read updates by owner and original sequence", async (context) => {
   const f = fixture();
   context.mock.method(
     f.orm,
-    "count",
+    "findOne",
+    async (options: FindOneOptions<UpdateRecord>) => {
+      assert.deepEqual(options.where, { ownerId: "owner", id: "update-55" });
+      return record(55);
+    },
+  );
+  context.mock.method(
+    f.orm,
+    "find",
     async (options: FindManyOptions<UpdateRecord>) => {
       assert.deepEqual(options, {
+        where: {
+          ownerId: "owner",
+          readAt: Not(IsNull()),
+          sequence: LessThan("55"),
+        },
+        order: { sequence: "DESC" },
+        take: updatePageSize + 1,
+      });
+      return [{ ...record(54), readAt: "2026-10-15T00:01:00.000Z" }];
+    },
+  );
+  const page = await f.repository.seen({ ownerId: "owner" }, "update-55");
+  assert.equal(page.updates[0]!.sourceText, "Reply 54");
+  assert.equal(page.nextCursor, null);
+});
+
+test("unread totals include every page, group teammate references, and refuse an omitted owner", async (context) => {
+  const f = fixture();
+  const records = [
+    ...Array.from({ length: updatePageSize + 5 }, () => ({ agentId: "avery" })),
+    { agentId: "blake" },
+    { agentId: "blake" },
+    { agentId: null },
+  ];
+  context.mock.method(
+    f.orm,
+    "find",
+    async (options: FindManyOptions<UpdateRecord>) => {
+      assert.deepEqual(options, {
+        select: { id: true, agentId: true },
         where: { ownerId: "owner", readAt: IsNull() },
         loadEagerRelations: false,
       });
-      return 7;
+      return records;
     },
   );
-  assert.equal(await f.repository.countUnread({ ownerId: "owner" }), 7);
+  assert.deepEqual(await f.repository.countUnread({ ownerId: "owner" }), {
+    unread: updatePageSize + 8,
+    byAgent: { avery: updatePageSize + 5, blake: 2 },
+  });
+  records.length = 0;
+  assert.deepEqual(await f.repository.countUnread({ ownerId: "owner" }), {
+    unread: 0,
+    byAgent: {},
+  });
   await assert.rejects(f.repository.countUnread({ ownerId: "" }), /owner/);
   await assert.rejects(f.repository.unread({ ownerId: "" }), /owner/);
 });

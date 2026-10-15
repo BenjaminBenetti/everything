@@ -1,6 +1,10 @@
 import { createContext, useContext, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { WorkerSettings } from "@everything/settings-contracts";
+import type {
+  GeneralSettings,
+  WorkerSettings,
+} from "@everything/settings-contracts";
+import { updateQueryRoot } from "../../update/hook/use-updates.js";
 import { useSession } from "../../session/component/session-provider.js";
 import type { WorkspaceSettings } from "../interface/workspace-settings.js";
 
@@ -26,6 +30,35 @@ function useWorkspaceSettings(): WorkspaceSettings {
   const settings = useContext(SettingsContext);
   if (!settings) throw new Error("WorkspaceSettingsProvider is required");
   return settings;
+}
+
+/** Refresh general settings whenever the dialog opens. */
+export function useGeneralSettings() {
+  const settings = useWorkspaceSettings();
+  const { profile } = useSession();
+  return useQuery({
+    queryKey: ["general-settings", profile?.subject],
+    queryFn: ({ signal }) => settings.general(signal),
+    enabled: !!profile,
+    staleTime: 0,
+    retry: false,
+  });
+}
+
+/** Save the preference and immediately refresh update cards to reflect it. */
+export function useUpdateGeneralSettings() {
+  const settings = useWorkspaceSettings();
+  const { profile } = useSession();
+  const queries = useQueryClient();
+  return useMutation({
+    mutationFn: (next: GeneralSettings) => settings.updateGeneral(next),
+    onSuccess: async (saved) => {
+      queries.setQueryData(["general-settings", profile?.subject], saved);
+      await queries.invalidateQueries({
+        queryKey: [...updateQueryRoot, profile?.subject, "feed"],
+      });
+    },
+  });
 }
 
 /** The worker settings, read once per dialog opening. */

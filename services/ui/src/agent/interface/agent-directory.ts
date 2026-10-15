@@ -8,6 +8,10 @@ import type {
 export interface AgentDirectory {
   /** List the authenticated user's saved definitions. */
   list(signal?: AbortSignal): Promise<Agent[]>;
+  /** Read the owner's three most recently opened or messaged teammates. */
+  recent(signal?: AbortSignal): Promise<Agent[]>;
+  /** Record opening an existing teammate without starting model work. */
+  touch(id: string): Promise<void>;
   /** Persist a new named definition. */
   create(input: CreateAgentInput): Promise<Agent>;
   /** Save the chosen teammate's editable profile without starting work. */

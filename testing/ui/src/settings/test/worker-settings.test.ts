@@ -2,6 +2,9 @@ import { test, expect, type BrowserContext } from "@playwright/test";
 
 /** Isolate settings checks from account data and from the workspace's real worker settings. */
 async function prepareWorkspace(context: BrowserContext): Promise<void> {
+  await context.route("**/v1/settings/general", (route) =>
+    route.fulfill({ json: { summarizeUpdates: true } }),
+  );
   await context.route("**/v1/session", (route) =>
     route.fulfill({
       json: {

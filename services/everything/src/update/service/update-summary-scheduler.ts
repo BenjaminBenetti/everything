@@ -1,5 +1,6 @@
 import type { UpdateSummaryStore } from "../interface/update-repository.js";
 import type { UpdateSummarizer } from "../interface/update-summarizer.js";
+import type { GeneralSettingsReader } from "../../settings/interface/general-settings.js";
 import {
   summaryGraceMs,
   type UpdateSummaryTarget,
@@ -19,6 +20,7 @@ export class UpdateSummaryScheduler {
   constructor(
     private readonly updates: UpdateSummaryStore,
     private readonly summarizer: UpdateSummarizer,
+    private readonly settings: GeneralSettingsReader,
     private readonly reportFailure: () => void,
   ) {}
 
@@ -73,10 +75,12 @@ export class UpdateSummaryScheduler {
       );
   }
 
-  /** A failed or interrupted attempt is cached as unavailable; never retry a potentially billed request. */
+  /** Recheck preferences before claiming; disabled work stays pending for a later opt-in. */
   private async generate(target: UpdateSummaryTarget): Promise<void> {
     const scope = { ownerId: target.ownerId };
     try {
+      if (!(await this.settings.read(target.ownerId)).summarizeUpdates) return;
+      if (this.cancellation.signal.aborted) return;
       const update = await this.updates.claimSummary(scope, target.id);
       if (!update) return;
       let summary: string | null = null;

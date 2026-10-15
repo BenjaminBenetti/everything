@@ -48,4 +48,5 @@ test("only summaries that aren't ready carry a label", () => {
   assert.equal(summaryLabels.ready, undefined);
   assert.equal(summaryLabels.pending, "Summarizing…");
   assert.equal(summaryLabels.unavailable, "Message preview");
+  assert.equal(summaryLabels.disabled, "Message preview");
 });

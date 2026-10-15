@@ -6,15 +6,22 @@ import { useAgents } from "../../agent/component/agent-directory-provider.js";
 import { TeammateAvatar } from "../../agent/component/teammate-avatar.js";
 import { EmptyState } from "../../workspace/component/empty-state.js";
 import { useUpdates } from "../hook/use-updates.js";
+import { UpdatePagination } from "./update-pagination.js";
 import {
   presentUpdate,
   summaryLabels,
   type UpdatePresentation,
 } from "../model/update-presentation.js";
 
-/** Present unread updates without marking their sources read on a feed fetch or click. */
-export function UpdateFeed({ limit }: { limit?: number }) {
-  const feed = useUpdates();
+/** Present unread updates or seen history without changing receipts on a feed fetch or click. */
+export function UpdateFeed({
+  limit,
+  seen = false,
+}: {
+  limit?: number;
+  seen?: boolean;
+}) {
+  const feed = useUpdates(seen);
   const agents = useAgents();
   const rows = [
     ...new Map(
@@ -35,7 +42,7 @@ export function UpdateFeed({ limit }: { limit?: number }) {
           Loading updates…
         </p>
       )}
-      {feed.isError && (
+      {feed.isError && !feed.isFetchNextPageError && (
         <div className="status-panel" role="alert">
           <p>{feed.error.message}</p>
           <Button variant="light" onClick={() => void feed.refetch()}>
@@ -43,33 +50,55 @@ export function UpdateFeed({ limit }: { limit?: number }) {
           </Button>
         </div>
       )}
-      {!feed.isPending && !feed.isError && !rows.length && (
-        <EmptyState icon={Check} title="You’re all caught up">
-          <p>Messages you haven’t seen from your teammates will appear here.</p>
-          <Link className="text-link" to="/team">
-            View your team →
-          </Link>
-        </EmptyState>
-      )}
+      {!feed.isPending &&
+        !feed.isError &&
+        !rows.length &&
+        (seen ? (
+          <p className="updates-history-empty">
+            Updates you’ve seen in chat will appear here.
+          </p>
+        ) : limit ? (
+          <EmptyState icon={Check} title="You’re all caught up">
+            <p>
+              Messages you haven’t seen from your teammates will appear here.
+            </p>
+            <Link className="text-link" to="/team">
+              View your team →
+            </Link>
+          </EmptyState>
+        ) : (
+          <div className="updates-caught-up">
+            <span className="update-kind-icon" aria-hidden="true">
+              <Check />
+            </span>
+            <div>
+              <h2>You’re all caught up</h2>
+              <p>New updates will appear here.</p>
+            </div>
+          </div>
+        ))}
       {rows.length > 0 && (
-        <ul className="update-list" aria-label="Unread updates">
+        <ul
+          className="update-list"
+          aria-label={seen ? "Seen updates" : "Unread updates"}
+        >
           {rows.map(({ update, presentation }) => (
             <li key={update.id}>
-              <UpdateRow update={update} presentation={presentation} />
+              <UpdateRow
+                update={update}
+                presentation={presentation}
+                seen={seen}
+              />
             </li>
           ))}
         </ul>
       )}
       {!limit && feed.hasNextPage && (
-        <div className="update-more">
-          <Button
-            variant="light"
-            disabled={feed.isFetchingNextPage}
-            onClick={() => void feed.fetchNextPage()}
-          >
-            {feed.isFetchingNextPage ? "Loading updates…" : "Load more updates"}
-          </Button>
-        </div>
+        <UpdatePagination
+          fetching={feed.isFetching}
+          error={feed.isFetchNextPageError ? feed.error : null}
+          loadMore={feed.fetchNextPage}
+        />
       )}
     </div>
   );
@@ -79,13 +108,15 @@ export function UpdateFeed({ limit }: { limit?: number }) {
 function UpdateRow({
   update,
   presentation: { to, source, avatarId, icon: Icon, action },
+  seen,
 }: {
   update: Update;
   presentation: UpdatePresentation;
+  seen: boolean;
 }) {
   const label = summaryLabels[update.summaryStatus];
   return (
-    <Link className="update-row" to={to}>
+    <Link className={`update-row${seen ? " update-row-seen" : ""}`} to={to}>
       {avatarId ? (
         <TeammateAvatar avatarId={avatarId} small />
       ) : (
@@ -109,7 +140,9 @@ function UpdateRow({
         <p className="update-summary">{update.summary}</p>
       </div>
       <Icon className="update-icon" aria-hidden="true" />
-      <span className="sr-only">Unread. {action}.</span>
+      <span className="sr-only">
+        {seen ? "Seen" : "Unread"}. {action}.
+      </span>
     </Link>
   );
 }

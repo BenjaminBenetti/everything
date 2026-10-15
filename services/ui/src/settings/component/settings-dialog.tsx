@@ -1,7 +1,8 @@
-import { Container, Globe } from "lucide-react";
+import { Container, Globe, SlidersHorizontal } from "lucide-react";
 import { Button } from "@everything/ui/button";
 import { Dialog } from "@everything/ui/dialog";
 import { Switch } from "@everything/ui/switch";
+import { GeneralSettingsControls } from "./general-settings-controls.js";
 import {
   useUpdateWorkerSettings,
   useWorkerSettings,
@@ -25,16 +26,36 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
         </div>
       }
     >
-      <div className="settings-section-heading">
-        <span className="settings-section-icon">
-          <Container aria-hidden="true" />
-        </span>
-        <div>
-          <h3>Workers</h3>
-          <p>Isolated environments where teammates run larger jobs.</p>
+      <section
+        className="settings-section"
+        aria-labelledby="general-settings-heading"
+      >
+        <div className="settings-section-heading">
+          <span className="settings-section-icon">
+            <SlidersHorizontal aria-hidden="true" />
+          </span>
+          <div>
+            <h3 id="general-settings-heading">General</h3>
+            <p>Choose how updates from your teammates appear.</p>
+          </div>
         </div>
-      </div>
-      <WorkerSettingsControls />
+        <GeneralSettingsControls />
+      </section>
+      <section
+        className="settings-section"
+        aria-labelledby="worker-settings-heading"
+      >
+        <div className="settings-section-heading">
+          <span className="settings-section-icon">
+            <Container aria-hidden="true" />
+          </span>
+          <div>
+            <h3 id="worker-settings-heading">Workers</h3>
+            <p>Isolated environments where teammates run larger jobs.</p>
+          </div>
+        </div>
+        <WorkerSettingsControls />
+      </section>
     </Dialog>
   );
 }

@@ -2,8 +2,9 @@ import type {
   OwnerScope,
   Repository,
 } from "@everything/persistence/repository";
+import type { UpdateCount } from "@everything/update-contracts";
 import type { MessageScope } from "../../conversation/interface/message-repository.js";
-import type { StoredUpdate, UnreadUpdatePage } from "../model/stored-update.js";
+import type { StoredUpdate, StoredUpdatePage } from "../model/stored-update.js";
 import type {
   SummaryDueScope,
   UpdateSummaryInput,
@@ -13,9 +14,11 @@ import type {
 /** Persistence boundary for directly owned updates of every kind. */
 export interface UpdateRepository extends Repository<StoredUpdate, OwnerScope> {
   /** Read a newest-first page of unread updates; a cursor stays valid after its update is read. */
-  unread(scope: OwnerScope, before?: string): Promise<UnreadUpdatePage>;
-  /** Count the owner's unread updates. */
-  countUnread(scope: OwnerScope): Promise<number>;
+  unread(scope: OwnerScope, before?: string): Promise<StoredUpdatePage>;
+  /** Read seen updates newest first without changing receipts or generating summaries. */
+  seen(scope: OwnerScope, before?: string): Promise<StoredUpdatePage>;
+  /** Count the owner's unread updates in total and by teammate from the same snapshot. */
+  countUnread(scope: OwnerScope): Promise<UpdateCount>;
   /** Record the first receipt for a teammate's message updates, verifying and locking the teammate. */
   readMessages(
     scope: MessageScope,
@@ -39,7 +42,7 @@ export interface UpdateRepository extends Repository<StoredUpdate, OwnerScope> {
 /** The feed reads and acknowledges updates but never generates summaries. */
 export type UpdateFeedStore = Pick<
   UpdateRepository,
-  "unread" | "countUnread" | "readMessages"
+  "unread" | "seen" | "countUnread" | "readMessages"
 >;
 
 /** The scheduler claims and completes summaries but cannot read the feed or acknowledge updates. */

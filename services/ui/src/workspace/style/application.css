@@ -83,7 +83,8 @@
 .side-agent:hover {
   background: var(--surface-selected);
 }
-.side-agent > span:last-child {
+.side-agent-name {
+  min-width: 0;
   font-size: 12px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -332,10 +333,42 @@
   font-size: 12px;
   line-height: 1.7;
 }
+.recent-teammates {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.recent-teammate {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  min-height: 58px;
+  padding: 10px 8px;
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-size: 12px;
+}
+.recent-teammate:hover,
+.recent-teammate:focus-visible {
+  background: var(--surface-selected);
+}
+.recent-teammate > span:not(.teammate-avatar) {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.recent-teammate > svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  color: var(--text-secondary);
+}
 .team-link {
   @apply flex items-center justify-between;
   gap: 10px;
-  padding: 17px 0;
+  padding: 17px 8px 17px 0;
   color: var(--text-accent);
   font-size: 11px;
 }
@@ -431,10 +464,16 @@
   padding: 0;
 }
 .agent-open h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 17px;
   font-weight: 550;
   letter-spacing: -0.4px;
   overflow-wrap: anywhere;
+}
+.agent-open h2 > span:first-child {
+  min-width: 0;
 }
 .agent-role {
   font-size: 11px;
@@ -1016,6 +1055,11 @@
   align-items: center;
   gap: 11px;
   margin: 0 0 18px;
+}
+.settings-section + .settings-section {
+  margin-top: 24px;
+  padding-top: 24px;
+  border-top: 1px solid var(--border-default);
 }
 .settings-section-icon {
   display: flex;

@@ -20,6 +20,23 @@ export class HttpAgentDirectory implements AgentDirectory {
   // Operations
   // ===========================================
 
+  /** Read the recent teammate list in server-defined interaction order. */
+  async recent(signal?: AbortSignal): Promise<Agent[]> {
+    const result = await this.transport.request<AgentList>(
+      "/v1/agents/recent",
+      signal ? { signal } : {},
+    );
+    return result.agents;
+  }
+
+  /** Record a visit without reading, creating, or switching conversation histories. */
+  touch(id: string): Promise<void> {
+    return this.transport.request<void>(
+      `/v1/agents/${encodeURIComponent(id)}/interactions`,
+      { method: "POST" },
+    );
+  }
+
   /** Read saved definitions without loading or starting agent sessions. */
   async list(signal?: AbortSignal): Promise<Agent[]> {
     const result = await this.transport.request<AgentList>(

@@ -54,7 +54,15 @@ function fixture(count = 5) {
       }
     },
   };
-  return { store, rows };
+  const preferences = { summarizeUpdates: true };
+  const settings = {
+    /** Read current preferences on each claim, including changes during a batch. */
+    async read(ownerId: string) {
+      assert.equal(ownerId, "owner");
+      return preferences;
+    },
+  };
+  return { store, rows, settings, preferences };
 }
 
 test("coalesced ticks, competing workers, and restarts do not repeat model calls", async () => {
@@ -75,6 +83,7 @@ test("coalesced ticks, competing workers, and restarts do not repeat model calls
   const first = new UpdateSummaryScheduler(
     f.store,
     summarizer,
+    f.settings,
     () => undefined,
   );
   const tick = first.refresh();
@@ -86,6 +95,7 @@ test("coalesced ticks, competing workers, and restarts do not repeat model calls
   const restarted = new UpdateSummaryScheduler(
     f.store,
     summarizer,
+    f.settings,
     () => undefined,
   );
   await Promise.all([first.refresh(), restarted.refresh()]);
@@ -111,6 +121,7 @@ test("receipts arriving before a claim prevent inference, and shutdown aborts an
         );
       },
     },
+    f.settings,
     () => failures.push("reported"),
   );
   await scheduler.refresh();
@@ -139,15 +150,52 @@ test("two schedulers racing on a pending batch still call the model once per upd
   const first = new UpdateSummaryScheduler(
     f.store,
     summarizer,
+    f.settings,
     () => undefined,
   );
   const second = new UpdateSummaryScheduler(
     f.store,
     summarizer,
+    f.settings,
     () => undefined,
   );
   await Promise.all([first.refresh(), second.refresh()]);
   assert.equal(calls.length, 3);
   assert.equal(new Set(calls).size, 3);
   await Promise.all([first.close(), second.close()]);
+});
+
+test("disabled preferences prevent claims and model calls, and enabling resumes pending work", async () => {
+  const f = fixture(3);
+  f.preferences.summarizeUpdates = false;
+  const calls: string[] = [];
+  const scheduler = new UpdateSummaryScheduler(
+    f.store,
+    {
+      /** Record inference and disable further work while this batch is running. */
+      async summarize(update) {
+        calls.push(update.id);
+        f.preferences.summarizeUpdates = false;
+        return "Completed the report.";
+      },
+    },
+    f.settings,
+    () => assert.fail("No summary should fail"),
+  );
+  await scheduler.refresh();
+  assert.equal(calls.length, 0);
+  assert.ok(f.rows.every((row) => row.status === "pending"));
+  f.preferences.summarizeUpdates = true;
+  await scheduler.refresh();
+  assert.equal(calls.length, 2);
+  assert.equal(
+    f.rows[2]!.status,
+    "pending",
+    "Recheck settings between batches",
+  );
+  f.preferences.summarizeUpdates = true;
+  await scheduler.refresh();
+  assert.equal(calls.length, 3);
+  assert.ok(f.rows.every((row) => row.status === "ready"));
+  await scheduler.close();
 });

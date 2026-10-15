@@ -1,14 +1,17 @@
 import { useEffect, useRef, useState } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { MessagePage } from "@everything/conversation-contracts";
 import { useSession } from "../../session/component/session-provider.js";
 import { useConversationClient } from "../component/conversation-provider.js";
 import { prependHistory, refreshHistory } from "../model/message-history.js";
+import { useRecordAgentInteraction } from "../../agent/hook/use-recent-agents.js";
 
 /** Coordinate history and progress, keeping the background indicator current through its idle grace period. */
 export function useConversation(agentId: string, targetMessageId?: string) {
   const client = useConversationClient();
   const { profile } = useSession();
+  const queries = useQueryClient();
+  useRecordAgentInteraction(agentId);
   const [history, setHistory] = useState<MessagePage>();
   const searchedCursor = useRef<string | undefined>(undefined);
   const snapshot = useQuery({
@@ -37,9 +40,12 @@ export function useConversation(agentId: string, targetMessageId?: string) {
   const send = useMutation({
     mutationFn: (text: string) => client.send(agentId, text),
     retry: false,
-    /** Refresh the saved input and progress after the POST has been acknowledged. */
+    /** Refresh saved input, progress, and recency after the message has been persisted. */
     onSuccess: () => {
       void snapshot.refetch();
+      void queries.invalidateQueries({
+        queryKey: ["agents", profile?.subject, "recent"],
+      });
     },
   });
   const older = useMutation({

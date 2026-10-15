@@ -1,4 +1,7 @@
-import type { WorkerSettings } from "@everything/settings-contracts";
+import type {
+  GeneralSettings,
+  WorkerSettings,
+} from "@everything/settings-contracts";
 import type { JsonTransport } from "../../http/interface/json-transport.js";
 import type { WorkspaceSettings } from "../interface/workspace-settings.js";
 
@@ -14,6 +17,22 @@ export class HttpWorkspaceSettings implements WorkspaceSettings {
   // ===========================================
   // Operations
   // ===========================================
+
+  /** Read the signed-in owner's general settings. */
+  general(signal?: AbortSignal): Promise<GeneralSettings> {
+    return this.transport.request<GeneralSettings>(
+      "/v1/settings/general",
+      signal ? { signal } : {},
+    );
+  }
+
+  /** Replace the signed-in owner's general settings. */
+  updateGeneral(settings: GeneralSettings): Promise<GeneralSettings> {
+    return this.transport.request<GeneralSettings>("/v1/settings/general", {
+      method: "PUT",
+      body: JSON.stringify(settings),
+    });
+  }
 
   /** Read the worker settings. */
   workers(signal?: AbortSignal): Promise<WorkerSettings> {
