@@ -34,7 +34,11 @@ function statusOf(
   runtime: ArtifactRuntime | null,
 ): ArtifactStatus {
   if (artifact.kind === "static")
-    return artifact.liveRevision === null ? "unpublished" : "live";
+    return artifact.liveRevision === null
+      ? "unpublished"
+      : artifact.running
+        ? "live"
+        : "stopped";
   if (artifact.liveDeployment === null) return "unpublished";
   return runtime?.state ?? "stopped";
 }

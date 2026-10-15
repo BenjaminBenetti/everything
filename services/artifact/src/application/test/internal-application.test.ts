@@ -1,3 +1,4 @@
+import { ArtifactLifecycleService } from "../../artifact/service/artifact-lifecycle-service.js";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -60,6 +61,9 @@ async function application(context: {
       lock,
       "http://artifacts.test",
     ),
+    lifecycle: new ArtifactLifecycleService(artifacts, lookup, lock, {
+      reconcile: async () => {},
+    }),
     revisions: new RevisionService(artifacts, revisions, content, lookup, lock),
     builds: { source: async () => undefined } as unknown as BuildService,
     deployments: {} as DeploymentService,
@@ -238,9 +242,37 @@ test("uploading, publishing, checking out, and opening a static artifact", async
     [outside.statusCode, outside.json().code],
     [400, "INVALID_VIEW_PATH"],
   );
+  const endpoint = "/internal/v1/owners/owner/artifacts/site";
+  const liveDelete = await app.inject({
+    method: "DELETE",
+    url: endpoint + "?requireStopped=true",
+    headers: { ...bearer, ...actor },
+  });
+  assert.equal(liveDelete.statusCode, 409);
+  assert.equal(liveDelete.json().code, "APP_MUST_BE_STOPPED");
+  for (const [action, status] of [
+    ["stop", "stopped"],
+    ["start", "live"],
+    ["stop", "stopped"],
+  ]) {
+    const changed = await app.inject({
+      method: "POST",
+      url: endpoint + "/" + action,
+      headers: { ...bearer, ...actor },
+    });
+    assert.equal(changed.statusCode, 200);
+    assert.equal(changed.json().status, status);
+    assert.equal(changed.json().release, 1);
+  }
+  const foreignStart = await app.inject({
+    method: "POST",
+    url: "/internal/v1/owners/other/artifacts/site/start",
+    headers: { ...bearer, ...actor },
+  });
+  assert.equal(foreignStart.statusCode, 404);
   const removed = await app.inject({
     method: "DELETE",
-    url: "/internal/v1/owners/owner/artifacts/site",
+    url: endpoint + "?requireStopped=true",
     headers: { ...bearer, ...actor },
   });
   assert.equal(removed.statusCode, 204);

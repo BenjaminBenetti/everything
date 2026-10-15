@@ -19,7 +19,7 @@ import type {
   MessageDelivery,
 } from "../interface/agent-session.js";
 import { mainAgentPrompt } from "../prompt/main-agent-prompt.js";
-import { artifactTools } from "../tool/artifact-tools.js";
+import { appTools } from "../tool/app-tools.js";
 import { sendMessageTool } from "../tool/send-message-tool.js";
 import { PiAgentSession } from "./pi-agent-session.js";
 import type {
@@ -163,7 +163,7 @@ export class PiSessionFactory implements AgentSessionFactory {
       sendMessageTool(sendMessage, parentId !== undefined),
       ...forkTools(messaging),
       ...workspaceTools(this.workspace, agent.id),
-      ...artifactTools(this.artifacts, {
+      ...appTools(this.artifacts, {
         ownerId: agent.ownerId,
         author: { id: agent.id, name: agent.name },
         workspace: directories.cwd,

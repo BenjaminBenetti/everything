@@ -104,7 +104,7 @@ test("an early reply followed by more work gets one reminder to report the outco
     async (text) => {
       if (text !== "Build me a page") return;
       delivered++;
-      return "build_artifact";
+      return "build_app";
     },
     () => delivered,
   );
@@ -133,7 +133,7 @@ test("a declined outcome reminder still completes the turn, since the user alrea
     async (text) => {
       if (text !== "Check the logs") return;
       delivered++;
-      return "get_artifact_logs";
+      return "get_app_logs";
     },
     () => delivered,
   );

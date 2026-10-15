@@ -100,6 +100,7 @@ export class RevisionService {
     const updated = await this.artifacts.update({ ownerId }, artifact.id, {
       release: artifact.release + 1,
       liveRevision: revision,
+      running: true,
       updatedBy: actor,
     });
     if (!updated)

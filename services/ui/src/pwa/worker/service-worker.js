@@ -44,7 +44,10 @@ self.addEventListener("fetch", (event) => {
     "/team",
     "/workspaces",
     "/updates",
+    "/apps",
+    "/apps/open",
     "/artifacts",
+    "/artifacts/open",
     "/login",
   ];
   const publicAssets = ["/offline.html", "/offline.css", "/brand/icon.svg"];

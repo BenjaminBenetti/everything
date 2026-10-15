@@ -28,7 +28,7 @@ export class BuildNotReadyError extends ApplicationError {
       409,
       "BUILD_NOT_READY",
       number === undefined
-        ? "This artifact has no successful build yet. Build it, wait for the build to succeed, and deploy again."
+        ? "This app has no successful build yet. Build it, wait for the build to succeed, and deploy again."
         : `Build ${number} has not succeeded, so it cannot be deployed.`,
     );
   }

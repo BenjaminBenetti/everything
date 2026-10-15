@@ -3,11 +3,13 @@ import { requestActor } from "../../http/handler/actor.js";
 import {
   artifactParams,
   createArtifactBody,
+  deleteArtifactQuery,
   ownerParams,
   sourceQuery,
   updateArtifactBody,
   type ArtifactParams,
   type CreateArtifactBody,
+  type DeleteArtifactQuery,
   type OwnerParams,
   type SourceQuery,
   type UpdateArtifactBody,
@@ -61,12 +63,16 @@ export async function artifactController(
       ),
   );
 
-  app.delete<{ Params: ArtifactParams }>(
+  app.delete<{ Params: ArtifactParams; Querystring: DeleteArtifactQuery }>(
     "/owners/:ownerId/artifacts/:artifact",
-    { schema: { params: artifactParams } },
+    { schema: { params: artifactParams, querystring: deleteArtifactQuery } },
     async (request, reply) => {
       requestActor(request);
-      await artifacts.delete(request.params.ownerId, request.params.artifact);
+      await artifacts.delete(
+        request.params.ownerId,
+        request.params.artifact,
+        request.query.requireStopped === "true",
+      );
       return reply.code(204).send();
     },
   );

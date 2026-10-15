@@ -34,15 +34,15 @@ When the user communicates, their message interrupts the main agent's current ac
 
 Incoming user messages trigger that interruption. Outgoing messages remain deliberate actions through the messaging tool.
 
-## Persistent storage and user artifacts
+## Persistent storage and user apps
 
 Each named main agent has a persistent filesystem for notes, remembered context, and other files it chooses to save. It can write information down and read it again across turns and wake-ups, giving it a durable place to keep memory and working context.
 
-Main agents are coding agents, and artifacts are how they share built work with the user. An artifact is a page or application with its own link: static files such as HTML and supporting assets, or a containerized application built from a Dockerfile, which can ask for its own database and disk. A main agent writes an artifact's source in its own filesystem and publishes it through tool calls. Everything tracks each artifact, its revisions, and its builds, and serves it to the signed-in user. See [Artifacts](architecture.md#artifacts) for the design.
+Main agents are coding agents, and apps are how they share built work with the user. An app is a page or application with its own link: static files such as HTML and supporting assets, or a containerized application built from a Dockerfile, which can ask for its own database and disk. A main agent writes an app's source in its own filesystem and publishes it through tool calls. Everything tracks each app, its revisions, and its builds, and serves it to the signed-in user. See [Apps](architecture.md#apps) for the design.
 
-Artifacts are shared by all main agents. Any main agent can find an artifact, check out its source, change it, and publish it again, including work another main agent started. Each artifact records which main agent made each change.
+Apps are shared by all main agents. Any main agent can find an app, check out its source, change it, and publish it again, including work another main agent started. Each app records which main agent made each change.
 
-Artifacts add a visual, interactive way to share work alongside the text-message conversation. The main agent can send artifact links through its messaging tool.
+Apps add a visual, interactive way to share work alongside the text-message conversation. The main agent can send app links through its messaging tool.
 
 ## Conceptual map
 
@@ -60,7 +60,7 @@ flowchart TD
     T["Workspace templates"] -.->|"Reusable instance setup"| F
     R["GitHub repositories"] -.->|"Included where needed"| A
     C <-->|"Read and write"| P["Persistent filesystem / notes and memory"]
-    C -->|"Create, check out, publish, build, and deploy"| H["Artifact service / shared static and dynamic artifacts"]
+    C -->|"Create, check out, publish, build, and deploy"| H["Artifact service / shared static and dynamic apps"]
     H -->|"Serve to the signed-in user"| U
     C -->|"Process events and take action"| C
 ```

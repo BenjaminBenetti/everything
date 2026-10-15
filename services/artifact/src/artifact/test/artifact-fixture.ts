@@ -79,7 +79,7 @@ export class MemoryArtifacts implements ArtifactRepository {
       release: 0,
       liveRevision: null,
       liveDeployment: null,
-      running: false,
+      running: kind === "static" && changes.liveRevision != null,
       diskGi: null,
       ...changes,
     };

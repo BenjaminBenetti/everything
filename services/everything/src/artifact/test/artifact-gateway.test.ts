@@ -115,6 +115,9 @@ test("publishing uploads only content the artifact service lacks, then publishes
 test("browser endpoints list artifacts and open them, hiding artifact service details", async (context) => {
   const failures: Error[] = [];
   const library = new ArtifactLibraryService({
+    start: async () => ({}) as ArtifactDetails,
+    stop: async () => ({}) as ArtifactDetails,
+    delete: async () => {},
     list: async (ownerId) => {
       if (failures.length) throw failures.shift();
       return [{ slug: `for-${ownerId}` } as never];
@@ -124,7 +127,7 @@ test("browser endpoints list artifacts and open them, hiding artifact service de
         throw new ArtifactRequestFailure(
           404,
           "ARTIFACT_NOT_FOUND",
-          "Artifact not found.",
+          "App not found.",
         );
       return { url: `http://artifacts.test/_access?code=${input.slug}` };
     },
@@ -210,7 +213,7 @@ test("teammate passes are issued for the owner's artifact and resolved on the in
 
   const missing = new HttpArtifactGateway(addresses, tokens, async () =>
     Response.json(
-      { code: "ARTIFACT_NOT_FOUND", message: "Artifact not found." },
+      { code: "ARTIFACT_NOT_FOUND", message: "App not found." },
       { status: 404 },
     ),
   );

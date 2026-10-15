@@ -4,41 +4,41 @@ import type {
   ArtifactKind,
 } from "@everything/artifact-contracts";
 
-/** The artifact is missing or belongs to someone else; both look identical. */
+/** The app is missing or belongs to someone else; both look identical. */
 export class ArtifactNotFoundError extends ApplicationError {
-  /** Report the artifact as absent. */
+  /** Report the app as absent. */
   constructor() {
-    super(404, "ARTIFACT_NOT_FOUND", "Artifact not found.");
+    super(404, "ARTIFACT_NOT_FOUND", "App not found.");
   }
 }
 
-/** Another artifact already uses the requested slug, which names its link. */
+/** Another app already uses the requested slug, which names its link. */
 export class SlugTakenError extends ApplicationError {
   /** Ask for a different slug. */
   constructor(slug: string) {
     super(
       409,
       "SLUG_TAKEN",
-      `Another artifact already uses the slug "${slug}". Choose a different slug.`,
+      `Another app already uses the slug "${slug}". Choose a different slug.`,
     );
   }
 }
 
-/** The operation needs the other kind of artifact, which is fixed at creation. */
+/** The operation needs the other kind of app, which is fixed at creation. */
 export class WrongKindError extends ApplicationError {
-  /** Explain what the artifact's kind allows instead. */
+  /** Explain what the app's kind allows instead. */
   constructor(kind: ArtifactKind) {
     super(
       409,
       "WRONG_ARTIFACT_KIND",
       kind === "static"
-        ? "This is a static artifact. Publish files to it instead of building or deploying."
-        : "This is a dynamic artifact. Build and deploy it instead of publishing files.",
+        ? "This is a static app. Publish files to it instead of building or deploying."
+        : "This is a dynamic app. Build and deploy it instead of publishing files.",
     );
   }
 }
 
-/** Another main agent released the artifact after the release the caller worked from. */
+/** Another main agent released the app after the release the caller worked from. */
 export class ReleaseConflictError extends ApplicationError {
   /** Name the newer release and its author so the caller can merge. */
   constructor(release: number, author: ArtifactAuthor) {
@@ -65,7 +65,27 @@ export class SourceNotFoundError extends ApplicationError {
     super(
       404,
       "SOURCE_NOT_FOUND",
-      "This artifact has no published revision or build to check out.",
+      "This app has no published revision or build to check out.",
     );
+  }
+}
+
+/** An app needs an existing release before it can be started. */
+export class AppNotPublishedError extends ApplicationError {
+  /** Ask for a release before starting the app. */
+  constructor() {
+    super(
+      409,
+      "APP_NOT_PUBLISHED",
+      "Publish or deploy this app before starting it.",
+    );
+  }
+}
+
+/** Manual deletion refuses an app that another caller has started. */
+export class AppMustBeStoppedError extends ApplicationError {
+  /** Ask the user to stop the app before deleting it. */
+  constructor() {
+    super(409, "APP_MUST_BE_STOPPED", "Stop this app before deleting it.");
   }
 }

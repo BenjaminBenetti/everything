@@ -27,7 +27,7 @@ const navigation = [
   { path: "/", label: "Home", icon: House },
   { path: "/updates", label: "Updates", icon: Bell },
   { path: "/team", label: "Your team", icon: Grid2X2 },
-  { path: "/artifacts", label: "Artifacts", icon: Folder },
+  { path: "/apps", label: "Apps", icon: Folder },
   { path: "/workspaces", label: "Workspaces", icon: Boxes },
 ];
 

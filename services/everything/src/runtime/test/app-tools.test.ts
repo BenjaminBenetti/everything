@@ -5,7 +5,7 @@ import type {
   WorkbenchContext,
 } from "../../artifact/service/artifact-workbench.js";
 import { mainAgentPrompt } from "../prompt/main-agent-prompt.js";
-import { artifactToolNames, artifactTools } from "../tool/artifact-tools.js";
+import { appToolNames, appTools } from "../tool/app-tools.js";
 
 const agentId = "6f1c1f6e-8c7e-4c4b-9a43-2d8b8f7c8f11";
 
@@ -17,18 +17,72 @@ const context: WorkbenchContext = {
   privateDirectory: "/workspace/agent/.pi",
 };
 
-test("teammates get every artifact tool, each described for the model", () => {
-  const tools = artifactTools({} as ArtifactWorkbench, context);
+test("teammates get every app tool, each described for the model", () => {
+  const tools = appTools({} as ArtifactWorkbench, context);
   assert.deepEqual(
     tools.map((tool) => tool.name).sort(),
-    Object.values(artifactToolNames).sort(),
+    [
+      "create_app",
+      "list_apps",
+      "get_app",
+      "update_app",
+      "delete_app",
+      "checkout_app",
+      "publish_app",
+      "build_app",
+      "get_app_build",
+      "deploy_app",
+      "stop_app",
+      "get_app_logs",
+      "view_app",
+    ].sort(),
   );
-  for (const tool of tools) assert.ok(tool.description.length > 40, tool.name);
+  for (const tool of tools) {
+    assert.ok(tool.description.length > 40, tool.name);
+    assert.doesNotMatch(
+      JSON.stringify([
+        tool.name,
+        tool.label,
+        tool.description,
+        tool.parameters,
+      ]),
+      /artifact/i,
+    );
+    if (tool.name !== appToolNames.create && tool.name !== appToolNames.list) {
+      const required: readonly string[] = tool.parameters.required ?? [];
+      assert.ok(required.includes("app"), tool.name);
+    }
+  }
+});
+
+test("list_apps returns the shared apps under the name the model uses", async () => {
+  const apps = [{ slug: "trip-planner", title: "Trip planner" }];
+  const workbench = {
+    /** Keep the list scoped to the acting teammate's owner. */
+    async list(actingContext: WorkbenchContext) {
+      assert.equal(actingContext, context);
+      return apps;
+    },
+  } as unknown as ArtifactWorkbench;
+  const list = appTools(workbench, context).find(
+    (tool) => tool.name === appToolNames.list,
+  )!;
+  const result = await list.execute(
+    "call",
+    {} as never,
+    undefined,
+    undefined,
+    undefined as never,
+  );
+  assert.deepEqual(JSON.parse((result.content[0] as { text: string }).text), {
+    apps,
+  });
 });
 
 test("tools act for the teammate and report results as text", async () => {
   const calls: unknown[] = [];
   const workbench = {
+    /** Record the app reference and log options passed to the workbench. */
     logs: async (
       actingContext: WorkbenchContext,
       reference: string,
@@ -37,6 +91,7 @@ test("tools act for the teammate and report results as text", async () => {
       calls.push([actingContext.author.name, reference, choice]);
       return { text: "" };
     },
+    /** Record build polling and cancellation options. */
     waitForBuild: async (
       _context: WorkbenchContext,
       _reference: string,
@@ -48,11 +103,11 @@ test("tools act for the teammate and report results as text", async () => {
       return { number, status: "running" };
     },
   } as unknown as ArtifactWorkbench;
-  const tools = artifactTools(workbench, context);
-  const logs = tools.find((tool) => tool.name === artifactToolNames.logs)!;
+  const tools = appTools(workbench, context);
+  const logs = tools.find((tool) => tool.name === appToolNames.logs)!;
   const result = await logs.execute(
     "call",
-    { artifact: "app" } as never,
+    { app: "app" } as never,
     undefined,
     undefined,
     undefined as never,
@@ -60,11 +115,11 @@ test("tools act for the teammate and report results as text", async () => {
   assert.deepEqual(result.content, [
     { type: "text", text: "The app has no output yet." },
   ]);
-  const build = tools.find((tool) => tool.name === artifactToolNames.getBuild)!;
+  const build = tools.find((tool) => tool.name === appToolNames.getBuild)!;
   const signal = new AbortController().signal;
   const reported = await build.execute(
     "call",
-    { artifact: "app", build: 2, waitSeconds: 30 } as never,
+    { app: "app", build: 2, waitSeconds: 30 } as never,
     signal,
     undefined,
     undefined as never,
@@ -79,19 +134,28 @@ test("tools act for the teammate and report results as text", async () => {
   ]);
 });
 
-test("the prompt explains shared artifacts and how to change one safely", () => {
+test("the prompt explains shared apps and how to change one safely", () => {
   const prompt = mainAgentPrompt({
     id: agentId,
     name: "Ada",
     systemPrompt: "Help.",
   });
   for (const name of [
-    artifactToolNames.list,
-    artifactToolNames.checkout,
-    artifactToolNames.publish,
+    appToolNames.list,
+    appToolNames.checkout,
+    appToolNames.publish,
   ])
     assert.ok(prompt.includes(name), name);
   assert.match(prompt, /basedOn/);
+  assert.match(prompt, /## Apps/);
+  assert.doesNotMatch(prompt, /artifact/i);
+  assert.doesNotMatch(
+    mainAgentPrompt(
+      { id: agentId, name: "Ada", systemPrompt: "Help." },
+      { id: "fork", parentId: "main" },
+    ),
+    /artifact/i,
+  );
   assert.ok(
     prompt.includes(
       `your persistent files are at /workspace/${agentId}, which is also your home directory.`,
@@ -102,33 +166,34 @@ test("the prompt explains shared artifacts and how to change one safely", () => 
   );
 });
 
-test("dynamic artifacts are told to serve routes from / and use BASE_PATH only for links", () => {
+test("dynamic apps are told to serve routes from / and use BASE_PATH only for links", () => {
   const prompt = mainAgentPrompt({
     id: agentId,
     name: "Ada",
     systemPrompt: "Help.",
   });
-  const tools = artifactTools({} as ArtifactWorkbench, context);
+  const tools = appTools({} as ArtifactWorkbench, context);
   const description = (name: string) =>
     tools.find((tool) => tool.name === name)!.description;
   for (const text of [
     prompt,
-    description(artifactToolNames.build),
-    description(artifactToolNames.deploy),
+    description(appToolNames.build),
+    description(appToolNames.deploy),
   ]) {
     assert.match(text, /serve routes from \//i);
-    assert.match(text, /without (the artifact's \/slug|that) prefix/);
+    assert.match(text, /without (the app's \/slug|that) prefix/);
     assert.match(text, /BASE_PATH/);
     assert.doesNotMatch(text, /under (the )?BASE_PATH/);
   }
-  for (const text of [prompt, description(artifactToolNames.build)])
+  for (const text of [prompt, description(appToolNames.build)])
     assert.match(text, /absolute links and asset URLs/);
 });
 
-test("view_artifact returns a teammate pass with quoted curl and Chromium commands", async () => {
+test("view_app returns a teammate pass with quoted curl and Chromium commands", async () => {
   const calls: unknown[] = [];
   const host = "http://artifact.everything.svc.cluster.local:8080";
   const workbench = {
+    /** Record which app and page the teammate opens. */
     view: async (
       actingContext: WorkbenchContext,
       reference: string,
@@ -143,12 +208,12 @@ test("view_artifact returns a teammate pass with quoted curl and Chromium comman
       };
     },
   } as unknown as ArtifactWorkbench;
-  const view = artifactTools(workbench, context).find(
-    (tool) => tool.name === artifactToolNames.view,
+  const view = appTools(workbench, context).find(
+    (tool) => tool.name === appToolNames.view,
   )!;
   const result = await view.execute(
     "call",
-    { artifact: "site", path: "/it's/" } as never,
+    { app: "site", path: "/it's/" } as never,
     undefined,
     undefined,
     undefined as never,
@@ -165,11 +230,9 @@ test("view_artifact returns a teammate pass with quoted curl and Chromium comman
     `chromium --headless --no-sandbox --window-size=1280,800 --screenshot=/tmp/screenshot.png '${host}/_teammate-access?token=everything_view_secret'`,
   );
   assert.match(reported.commands.renderedHtml, /--dump-dom '/);
-  assert.match(view.description, /share the artifact's own link instead/);
+  assert.match(view.description, /share the app's own link instead/);
   assert.match(
     mainAgentPrompt({ id: agentId, name: "Ada", systemPrompt: "Help." }),
-    new RegExp(
-      `publish or deploy, open the artifact with ${artifactToolNames.view}`,
-    ),
+    new RegExp(`publish or deploy, open the app with ${appToolNames.view}`),
   );
 });

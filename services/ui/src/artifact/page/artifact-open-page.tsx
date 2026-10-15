@@ -4,7 +4,7 @@ import { Brand } from "@everything/ui/brand";
 import { Button } from "@everything/ui/button";
 import { useArtifactLibrary } from "../component/artifact-library-provider.js";
 
-/** Sign the browser in to the artifact host, then continue to the requested artifact. */
+/** Sign the browser in to the app host, then continue to the requested app. */
 export function ArtifactOpenPage() {
   const library = useArtifactLibrary();
   const [parameters] = useSearchParams();
@@ -40,7 +40,7 @@ export function ArtifactOpenPage() {
           </Button>
         </>
       ) : (
-        <p role="status">Opening the artifact…</p>
+        <p role="status">Opening the app…</p>
       )}
     </main>
   );

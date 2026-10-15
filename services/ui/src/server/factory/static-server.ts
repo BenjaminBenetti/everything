@@ -49,12 +49,17 @@ export async function createStaticServer(root: string) {
     "/team/:agentId",
     "/workspaces",
     "/updates",
-    "/artifacts",
-    "/artifacts/open",
+    "/apps",
+    "/apps/open",
   ]);
   for (const path of pages)
     app.get(path, async (_request, reply) =>
       reply.type("text/html").sendFile("index.html"),
+    );
+  // Keep saved links working, including the requested app and page in the query string.
+  for (const path of ["/artifacts", "/artifacts/open"])
+    app.get(path, async (request, reply) =>
+      reply.redirect(`/apps${request.url.slice("/artifacts".length)}`, 308),
     );
   await app.register(staticFiles, { root, index: false, cacheControl: false });
   app.setNotFoundHandler(async (_request, reply) =>

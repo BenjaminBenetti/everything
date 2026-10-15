@@ -108,11 +108,18 @@ export class HttpArtifactGateway implements ArtifactGateway {
   }
 
   /** Delete the artifact. */
-  async delete(actor: ArtifactActor, reference: string): Promise<void> {
-    await this.send(this.artifact(actor.ownerId, reference), {
-      method: "DELETE",
-      actor,
-    });
+  async delete(
+    actor: ArtifactActor,
+    reference: string,
+    requireStopped = false,
+  ): Promise<void> {
+    await this.send(
+      `${this.artifact(actor.ownerId, reference)}${requireStopped ? "?requireStopped=true" : ""}`,
+      {
+        method: "DELETE",
+        actor,
+      },
+    );
   }
 
   /** Read a revision's or build's file list. */
@@ -159,8 +166,7 @@ export class HttpArtifactGateway implements ArtifactGateway {
     const response = await this.send(`/internal/v1/content/${hash}`, {
       timeoutMs: transferTimeoutMs,
     });
-    if (!response.body)
-      throw new Error("The artifact service returned no content");
+    if (!response.body) throw new Error("The apps service returned no content");
     return Readable.fromWeb(response.body as NodeReadableStream<Uint8Array>);
   }
 
@@ -229,7 +235,18 @@ export class HttpArtifactGateway implements ArtifactGateway {
     });
   }
 
-  /** Stop a dynamic artifact. */
+  /** Resume the app's saved release, preserving its image and runtime settings. */
+  async start(
+    actor: ArtifactActor,
+    reference: string,
+  ): Promise<ArtifactDetails> {
+    return this.json(`${this.artifact(actor.ownerId, reference)}/start`, {
+      method: "POST",
+      actor,
+    });
+  }
+
+  /** Stop a published app while retaining its files and data. */
   stop(actor: ArtifactActor, reference: string): Promise<ArtifactDetails> {
     return this.json(`${this.artifact(actor.ownerId, reference)}/stop`, {
       method: "POST",
@@ -340,7 +357,7 @@ export class HttpArtifactGateway implements ArtifactGateway {
     throw new ArtifactRequestFailure(
       response.status,
       failure.code ?? "ARTIFACT_SERVICE_ERROR",
-      failure.message ?? `The artifact service failed (${response.status}).`,
+      failure.message ?? `The apps service failed (${response.status}).`,
     );
   }
 }

@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import type { BrowserSession } from "@everything/security/browser";
 import { Brand } from "@everything/ui/brand";
 import type { AgentDirectory } from "../../agent/interface/agent-directory.js";
@@ -73,6 +73,7 @@ export function Application({
 /** Mount private pages only after session restoration, retaining the current route. */
 function AuthenticatedRoutes() {
   const { profile, loading } = useSession();
+  const { search, hash } = useLocation();
   if (loading)
     return (
       <main className="startup-screen">
@@ -84,13 +85,25 @@ function AuthenticatedRoutes() {
   return (
     <WorkspaceDialogsProvider>
       <Routes>
-        <Route path="artifacts/open" element={<ArtifactOpenPage />} />
+        <Route path="apps/open" element={<ArtifactOpenPage />} />
+        <Route
+          path="artifacts/open"
+          element={
+            <Navigate replace to={{ pathname: "/apps/open", search, hash }} />
+          }
+        />
         <Route element={<WorkspaceShell />}>
           <Route index element={<HomePage />} />
           <Route path="team" element={<TeamPage />} />
           <Route path="team/:agentId" element={<ConversationPage />} />
           <Route path="updates" element={<UpdatesPage />} />
-          <Route path="artifacts" element={<ArtifactsPage />} />
+          <Route path="apps" element={<ArtifactsPage />} />
+          <Route
+            path="artifacts"
+            element={
+              <Navigate replace to={{ pathname: "/apps", search, hash }} />
+            }
+          />
           <Route path="workspaces" element={<WorkspacesPage />} />
           <Route path="login" element={<Navigate replace to="/" />} />
           <Route path="*" element={<Navigate replace to="/" />} />

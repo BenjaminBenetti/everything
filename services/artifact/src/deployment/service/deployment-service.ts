@@ -29,7 +29,7 @@ import type { WorkloadReconciler } from "./workload-reconciler.js";
 /** Names the artifact service sets in every artifact's environment. */
 const reserved = new Set<string>(reservedEnvironmentNames);
 
-/** Deploys builds of dynamic artifacts, stops them, and reads their output. */
+/** Deploys builds of dynamic apps and reads their container output. */
 export class DeploymentService {
   // ===========================================
   // Construction
@@ -98,25 +98,6 @@ export class DeploymentService {
       if (!updated)
         throw new Error("The artifact disappeared during its deployment");
       await this.deployments.prune(scope, deploymentRetention, release);
-      await this.reconciler.reconcile(updated);
-      return updated;
-    });
-  }
-
-  /** Stop the live deployment's pod, keeping the deployment, database, and disk. */
-  async stop(
-    ownerId: string,
-    actor: ArtifactAuthor,
-    reference: string,
-  ): Promise<Artifact> {
-    const { id } = await this.lookup.resolveKind(ownerId, reference, "dynamic");
-    return this.lock.run(id, async () => {
-      await this.lookup.resolveKind(ownerId, id, "dynamic");
-      const updated = await this.artifacts.update({ ownerId }, id, {
-        running: false,
-        updatedBy: actor,
-      });
-      if (!updated) throw new Error("The artifact disappeared while stopping");
       await this.reconciler.reconcile(updated);
       return updated;
     });
