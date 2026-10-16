@@ -168,8 +168,9 @@ serviceDefaults:
   # Port name to `{ containerPort, servicePort? }`; ports with a servicePort are exposed by a Service
   # named after the service.
   ports: {}
-  # Route these path prefixes to the named exposed port, on the application's origin or, with
-  # `site: artifacts` or `site: registry`, on the artifact host or the registry's hostname.
+  # Route these path prefixes, rendered as templates, to the named exposed port, on the application's
+  # origin or, with `site: artifacts` or `site: registry`, on the artifact host or the registry's
+  # hostname.
   #   ingress: { port: http, paths: [/v1] }
   ingress: {}
   # Kubernetes API access: namespace (rendered as a template) to RBAC rules. A service with access
@@ -308,9 +309,14 @@ services:
     ports:
       http: { containerPort: 8080, servicePort: 8080 }
       management: { containerPort: 9000 }
+    # Only the realm's OpenID Connect endpoints are public. Browsers never reach Keycloak, and the
+    # services call it inside the cluster, so the admin console and API, the master realm, and
+    # Keycloak's own pages stay unreachable; other /auth paths fall through to the UI.
     ingress:
       port: http
-      paths: [/auth]
+      paths:
+        - "/auth/realms/{{ .Values.global.realm }}/protocol/openid-connect"
+        - "/auth/realms/{{ .Values.global.realm }}/.well-known"
     probes:
       startup:
         httpGet: { path: /health/started, port: management }

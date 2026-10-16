@@ -20,6 +20,7 @@ tests {
     expect(res.body).to.deep.equal({
       status: "idle",
       compacting: false,
+      compactionStartedAt: null,
       backgroundCount: 0,
       typing: false,
       sessionId: null,

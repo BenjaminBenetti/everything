@@ -2,8 +2,9 @@
 # Install or upgrade Everything on a Kubernetes cluster from its published Helm chart:
 #   curl -fsSL https://github.com/BenjaminBenetti/everything/releases/latest/download/install.sh | bash
 # It asks for the installation's settings and credentials, saves them in a values file that later runs
-# reuse, creates the release's namespace, and runs `helm upgrade --install`. It needs Helm 3.8 or newer,
-# kubectl, and a kubectl context selecting the target cluster. It runs on Bash 3.2, as macOS ships.
+# reuse, creates the release's namespace, runs `helm upgrade --install`, and offers to create the first
+# user while Keycloak has none. It needs Helm 3.8 or newer, kubectl, and a kubectl context selecting the
+# target cluster. It runs on Bash 3.2, as macOS ships.
 set -euo pipefail
 
 # The version installed by default; the release workflow sets it in the copy it publishes. Empty
@@ -12,16 +13,21 @@ release_version=""
 chart=oci://ghcr.io/benjaminbenetti/everything/charts/everything
 release=everything
 default_settings_file=everything-values.yaml
+# Runs Keycloak's admin CLI, which creates the first user inside the cluster.
+keycloak_workload=deployment/keycloak
 
 hostname_pattern='^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$'
 # Namespaces for apps, builds, and Fleet append up to 10 characters to the release's namespace.
 namespace_pattern='^[a-z0-9]([a-z0-9-]{0,51}[a-z0-9])?$'
 session_key_pattern='^[A-Za-z0-9+/]{43}=$'
+# Keycloak lowercases usernames; the application accepts up to 254 characters.
+username_pattern='^[a-z0-9][a-z0-9._@-]{0,253}$'
 
 # Answers and working state, set as the installer runs.
 settings_file="" reuse=false credentials_changed=false version="" namespace=""
 app_host="" artifact_host="" registry_host="" ingress_class="" issuer="" storage_class=""
-work="" package="" chart_dir=""
+work="" package="" chart_dir="" context="" first_install=false
+new_username="" new_password="" first_user=""
 
 # ---------------------------------------------------------------------------------------------------
 # Terminal: prompts read the terminal on descriptor 3, because curl's output is the shell's input.
@@ -52,7 +58,7 @@ ask() {
 # ask_hidden <variable> <prompt>: a line from the terminal without echoing it.
 ask_hidden() {
   local ask_reply
-  printf '%s (Enter to generate one): ' "$2" >&2
+  printf '%s: ' "$2" >&2
   read_line -s ask_reply
   printf '\n' >&2
   printf -v "$1" '%s' "$ask_reply"
@@ -82,6 +88,16 @@ lowercase() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 yaml_quote() {
   local quote="'"
   printf "'%s'" "${1//$quote/$quote$quote}"
+}
+
+# A JSON string; prompts yield no newlines, and tabs are escaped. Quoting each part keeps the
+# replacements literal in every Bash version.
+json_string() {
+  local value=$1 backslash="\\" quote='"' tab=$'\t'
+  value=${value//"$backslash"/"$backslash$backslash"}
+  value=${value//"$quote"/"$backslash$quote"}
+  value=${value//"$tab"/"${backslash}t"}
+  printf '"%s"' "$value"
 }
 
 # A random 32-character password of letters and digits.
@@ -207,9 +223,9 @@ ask_settings() {
     if [ "$registry_host" != "$app_host" ] && [ "$registry_host" != "$artifact_host" ]; then break; fi
     say "The registry needs a hostname of its own."
   done
-  ask ingress_class "Ingress class (Enter for the cluster's default)"
-  ask issuer "cert-manager ClusterIssuer for TLS certificates (Enter if your ingress handles TLS)"
-  ask storage_class "Storage class (Enter for the cluster's default)"
+  ask ingress_class "Name of the ingress class to use (Enter for the cluster's default)"
+  ask issuer "Name of the cert-manager ClusterIssuer to use for TLS (Enter if your ingress handles TLS)"
+  ask storage_class "Name of the storage class to use (Enter for the cluster's default)"
   # ingress-nginx limits request bodies, and the registry receives whole image layers.
   case $ingress_class in
     *nginx*) body_size="nginx.ingress.kubernetes.io/proxy-body-size: '0'" ;;
@@ -242,7 +258,7 @@ credential() {
   case "$secret.$key" in
     database-credentials.admin) description="PostgreSQL superuser password" ;;
     database-credentials.*) description="PostgreSQL password of the $key database" ;;
-    keycloak-credentials.admin) description="Keycloak admin password, for signing in to /auth/admin as admin" ;;
+    keycloak-credentials.admin) description="Keycloak admin password, used only inside the cluster" ;;
     browser-auth.client-secret) description="Client secret Everything signs users in to Keycloak with" ;;
     browser-auth.session-encryption-key) description="Session encryption key, 32 random bytes in base64" ;;
     artifact-auth.client-secret) description="Client secret Everything calls the app service with" ;;
@@ -251,7 +267,7 @@ credential() {
     *) description="Value of secrets.$secret.$key" ;;
   esac
   while true; do
-    ask_hidden value "$description"
+    ask_hidden value "$description (Enter to generate one)"
     if [ "$secret.$key" = browser-auth.session-encryption-key ]; then
       value=${value:-$(random_session_key)}
       if [[ ! $value =~ $session_key_pattern ]]; then
@@ -326,11 +342,19 @@ fetch_chart() {
 }
 
 install_release() {
-  local context
+  local action
   context=$(kubectl config current-context 2> /dev/null) ||
     fail "kubectl has no current context; select the target cluster first."
+  # An existing release means this run upgrades it.
+  if helm status "$release" --kube-context "$context" --namespace "$namespace" > /dev/null 2>&1; then
+    first_install=false
+    action="Upgrade Everything in namespace $namespace to $version"
+  else
+    first_install=true
+    action="Install Everything $version into namespace $namespace"
+  fi
   say ""
-  if ! confirm "Install Everything $version into namespace $namespace with kubectl context $context?" Y; then
+  if ! confirm "$action with kubectl context $context?" Y; then
     say "Nothing installed. Run the installer again to reuse $settings_file."
     exit 0
   fi
@@ -348,19 +372,116 @@ EOF
     --values "$chart_dir/values.prod.yaml" --values "$settings_file"
 }
 
+# ---------------------------------------------------------------------------------------------------
+# First user: Keycloak's admin console is not exposed, so the installer creates the first person's
+# account through Keycloak's admin CLI inside its pod.
+# ---------------------------------------------------------------------------------------------------
+
+# Run Keycloak's admin CLI in its pod on the application's realm, signed in as the bootstrap admin
+# from the pod's own environment, so that password never leaves the cluster. Standard input passes
+# through.
+keycloak_admin() {
+  # shellcheck disable=SC2016 # The pod's shell expands these.
+  kubectl --context "$context" --namespace "$namespace" exec -i "$keycloak_workload" -- bash -c \
+    'exec /opt/keycloak/bin/kcadm.sh "$@" -r "$EVERYTHING_REALM" --no-config \
+      --server http://localhost:8080/auth --realm master \
+      --user "$KC_BOOTSTRAP_ADMIN_USERNAME" --password "$KC_BOOTSTRAP_ADMIN_PASSWORD"' kcadm "$@"
+}
+
+ask_username() {
+  while true; do
+    ask new_username "Username"
+    new_username=$(lowercase "$new_username")
+    if [[ $new_username =~ $username_pattern ]]; then return; fi
+    say "Use letters, digits, and . _ @ -, starting with a letter or digit."
+  done
+}
+
+# The first user's password, typed twice. It is not saved anywhere but Keycloak.
+ask_new_password() {
+  local confirmation
+  while true; do
+    ask_hidden new_password "Password (at least 8 characters)"
+    case $new_password in
+      *[[:cntrl:]]*)
+        say "Use printable characters only."
+        continue
+        ;;
+    esac
+    if [ ${#new_password} -lt 8 ] || [ ${#new_password} -gt 1024 ]; then
+      say "Use 8 to 1024 characters."
+      continue
+    fi
+    ask_hidden confirmation "Password again"
+    if [ "$new_password" = "$confirmation" ]; then return; fi
+    say "The passwords differ; try again."
+  done
+}
+
+# Offer to create the first user while the realm has none: after a new installation, or on a later
+# run when the first attempt did not finish.
+setup_first_user() {
+  local users output
+  say ""
+  say "Waiting for Keycloak, which takes a few minutes on a new installation..."
+  if ! kubectl --context "$context" --namespace "$namespace" rollout status "$keycloak_workload" \
+    --timeout=15m > /dev/null; then
+    say "Keycloak is not ready yet. Run the installer again once it is to create your first user."
+    return
+  fi
+  if ! users=$(keycloak_admin get users -q max=1 --fields id < /dev/null 2> /dev/null); then
+    say "Could not list Keycloak's users. Run the installer again to create your first user."
+    return
+  fi
+  case $users in *'"id"'*) return ;; esac
+  say ""
+  if [ "$first_install" = true ]; then
+    say "Installed. Let's set up your first user."
+  else
+    say "Everything has no users yet. Let's set up the first one."
+  fi
+  if ! confirm "Create the first user now?" Y; then
+    say "Run the installer again any time to create it."
+    return
+  fi
+  while true; do
+    ask_username
+    ask_new_password
+    # The password reaches Keycloak only on standard input, never on a command line.
+    output=$(printf '{"username":%s,"enabled":true,"credentials":[{"type":"password","value":%s,"temporary":false}]}' \
+      "$(json_string "$new_username")" "$(json_string "$new_password")" |
+      keycloak_admin create users -f - 2>&1) || true
+    new_password=""
+    case $output in
+      *"Created new user"*)
+        first_user=$new_username
+        say "Created $first_user."
+        return
+        ;;
+    esac
+    say "Keycloak did not create the user: $(printf '%s\n' "$output" | grep -v '^Logging into' | tail -n 1)"
+    confirm "Try again?" Y || return
+  done
+}
+
 print_next_steps() {
   local app_host
   app_host=$(saved_setting externalHostname)
   say ""
-  say "Everything $version is starting in namespace $namespace."
-  say "  Watch its pods: kubectl -n $namespace get pods -w"
-  if [ "$reuse" = false ]; then
+  if [ "$first_install" = true ]; then
+    say "Everything $version is installed in namespace $namespace."
     say "  Point DNS for $app_host, $(saved_setting externalArtifactHostname), and"
     say "  $(saved_setting externalRegistryHostname) at your ingress controller."
-    say "  Sign in to https://$app_host/auth/admin as admin, with the password under"
-    say "  keycloak-credentials in $settings_file, and create your user."
+  else
+    say "Everything is upgraded to $version in namespace $namespace."
   fi
-  say "  Then open https://$app_host. To upgrade, run the installer again and reuse $settings_file."
+  say "  Watch its pods: kubectl -n $namespace get pods -w"
+  if [ -n "$first_user" ]; then
+    say "  Sign in at https://$app_host as $first_user."
+  else
+    say "  Sign in at https://$app_host."
+  fi
+  say "  To upgrade, run the installer again and reuse $settings_file."
 }
 
 cleanup() {
@@ -394,6 +515,7 @@ main() {
   collect_credentials
   save_settings
   install_release
+  setup_first_user
   print_next_steps
 }
 

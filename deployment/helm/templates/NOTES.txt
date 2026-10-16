@@ -1,4 +1,5 @@
 {{ .Release.Name }} is installed in namespace {{ .Release.Namespace }}.
 
-The application is served at {{ tpl .Values.global.publicOrigin . }}, with Keycloak under /auth.
+The application is served at {{ tpl .Values.global.publicOrigin . }}. Keycloak's admin console is not
+exposed; the installer creates the first user.
 Persistent volume claims are kept when the release is uninstalled; delete them explicitly to discard data.

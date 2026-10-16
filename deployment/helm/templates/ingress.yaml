@@ -12,7 +12,7 @@ registry's hostname.
 {{- if and $service.enabled $service.ingress }}
 {{- $site := $service.ingress.site | default "application" }}
 {{- range $service.ingress.paths }}
-{{- $_ := set $paths $site (append (get $paths $site | default list) (dict "path" . "service" $name "port" $service.ingress.port)) }}
+{{- $_ := set $paths $site (append (get $paths $site | default list) (dict "path" (tpl . $) "service" $name "port" $service.ingress.port)) }}
 {{- end }}
 {{- end }}
 {{- end }}
