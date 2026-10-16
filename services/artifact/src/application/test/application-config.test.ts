@@ -10,6 +10,13 @@ function environment(): NodeJS.ProcessEnv {
     OIDC_ISSUER: "https://everything.test/auth/realms/everything",
     OIDC_JWKS_URL: "http://keycloak:8080/certs",
     OIDC_AUDIENCE: "everything-artifact",
+    EVERYTHING_API_URL: "http://everything.everything.svc.cluster.local:8080",
+    EVERYTHING_API_AUDIENCE: "everything-api",
+    KEYCLOAK_ADMIN_URL: "http://keycloak:8080/auth/admin/realms/everything",
+    KEYCLOAK_PROTOCOL_URL:
+      "http://keycloak:8080/auth/realms/everything/protocol/openid-connect",
+    APP_PROVISIONER_CLIENT_ID: "everything-app-provisioner",
+    APP_PROVISIONER_CLIENT_SECRET: "test-only",
     DATABASE_URL: "postgresql://artifact@postgres:5432/artifact",
     DATABASE_PASSWORD: "test-only",
     ARTIFACT_DATA_DATABASE: "artifact_data",

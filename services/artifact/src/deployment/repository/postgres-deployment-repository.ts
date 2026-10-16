@@ -45,13 +45,14 @@ export class PostgresDeploymentRepository
   /** Save a new deployment of the artifact in scope. */
   async create(
     scope: WithinArtifactScope,
-    { author, env, ...deployment }: NewDeployment,
+    { author, env, capabilities, ...deployment }: NewDeployment,
   ): Promise<Deployment> {
     const record = await this.orm.save(
       this.orm.create({
         ...this.scopeWhere(scope),
         ...deployment,
         env: { ...env },
+        capabilities: [...capabilities],
         id: randomUUID(),
         authorId: author.id,
         authorName: author.name,

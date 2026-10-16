@@ -1,5 +1,10 @@
 import type { FastifyInstance } from "fastify";
 import { createKeycloakTokenVerifier } from "@everything/security/keycloak";
+import { KeycloakClientCredentials } from "@everything/security/client-credentials";
+import { KeycloakAppApiClients } from "../../capability/adapter/keycloak-app-api-clients.js";
+import { KubernetesCapabilitySecrets } from "../../capability/adapter/kubernetes-capability-secrets.js";
+import { ProvisionedArtifactCapabilities } from "../../capability/service/artifact-capabilities.js";
+import { EverythingApiCapability } from "../../capability/service/everything-api-capability.js";
 import { ArtifactEntity } from "../../artifact/schema/artifact-entity.js";
 import { PostgresArtifactRepository } from "../../artifact/repository/postgres-artifact-repository.js";
 import { ArtifactLock } from "../../artifact/service/artifact-lock.js";
@@ -21,6 +26,8 @@ import { createArtifactDatabase } from "../../persistence/factory/artifact-datab
 import { PostgresRevisionRepository } from "../../revision/repository/postgres-revision-repository.js";
 import { RevisionService } from "../../revision/service/revision-service.js";
 import { ArtifactProxy } from "../../viewing/adapter/artifact-proxy.js";
+import { ProvisionedClientSecrets } from "../../viewing/adapter/provisioned-client-secrets.js";
+import { AppResponseGuard } from "../../viewing/service/app-response-guard.js";
 import { ViewCookie } from "../../viewing/handler/view-cookie.js";
 import { ViewPassCredentials } from "../../viewing/handler/view-pass-credentials.js";
 import {
@@ -51,6 +58,10 @@ async function main(): Promise<void> {
   );
   await dataDatabase.initialize();
   const clients = createKubernetesClients();
+  const capabilitySecrets = new KubernetesCapabilitySecrets(
+    clients,
+    config.cluster.artifactNamespace,
+  );
 
   const artifactRepository = new PostgresArtifactRepository(database);
   const revisionRepository = new PostgresRevisionRepository(database);
@@ -70,6 +81,30 @@ async function main(): Promise<void> {
     orchestrator,
     new PostgresArtifactDatabases(dataDatabase, config.artifactData),
     config.registry.pullHost,
+    new ProvisionedArtifactCapabilities(
+      [
+        new EverythingApiCapability(
+          new KeycloakAppApiClients(
+            new KeycloakClientCredentials({
+              protocolUrl: config.appApi.protocolUrl,
+              publicOrigin: config.publicOrigin,
+              clientId: config.appApi.clientId,
+              clientSecret: config.appApi.clientSecret,
+            }),
+            {
+              adminUrl: config.appApi.adminUrl,
+              audience: config.appApi.audience,
+            },
+          ),
+          {
+            apiUrl: config.appApi.apiUrl,
+            tokenUrl: `${config.appApi.protocolUrl}/token`,
+          },
+        ),
+      ],
+      capabilitySecrets,
+    ),
+    lock,
   );
   const builds = new BuildService(
     buildRepository,
@@ -155,10 +190,12 @@ async function main(): Promise<void> {
     artifacts: artifactRepository,
     site: new StaticSite(revisionRepository),
     content,
-    proxy: new ArtifactProxy(config.cluster.artifactNamespace, [
-      ...cookie.privateCookies,
-      passCredentials.cookieName,
-    ]),
+    proxy: new ArtifactProxy(
+      config.cluster.artifactNamespace,
+      [...cookie.privateCookies, passCredentials.cookieName],
+      new ProvisionedClientSecrets(deploymentRepository, capabilitySecrets),
+      new AppResponseGuard(),
+    ),
     publicOrigin: config.publicOrigin,
   });
 

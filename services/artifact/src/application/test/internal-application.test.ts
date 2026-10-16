@@ -113,6 +113,24 @@ test("the internal API requires a service token, and changes require the acting 
   assert.equal(invalid.statusCode, 400);
 });
 
+test("deployment requests reject unknown, duplicate, and malformed capabilities before provisioning", async (context) => {
+  const app = await application(context);
+  for (const capabilities of [
+    ["unknown"],
+    ["everything-api", "everything-api"],
+    "everything-api",
+    [1],
+  ]) {
+    const response = await app.inject({
+      method: "POST",
+      url: "/internal/v1/owners/owner/artifacts/app/deployments",
+      headers: { ...bearer, ...actor },
+      payload: { capabilities },
+    });
+    assert.equal(response.statusCode, 400);
+  }
+});
+
 test("uploading, publishing, checking out, and opening a static artifact", async (context) => {
   const app = await application(context);
   const created = await app.inject({

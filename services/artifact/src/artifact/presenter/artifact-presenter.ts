@@ -81,6 +81,7 @@ export function representDetails(
         port: history.deployment.port,
         env: history.deployment.env,
         database: history.deployment.database,
+        capabilities: history.deployment.capabilities,
         diskGi: history.deployment.diskGi,
         healthPath: history.deployment.healthPath,
       }

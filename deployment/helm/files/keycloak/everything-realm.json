@@ -1,7 +1,7 @@
 {
   "realm": "everything",
   "enabled": true,
-  "sslRequired": "all",
+  "sslRequired": "external",
   "registrationAllowed": false,
   "resetPasswordAllowed": false,
   "loginWithEmailAllowed": false,
@@ -62,6 +62,29 @@
       "clientAuthenticatorType": "client-secret",
       "secret": "${EVERYTHING_ARTIFACT_CLIENT_SECRET}",
       "serviceAccountsEnabled": true
+    },
+    {
+      "clientId": "everything-app-provisioner",
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "${EVERYTHING_APP_PROVISIONER_CLIENT_SECRET}",
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "implicitFlowEnabled": false,
+      "serviceAccountsEnabled": true,
+      "redirectUris": [],
+      "webOrigins": []
+    }
+  ],
+  "users": [
+    {
+      "username": "service-account-everything-app-provisioner",
+      "enabled": true,
+      "serviceAccountClientId": "everything-app-provisioner",
+      "clientRoles": {
+        "realm-management": ["manage-clients"]
+      }
     }
   ]
 }

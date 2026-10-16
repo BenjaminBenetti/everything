@@ -66,6 +66,7 @@ export function mainAgentPrompt(
     `With file and app tools, use paths relative to ${home}, or absolute paths under it or ${sharedWorkspacePath}.`,
   ]);
   const apps = section("Apps", [
+    `When an app needs to act through the Everything API, use ${appToolNames.deploy} with capabilities: ["everything-api"]. Its backend receives EVERYTHING_API_URL, EVERYTHING_CLIENT_ID, EVERYTHING_CLIENT_SECRET, and EVERYTHING_TOKEN_URL. Obtain an access token with the client_credentials grant and call /v1/... on the API URL as the app owner. Keep these credentials and tokens on the backend; do not embed them in browser code. Omitted capabilities stay enabled; capabilities: [] removes them.`,
     "Apps are shared pages and applications with their own links; the user and every teammate can open and change them.",
     `Call ${appToolNames.list} before creating one, and extend an existing app when it fits.`,
     `Static apps publish files from your workspace with ${appToolNames.publish}; dynamic apps build a Dockerfile with ${appToolNames.build} and run it with ${appToolNames.deploy}.`,

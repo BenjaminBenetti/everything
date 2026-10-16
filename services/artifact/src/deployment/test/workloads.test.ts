@@ -19,6 +19,7 @@ import type {
 } from "../interface/workload-orchestrator.js";
 import { runtimeFromPods } from "../model/runtime-state.js";
 import { WorkloadReconciler } from "../service/workload-reconciler.js";
+import { ArtifactLock } from "../../artifact/service/artifact-lock.js";
 
 const settings = {
   namespace: "artifacts",
@@ -39,12 +40,14 @@ function workload(
       port: 3000,
       env: { MODE: "demo", PORT: "1" },
       database: false,
+      capabilities: [],
       diskGi: null,
       healthPath: null,
       ...changes,
     },
     release: 4,
     databaseFingerprint: null,
+    capabilities: { secretNames: [], fingerprint: null },
   };
 }
 
@@ -90,6 +93,38 @@ test("an artifact with a disk runs as a StatefulSet mounting /data, with its dat
     },
   ]);
   assert.equal(container.readinessProbe!.httpGet!.path, "/health");
+});
+
+test("capability environments use Secret references and cannot be shadowed by older saved variables", () => {
+  const requested = workload({
+    database: true,
+    capabilities: ["everything-api"],
+    env: { MODE: "demo", EVERYTHING_CLIENT_SECRET: "old-value" },
+  });
+  const pod = deploymentManifest(
+    {
+      ...requested,
+      capabilities: {
+        secretNames: ["app-api-secret"],
+        fingerprint: "credentials-v2",
+      },
+    },
+    settings,
+  ).spec!.template;
+  assert.deepEqual(pod.spec!.containers[0]!.envFrom, [
+    {
+      secretRef: { name: "artifact-6f1c1f6e8c7e4c4b9a432d8b8f7c8f11-database" },
+    },
+    { secretRef: { name: "app-api-secret" } },
+  ]);
+  assert.equal(
+    pod.metadata!.annotations!["everything.dev/capabilities"],
+    "credentials-v2",
+  );
+  assert.doesNotMatch(
+    JSON.stringify(pod),
+    /old-value|EVERYTHING_CLIENT_SECRET/,
+  );
 });
 
 test("database Secrets carry a URL and the standard libpq variables", () => {
@@ -182,6 +217,7 @@ test("reconciling runs the live deployment by digest, reusing the stored databas
       port: 8080,
       env: {},
       database: true,
+      capabilities: ["everything-api"],
       diskGi: null,
       healthPath: null,
     },
@@ -190,6 +226,7 @@ test("reconciling runs the live deployment by digest, reusing the stored databas
     "a".repeat(48),
   );
   const ensured: string[] = [];
+  const capabilityCalls: unknown[] = [];
   const reconciler = new WorkloadReconciler(
     artifacts,
     deployments,
@@ -208,6 +245,20 @@ test("reconciling runs the live deployment by digest, reusing the stored databas
       remove: async () => {},
     },
     "localhost:30500",
+    {
+      /** Capture app ownership and the stored capability request. */
+      reconcile: async (owner, enabled) => {
+        capabilityCalls.push([owner.id, owner.ownerId, enabled]);
+        return {
+          secretNames: ["app-api-secret"],
+          fingerprint: "secret-version",
+        };
+      },
+      remove: async (id) => {
+        capabilityCalls.push(["remove", id]);
+      },
+    },
+    new ArtifactLock(),
   );
   await reconciler.reconcile(app);
   assert.deepEqual(ensured, ["a".repeat(48)]);
@@ -217,10 +268,39 @@ test("reconciling runs the live deployment by digest, reusing the stored databas
     /^localhost:30500\/artifacts\/[0-9a-f]{32}@sha256:abc$/,
   );
   assert.equal(applied[0]!.databaseFingerprint?.length, 16);
+  assert.deepEqual(capabilityCalls, [[app.id, owner, ["everything-api"]]]);
+  assert.deepEqual(applied[0]!.capabilities, {
+    secretNames: ["app-api-secret"],
+    fingerprint: "secret-version",
+  });
 
   const stopped = { ...app, running: false };
   await reconciler.reconcile(stopped);
   assert.equal(calls.at(-1), `stop:${app.id}`);
   await reconciler.reconcile(artifacts.add("static", "site"));
   assert.equal(applied.length, 1);
+  assert.equal(capabilityCalls.length, 1);
+  await reconciler.remove(app);
+  assert.deepEqual(capabilityCalls.at(-1), ["remove", app.id]);
+});
+
+test("background reconciliation rechecks existence under the shared lock before provisioning", async () => {
+  const artifacts = new MemoryArtifacts();
+  const app = artifacts.add("dynamic", "app");
+  const reconciler = new WorkloadReconciler(
+    { list: async () => [app], getById: async () => undefined },
+    {
+      findByRelease: async () =>
+        assert.fail("deleted app must not be reconciled"),
+    },
+    recordingOrchestrator().orchestrator,
+    { ensure: async () => assert.fail("no database"), remove: async () => {} },
+    "registry",
+    {
+      reconcile: async () => assert.fail("no credentials"),
+      remove: async () => {},
+    },
+    new ArtifactLock(),
+  );
+  await reconciler.reconcileAll();
 });

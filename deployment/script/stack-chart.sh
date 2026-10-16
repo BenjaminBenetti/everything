@@ -30,6 +30,20 @@ stack_images() {
   render_stack "$@" | sed -n 's/^[ -]*image: *"\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' | sort -u
 }
 
+# Find the workload containing a named environment setting in the rendered chart.
+stack_workload_with_environment() {
+  local setting=$1
+  shift
+  render_stack "$@" | awk -v setting="$setting" '
+    function emit() { if (found && kind && name) print tolower(kind) "/" name }
+    /^---/ { emit(); kind=""; name=""; found=0 }
+    /^kind: (Deployment|StatefulSet)$/ { kind=$2 }
+    /^  name:/ { if (kind) name=$2 }
+    /^[[:space:]]*- name:/ { value=$3; gsub(/"/, "", value); if (value == setting) found=1 }
+    END { emit() }
+  '
+}
+
 # Restart the release's workloads wave by wave, waiting for each wave before starting the next.
 restart_stack() {
   local selector="app.kubernetes.io/instance=$release" kinds=deployments,statefulsets wave workload

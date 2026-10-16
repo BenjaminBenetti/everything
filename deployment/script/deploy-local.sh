@@ -32,3 +32,4 @@ helm upgrade "$release" "$chart" --install --reset-values --kube-context "$conte
 bash deployment/script/configure-local-registry.sh
 # Fixed development tags leave pod specs unchanged, so restart to run the newly loaded images.
 restart_stack
+bash deployment/script/provision-app-client.sh

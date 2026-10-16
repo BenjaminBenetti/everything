@@ -75,6 +75,7 @@ test("a first deployment uses the defaults, runs the latest successful build, an
   assert.equal(deployment?.imageDigest, digest);
   assert.equal(deployment?.port, 8080);
   assert.equal(deployment?.database, false);
+  assert.deepEqual(deployment?.capabilities, []);
   assert.equal(deployment?.diskGi, null);
   assert.equal(reconciled.length, 1);
 });
@@ -85,6 +86,7 @@ test("later deployments keep omitted settings and replace given ones", async () 
     port: 3000,
     env: { MODE: "demo" },
     database: true,
+    capabilities: ["everything-api"],
     diskGi: 2,
     healthPath: "/health",
   });
@@ -96,8 +98,14 @@ test("later deployments keep omitted settings and replace given ones", async () 
   assert.equal(second?.port, 3000);
   assert.deepEqual(second?.env, { MODE: "live" });
   assert.equal(second?.database, true);
+  assert.deepEqual(second?.capabilities, ["everything-api"]);
   assert.equal(second?.diskGi, 2);
   assert.equal(second?.healthPath, null);
+  await service.deploy(owner, ada, "app", { capabilities: [] });
+  assert.deepEqual(
+    (await deployments.findByRelease(scope, 3))?.capabilities,
+    [],
+  );
 });
 
 test("a disk keeps the size it was created with", async () => {
@@ -116,6 +124,16 @@ test("a disk keeps the size it was created with", async () => {
 
 test("deployments refuse reserved variables, unfinished builds, and stale releases", async () => {
   const { service } = await fixture();
+  for (const name of [
+    "EVERYTHING_API_URL",
+    "EVERYTHING_CLIENT_ID",
+    "EVERYTHING_CLIENT_SECRET",
+    "EVERYTHING_TOKEN_URL",
+  ])
+    await assert.rejects(
+      service.deploy(owner, ada, "app", { env: { [name]: "override" } }),
+      { code: "RESERVED_VARIABLE" },
+    );
   await assert.rejects(
     service.deploy(owner, ada, "app", { env: { PORT: "1" } }),
     {

@@ -1,12 +1,17 @@
 import { createRemoteJWKSet } from "jose";
 import type { TokenVerifier } from "../interface/token-verifier.js";
-import { AccessTokenVerifier } from "../service/access-token-verifier.js";
+import {
+  AccessTokenVerifier,
+  type AccessTokenIdentityResolver,
+} from "../service/access-token-verifier.js";
 
 /** Trust configuration supplied by each service consuming Keycloak access tokens. */
 export interface KeycloakTokenConfiguration {
   readonly issuer: string;
   readonly audience: string;
   readonly jwksUrl: string;
+  /** Optional service policy for resolving a verified caller's effective identity. */
+  readonly resolveIdentity?: AccessTokenIdentityResolver;
 }
 
 /** Create a verifier with cached signing keys and the service's explicit trust boundary. */
@@ -21,6 +26,7 @@ export function createKeycloakTokenVerifier(
     createRemoteJWKSet(jwksUrl),
     configuration.issuer,
     configuration.audience,
+    configuration.resolveIdentity,
   );
 }
 

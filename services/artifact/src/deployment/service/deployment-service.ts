@@ -138,6 +138,7 @@ export class DeploymentService {
       port: input.port ?? base.port,
       env: input.env ?? base.env,
       database: input.database ?? base.database,
+      capabilities: input.capabilities ?? base.capabilities,
       diskGi: input.diskGi === undefined ? base.diskGi : input.diskGi,
       healthPath:
         input.healthPath === undefined ? base.healthPath : input.healthPath,

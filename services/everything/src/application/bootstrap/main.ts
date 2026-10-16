@@ -4,6 +4,7 @@ import { SessionService } from "../../session/service/session-service.js";
 import { PostgresSessionRepository } from "../../session/repository/postgres-session-repository.js";
 import type { FastifyInstance } from "fastify";
 import { createKeycloakTokenVerifier } from "@everything/security/keycloak";
+import { appIdentity } from "../../identity/service/app-identity.js";
 import { KeycloakClientCredentials } from "@everything/security/client-credentials";
 import { HttpArtifactGateway } from "../../artifact/adapter/http-artifact-gateway.js";
 import { ArtifactLibraryService } from "../../artifact/service/artifact-library-service.js";
@@ -66,6 +67,7 @@ async function main(): Promise<void> {
     jwksUrl: config.jwksUrl,
     issuer: config.issuer,
     audience: config.audience,
+    resolveIdentity: appIdentity,
   });
   const database = createApplicationDatabase(config);
   await database.initialize();

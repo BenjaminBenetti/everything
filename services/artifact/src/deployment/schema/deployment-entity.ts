@@ -18,6 +18,7 @@ export const DeploymentEntity = new EntitySchema<DeploymentRecord>({
     port: { type: "integer" },
     env: { type: "jsonb" },
     database: { type: "boolean" },
+    capabilities: { type: "jsonb", default: () => "'[]'::jsonb" },
     diskGi: { name: "disk_gi", type: "integer", nullable: true },
     healthPath: { name: "health_path", type: "text", nullable: true },
   },

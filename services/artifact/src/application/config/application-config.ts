@@ -16,6 +16,15 @@ export interface ApplicationConfig {
   readonly issuer: string;
   readonly jwksUrl: string;
   readonly audience: string;
+  /** Provisioning credentials belong only to this service; apps receive their own clients. */
+  readonly appApi: {
+    readonly apiUrl: string;
+    readonly audience: string;
+    readonly adminUrl: string;
+    readonly protocolUrl: string;
+    readonly clientId: string;
+    readonly clientSecret: string;
+  };
   readonly databaseUrl: string;
   readonly databasePassword: string;
   /** Artifact databases: the database holding their schemas and the host pods reach it at. */
@@ -64,6 +73,14 @@ export function loadApplicationConfig(
     issuer: settings.OIDC_ISSUER,
     jwksUrl: settings.OIDC_JWKS_URL,
     audience: settings.OIDC_AUDIENCE,
+    appApi: {
+      apiUrl: settings.EVERYTHING_API_URL,
+      audience: settings.EVERYTHING_API_AUDIENCE,
+      adminUrl: settings.KEYCLOAK_ADMIN_URL,
+      protocolUrl: settings.KEYCLOAK_PROTOCOL_URL,
+      clientId: settings.APP_PROVISIONER_CLIENT_ID,
+      clientSecret: settings.APP_PROVISIONER_CLIENT_SECRET,
+    },
     databaseUrl: settings.DATABASE_URL,
     databasePassword: settings.DATABASE_PASSWORD,
     artifactData: {

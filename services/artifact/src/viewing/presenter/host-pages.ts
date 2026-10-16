@@ -48,6 +48,11 @@ export const hostMessages = {
     title: "This app isn't responding",
     message: "It may still be starting. Wait a moment, then reload the page.",
   },
+  blockedResponse: {
+    title: "This app's response was blocked",
+    message:
+      "We couldn't safely forward this response. Ask a teammate to check the app for exposed credentials.",
+  },
   expiredLink: {
     title: "This link has expired",
     message: "Open the app again from Everything.",

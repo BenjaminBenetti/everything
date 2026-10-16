@@ -48,7 +48,17 @@ export const reservedEnvironmentNames = [
   "PGDATABASE",
   "PGUSER",
   "PGPASSWORD",
+  "EVERYTHING_API_URL",
+  "EVERYTHING_CLIENT_ID",
+  "EVERYTHING_CLIENT_SECRET",
+  "EVERYTHING_TOKEN_URL",
 ] as const;
+
+/** Services a dynamic app can request for its backend. */
+export const artifactCapabilities = ["everything-api"] as const;
+
+/** A provisioned service capability available to a dynamic app. */
+export type ArtifactCapability = (typeof artifactCapabilities)[number];
 
 /** The teammate or user that made a change; the name is recorded as it was at the time. */
 export interface ArtifactAuthor {
@@ -103,6 +113,8 @@ export interface ArtifactDeploymentSettings {
   readonly env: Readonly<Record<string, string>>;
   /** Whether the artifact gets its own PostgreSQL role and schema. */
   readonly database: boolean;
+  /** Requested backend capabilities; credentials are never part of deployment history. */
+  readonly capabilities: readonly ArtifactCapability[];
   /** Size of the disk mounted at `/data`, in GiB, or null for none. */
   readonly diskGi: number | null;
   /** Path checked for readiness, or null to check only that the port accepts connections. */
@@ -232,6 +244,8 @@ export interface DeployInput {
   readonly port?: number;
   readonly env?: Readonly<Record<string, string>>;
   readonly database?: boolean;
+  /** Omit to retain current capabilities; an empty list removes them. */
+  readonly capabilities?: readonly ArtifactCapability[];
   readonly diskGi?: number | null;
   readonly healthPath?: string | null;
   readonly basedOn?: number;
@@ -242,6 +256,7 @@ export const defaultDeploymentSettings: ArtifactDeploymentSettings = {
   port: 8080,
   env: {},
   database: false,
+  capabilities: [],
   diskGi: null,
   healthPath: null,
 };

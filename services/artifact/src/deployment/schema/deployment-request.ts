@@ -1,6 +1,7 @@
 import { Type, type Static } from "typebox";
 import {
   artifactLimits,
+  artifactCapabilities,
   environmentNamePattern,
 } from "@everything/artifact-contracts";
 
@@ -17,6 +18,15 @@ export const deployBody = Type.Object(
       ),
     ),
     database: Type.Optional(Type.Boolean()),
+    capabilities: Type.Optional(
+      Type.Array(
+        Type.Union(artifactCapabilities.map((name) => Type.Literal(name))),
+        {
+          uniqueItems: true,
+          maxItems: artifactCapabilities.length,
+        },
+      ),
+    ),
     diskGi: Type.Optional(
       Type.Union([
         Type.Integer({ minimum: 1, maximum: artifactLimits.diskGi }),

@@ -79,6 +79,41 @@ test("list_apps returns the shared apps under the name the model uses", async ()
   });
 });
 
+test("deploy_app forwards explicit capability grants and removals, and explains backend credentials", async () => {
+  const calls: unknown[] = [];
+  const workbench = {
+    /** Record the owner-bound deployment settings passed by the teammate tool. */
+    deploy: async (acting: WorkbenchContext, app: string, input: unknown) => {
+      calls.push([acting.ownerId, app, input]);
+      return {};
+    },
+  } as unknown as ArtifactWorkbench;
+  const tool = appTools(workbench, context).find(
+    (tool) => tool.name === appToolNames.deploy,
+  )!;
+  for (const capabilities of [["everything-api"], []])
+    await tool.execute(
+      "call",
+      { app: "app", capabilities } as never,
+      undefined,
+      undefined,
+      undefined as never,
+    );
+  assert.deepEqual(calls, [
+    ["owner", "app", { capabilities: ["everything-api"] }],
+    ["owner", "app", { capabilities: [] }],
+  ]);
+  for (const name of [
+    "EVERYTHING_API_URL",
+    "EVERYTHING_CLIENT_ID",
+    "EVERYTHING_CLIENT_SECRET",
+    "EVERYTHING_TOKEN_URL",
+  ])
+    assert.ok(tool.description.includes(name));
+  assert.match(tool.description, /client_credentials/);
+  assert.match(tool.description, /app owner/);
+});
+
 test("tools act for the teammate and report results as text", async () => {
   const calls: unknown[] = [];
   const workbench = {

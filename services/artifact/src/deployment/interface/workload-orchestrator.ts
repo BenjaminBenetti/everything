@@ -3,6 +3,7 @@ import type {
   ArtifactRuntime,
 } from "@everything/artifact-contracts";
 import type { DatabaseConnection } from "../../database/interface/artifact-databases.js";
+import type { CapabilityEnvironment } from "../../capability/interface/artifact-capabilities.js";
 
 /** Everything needed to run one dynamic artifact. */
 export interface ArtifactWorkload {
@@ -15,6 +16,8 @@ export interface ArtifactWorkload {
   readonly release: number;
   /** Short fingerprint of the database password, so a changed password restarts the pod. */
   readonly databaseFingerprint: string | null;
+  /** References to capability credentials, including a fingerprint that triggers credential rollouts. */
+  readonly capabilities: CapabilityEnvironment;
 }
 
 /** Which container output to read. */

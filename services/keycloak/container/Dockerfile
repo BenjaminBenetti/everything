@@ -5,6 +5,7 @@ RUN /opt/keycloak/bin/kc.sh build
 
 FROM quay.io/keycloak/keycloak:26.8.0
 COPY --from=build /opt/keycloak/ /opt/keycloak/
+COPY --chmod=755 services/keycloak/src/realm/script/provision-app-client.sh /opt/keycloak/bin/provision-app-client.sh
 USER 1000:1000
 ENTRYPOINT ["/opt/keycloak/bin/kc.sh"]
 CMD ["start", "--optimized", "--import-realm"]

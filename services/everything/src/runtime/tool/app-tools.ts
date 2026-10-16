@@ -2,6 +2,7 @@ import { Type } from "typebox";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import {
   artifactLimits,
+  artifactCapabilities,
   artifactSlugPattern,
   environmentNamePattern,
 } from "@everything/artifact-contracts";
@@ -327,7 +328,7 @@ export function appTools(
       name: appToolNames.deploy,
       label: "Deploy app",
       description:
-        "Run a successful build of a dynamic app as its next release; the latest successful build by default. Settings you leave out keep their current values; a first deployment uses port 8080, no variables, no database, and no disk. database: true gives the app its own PostgreSQL schema through DATABASE_URL and the PG* variables. diskGi mounts a persistent disk at /data; its size can't change once created. The app also receives PORT and BASE_PATH, the app's /slug prefix. Requests arrive without that prefix, so serve routes from / and use BASE_PATH only to build absolute links.",
+        "Run a successful build of a dynamic app as its next release; the latest successful build by default. Settings you leave out keep their current values; a first deployment uses port 8080, no variables, no database, no capabilities, and no disk. database: true gives the app its own PostgreSQL schema through DATABASE_URL and the PG* variables. capabilities: [\"everything-api\"] gives its backend EVERYTHING_API_URL, EVERYTHING_CLIENT_ID, EVERYTHING_CLIENT_SECRET, and EVERYTHING_TOKEN_URL. POST grant_type=client_credentials, client_id, and client_secret as form data to EVERYTHING_TOKEN_URL, then send the access_token as Authorization: Bearer to EVERYTHING_API_URL + /v1/...; this acts as the app owner. Keep credentials and tokens on the backend. Pass capabilities: [] to remove access; issued tokens expire within five minutes. diskGi mounts a persistent disk at /data; its size can't change once created. The app also receives PORT and BASE_PATH, the app's /slug prefix. Requests arrive without that prefix, so serve routes from / and use BASE_PATH only to build absolute links.",
       parameters: Type.Object(
         {
           app: appReference,
@@ -338,6 +339,19 @@ export function appTools(
             artifactLimits.envCount,
           ),
           database: Type.Optional(Type.Boolean()),
+          capabilities: Type.Optional(
+            Type.Array(
+              Type.Union(
+                artifactCapabilities.map((name) => Type.Literal(name)),
+              ),
+              {
+                uniqueItems: true,
+                maxItems: artifactCapabilities.length,
+                description:
+                  "Backend services to provision. Omit to keep current capabilities; [] removes them.",
+              },
+            ),
+          ),
           diskGi: Type.Optional(
             Type.Union([
               Type.Integer({ minimum: 1, maximum: artifactLimits.diskGi }),

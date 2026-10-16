@@ -26,6 +26,16 @@ export const environmentSchema = Type.Object({
   OIDC_ISSUER: required,
   OIDC_JWKS_URL: required,
   OIDC_AUDIENCE: required,
+  EVERYTHING_API_URL: Type.String({ pattern: "^https?://[^/]+$" }),
+  EVERYTHING_API_AUDIENCE: required,
+  KEYCLOAK_ADMIN_URL: Type.String({
+    pattern: "^https?://[^/]+/auth/admin/realms/[^/]+$",
+  }),
+  KEYCLOAK_PROTOCOL_URL: Type.String({
+    pattern: "^https?://[^/]+/auth/realms/[^/]+/protocol/openid-connect$",
+  }),
+  APP_PROVISIONER_CLIENT_ID: required,
+  APP_PROVISIONER_CLIENT_SECRET: required,
   DATABASE_URL: Type.String({ pattern: "^postgres(?:ql)?://" }),
   DATABASE_PASSWORD: required,
   ARTIFACT_DATA_DATABASE: required,

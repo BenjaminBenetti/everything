@@ -341,11 +341,12 @@ async function teammateHost(context: {
     site: new StaticSite(revisions),
     content: { open: async () => Readable.from(["hello"]) },
     proxy: {
-      forward: (_request, reply, artifact, path) => {
+      /** Simulate forwarding while recording the app and its unprefixed path. */
+      forward: async (_request, reply, artifact, path) => {
         forwarded.push({ slug: artifact.slug, path });
         return reply.send("from the app");
       },
-    } as ArtifactProxy,
+    },
     publicOrigin: "http://localhost:8080",
   });
   return { host, passes, storedPasses, forwarded };

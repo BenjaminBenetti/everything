@@ -73,6 +73,9 @@ secrets:
   # Client secret of the Keycloak service account Everything uses to call the artifact service.
   artifact-auth:
     client-secret: ""
+  # Management credential used only by the artifact service to provision per-app API clients.
+  app-provisioner-auth:
+    client-secret: ""
   # The artifact registry's only account, used by the artifact service, build jobs, and nodes.
   registry-credentials:
     username: ""
@@ -282,6 +285,10 @@ services:
       EVERYTHING_ARTIFACT_CLIENT_SECRET:
         secretName: artifact-auth
         key: client-secret
+      EVERYTHING_APP_PROVISIONER_CLIENT_SECRET:
+        secretName: app-provisioner-auth
+        key: client-secret
+      EVERYTHING_REALM: "{{ .Values.global.realm }}"
       # Temporary administrator created on first start.
       KC_BOOTSTRAP_ADMIN_USERNAME: admin
       KC_BOOTSTRAP_ADMIN_PASSWORD:
@@ -609,6 +616,14 @@ services:
       OIDC_ISSUER: "{{ tpl .Values.global.publicOrigin . }}/auth/realms/{{ .Values.global.realm }}"
       OIDC_JWKS_URL: "http://keycloak:8080/auth/realms/{{ .Values.global.realm }}/protocol/openid-connect/certs"
       OIDC_AUDIENCE: everything-artifact
+      EVERYTHING_API_URL: "http://everything.{{ .Release.Namespace }}.svc.cluster.local:8080"
+      EVERYTHING_API_AUDIENCE: everything-api
+      KEYCLOAK_ADMIN_URL: "http://keycloak.{{ .Release.Namespace }}.svc.cluster.local:8080/auth/admin/realms/{{ .Values.global.realm }}"
+      KEYCLOAK_PROTOCOL_URL: "http://keycloak.{{ .Release.Namespace }}.svc.cluster.local:8080/auth/realms/{{ .Values.global.realm }}/protocol/openid-connect"
+      APP_PROVISIONER_CLIENT_ID: everything-app-provisioner
+      APP_PROVISIONER_CLIENT_SECRET:
+        secretName: app-provisioner-auth
+        key: client-secret
       DATABASE_URL: postgresql://artifact@postgres:5432/artifact
       DATABASE_PASSWORD:
         secretName: "{{ .Values.global.databaseCredentialsSecret }}"

@@ -46,6 +46,35 @@ test("accepts a signed Keycloak access token", async () => {
     subject: "owner-id",
   });
 });
+
+test("service identity policy runs only after signature, issuer, audience, and expiry verification", async () => {
+  const seen: unknown[] = [];
+  const delegated = new AccessTokenVerifier(
+    createLocalJWKSet({ keys: [jwk] }),
+    issuer,
+    audience,
+    (identity, claims) => {
+      seen.push([identity.subject, claims.app_owner]);
+      return { subject: String(claims.app_owner) };
+    },
+  );
+  assert.deepEqual(
+    await delegated.verify(await token({ app_owner: "owner" })),
+    { subject: "owner" },
+  );
+  for (const claims of [
+    { aud: "everything-artifact" },
+    { iss: "https://other.test" },
+    { exp: 1 },
+  ])
+    await assert.rejects(
+      delegated.verify(await token({ app_owner: "owner", ...claims })),
+    );
+  await assert.rejects(
+    delegated.verify(await token({ app_owner: "owner" }, true)),
+  );
+  assert.deepEqual(seen, [["owner-id", "owner"]]);
+});
 for (const [name, claims] of Object.entries({
   expired: { exp: Math.floor(Date.now() / 1000) - 60 },
   issuer: { iss: "https://attacker.example.test" },

@@ -12,6 +12,7 @@ import { Artifacts1792022400000 } from "../migration/1792022400000-artifacts.js"
 import { ViewPasses1792108800000 } from "../migration/1792108800000-view-passes.js";
 
 import { StaticAppRunning1792195200000 } from "../migration/1792195200000-static-app-running.js";
+import { AppCapabilities1792281600000 } from "../migration/1792281600000-app-capabilities.js";
 
 /** Connection settings for one PostgreSQL database. */
 export interface DatabaseConnectionSettings {
@@ -54,6 +55,7 @@ export function createArtifactDatabase(
       Artifacts1792022400000,
       ViewPasses1792108800000,
       StaticAppRunning1792195200000,
+      AppCapabilities1792281600000,
     ],
     migrationsTableName: "artifact_migrations",
     migrationsTransactionMode: "all",

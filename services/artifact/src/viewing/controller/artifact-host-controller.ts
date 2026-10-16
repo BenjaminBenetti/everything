@@ -27,7 +27,7 @@ export interface ArtifactHostDependencies {
   readonly artifacts: Pick<ArtifactRepository, "findBySlug" | "getById">;
   readonly site: StaticSite;
   readonly content: Pick<ContentStore, "open">;
-  readonly proxy: ArtifactProxy;
+  readonly proxy: Pick<ArtifactProxy, "forward">;
   /** Origin of the Everything application, where signed-out viewers go to sign in. */
   readonly publicOrigin: string;
 }

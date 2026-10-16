@@ -31,6 +31,8 @@ secrets:
     session-encryption-key: AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=
   artifact-auth:
     client-secret: dev-everything-artifact-secret
+  app-provisioner-auth:
+    client-secret: dev-everything-app-provisioner-secret
   registry-credentials:
     username: everything
     password: dev-registry-password

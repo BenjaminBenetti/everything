@@ -10,6 +10,7 @@ import type {
   V1Volume,
   V1VolumeMount,
 } from "@kubernetes/client-node";
+import { reservedEnvironmentNames } from "@everything/artifact-contracts";
 import {
   artifactLabels,
   artifactResourceName,
@@ -35,6 +36,9 @@ export const servicePort = 80;
 /** Container name of every artifact pod. */
 export const containerName = "app";
 
+/** Also exclude reserved names from deployments saved before a capability introduced them. */
+const reserved = new Set<string>(reservedEnvironmentNames);
+
 /** Labels selecting one artifact's objects. */
 export function artifactSelector(artifactId: string): Record<string, string> {
   return {
@@ -54,10 +58,12 @@ function artifactObjectLabels(
 /** Variables the artifact receives, with the service's own set last so they cannot be overridden. */
 function environment(workload: ArtifactWorkload): V1EnvVar[] {
   return [
-    ...Object.entries(workload.settings.env).map(([name, value]) => ({
-      name,
-      value,
-    })),
+    ...Object.entries(workload.settings.env)
+      .filter(([name]) => !reserved.has(name))
+      .map(([name, value]) => ({
+        name,
+        value,
+      })),
     { name: "PORT", value: String(workload.settings.port) },
     { name: "BASE_PATH", value: `/${workload.slug}` },
   ];
@@ -93,6 +99,9 @@ function podTemplate(
       labels: artifactObjectLabels(workload.artifactId, workload.slug),
       annotations: {
         "everything.dev/release": String(workload.release),
+        ...(workload.capabilities.fingerprint
+          ? { "everything.dev/capabilities": workload.capabilities.fingerprint }
+          : {}),
         ...(workload.databaseFingerprint
           ? { "everything.dev/database-password": workload.databaseFingerprint }
           : {}),
@@ -116,15 +125,15 @@ function podTemplate(
           imagePullPolicy: "IfNotPresent",
           ports: [{ name: "http", containerPort: workload.settings.port }],
           env: environment(workload),
-          ...(workload.settings.database
+          ...(workload.settings.database ||
+          workload.capabilities.secretNames.length
             ? {
                 envFrom: [
-                  {
-                    secretRef: {
-                      name: databaseSecretName(workload.artifactId),
-                    },
-                  },
-                ],
+                  ...(workload.settings.database
+                    ? [databaseSecretName(workload.artifactId)]
+                    : []),
+                  ...workload.capabilities.secretNames,
+                ].map((name) => ({ secretRef: { name } })),
               }
             : {}),
           readinessProbe: readinessProbe(workload),

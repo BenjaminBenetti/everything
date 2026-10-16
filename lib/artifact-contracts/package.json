@@ -7,6 +7,10 @@
     "build"
   ],
   "exports": {
+    "./everything-api": {
+      "types": "./build/capability/model/everything-api.d.ts",
+      "default": "./build/capability/model/everything-api.js"
+    },
     ".": {
       "types": "./build/artifact/model/artifact.d.ts",
       "default": "./build/artifact/model/artifact.js"

@@ -2,6 +2,12 @@ import { jwtVerify, type JWTVerifyGetKey } from "jose";
 import type { TokenVerifier } from "../interface/token-verifier.js";
 import type { Identity } from "../model/identity.js";
 
+/** Service-owned authorization policy, applied only after all token checks succeed. */
+export type AccessTokenIdentityResolver = (
+  identity: Identity,
+  claims: Readonly<Record<string, unknown>>,
+) => Identity;
+
 /** Validates Keycloak access tokens against a trusted issuer, audience, and signing keys. */
 export class AccessTokenVerifier implements TokenVerifier {
   // ===========================================
@@ -13,6 +19,7 @@ export class AccessTokenVerifier implements TokenVerifier {
     private readonly keys: JWTVerifyGetKey,
     private readonly issuer: string,
     private readonly audience: string,
+    private readonly resolveIdentity?: AccessTokenIdentityResolver,
   ) {}
 
   // ===========================================
@@ -30,6 +37,7 @@ export class AccessTokenVerifier implements TokenVerifier {
     });
     if (!payload.sub || payload.typ !== "Bearer")
       throw new Error("Expected a Keycloak access token");
-    return { subject: payload.sub };
+    const identity = { subject: payload.sub };
+    return this.resolveIdentity?.(identity, payload) ?? identity;
   }
 }
