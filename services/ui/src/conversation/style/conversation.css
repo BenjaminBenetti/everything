@@ -294,6 +294,41 @@
   padding: 12px var(--chat-content-padding) 24px;
   padding-right: calc(var(--chat-content-padding) + var(--chat-card-space));
 }
+.chat-compaction {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-control);
+  background: var(--surface-subtle);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.chat-compaction-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.chat-compaction-status > svg {
+  width: 18px;
+  height: 18px;
+  color: var(--text-accent);
+}
+.chat-compaction strong {
+  font-weight: 550;
+}
+.chat-compaction p {
+  color: var(--text-secondary);
+}
+.chat-compaction [role="timer"] {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-accent);
+}
 .chat-typing:not(:empty) {
   padding-top: 24px;
 }
@@ -497,6 +532,12 @@
   }
   .chat-footer {
     padding: 8px 12px 12px;
+  }
+  .chat-compaction {
+    padding: 8px 12px;
+  }
+  .chat-compaction p {
+    @apply sr-only;
   }
   .chat-composer {
     padding: 12px;

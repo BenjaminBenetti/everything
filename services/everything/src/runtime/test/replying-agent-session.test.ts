@@ -17,6 +17,7 @@ function fixture(
   const session: AgentSession = {
     id: "same-session",
     compacting: false,
+    compactionStartedAt: null,
     typing: false,
     get lastToolName() {
       return lastToolName;

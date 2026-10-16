@@ -1,3 +1,4 @@
+import { testConversationSearch } from "./conversation-search-fixtures.js";
 import { testApiDocumentation } from "./api-documentation-fixtures.js";
 import assert from "node:assert/strict";
 import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
@@ -135,6 +136,7 @@ async function fixture(
     {} as WorkspaceTools,
     fleet,
     testApiDocumentation,
+    testConversationSearch,
     options?.activity,
   );
   return { directory, factory, requests };

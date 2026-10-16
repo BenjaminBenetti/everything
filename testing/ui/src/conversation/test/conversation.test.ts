@@ -19,6 +19,7 @@ async function workspace(context: BrowserContext, withModel = true) {
     runtime: {
       status: "idle",
       compacting: false,
+      compactionStartedAt: null as string | null,
       typing: false,
       backgroundCount: 0,
       sessionId: "private-session-id",
@@ -67,6 +68,7 @@ async function workspace(context: BrowserContext, withModel = true) {
             ...state.runtime,
             status: "idle",
             compacting: false,
+            compactionStartedAt: null,
             typing: false,
             backgroundCount: 0,
           },
@@ -99,6 +101,7 @@ async function workspace(context: BrowserContext, withModel = true) {
         state.runtime = {
           status: "running",
           compacting: false,
+          compactionStartedAt: null,
           typing: false,
           backgroundCount: 0,
           sessionId: "private-session-id",
@@ -135,6 +138,52 @@ async function workspace(context: BrowserContext, withModel = true) {
   );
   return state;
 }
+
+test("compaction shows elapsed server time through reloads and resets after a runtime restart", async ({
+  page,
+  context,
+}, info) => {
+  const state = await workspace(context);
+  await page.clock.setFixedTime(new Date("2026-10-16T04:02:05Z"));
+  state.runtime.status = "running";
+  state.runtime.compacting = true;
+  state.runtime.compactionStartedAt = "2026-10-16T04:00:00.000Z";
+  await page.goto("/team/avery");
+  const indicator = page.getByText("Compacting", { exact: true });
+  const timer = page.getByRole("timer", { name: "Time spent compacting" });
+  await expect(indicator).toBeInViewport();
+  await expect(timer).toHaveText("2:05");
+  await expect(
+    page.getByRole("textbox", { name: "Message Avery", exact: true }),
+  ).toBeInViewport();
+  await page.clock.setFixedTime(new Date("2026-10-16T04:02:10Z"));
+  await expect(timer).toHaveText("2:10");
+  await page.reload();
+  await expect(timer).toHaveText("2:10");
+  await page.goto("/team/blake");
+  await expect(indicator).toHaveCount(0);
+  await page.goto("/team/avery");
+  await expect(timer).toHaveText("2:10");
+  await page.screenshot({
+    path: info.outputPath("compacting.png"),
+    animations: "disabled",
+  });
+
+  state.runtime.status = "idle";
+  state.runtime.compacting = false;
+  state.runtime.compactionStartedAt = null;
+  state.runtime.runId = null;
+  await expect(indicator).toHaveCount(0);
+  await expect(timer).toHaveCount(0);
+  state.runtime.status = "running";
+  state.runtime.compacting = true;
+  state.runtime.compactionStartedAt = "2026-10-16T04:02:09.000Z";
+  await expect(timer).toHaveText("0:01", { timeout: 10000 });
+  state.runtime.compacting = false;
+  state.runtime.compactionStartedAt = null;
+  await expect(timer).toHaveCount(0);
+  expect(state.sends).toEqual([]);
+});
 
 test("one conversation opens from team cards, loads all history, replies, and survives navigation and reload", async ({
   page,
@@ -191,18 +240,26 @@ test("one conversation opens from team cards, loads all history, replies, and su
   // Background work updates the card; only writing a message shows typing bubbles.
   const typing = page.getByText("Avery is typing", { exact: true });
   state.runtime.compacting = true;
+  state.runtime.compactionStartedAt = new Date(
+    Date.now() - 65000,
+  ).toISOString();
   state.runtime.backgroundCount = 2;
   await expect(background).toHaveText("2 background");
   await page.waitForTimeout(1500);
   await page.screenshot({ path: info.outputPath("background-working.png") });
   await expect(typing).toHaveCount(0);
-  await expect(page.getByText(/replying|Summarizing/)).toHaveCount(0);
+  await expect(page.getByText("Compacting", { exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("timer", { name: "Time spent compacting" }),
+  ).toBeVisible();
   await expect(page.getByRole("button", { name: "Stop reply" })).toHaveCount(0);
   state.runtime.compacting = false;
+  state.runtime.compactionStartedAt = null;
   state.runtime.typing = true;
   state.runtime.backgroundCount = 1;
   await expect(background).toHaveText("1 background");
   await expect(typing).toBeAttached({ timeout: 5000 });
+  await expect(page.getByRole("timer")).toHaveCount(0);
   await expect(page.locator(".chat-typing-bubble")).toBeVisible();
   state.runtime.typing = false;
   state.runtime.status = "idle";

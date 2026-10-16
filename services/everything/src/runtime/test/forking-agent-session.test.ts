@@ -21,6 +21,7 @@ function controlled(id: string) {
   const session: ForkableSession = {
     id,
     compacting: false,
+    compactionStartedAt: null,
     typing: false,
     /** Report the last tool of the current turn, as Pi does. */
     get lastToolName() {

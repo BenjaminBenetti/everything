@@ -29,6 +29,13 @@ export const runtimeStatusResponse = Type.Object({
     Type.Literal("error"),
   ]),
   compacting: Type.Boolean(),
+  compactionStartedAt: Type.Union(
+    [Type.String({ format: "date-time" }), Type.Null()],
+    {
+      description:
+        "When the active compaction began; null when no compaction is running.",
+    },
+  ),
   typing: Type.Boolean(),
   backgroundCount: Type.Integer({ minimum: 0 }),
   sessionId: Type.Union([Type.String(), Type.Null()]),

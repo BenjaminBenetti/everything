@@ -54,6 +54,7 @@ async function workspace(context: BrowserContext) {
       json: {
         status: "idle",
         compacting: false,
+        compactionStartedAt: null,
         typing: false,
         backgroundCount: 0,
         sessionId: null,

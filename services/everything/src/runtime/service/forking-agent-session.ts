@@ -70,6 +70,11 @@ export class ForkingAgentSession implements AgentSession {
     return this.session.compacting;
   }
 
+  /** Expose the main conversation's active compaction timestamp through the session family. */
+  get compactionStartedAt(): string | null {
+    return this.session.compactionStartedAt;
+  }
+
   /** Preserve explicit reply delivery tracking for user turns. */
   get lastToolName(): string | undefined {
     return this.lastPromptTool;

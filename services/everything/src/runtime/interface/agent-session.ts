@@ -12,6 +12,8 @@ export interface AgentSession {
   readonly id: string;
   /** Whether the model is summarizing older context before continuing. */
   readonly compacting: boolean;
+  /** Server timestamp for the current compaction; cleared when it ends or is cancelled. */
+  readonly compactionStartedAt: string | null;
   /** The tool the latest prompt finished last, if it ran any. */
   readonly lastToolName: string | undefined;
   /** Whether the model is writing a message to the user, until that message is delivered. */

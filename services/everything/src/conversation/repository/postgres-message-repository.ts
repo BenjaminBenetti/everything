@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import {
   LessThan,
+  MoreThan,
+  ILike,
   type DataSource,
   type EntityManager,
   type FindOptionsWhere,
@@ -21,6 +23,7 @@ import type { ConversationMessage, MessageRole } from "../model/message.js";
 import type { MessageRecord } from "../model/message-record.js";
 import { MessageEntity } from "../schema/message-entity.js";
 import { UpdateEntity } from "../../update/schema/update-entity.js";
+import type { ConversationSearchInput } from "../schema/conversation-search.js";
 
 /** Persist chat through ORM relations with transactional ownership checks. */
 export class PostgresMessageRepository
@@ -91,6 +94,68 @@ export class PostgresMessageRepository
     return {
       messages,
       nextCursor: records.length > messagePageSize ? messages[0]!.id : null,
+    };
+  }
+
+  /** Search literal phrases without allowing SQL wildcard characters to broaden a query. */
+  async search(
+    scope: MessageScope,
+    {
+      query,
+      limit,
+      before,
+      role,
+    }: ConversationSearchInput & { readonly limit: number },
+  ): Promise<MessagePage> {
+    let where = this.scopeWhere(scope);
+    if (before) {
+      const cursor = await this.orm.findOneBy({ ...where, id: before });
+      if (!cursor) return { messages: [], nextCursor: null };
+      where = { ...where, sequence: LessThan(cursor.sequence) };
+    }
+    const literal = query.replace(/[\\%_]/g, "\\$&");
+    const records = await this.orm.find({
+      where: {
+        ...where,
+        text: ILike(`%${literal}%`),
+        ...(role ? { role } : {}),
+      },
+      order: { sequence: "DESC" },
+      take: limit + 1,
+    });
+    const messages = records
+      .slice(0, limit)
+      .map((record) => this.toEntity(record));
+    return {
+      messages,
+      nextCursor: records.length > limit ? messages.at(-1)!.id : null,
+    };
+  }
+
+  /** Keep both adjacent lookups inside the same owner and teammate scope as the anchor. */
+  async neighbors(
+    scope: MessageScope,
+    id: string,
+  ): Promise<{
+    before: ConversationMessage | null;
+    after: ConversationMessage | null;
+  }> {
+    const where = this.scopeWhere(scope);
+    const anchor = await this.orm.findOneBy({ ...where, id });
+    if (!anchor) return { before: null, after: null };
+    const [before, after] = await Promise.all([
+      this.orm.findOne({
+        where: { ...where, sequence: LessThan(anchor.sequence) },
+        order: { sequence: "DESC" },
+      }),
+      this.orm.findOne({
+        where: { ...where, sequence: MoreThan(anchor.sequence) },
+        order: { sequence: "ASC" },
+      }),
+    ]);
+    return {
+      before: before ? this.toEntity(before) : null,
+      after: after ? this.toEntity(after) : null,
     };
   }
 

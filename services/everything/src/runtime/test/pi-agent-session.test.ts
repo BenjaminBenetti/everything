@@ -6,9 +6,10 @@ import { PiAgentSession } from "../adapter/pi-agent-session.js";
 type Listener = Parameters<PiSession["subscribe"]>[0];
 type Event = Parameters<Listener>[0];
 
-/** A Pi session that replays scripted events, recording `typing` after each one. */
-function scripted(events: readonly unknown[]) {
+/** Replay native events while recording typing and compaction timestamps after each one. */
+function scripted(events: readonly unknown[], now: () => number = Date.now) {
   const seen: boolean[] = [];
+  const compactionStarts: (string | null)[] = [];
   let listener: Listener | undefined;
   let session!: PiAgentSession;
   const pi = {
@@ -21,16 +22,55 @@ function scripted(events: readonly unknown[]) {
         listener = undefined;
       };
     },
+    /** Replay provider events and capture the public activity after each transition. */
     async prompt() {
       for (const event of events) {
         listener?.(event as Event);
         seen.push(session.typing);
+        compactionStarts.push(session.compactionStartedAt);
       }
     },
   };
-  session = new PiAgentSession(pi as unknown as PiSession);
-  return { session, seen };
+  session = new PiAgentSession(pi as unknown as PiSession, now);
+  return { session, seen, compactionStarts };
 }
+
+test("compaction timestamps remain stable until completion and restart for each new summary", async () => {
+  const first = Date.parse("2026-10-16T04:00:00Z");
+  let now = first;
+  const { session, compactionStarts } = scripted(
+    [
+      { type: "compaction_start" },
+      outputStart("thinking_start"),
+      { type: "compaction_end" },
+      { type: "compaction_start" },
+      { type: "compaction_end" },
+    ],
+    () => now++,
+  );
+  await session.prompt("Continue");
+  assert.deepEqual(compactionStarts, [
+    new Date(first).toISOString(),
+    new Date(first).toISOString(),
+    null,
+    new Date(first + 1).toISOString(),
+    null,
+  ]);
+  assert.equal(session.compactionStartedAt, null);
+});
+
+test("failed or interrupted summaries never leave a stale compaction timestamp", async () => {
+  const failed = scripted([
+    { type: "compaction_start" },
+    { type: "compaction_end", errorMessage: "Provider failed" },
+  ]);
+  await assert.rejects(failed.session.prompt("Continue"));
+  assert.equal(failed.session.compactionStartedAt, null);
+  const interrupted = scripted([{ type: "compaction_start" }]);
+  await interrupted.session.prompt("Continue");
+  assert.ok(interrupted.compactionStarts[0]);
+  assert.equal(interrupted.session.compactionStartedAt, null);
+});
 
 /** A streamed part of the tool call at index 0, named `name` so far. */
 function toolPart(type: "toolcall_start" | "toolcall_delta", name: string) {

@@ -42,6 +42,8 @@ import type { WorkspaceActivityRecorder } from "../../workspace/interface/worksp
 import { fleetWorkspaceActivity } from "../tool/fleet-workspace-activity.js";
 import type { ApiDocumentationReader } from "../../api-documentation/interface/api-documentation.js";
 import { apiDocumentationTool } from "../../api-documentation/tool/api-documentation-tool.js";
+import type { ConversationSearchReader } from "../../conversation/interface/conversation-search.js";
+import { conversationSearchTool } from "../../conversation/tool/conversation-search-tool.js";
 
 /** Pi's per-agent configuration and session paths inside the agent's workspace. */
 interface AgentDirectories {
@@ -56,7 +58,7 @@ export class PiSessionFactory implements AgentSessionFactory {
   // Construction
   // ===========================================
 
-  /** Receive inference, workspace tools, Fleet, API documentation, and optional interaction recording. */
+  /** Receive inference, workspace tools, Fleet, API documentation, conversation search, and optional interaction recording. */
   constructor(
     private readonly inference: InferenceRuntimeFactory,
     private readonly workspaces: Pick<AgentWorkspaces, "directory" | "shared">,
@@ -64,6 +66,7 @@ export class PiSessionFactory implements AgentSessionFactory {
     private readonly workspace: WorkspaceTools,
     private readonly fleet: FleetMcpServer,
     private readonly apiDocumentation: ApiDocumentationReader,
+    private readonly conversationSearch: ConversationSearchReader,
     private readonly workspaceActivity?: WorkspaceActivityRecorder,
   ) {}
 
@@ -177,6 +180,10 @@ export class PiSessionFactory implements AgentSessionFactory {
     const tools = [
       sendMessageTool(sendMessage, parentId !== undefined),
       apiDocumentationTool(this.apiDocumentation, agent.id),
+      conversationSearchTool(this.conversationSearch, {
+        ownerId: agent.ownerId,
+        agentId: agent.id,
+      }),
       ...forkTools(messaging),
       ...workspaceTools(this.workspace, agent.id),
       ...appTools(this.artifacts, {

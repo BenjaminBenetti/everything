@@ -93,6 +93,7 @@ async function workspace(
       json: {
         status: "running",
         compacting: false,
+        compactionStartedAt: null,
         typing: false,
         backgroundCount: 0,
         sessionId: null,

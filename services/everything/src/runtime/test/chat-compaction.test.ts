@@ -1,3 +1,4 @@
+import { testConversationSearch } from "./conversation-search-fixtures.js";
 import { testApiDocumentation } from "./api-documentation-fixtures.js";
 import { apiDocumentationToolName } from "../../api-documentation/model/api-documentation.js";
 import assert from "node:assert/strict";
@@ -21,6 +22,9 @@ import { appToolNames } from "../tool/app-tools.js";
 import { sendMessageToolName } from "../tool/send-message-tool.js";
 import { toolSearchToolName } from "../tool/fleet-tools.js";
 import { forkToolNames } from "../tool/fork-tools.js";
+import { conversationSearchToolName } from "../../conversation/model/conversation-search.js";
+import type { ConversationSearchReader } from "../../conversation/interface/conversation-search.js";
+import { ConversationSearchService } from "../../conversation/service/conversation-search-service.js";
 
 interface CompletionRequest {
   model: string;
@@ -59,7 +63,10 @@ function completion(
 }
 
 /** Exercise the native session, tools, summarizer, and persistence with only the provider transport replaced. */
-async function fixture(context: TestContext) {
+async function fixture(
+  context: TestContext,
+  history: ConversationSearchReader = testConversationSearch,
+) {
   const directory = await mkdtemp(path.join(tmpdir(), "everything-chat-"));
   context.after(() => rm(directory, { recursive: true, force: true }));
   let startSummary!: () => void;
@@ -73,6 +80,7 @@ async function fixture(context: TestContext) {
     overflowed: false,
     pressure: true,
     holdSummary: false,
+    recall: false,
     summaryStarted,
   };
   const requests: CompletionRequest[] = [];
@@ -164,6 +172,23 @@ async function fixture(context: TestContext) {
           "stop",
           state.pressure ? 7000 : 100,
         );
+      if (state.recall)
+        return completion(
+          {
+            tool_calls: [
+              {
+                index: 0,
+                id: "recall-history",
+                type: "function",
+                function: {
+                  name: conversationSearchToolName,
+                  arguments: JSON.stringify({ query: "watering" }),
+                },
+              },
+            ],
+          },
+          "tool_calls",
+        );
       return completion(
         {
           tool_calls: [
@@ -191,6 +216,7 @@ async function fixture(context: TestContext) {
     {} as WorkspaceTools,
     stoppedFleet,
     testApiDocumentation,
+    history,
   );
   const definition: AgentDefinition = {
     id: "teammate",
@@ -278,6 +304,7 @@ test("repeated automatic compaction retains visible replies and reopens the same
     [
       sendMessageToolName,
       apiDocumentationToolName,
+      conversationSearchToolName,
       ...Object.values(appToolNames),
       ...Object.values(workspaceToolNames),
       ...Object.values(forkToolNames),
@@ -292,6 +319,58 @@ test("repeated automatic compaction retains visible replies and reopens the same
   assert.ok(
     (await f.entries()).filter((entry) => entry.type === "compaction").length >=
       2,
+  );
+});
+
+test("Pi calls conversation search after compaction and reopening to recover omitted user details", async (context) => {
+  let searches = 0;
+  const original = "Watering schedule: Tuesday at 07:30.";
+  const history = new ConversationSearchService({
+    /** Saved visible messages remain independent of Pi's compacted context. */
+    async search(scope, input) {
+      searches++;
+      assert.deepEqual(scope, { ownerId: "owner", agentId: "teammate" });
+      assert.equal(input.query, "watering");
+      return {
+        messages: [
+          {
+            id: "10000000-0000-4000-8000-000000000001",
+            role: "user",
+            text: original,
+            createdAt: "2026-10-01T12:00:00.000Z",
+          },
+        ],
+        nextCursor: null,
+      };
+    },
+    neighbors: async () => ({ before: null, after: null }),
+  });
+  const f = await fixture(context, history);
+  const session = await f.open();
+  await session.prompt(original + " project context".repeat(1500));
+  await session.prompt(
+    "Keep helping with Kiwi. " + "project context ".repeat(1500),
+  );
+  await session.prompt("Another update. " + "project context ".repeat(1500));
+  assert.ok(f.state.summaries > 0);
+  await session.dispose();
+  f.state.pressure = false;
+  f.state.recall = true;
+  const reopened = await f.open();
+  await reopened.prompt("Find the watering schedule we agreed earlier.");
+  assert.equal(searches, 1);
+  const requests = f.requests.filter((request) => request.tools?.length);
+  assert.doesNotMatch(
+    JSON.stringify(requests.at(-2)!.messages),
+    /Tuesday at 07:30/,
+  );
+  const last = requests.at(-1)!.messages.at(-1)!;
+  assert.equal(last.role, "tool");
+  assert.match(JSON.stringify(last.content), /Tuesday at 07:30/);
+  assert.equal(
+    f.deliveries.length,
+    3,
+    "Searching does not send a visible message",
   );
 });
 
@@ -329,6 +408,7 @@ test("summary failures surface as safe runtime errors and the same history can r
     }, 10);
   });
   assert.equal(runtime.status.status, "error");
+  assert.equal(runtime.status.compactionStartedAt, null);
   assert.ok(!runtime.status.error?.includes("secret-summary-detail"));
   assert.equal(
     (await f.entries()).filter((entry) => entry.type === "compaction").length,
@@ -346,12 +426,17 @@ test("stopping an automatic compaction cancels it and allows the next message to
   const session = await f.open();
   await session.prompt("Remember Kiwi. " + "kiwi ".repeat(2400));
   f.state.holdSummary = true;
-  const turn = session.prompt("Another Kiwi update. " + "kiwi ".repeat(2400));
+  const runtime = new AgentRuntime(session);
+  runtime.start("Another Kiwi update. " + "kiwi ".repeat(2400));
   await f.state.summaryStarted;
   assert.equal(session.compacting, true);
-  await session.abort();
-  await turn;
+  assert.ok(session.compactionStartedAt);
+  assert.ok(Number.isFinite(Date.parse(session.compactionStartedAt)));
+  assert.equal(runtime.status.compactionStartedAt, session.compactionStartedAt);
+  await runtime.stop();
   assert.equal(session.compacting, false);
+  assert.equal(session.compactionStartedAt, null);
+  assert.equal(runtime.status.compactionStartedAt, null);
   assert.equal(
     (await f.entries()).filter((entry) => entry.type === "compaction").length,
     0,

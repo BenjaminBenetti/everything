@@ -114,6 +114,7 @@ for (const copyContext of [undefined, false, true]) {
     let forkId = "";
     let mainRequests = 0;
     let childRequests = 0;
+    let historySearches = 0;
     let releaseWork!: () => void;
     let working = false;
     let commandAborted = false;
@@ -177,6 +178,11 @@ for (const copyContext of [undefined, false, true]) {
       () => completion("Reported restored result"),
     ];
     const childSteps: (() => Response)[] = [
+      () =>
+        completion("", {
+          name: "conversation_search",
+          input: { query: "earlier request" },
+        }),
       () =>
         completion("", {
           name: "bash",
@@ -278,6 +284,15 @@ for (const copyContext of [undefined, false, true]) {
       } satisfies WorkspaceTools,
       stoppedFleet,
       testApiDocumentation,
+      {
+        /** Fresh private sessions can recall only their main teammate's saved chat. */
+        async search(scope, input) {
+          historySearches++;
+          assert.deepEqual(scope, { ownerId: "owner", agentId: "teammate" });
+          assert.equal(input.query, "earlier request");
+          return { query: input.query, matches: [], nextCursor: null };
+        },
+      },
     );
     const definition: AgentDefinition = {
       id: "teammate",
@@ -298,6 +313,7 @@ for (const copyContext of [undefined, false, true]) {
     sessions.push(session);
     await session.prompt("CONTEXT_MARKER: start work in the background");
     await until(() => working);
+    assert.equal(historySearches, 1);
     assert.deepEqual(deliveries, ["Started background work"]);
     assert.equal(session.background?.running, true);
     const firstFork = requests.find((request) => request.fork)!.body;
@@ -363,7 +379,7 @@ for (const copyContext of [undefined, false, true]) {
     assert.equal(reopened.id, session.id);
     assert.equal(
       requests.length,
-      14,
+      15,
       "restoring histories does not restart work",
     );
     await reopened.prompt("Resume the saved background fork");

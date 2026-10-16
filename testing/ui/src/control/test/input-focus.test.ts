@@ -57,6 +57,7 @@ async function prepareControls(context: BrowserContext): Promise<void> {
       json: {
         status: "idle",
         compacting: false,
+        compactionStartedAt: null,
         typing: false,
         backgroundCount: 0,
         sessionId: "focus-session",

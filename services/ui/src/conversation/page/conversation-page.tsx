@@ -8,6 +8,7 @@ import { MessageComposer } from "../component/message-composer.js";
 import { MessageHistory } from "../component/message-history.js";
 import { ConversationTeammateCard } from "../component/conversation-teammate-card.js";
 import { ConversationWorkspacesCard } from "../component/conversation-workspaces-card.js";
+import { CompactionIndicator } from "../component/compaction-indicator.js";
 
 /** Resolve the teammate's sole conversation from the directory, including direct links. */
 export function ConversationPage() {
@@ -40,7 +41,7 @@ export function ConversationPage() {
   return <TeammateConversation key={agent.id} agent={agent} />;
 }
 
-/** Present the teammate's ongoing conversation alongside their profile and live background count. */
+/** Present the ongoing conversation with visible compaction progress and background activity. */
 function TeammateConversation({ agent }: { agent: Agent }) {
   const { open } = useWorkspaceDialogs();
   const [search] = useSearchParams();
@@ -88,6 +89,12 @@ function TeammateConversation({ agent }: { agent: Agent }) {
         />
       )}
       <div className="chat-footer">
+        {runtime?.status === "running" && runtime.compacting && (
+          <CompactionIndicator
+            key={runtime.compactionStartedAt}
+            startedAt={runtime.compactionStartedAt ?? null}
+          />
+        )}
         {targetMessageId && !targetFound && !!history && !snapshot.isError && (
           <div className="chat-setup" role="status">
             <p>

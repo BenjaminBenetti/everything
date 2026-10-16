@@ -20,6 +20,7 @@ import { PostgresAgentActivityRepository } from "../../agent/repository/postgres
 import { AgentEditingService } from "../../agent/service/agent-editing-service.js";
 import { PostgresMessageRepository } from "../../conversation/repository/postgres-message-repository.js";
 import { ConversationService } from "../../conversation/service/conversation-service.js";
+import { ConversationSearchService } from "../../conversation/service/conversation-search-service.js";
 import { SubagentService } from "../../subagent/service/subagent-service.js";
 import { PiSubagentArchives } from "../../subagent/adapter/pi-subagent-archives.js";
 import { ApiDocumentationService } from "../../api-documentation/service/api-documentation-service.js";
@@ -152,9 +153,10 @@ async function main(): Promise<void> {
     workspaceInstances,
   );
   const apiDocumentation = new ApiDocumentationService();
+  const messages = new PostgresMessageRepository(database);
   const conversations = new ConversationService(
     agents,
-    new PostgresMessageRepository(database),
+    messages,
     new PiSessionFactory(
       inference,
       workspaces,
@@ -165,6 +167,7 @@ async function main(): Promise<void> {
       ),
       fleet,
       apiDocumentation,
+      new ConversationSearchService(messages),
       workspaceActivity,
     ),
     workspaces,

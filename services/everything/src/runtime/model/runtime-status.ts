@@ -5,6 +5,7 @@ export type { RuntimeStatus } from "@everything/conversation-contracts";
 export const unloadedRuntimeStatus: RuntimeStatus = Object.freeze({
   status: "idle",
   compacting: false,
+  compactionStartedAt: null,
   typing: false,
   backgroundCount: 0,
   sessionId: null,

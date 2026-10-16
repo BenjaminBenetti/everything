@@ -86,6 +86,7 @@ function fixture() {
       return {
         id: "session-" + agent.id,
         compacting: false,
+        compactionStartedAt: null,
         lastToolName: undefined,
         typing: false,
         /** Remain active until aborted, reply through the delivery tool, or reject on a provider failure. */

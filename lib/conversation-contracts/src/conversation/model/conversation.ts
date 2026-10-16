@@ -27,6 +27,8 @@ export interface MessageReceipt {
 export interface RuntimeStatus {
   readonly status: "idle" | "running" | "error";
   readonly compacting: boolean;
+  /** Start of the current compaction, or null when no compaction is active. */
+  readonly compactionStartedAt: string | null;
   /** Whether the teammate is writing a message to the user right now. */
   readonly typing: boolean;
   /** Background teammates running now or idle for less than ten seconds; excludes the main session. */

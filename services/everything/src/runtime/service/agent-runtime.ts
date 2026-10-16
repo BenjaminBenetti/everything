@@ -12,7 +12,10 @@ export class AgentRuntime {
   // State
   // ===========================================
 
-  private current: Omit<RuntimeStatus, "backgroundCount">;
+  private current: Omit<
+    RuntimeStatus,
+    "backgroundCount" | "compactionStartedAt"
+  >;
   private completion: Promise<void> = Promise.resolve();
 
   // ===========================================
@@ -44,6 +47,7 @@ export class AgentRuntime {
   get status(): RuntimeStatus {
     const background = this.session.background;
     const running = this.current.status === "running" || background?.running;
+    const compacting = Boolean(running && this.session.compacting);
     return {
       ...this.current,
       status: running
@@ -52,7 +56,8 @@ export class AgentRuntime {
           ? "error"
           : this.current.status,
       error: this.current.error ?? (background?.failed ? runFailure : null),
-      compacting: Boolean(running && this.session.compacting),
+      compacting,
+      compactionStartedAt: compacting ? this.session.compactionStartedAt : null,
       typing: Boolean(running && this.session.typing),
       backgroundCount: background?.activeCount ?? 0,
     };

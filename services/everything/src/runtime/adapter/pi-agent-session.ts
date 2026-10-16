@@ -15,13 +15,17 @@ export class PiAgentSession implements ForkableSession {
   private cancellation: AbortController | undefined;
   private lastTool: string | undefined;
   private writing = false;
+  private compactionStart: string | null = null;
 
   // ===========================================
   // Construction
   // ===========================================
 
-  /** Wrap a created Pi session, recording the session ID it was opened with. */
-  constructor(private readonly session: PiSession) {
+  /** Wrap a created Pi session with a clock for server-owned activity timestamps. */
+  constructor(
+    private readonly session: PiSession,
+    private readonly now: () => number = Date.now,
+  ) {
     this.id = session.sessionId;
   }
 
@@ -32,6 +36,11 @@ export class PiAgentSession implements ForkableSession {
   /** Read compaction state without exposing summaries or the private transcript. */
   get compacting(): boolean {
     return this.session.isCompacting;
+  }
+
+  /** Keep the same start time throughout an active summary, independently of status polling. */
+  get compactionStartedAt(): string | null {
+    return this.compactionStart;
   }
 
   /** The tool the latest prompt finished last, in completion order. */
@@ -57,8 +66,12 @@ export class PiAgentSession implements ForkableSession {
     this.writing = false;
     let compactionFailed = false;
     const unsubscribe = this.session.subscribe((event) => {
-      if (event.type === "compaction_end" && event.errorMessage)
-        compactionFailed = true;
+      if (event.type === "compaction_start")
+        this.compactionStart = new Date(this.now()).toISOString();
+      if (event.type === "compaction_end") {
+        this.compactionStart = null;
+        if (event.errorMessage) compactionFailed = true;
+      }
       if (event.type === "tool_execution_end") this.lastTool = event.toolName;
       this.followTyping(event);
     });
@@ -79,6 +92,7 @@ export class PiAgentSession implements ForkableSession {
       unsubscribe();
       this.cancellation = undefined;
       this.writing = false;
+      this.compactionStart = null;
     }
   }
 

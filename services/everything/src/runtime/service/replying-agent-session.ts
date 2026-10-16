@@ -33,6 +33,11 @@ export class ReplyingAgentSession implements AgentSession {
     return this.session.compacting;
   }
 
+  /** Preserve the active summary's start time through reply-delivery correction. */
+  get compactionStartedAt(): string | null {
+    return this.session.compactionStartedAt;
+  }
+
   /** Forward the tool the latest prompt, or its reminder, finished last. */
   get lastToolName(): string | undefined {
     return this.session.lastToolName;

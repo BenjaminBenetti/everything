@@ -1,3 +1,4 @@
+import { testConversationSearch } from "./conversation-search-fixtures.js";
 import { testApiDocumentation } from "./api-documentation-fixtures.js";
 import { apiDocumentationToolName } from "../../api-documentation/model/api-documentation.js";
 import assert from "node:assert/strict";
@@ -56,6 +57,7 @@ test("refuses to open a session until a provider is connected, before touching t
     {} as WorkspaceTools,
     stoppedFleet,
     testApiDocumentation,
+    testConversationSearch,
   );
   await assert.rejects(
     factory.create(agent, async () => {}),
@@ -152,6 +154,7 @@ test("Pi sends only the teammate's initial context, applies saved inference, and
     {} as WorkspaceTools,
     stoppedFleet,
     testApiDocumentation,
+    testConversationSearch,
   );
   const definition: AgentDefinition = {
     ...agent,
@@ -177,6 +180,7 @@ test("Pi sends only the teammate's initial context, applies saved inference, and
     "file_read",
     "file_write",
     "bash",
+    "conversation_search",
     apiDocumentationToolName,
   ])
     assert.ok(toolNames.includes(name), name);

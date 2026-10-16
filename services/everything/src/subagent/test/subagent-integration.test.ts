@@ -1,3 +1,4 @@
+import { testConversationSearch } from "../../runtime/test/conversation-search-fixtures.js";
 import { testApiDocumentation } from "../../runtime/test/api-documentation-fixtures.js";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
@@ -165,6 +166,7 @@ test("app-authenticated subagent API runs private Pi sessions, wakes main, survi
     },
     { endpoint: undefined, whenRunning: () => new Promise(() => {}) },
     testApiDocumentation,
+    testConversationSearch,
   );
 
   /** Open an HTTP surface over the real conversation coordinator; cold reads must bypass the factory. */

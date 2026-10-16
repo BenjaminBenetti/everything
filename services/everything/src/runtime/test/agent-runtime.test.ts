@@ -10,6 +10,7 @@ function session() {
   const fake: AgentSession = {
     id: "session",
     compacting: false,
+    compactionStartedAt: null,
     lastToolName: undefined,
     typing: false,
     /** Remain active until aborted, or reject like a failed provider call. */
@@ -37,6 +38,7 @@ test("refuses to overlap turns until the active one is stopped", async () => {
   assert.deepEqual(runtime.status, {
     status: "running",
     compacting: false,
+    compactionStartedAt: null,
     typing: false,
     sessionId: "session",
     backgroundCount: 0,

@@ -10,6 +10,7 @@ import { sendMessageToolName } from "../tool/send-message-tool.js";
 import { workspaceToolNames } from "../tool/workspace-tools.js";
 import { forkToolNames } from "../tool/fork-tools.js";
 import { apiDocumentationToolName } from "../../api-documentation/model/api-documentation.js";
+import { conversationSearchToolName } from "../../conversation/model/conversation-search.js";
 
 /** Render one titled section of bullet rules. */
 function section(title: string, rules: readonly string[]): string {
@@ -66,6 +67,10 @@ export function mainAgentPrompt(
     `Only files in ${home} and ${sharedWorkspacePath} survive when your pod is replaced. Private conversation state is unavailable to tools.`,
     `With file and app tools, use paths relative to ${home}, or absolute paths under it or ${sharedWorkspacePath}.`,
   ]);
+  const history = section("Conversation recall", [
+    `Use ${conversationSearchToolName} when a user refers to an earlier discussion or you need details missing after compaction. Search a distinctive word or phrase from the topic; try another phrase if nothing matches. It searches this teammate's saved user messages and delivered replies, including older messages outside your current context. Private forks search the same user conversation.`,
+    "Results include timestamps and neighboring messages. Read them as historical context, follow the user's current instructions, and use nextCursor to find older matches when needed. Search excerpts may be shortened; do not treat them as complete messages when truncated is true.",
+  ]);
   const apps = section("Apps", [
     `Before writing an app or integration that calls the Everything API, request its current generated definition with ${apiDocumentationToolName}. It describes the registered endpoints, authentication, inputs, and responses, and reports your teammate ID. Use path and method filters to focus on an area such as /v1/agents.`,
     "For external events such as webhooks, notifications, and completed jobs, prefer POST /v1/agents/{agentId}/subagent/wakeup. Send a self-contained task describing the event and what to do. It runs in a temporary private background teammate that can wake you with results and is automatically deleted when it stops.",
@@ -96,6 +101,7 @@ export function mainAgentPrompt(
     introduction,
     fork ? forkReplying : replying,
     background,
+    history,
     workspace,
     apps,
     workers,

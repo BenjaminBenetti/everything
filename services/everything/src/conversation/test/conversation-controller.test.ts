@@ -5,11 +5,14 @@ import { authenticatedTestServer } from "../../http/test/test-server.js";
 import { unloadedRuntimeStatus } from "../../runtime/model/runtime-status.js";
 import { conversationController } from "../controller/conversation-controller.js";
 import type { ConversationOperations } from "../interface/conversation-operations.js";
+import type { RuntimeStatus } from "@everything/conversation-contracts";
 
 const agentId = "6f1c1f6e-8c7e-4c4b-9a43-2d8b8f7c8f11";
 
 /** Mount the controller as the HTTP application does, recording calls to the conversation boundary. */
-async function fixture(): Promise<{
+async function fixture(
+  runtime: RuntimeStatus = unloadedRuntimeStatus,
+): Promise<{
   app: FastifyInstance;
   calls: string[];
 }> {
@@ -30,10 +33,10 @@ async function fixture(): Promise<{
       calls.push(`send:${ownerId}:${id}:${text}`);
       return { messageId: "message", runId: "run" };
     },
-    /** Report an agent that has not run in this process. */
+    /** Report the supplied runtime snapshot for the authenticated teammate. */
     async status(ownerId, id) {
       calls.push(`status:${ownerId}:${id}`);
-      return unloadedRuntimeStatus;
+      return runtime;
     },
     /** Record the interruption request. */
     async interrupt(ownerId, id) {
@@ -56,6 +59,20 @@ test("accepts a visible message and acknowledges its run", async (context) => {
   assert.equal(response.statusCode, 202);
   assert.deepEqual(response.json(), { messageId: "message", runId: "run" });
   assert.deepEqual(calls, [`send:owner:${agentId}:hello`]);
+});
+
+test("runtime responses preserve the server compaction timestamp", async (context) => {
+  const runtime: RuntimeStatus = {
+    ...unloadedRuntimeStatus,
+    status: "running",
+    compacting: true,
+    compactionStartedAt: "2026-10-16T04:00:00.000Z",
+  };
+  const { app } = await fixture(runtime);
+  context.after(() => app.close());
+  const response = await app.inject({ url: `/agents/${agentId}/runtime` });
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(response.json(), runtime);
 });
 
 test("rejects blank, oversized, and unexpected message input", async (context) => {
