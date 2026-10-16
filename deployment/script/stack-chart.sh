@@ -25,12 +25,16 @@ workload_namespaces() {
   render_stack --values "$dev_values" --show-only templates/namespaces.yaml | sed -n 's/^  name: *//p'
 }
 
-# List every container image the release runs; arguments are passed to render_stack.
+# List the images the release builds, as `<image>:<tag>`, leaving out upstream images that nodes pull
+# from their publishers; arguments are passed to render_stack. Rendering under a placeholder registry
+# tells them apart: only built images take the global registry.
 stack_images() {
-  render_stack "$@" | sed -n 's/^[ -]*image: *"\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' | sort -u
+  local marker=built.invalid
+  render_stack "$@" --set global.image.registry="$marker" |
+    sed -n "s|^[ -]*image: *\"\{0,1\}$marker/\([^\"]*\)\"\{0,1\}\$|\1|p" | sort -u
 }
 
-# List each image the release runs with the workspace that builds it, as `<image> <workspace>` lines.
+# List each image the release builds with the workspace that builds it, as `<image> <workspace>` lines.
 # A workspace names both in its build:image script: `build-image.sh <workspace> <image>:<tag>`.
 stack_image_workspaces() {
   local image workspace

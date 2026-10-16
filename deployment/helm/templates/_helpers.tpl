@@ -43,12 +43,21 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version }}
 {{- end }}
 
 {{/*
-Image reference `<registry>/<image>:<tag>` from the global registry and tag and the service's image
-name. An empty tag selects the chart's appVersion.
+A container's `image` and `imagePullPolicy`. An image built here is `<registry>/<image>:<tag>` from
+the global registry, tag, and pull policy and the service's image name; an empty tag selects the
+chart's appVersion. An upstream image is a full reference used as is, pulled when the node lacks it.
 */}}
-{{- define "stack.image" -}}
-{{- $image := required (printf "services.%s.image is required" .name) .image -}}
-{{- with .root.Values.global.image.registry }}{{ trimSuffix "/" . }}/{{ end }}{{ $image }}:{{ .root.Values.global.image.tag | default .root.Chart.AppVersion }}
+{{- define "stack.containerImage" -}}
+{{- if and .image .upstreamImage -}}
+{{- fail (printf "services.%s sets both image and upstreamImage" .name) -}}
+{{- else if .upstreamImage -}}
+image: {{ .upstreamImage }}
+imagePullPolicy: IfNotPresent
+{{- else -}}
+{{- $image := required (printf "services.%s needs image or upstreamImage" .name) .image -}}
+image: {{ with .root.Values.global.image.registry }}{{ trimSuffix "/" . }}/{{ end }}{{ $image }}:{{ .root.Values.global.image.tag | default .root.Chart.AppVersion }}
+imagePullPolicy: {{ .root.Values.global.image.pullPolicy }}
+{{- end }}
 {{- end }}
 
 {{/*
@@ -71,6 +80,11 @@ to `{ secretName, key }` for a Secret value.
 
 {{/* Claim name for a service's persistent volume: `<service>-<volume>`. */}}
 {{- define "stack.claimName" -}}
+{{ printf "%s-%s" .name .volumeName }}
+{{- end }}
+
+{{/* ConfigMap holding a service's `files` volume. */}}
+{{- define "stack.configMapName" -}}
 {{ printf "%s-%s" .name .volumeName }}
 {{- end }}
 

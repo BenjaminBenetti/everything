@@ -48,8 +48,7 @@ spec:
       initContainers:
         {{- range $sidecarName, $sidecar := . }}
         - name: {{ $sidecarName }}
-          image: {{ include "stack.image" (dict "root" $ "name" (printf "%s.sidecars.%s" $name $sidecarName) "image" $sidecar.image) }}
-          imagePullPolicy: {{ $.Values.global.image.pullPolicy }}
+          {{- include "stack.containerImage" (dict "root" $ "name" (printf "%s.sidecars.%s" $name $sidecarName) "image" $sidecar.image "upstreamImage" $sidecar.upstreamImage) | nindent 10 }}
           restartPolicy: Always
           {{- with $sidecar.args }}
           args:
@@ -83,8 +82,7 @@ spec:
       {{- end }}
       containers:
         - name: {{ $service.containerName | default $name }}
-          image: {{ include "stack.image" (dict "root" $ "name" $name "image" $service.image) }}
-          imagePullPolicy: {{ $.Values.global.image.pullPolicy }}
+          {{- include "stack.containerImage" (dict "root" $ "name" $name "image" $service.image "upstreamImage" $service.upstreamImage) | nindent 10 }}
           {{- with $service.args }}
           args:
             {{- toYaml . | nindent 12 }}
@@ -115,7 +113,7 @@ spec:
             {{- if $volume.mountPath }}
             - name: {{ $volumeName }}
               mountPath: {{ $volume.mountPath }}
-              {{- if or $volume.secret $volume.readOnly }}
+              {{- if or $volume.secret $volume.files $volume.readOnly }}
               readOnly: true
               {{- end }}
             {{- end }}
@@ -133,6 +131,9 @@ spec:
           secret:
             secretName: {{ tpl $volume.secret $ }}
             defaultMode: 288 # 0440: owner and group may read
+          {{- else if $volume.files }}
+          configMap:
+            name: {{ include "stack.configMapName" (dict "name" $name "volumeName" $volumeName) }}
           {{- else }}
           emptyDir:
             {{- toYaml $volume.emptyDir | nindent 12 }}

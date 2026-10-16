@@ -133,8 +133,12 @@ sharedVolumes: {}
 serviceDefaults:
   # Set false to render nothing for a service.
   enabled: true
-  # Image name, combined with the global registry and tag.
+  # Name of an image built here, combined with the global registry and tag.
   image: ""
+  # Or a published image run unchanged, as a full reference such as
+  # docker.io/library/postgres:17.11-bookworm. Nodes pull it when missing, whatever the global pull
+  # policy, and the deploy scripts and release workflow leave it to its publisher.
+  upstreamImage: ""
   # Deployment for stateless services. StatefulSet for a single owner of state, such as a database or
   # in-process agents: Kubernetes never runs two copies of its pod, even when a node stops responding.
   workload: Deployment
@@ -180,10 +184,11 @@ serviceDefaults:
   #   persistentVolume: { size, accessModes?, storageClassName? }  claim <service>-<volume>, kept on uninstall
   #   sharedVolume: <name>                                         an entry in `sharedVolumes`
   #   secret: <secret name>                                        mounted read-only
+  #   files: <directory>                                           the chart's files/<directory>, mounted read-only
   #   emptyDir: {}                                                 scratch space; the root filesystem is read-only
   volumes: {}
   # Containers that run beside the main one for the pod's whole life, by name. Each starts before
-  # the main container and stops after it, and takes `image`, `args`, `env`,
+  # the main container and stops after it, and takes `image` or `upstreamImage`, `args`, `env`,
   # `containerSecurityContext` (replacing the service's), `probes`, `resources`, and `volumeMounts`,
   # a map of the service's volume names to mount paths.
   sidecars: {}
@@ -220,11 +225,12 @@ services:
   postgres:
     workload: StatefulSet
     rolloutWave: 0
-    image: everything-postgres
+    upstreamImage: docker.io/library/postgres:17.11-bookworm
     podSecurityContext:
       runAsUser: 999
       runAsGroup: 999
       fsGroup: 999
+    # The access rules in files/postgres, mounted by the `initialization` volume.
     args: [-c, hba_file=/docker-entrypoint-initdb.d/pg_hba.conf]
     env:
       POSTGRES_USER: postgres
@@ -258,6 +264,10 @@ services:
       data:
         mountPath: /var/lib/postgresql/data
         persistentVolume: { size: 2Gi }
+      # Roles and databases created when the data directory is empty, and the access rules.
+      initialization:
+        mountPath: /docker-entrypoint-initdb.d
+        files: postgres
       tmp: { mountPath: /tmp, emptyDir: {} }
       run: { mountPath: /var/run/postgresql, emptyDir: {} }
 
@@ -494,7 +504,7 @@ services:
       # The Docker engine fleetd builds devcontainer images with. It needs a privileged container,
       # and serves only the socket it shares with Everything's container.
       docker:
-        image: everything-docker
+        upstreamImage: docker.io/library/docker:29.8.2-dind
         args:
           [dockerd, --host=unix:///run/docker-socket/docker.sock, --group=1000]
         containerSecurityContext:
@@ -571,7 +581,8 @@ services:
     # Images are files on its disk; one copy owns them.
     workload: StatefulSet
     rolloutWave: 0
-    image: everything-registry
+    # CNCF Distribution, configured by the REGISTRY_* variables; it runs as serviceDefaults' user, 1000.
+    upstreamImage: docker.io/library/registry:3.1.2
     env:
       REGISTRY_HTTP_ADDR: ":5000"
       REGISTRY_STORAGE_FILESYSTEM_ROOTDIRECTORY: /var/lib/registry

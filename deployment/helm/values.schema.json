@@ -277,6 +277,9 @@
         "image": {
           "type": "string"
         },
+        "upstreamImage": {
+          "type": "string"
+        },
         "workload": {
           "enum": ["Deployment", "StatefulSet"]
         },
@@ -421,6 +424,10 @@
           "type": "string",
           "minLength": 1
         },
+        "files": {
+          "type": "string",
+          "minLength": 1
+        },
         "emptyDir": {
           "type": "object"
         }
@@ -434,6 +441,9 @@
         },
         {
           "required": ["secret"]
+        },
+        {
+          "required": ["files"]
         },
         {
           "required": ["emptyDir"]
@@ -487,9 +497,12 @@
     "sidecar": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["image"],
       "properties": {
         "image": {
+          "type": "string",
+          "minLength": 1
+        },
+        "upstreamImage": {
           "type": "string",
           "minLength": 1
         },
@@ -521,7 +534,15 @@
             "pattern": "^/"
           }
         }
-      }
+      },
+      "oneOf": [
+        {
+          "required": ["image"]
+        },
+        {
+          "required": ["upstreamImage"]
+        }
+      ]
     },
     "ingressSettings": {
       "type": "object",

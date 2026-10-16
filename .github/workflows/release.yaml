@@ -1,5 +1,5 @@
 # Publish a release when a semantic version tag such as v1.2.3 or v1.2.3-rc.1 is pushed: every image
-# the chart runs, the chart as an OCI artifact, and a GitHub release. Images and the chart share the
+# the chart builds, the chart as an OCI artifact, and a GitHub release. Images and the chart share the
 # version without its `v`, which the packaged chart also uses as its appVersion and default image tag.
 name: Release
 
@@ -58,7 +58,7 @@ jobs:
             echo "platforms=linux/amd64,linux/arm64"
           } >> "$GITHUB_OUTPUT"
       - id: images
-        name: List the chart's images and their workspaces
+        name: List the images the chart builds and their workspaces
         run: |
           source deployment/script/stack-chart.sh
           images=$(stack_image_workspaces | jq -Rnc '[inputs | split(" ") | {name: .[0], workspace: .[1]}]')

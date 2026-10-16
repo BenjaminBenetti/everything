@@ -18,7 +18,6 @@ COPY lib/workspace-contracts/package.json ./lib/workspace-contracts/package.json
 COPY lib/update-contracts/package.json ./lib/update-contracts/package.json
 COPY services/everything/package.json ./services/everything/package.json
 COPY services/keycloak/package.json ./services/keycloak/package.json
-COPY services/postgres/package.json ./services/postgres/package.json
 COPY testing/api/package.json ./testing/api/package.json
 RUN --mount=type=secret,id=proxy_ca \
     if [ -f /run/secrets/proxy_ca ]; then export NODE_EXTRA_CA_CERTS=/run/secrets/proxy_ca; fi; \

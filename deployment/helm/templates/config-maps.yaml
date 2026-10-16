@@ -1,0 +1,23 @@
+{{- /* Each `files` volume: the files in the chart's files/<directory>, as a ConfigMap. */ -}}
+{{- range $name, $_ := .Values.services }}
+{{- $service := include "stack.service" (dict "root" $ "name" $name) | fromYaml }}
+{{- if $service.enabled }}
+{{- range $volumeName, $volume := $service.volumes }}
+{{- with $volume.files }}
+{{- $files := $.Files.Glob (printf "files/%s/*" .) }}
+{{- if not $files }}
+{{- fail (printf "services.%s.volumes.%s.files: the chart has no files in files/%s" $name $volumeName .) }}
+{{- end }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "stack.configMapName" (dict "name" $name "volumeName" $volumeName) }}
+  labels:
+    {{- include "stack.labels" (dict "root" $ "name" $name) | nindent 4 }}
+data:
+  {{- $files.AsConfig | nindent 2 }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}

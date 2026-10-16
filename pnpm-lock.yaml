@@ -242,8 +242,6 @@ importers:
         specifier: 7.0.2
         version: 7.0.2
 
-  services/docker: {}
-
   services/everything:
     dependencies:
       '@anthropic-ai/sdk':
@@ -354,10 +352,6 @@ importers:
         version: 7.0.2
 
   services/keycloak: {}
-
-  services/postgres: {}
-
-  services/registry: {}
 
   services/teammate:
     dependencies:
