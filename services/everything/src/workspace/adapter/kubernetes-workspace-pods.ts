@@ -48,6 +48,8 @@ export function createWorkspacePodClients() {
  * Build a singleton StatefulSet from the chart's zero-replica tools template. The pod mounts the
  * teammate's folder of the workspace volume at `/workspace/<agent id>`, where Everything's container
  * sees it too, and the shared folder at `/workspace/shared`; it never sees other teammates' folders.
+ * Both mounts are subpaths of one volume: a second volume naming the same claim leaves the pod
+ * waiting for a mount that some storage drivers never report.
  */
 export function workspaceStatefulSet(
   agentId: string,
@@ -92,7 +94,11 @@ export function workspaceStatefulSet(
   ];
   const mounts = {
     workspace: { mountPath: workspace, subPath: agentId },
-    shared: { mountPath: sharedWorkspacePath, subPath: sharedWorkspaceFolder },
+    shared: {
+      name: "workspace",
+      mountPath: sharedWorkspacePath,
+      subPath: sharedWorkspaceFolder,
+    },
     // Hides Pi's private conversation state inside the workspace.
     private: { mountPath: `${workspace}/.pi` },
   };
@@ -107,14 +113,16 @@ export function workspaceStatefulSet(
       throw new Error(`Workspace template must mount the ${name} volume`);
     Object.assign(volumeMount, mount);
   }
-  template.spec.volumes = template.spec.volumes!.map((volume) =>
-    volume.name === "workspace" || volume.name === "shared"
-      ? {
-          name: volume.name,
-          persistentVolumeClaim: { claimName: settings.claimName },
-        }
-      : volume,
-  );
+  template.spec.volumes = template.spec.volumes!.flatMap((volume) => {
+    if (volume.name === "shared") return [];
+    if (volume.name !== "workspace") return [volume];
+    return [
+      {
+        name: volume.name,
+        persistentVolumeClaim: { claimName: settings.claimName },
+      },
+    ];
+  });
   withWorkspaceHome(template.spec, container, workspace);
   return {
     apiVersion: "apps/v1",

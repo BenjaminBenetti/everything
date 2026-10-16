@@ -35,7 +35,7 @@ test("oversized tools responses are cancelled before they can exhaust Everything
   assert.equal(cancelled, true);
 });
 
-test("tools pods mount only their workspace and the shared folder at Everything's paths, with the workspace as the account's home, preserve resource limits, and receive no controller credential", () => {
+test("tools pods mount only their workspace and the shared folder at Everything's paths from one volume of the claim, with the workspace as the account's home, preserve resource limits, and receive no controller credential", () => {
   const source = {
     metadata: { labels: { "app.kubernetes.io/name": "teammate" } },
     spec: {
@@ -70,7 +70,7 @@ test("tools pods mount only their workspace and the shared folder at Everything'
   assert.equal(spec.automountServiceAccountToken, false);
   assert.deepEqual(spec.containers[0]!.volumeMounts, [
     { name: "workspace", mountPath: `/workspace/${id}`, subPath: id },
-    { name: "shared", mountPath: "/workspace/shared", subPath: "shared" },
+    { name: "workspace", mountPath: "/workspace/shared", subPath: "shared" },
     { name: "private", mountPath: `/workspace/${id}/.pi`, readOnly: true },
     {
       name: "account",
@@ -85,15 +85,15 @@ test("tools pods mount only their workspace and the shared folder at Everything'
     { name: "HOME_DIRECTORY", value: `/workspace/${id}` },
   ]);
   assert.match(account.command!.at(-1)!, /\/etc\/passwd > \/account\/passwd$/);
-  assert.deepEqual(spec.volumes!.at(-1), {
-    name: "account",
-    emptyDir: { sizeLimit: "1Mi" },
-  });
-  for (const volume of spec.volumes!.slice(0, 2))
-    assert.deepEqual(volume.persistentVolumeClaim, {
-      claimName: "everything-agents",
-    });
-  assert.deepEqual(spec.volumes![2], { name: "private", emptyDir: {} });
+  // A single volume names the claim; a second one naming it can leave the pod waiting to mount.
+  assert.deepEqual(spec.volumes, [
+    {
+      name: "workspace",
+      persistentVolumeClaim: { claimName: "everything-agents" },
+    },
+    { name: "private", emptyDir: {} },
+    { name: "account", emptyDir: { sizeLimit: "1Mi" } },
+  ]);
   assert.deepEqual(
     spec.containers[0]!.env!.find(
       (variable) => variable.name === "WORKSPACE_DIRECTORY",
