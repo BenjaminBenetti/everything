@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # Install or upgrade Everything on a Kubernetes cluster from its published Helm chart:
 #   curl -fsSL https://github.com/BenjaminBenetti/everything/releases/latest/download/install.sh | bash
-# It asks for the installation's settings and credentials, saves them in a values file that later runs
-# reuse, creates the release's namespace, runs `helm upgrade --install`, and offers to create the first
-# user while Keycloak has none. It needs Helm 3.8 or newer, kubectl, and a kubectl context selecting the
-# target cluster. It runs on Bash 3.2, as macOS ships.
+# It asks for the installation's settings, credentials, and disk sizes, saves them in a values file
+# that later runs reuse, asking again only for what that file lacks, creates the release's namespace,
+# runs `helm upgrade --install`, and offers to create the first user while Keycloak has none. It needs
+# Helm 3.8 or newer, kubectl, and a kubectl context selecting the target cluster. It runs on Bash 3.2,
+# as macOS ships.
 set -euo pipefail
 
 # The version installed by default; the release workflow sets it in the copy it publishes. Empty
@@ -22,11 +23,14 @@ namespace_pattern='^[a-z0-9]([a-z0-9-]{0,51}[a-z0-9])?$'
 session_key_pattern='^[A-Za-z0-9+/]{43}=$'
 # Keycloak lowercases usernames; the application accepts up to 254 characters.
 username_pattern='^[a-z0-9][a-z0-9._@-]{0,253}$'
+# A Kubernetes storage quantity, such as 20Gi.
+size_pattern='^[0-9]+(\.[0-9]+)?(Ki|Mi|Gi|Ti|Pi|Ei|k|M|G|T|P|E)?$'
+# Separates the keys of a setting's path in the settings entries.
+path_separator=$'\037'
 
 # Answers and working state, set as the installer runs.
-settings_file="" reuse=false credentials_changed=false version="" namespace=""
-app_host="" artifact_host="" registry_host="" ingress_class="" issuer="" storage_class=""
-work="" package="" chart_dir="" context="" first_install=false
+settings_file="" reuse=false settings_changed=false version="" namespace=""
+work="" package="" chart_dir="" entries="" context="" first_install=false section=""
 new_username="" new_password="" first_user=""
 
 # ---------------------------------------------------------------------------------------------------
@@ -78,10 +82,26 @@ confirm() {
   done
 }
 
+# begin_section <title> [note]: introduce a group of questions before its first one; on a rerun,
+# say first why the installer asks anything at all.
+begin_section() {
+  if [ "$section" = "$1" ]; then return; fi
+  if [ "$reuse" = true ] && [ -z "$section" ]; then
+    say ""
+    say "Your settings file lacks some settings this version uses; the rest are kept."
+  fi
+  section=$1
+  say ""
+  say "$1"
+  if [ -n "${2:-}" ]; then say "$2"; fi
+}
+
 lowercase() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 
 # ---------------------------------------------------------------------------------------------------
-# Values files: the chart's `secrets` block and the settings file written here share one layout.
+# Settings entries: the settings file is a Helm values file of nested maps and quoted scalars, held
+# while the installer runs as `<path><TAB><value as written>` lines, where the path joins the keys
+# with the unit separator. New answers join their place in the tree when the file is written.
 # ---------------------------------------------------------------------------------------------------
 
 # A YAML single-quoted scalar.
@@ -106,39 +126,158 @@ random_password() { head -c 64 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | cut 
 # 32 random bytes in base64, the session encryption key's format.
 random_session_key() { head -c 32 /dev/urandom | base64 | tr -d '\n'; }
 
-# `<secret><TAB><key><TAB><value as written>` for each credential under `secrets` in a values file.
-secret_entries() {
-  awk '
-    /^secrets:/ { inside = 1; next }
-    inside && /^[^ #]/ { exit }
-    inside && /^  [a-z0-9-]+:[ ]*$/ { secret = $1; sub(/:$/, "", secret); next }
-    inside && /^    [a-z0-9-]+:/ {
-      key = $1; sub(/:$/, "", key)
-      value = $0; sub(/^    [a-z0-9-]+:[ ]*/, "", value)
-      printf "%s\t%s\t%s\n", secret, key, value
+# A setting's path from its keys.
+key_path() {
+  local IFS=$path_separator
+  printf '%s' "$*"
+}
+
+# The entries of a values file of nested maps, skipping comments and blank lines.
+flatten_values() {
+  awk -v separator="$path_separator" '
+    /^[ ]*#/ || /^[ ]*$/ { next }
+    {
+      match($0, /^ */)
+      indent = RLENGTH
+      line = substr($0, indent + 1)
+      if (line ~ /:$/) {
+        key = substr(line, 1, length(line) - 1)
+        parent = 1
+      } else {
+        split_at = index(line, ": ")
+        if (!split_at) next
+        key = substr(line, 1, split_at - 1)
+        value = substr(line, split_at + 2)
+        parent = 0
+      }
+      while (depth > 0 && indents[depth] >= indent) depth--
+      path = ""
+      for (level = 1; level <= depth; level++) path = path keys[level] separator
+      if (parent) {
+        depth++
+        indents[depth] = indent
+        keys[depth] = key
+      } else {
+        print path key "\t" value
+      }
     }
   ' "$1"
 }
 
-# The `secrets` block from `<secret><TAB><key><TAB><value>` lines, grouped by Secret in first-seen order.
-render_secrets() {
-  awk -F '\t' '
-    !($1 in lines) { order[++count] = $1 }
-    { lines[$1] = lines[$1] "    " $2 ": " $3 "\n" }
-    END { print "secrets:"; for (i = 1; i <= count; i++) printf "  %s:\n%s", order[i], lines[order[i]] }
+# A values file from entries, nesting each key under its parent in the order keys first appear.
+unflatten_values() {
+  awk -F '\t' -v separator="$path_separator" '
+    {
+      count_parts = split($1, parts, separator)
+      parent = ""
+      for (level = 1; level <= count_parts; level++) {
+        node = level == 1 ? parts[1] : parent separator parts[level]
+        if (!(node in name)) {
+          name[node] = parts[level]
+          children[parent] = children[parent] + 1
+          child[parent, children[parent]] = node
+        }
+        parent = node
+      }
+      value[$1] = substr($0, length($1) + 2)
+    }
+    function emit(node, depth,    i, entry, pad) {
+      pad = ""
+      for (i = 0; i < depth; i++) pad = pad "  "
+      for (i = 1; i <= children[node]; i++) {
+        entry = child[node, i]
+        if (children[entry] > 0) {
+          print pad name[entry] ":"
+          emit(entry, depth + 1)
+        } else {
+          print pad name[entry] ": " value[entry]
+        }
+      }
+    }
+    END { emit("", 0) }
   ' "$1"
 }
 
-# A values file without its `secrets` block.
-without_secrets() { awk '/^secrets:/ { skip = 1; next } skip && /^[^ #]/ { skip = 0 } !skip' "$1"; }
+# has_entry <key>...: succeed when the settings hold that setting.
+has_entry() {
+  ENTRY_PATH=$(key_path "$@") awk -F '\t' '
+    $1 == ENVIRON["ENTRY_PATH"] { found = 1; exit }
+    END { exit !found }
+  ' "$entries"
+}
 
-# A `global` setting from the settings file, unquoted.
-saved_setting() {
-  sed -n "s/^  $1: *//p" "$settings_file" | head -n 1 | sed "s/^'\(.*\)'\$/\1/"
+# setting <key>...: a setting's value, unquoted; empty when the settings lack it.
+setting() {
+  local raw quote="'"
+  raw=$(ENTRY_PATH=$(key_path "$@") awk -F '\t' '
+    $1 == ENVIRON["ENTRY_PATH"] { print substr($0, length($1) + 2); exit }
+  ' "$entries")
+  case $raw in
+    \'*\')
+      raw=${raw#\'}
+      raw=${raw%\'}
+      raw=${raw//$quote$quote/$quote}
+      ;;
+    \"*\")
+      raw=${raw#\"}
+      raw=${raw%\"}
+      ;;
+  esac
+  printf '%s' "$raw"
+}
+
+# set_entry <value as written> <key>...: add or replace a setting.
+set_entry() {
+  local value=$1
+  shift
+  ENTRY_PATH=$(key_path "$@") ENTRY_VALUE=$value awk -F '\t' '
+    $1 == ENVIRON["ENTRY_PATH"] { if (!done) print $1 "\t" ENVIRON["ENTRY_VALUE"]; done = 1; next }
+    { print }
+    END { if (!done) print ENVIRON["ENTRY_PATH"] "\t" ENVIRON["ENTRY_VALUE"] }
+  ' "$entries" > "$entries.next"
+  mv "$entries.next" "$entries"
+  settings_changed=true
+}
+
+# The settings as a values file.
+render_settings() {
+  echo "# Everything's installation settings and credentials, written by install.sh. Keep this file"
+  echo "# private. Later runs of the installer reuse it and ask only for what it lacks; they rewrite it,"
+  echo "# so keep its plain layout of nested keys and quoted values. Changing a database password here"
+  echo "# after the first installation does not change it inside PostgreSQL."
+  echo "# namespace: $namespace"
+  unflatten_values "$entries"
+}
+
+# `<secret><TAB><key>` for each credential under `secrets` in the chart's values.
+chart_credentials() {
+  awk '
+    /^secrets:/ { inside = 1; next }
+    inside && /^[^ #]/ { exit }
+    inside && /^  [a-z0-9-]+:[ ]*$/ { secret = $1; sub(/:$/, "", secret); next }
+    inside && /^    [a-z0-9-]+:/ { key = $1; sub(/:$/, "", key); print secret "\t" key }
+  ' "$chart_dir/values.yaml"
+}
+
+# `<claim><TAB><service><TAB><size>` for each disk the chart claims with the current settings; a
+# shared volume's claim names no service.
+chart_disks() {
+  render_settings > "$work/current.yaml"
+  helm template "$release" "$package" --namespace "$namespace" \
+    --values "$chart_dir/values.prod.yaml" --values "$work/current.yaml" \
+    --show-only templates/persistent-volume-claims.yaml | awk '
+      function emit() { if (claim != "") print claim "\t" service "\t" size }
+      /^---/ { emit(); claim = service = size = "" }
+      /^  name: / { claim = $2 }
+      /^    app\.kubernetes\.io\/name: / { service = $2 }
+      /^      storage: / { size = $2; gsub(/"/, "", size) }
+      END { emit() }
+    '
 }
 
 # ---------------------------------------------------------------------------------------------------
-# Questions.
+# Questions: each answer has its place in the values, and is asked for only while the settings lack
+# it, so new settings ask everything and saved ones only what a newer installer or chart added.
 # ---------------------------------------------------------------------------------------------------
 
 choose_settings_file() {
@@ -174,6 +313,31 @@ ask_namespace() {
   done
 }
 
+# Start from the saved settings, or from none.
+load_settings() {
+  entries=$work/entries
+  : > "$entries"
+  if [ "$reuse" = true ]; then
+    flatten_values "$settings_file" > "$entries"
+    namespace=$(sed -n 's/^# namespace: *//p' "$settings_file" | head -n 1)
+  fi
+  if [ -z "$namespace" ]; then
+    begin_section "Cluster settings"
+    ask_namespace
+  fi
+}
+
+# Find the target cluster, and whether the release is already installed there.
+resolve_cluster() {
+  context=$(kubectl config current-context 2> /dev/null) ||
+    fail "kubectl has no current context; select the target cluster first."
+  if helm status "$release" --kube-context "$context" --namespace "$namespace" > /dev/null 2>&1; then
+    first_install=false
+  else
+    first_install=true
+  fi
+}
+
 # ask_hostname <variable> <prompt> [default]
 ask_hostname() {
   local answer
@@ -186,65 +350,75 @@ ask_hostname() {
   printf -v "$1" '%s' "$answer"
 }
 
-# One Ingress's settings under `global`: its class, certificate issuer, TLS Secret, and an extra
-# annotation. Nothing is written when there is nothing to set: a key with nothing under it is null,
-# which would clear the chart's own settings for that Ingress.
-ingress_settings() {
-  local name=$1 tls_secret=$2 extra_annotation=${3:-} annotations="" lines=""
-  if [ -n "$issuer" ]; then
-    annotations="      cert-manager.io/cluster-issuer: $(yaml_quote "$issuer")"$'\n'
+ask_hostnames() {
+  local app_host artifact_host registry_host domain
+  if ! has_entry global externalHostname; then
+    begin_section "Cluster settings"
+    ask_hostname app_host "Hostname the application is served on, such as everything.example.com"
+    set_entry "$(yaml_quote "$app_host")" global externalHostname
   fi
-  if [ -n "$extra_annotation" ]; then annotations+="      $extra_annotation"$'\n'; fi
-  if [ -n "$ingress_class" ]; then lines+="    className: $(yaml_quote "$ingress_class")"$'\n'; fi
-  if [ -n "$annotations" ]; then lines+="    annotations:"$'\n'"$annotations"; fi
-  if [ -n "$issuer" ]; then lines+="    tlsSecretName: $(yaml_quote "$tls_secret")"$'\n'; fi
-  if [ -n "$lines" ]; then printf '  %s:\n%s' "$name" "$lines"; fi
-}
-
-# Ask for the installation's settings and write the settings file's header and `global` block.
-ask_settings() {
-  local domain body_size=""
-  say ""
-  say "Cluster settings"
-  ask_namespace
-  ask_hostname app_host "Hostname the application is served on, such as everything.example.com"
+  app_host=$(setting global externalHostname)
   # Siblings of the application's hostname share its domain, as the app host's login cookie needs.
   case $app_host in
     *.*.*) domain=${app_host#*.} ;;
     *) domain=$app_host ;;
   esac
-  while true; do
-    ask_hostname artifact_host "Hostname for apps, another name on the same domain" "artifacts.$domain"
-    if [ "$artifact_host" != "$app_host" ]; then break; fi
-    say "Apps need a hostname of their own."
-  done
-  while true; do
-    ask_hostname registry_host "Hostname of the image registry nodes pull from" "images.$domain"
-    if [ "$registry_host" != "$app_host" ] && [ "$registry_host" != "$artifact_host" ]; then break; fi
-    say "The registry needs a hostname of its own."
-  done
-  ask ingress_class "Name of the ingress class to use (Enter for the cluster's default)"
-  ask issuer "Name of the cert-manager ClusterIssuer to use for TLS (Enter if your ingress handles TLS)"
-  ask storage_class "Name of the storage class to use (Enter for the cluster's default)"
-  # ingress-nginx limits request bodies, and the registry receives whole image layers.
-  case $ingress_class in
-    *nginx*) body_size="nginx.ingress.kubernetes.io/proxy-body-size: '0'" ;;
-  esac
+  if ! has_entry global externalArtifactHostname; then
+    begin_section "Cluster settings"
+    while true; do
+      ask_hostname artifact_host "Hostname for apps, another name on the same domain" "artifacts.$domain"
+      if [ "$artifact_host" != "$app_host" ]; then break; fi
+      say "Apps need a hostname of their own."
+    done
+    set_entry "$(yaml_quote "$artifact_host")" global externalArtifactHostname
+  fi
+  artifact_host=$(setting global externalArtifactHostname)
+  if ! has_entry global externalRegistryHostname; then
+    begin_section "Cluster settings"
+    while true; do
+      ask_hostname registry_host "Hostname of the image registry nodes pull from" "images.$domain"
+      if [ "$registry_host" != "$app_host" ] && [ "$registry_host" != "$artifact_host" ]; then break; fi
+      say "The registry needs a hostname of its own."
+    done
+    set_entry "$(yaml_quote "$registry_host")" global externalRegistryHostname
+  fi
+}
 
-  {
-    echo "# Everything's installation settings and credentials, written by install.sh. Keep this file"
-    echo "# private. Later runs of the installer reuse it; changing a database password here after the"
-    echo "# first installation does not change it inside PostgreSQL."
-    echo "# namespace: $namespace"
-    echo "global:"
-    echo "  externalHostname: $(yaml_quote "$app_host")"
-    echo "  externalArtifactHostname: $(yaml_quote "$artifact_host")"
-    echo "  externalRegistryHostname: $(yaml_quote "$registry_host")"
-    if [ -n "$storage_class" ]; then echo "  storageClassName: $(yaml_quote "$storage_class")"; fi
-    ingress_settings ingress everything-tls
-    ingress_settings artifactIngress everything-artifacts-tls
-    ingress_settings registryIngress everything-registry-tls "$body_size"
-  } > "$work/settings.yaml"
+# The ingress class, TLS issuer, and storage class. Each is written even when left to the cluster's
+# default, so a later run knows it was answered.
+ask_cluster_classes() {
+  local ingress_class issuer storage_class site
+  if ! has_entry global ingress className; then
+    begin_section "Cluster settings"
+    ask ingress_class "Name of the ingress class to use (Enter for the cluster's default)"
+    for site in ingress artifactIngress registryIngress; do
+      set_entry "$(yaml_quote "$ingress_class")" global "$site" className
+    done
+    # ingress-nginx limits request bodies, and the registry receives whole image layers.
+    case $ingress_class in
+      *nginx*) set_entry "'0'" global registryIngress annotations nginx.ingress.kubernetes.io/proxy-body-size ;;
+    esac
+  fi
+  if ! has_entry global ingress tlsSecretName; then
+    begin_section "Cluster settings"
+    ask issuer "Name of the cert-manager ClusterIssuer to use for TLS (Enter if your ingress handles TLS)"
+    # With an issuer, cert-manager fills each Ingress's TLS Secret; an empty name leaves TLS to the
+    # ingress controller.
+    for site in ingress:everything-tls artifactIngress:everything-artifacts-tls \
+      registryIngress:everything-registry-tls; do
+      if [ -n "$issuer" ]; then
+        set_entry "$(yaml_quote "$issuer")" global "${site%%:*}" annotations cert-manager.io/cluster-issuer
+        set_entry "'${site#*:}'" global "${site%%:*}" tlsSecretName
+      else
+        set_entry "''" global "${site%%:*}" tlsSecretName
+      fi
+    done
+  fi
+  if ! has_entry global storageClassName; then
+    begin_section "Cluster settings"
+    ask storage_class "Name of the storage class to use (Enter for the cluster's default)"
+    set_entry "$(yaml_quote "$storage_class")" global storageClassName
+  fi
 }
 
 # credential <secret> <key>: print the value for one of the chart's credentials.
@@ -284,38 +458,87 @@ credential() {
   printf '%s' "$value"
 }
 
-# Ask for every credential the chart declares that the settings file lacks: all of them for new
-# settings, and those a newer chart added for saved ones.
-collect_credentials() {
-  local missing secret key value
-  : > "$work/secrets.tsv"
-  if [ "$reuse" = true ]; then secret_entries "$settings_file" > "$work/secrets.tsv"; fi
-  # The chart's credentials, in its order, less those already saved; FILENAME, unlike NR == FNR,
-  # also tells the files apart when nothing is saved.
-  missing=$(awk -F '\t' '
-    FILENAME == ARGV[1] { saved[$1 "\t" $2] = 1; next }
-    !(($1 "\t" $2) in saved) { print $1 "\t" $2 }
-  ' "$work/secrets.tsv" <(secret_entries "$chart_dir/values.yaml"))
-  if [ -z "$missing" ]; then return; fi
-  say ""
-  if [ "$reuse" = true ]; then
-    say "Version $version needs credentials your settings file lacks."
-  else
-    say "Credentials"
-  fi
-  say "Press Enter to generate a random value; every value is saved in the settings file."
+# Ask for every credential the chart declares that the settings lack.
+ask_credentials() {
+  local secret key value
   while IFS=$'\t' read -r secret key; do
+    if has_entry secrets "$secret" "$key"; then continue; fi
+    begin_section "Credentials" \
+      "Press Enter to generate a random value; every value is saved in the settings file."
     # A plain assignment, so a failed prompt stops the installer instead of saving an empty value.
     value=$(credential "$secret" "$key")
-    printf '%s\t%s\t%s\n' "$secret" "$key" "$(yaml_quote "$value")" >> "$work/secrets.tsv"
-  done <<< "$missing"
-  credentials_changed=true
+    set_entry "$(yaml_quote "$value")" secrets "$secret" "$key"
+  done <<< "$(chart_credentials)"
+}
+
+disk_description() {
+  case $1 in
+    postgres-data) echo "the PostgreSQL databases" ;;
+    everything-state) echo "Everything's state: provider logins and the model catalog" ;;
+    everything-agents) echo "teammates' files and their shared folder" ;;
+    everything-fleet) echo "Fleet's home: its state, logins, and repository checkouts" ;;
+    registry-data) echo "the registry's app and Fleet images" ;;
+    artifact-content) echo "apps' uploaded files and build sources" ;;
+    *) echo "the $1 volume" ;;
+  esac
+}
+
+# A size in MiB, for sizes in binary units; nothing for others, which are not compared.
+size_in_mib() {
+  local number=${1%[KMGTPE]i} unit=${1#"${1%[KMGTPE]i}"}
+  case $number in '' | *[!0-9]*) return ;; esac
+  case $unit in
+    Ki) echo $((number / 1024)) ;;
+    Mi) echo "$number" ;;
+    Gi) echo $((number * 1024)) ;;
+    Ti) echo $((number * 1024 * 1024)) ;;
+    Pi) echo $((number * 1024 * 1024 * 1024)) ;;
+  esac
+}
+
+# Ask for each disk's size that the settings lack, offering an existing disk's size, or else the
+# chart's, and refusing to shrink an existing disk.
+ask_disk_sizes() {
+  local disks claim service size current answer note key requested existing
+  disks=$(chart_disks) || fail "Could not read the chart's disks."
+  note="Use Kubernetes sizes such as 20Gi. Disks never shrink, and growing one later needs a storage class that allows volume expansion."
+  while IFS=$'\t' read -r claim service size; do
+    if [ -z "$claim" ]; then continue; fi
+    if [ -n "$service" ]; then
+      key="services $service volumes ${claim#"$service"-} persistentVolume size"
+    else
+      key="sharedVolumes $claim size"
+    fi
+    # shellcheck disable=SC2086 # The key's words are its path.
+    if has_entry $key; then continue; fi
+    current=""
+    if [ "$first_install" = false ]; then
+      current=$(kubectl --context "$context" --namespace "$namespace" get pvc "$claim" \
+        -o 'jsonpath={.spec.resources.requests.storage}' < /dev/null 2> /dev/null || true)
+    fi
+    begin_section "Disk sizes" "$note"
+    while true; do
+      ask answer "Size of the disk for $(disk_description "$claim")" "${current:-$size}"
+      if [[ ! $answer =~ $size_pattern ]]; then
+        say "Enter a size such as 20Gi."
+        continue
+      fi
+      requested=$(size_in_mib "$answer")
+      existing=$(size_in_mib "$current")
+      if [ -n "$requested" ] && [ -n "$existing" ] && [ "$requested" -lt "$existing" ]; then
+        say "This disk already holds $current, and disks never shrink."
+        continue
+      fi
+      break
+    done
+    # shellcheck disable=SC2086 # The key's words are its path.
+    set_entry "$(yaml_quote "$answer")" $key
+  done <<< "$disks"
 }
 
 save_settings() {
-  if [ "$reuse" = true ] && [ "$credentials_changed" = false ]; then return; fi
-  if [ "$reuse" = true ]; then without_secrets "$settings_file" > "$work/settings.yaml"; fi
-  render_secrets "$work/secrets.tsv" >> "$work/settings.yaml"
+  if [ "$reuse" = true ] && [ "$settings_changed" = false ]; then return; fi
+  render_settings > "$work/settings.yaml"
   (
     umask 077
     cat "$work/settings.yaml" > "$settings_file"
@@ -329,8 +552,8 @@ save_settings() {
 # Installation.
 # ---------------------------------------------------------------------------------------------------
 
-# Download the chart once: its values declare the credentials, and its production values sit under
-# the settings file.
+# Download the chart once: its values declare the credentials, its production values sit under the
+# settings file, and it renders the disks.
 fetch_chart() {
   say "Downloading version $version of the chart..."
   helm pull "$chart" --version "$version" --destination "$work" > /dev/null ||
@@ -342,17 +565,8 @@ fetch_chart() {
 }
 
 install_release() {
-  local action
-  context=$(kubectl config current-context 2> /dev/null) ||
-    fail "kubectl has no current context; select the target cluster first."
-  # An existing release means this run upgrades it.
-  if helm status "$release" --kube-context "$context" --namespace "$namespace" > /dev/null 2>&1; then
-    first_install=false
-    action="Upgrade Everything in namespace $namespace to $version"
-  else
-    first_install=true
-    action="Install Everything $version into namespace $namespace"
-  fi
+  local action="Install Everything $version into namespace $namespace"
+  if [ "$first_install" = false ]; then action="Upgrade Everything in namespace $namespace to $version"; fi
   say ""
   if ! confirm "$action with kubectl context $context?" Y; then
     say "Nothing installed. Run the installer again to reuse $settings_file."
@@ -466,12 +680,12 @@ setup_first_user() {
 
 print_next_steps() {
   local app_host
-  app_host=$(saved_setting externalHostname)
+  app_host=$(setting global externalHostname)
   say ""
   if [ "$first_install" = true ]; then
     say "Everything $version is installed in namespace $namespace."
-    say "  Point DNS for $app_host, $(saved_setting externalArtifactHostname), and"
-    say "  $(saved_setting externalRegistryHostname) at your ingress controller."
+    say "  Point DNS for $app_host, $(setting global externalArtifactHostname), and"
+    say "  $(setting global externalRegistryHostname) at your ingress controller."
   else
     say "Everything is upgraded to $version in namespace $namespace."
   fi
@@ -506,13 +720,13 @@ main() {
   choose_settings_file
   choose_version
   fetch_chart
-  if [ "$reuse" = true ]; then
-    namespace=$(sed -n 's/^# namespace: *//p' "$settings_file" | head -n 1)
-    if [ -z "$namespace" ]; then ask_namespace; fi
-  else
-    ask_settings
-  fi
-  collect_credentials
+  load_settings
+  resolve_cluster
+  ask_hostnames
+  ask_cluster_classes
+  ask_credentials
+  # The disks render from the chart, which needs the settings and credentials above.
+  ask_disk_sizes
   save_settings
   install_release
   setup_first_user
