@@ -1,0 +1,178 @@
+# Publish a release when a semantic version tag such as v1.2.3 or v1.2.3-rc.1 is pushed: every image
+# the chart runs, the chart as an OCI artifact, and a GitHub release. Images and the chart share the
+# version without its `v`, which the packaged chart also uses as its appVersion and default image tag.
+name: Release
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+-*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  # ---------------------------------------------------------------------------------------------------
+  # Plan: the version, registry, platforms, and images this release publishes.
+  # ---------------------------------------------------------------------------------------------------
+  plan:
+    name: Plan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+      registry: ${{ steps.version.outputs.registry }}
+      platforms: ${{ steps.version.outputs.platforms }}
+      images: ${{ steps.images.outputs.images }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: v4.3.0
+      # Image and chart tags cannot carry semver build metadata (`+...`), so tags must not either.
+      - id: version
+        name: Read the version from the tag
+        run: |
+          version=${GITHUB_REF_NAME#v}
+          identifier='[0-9A-Za-z-]+'
+          if ! [[ $version =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-$identifier(\.$identifier)*)?$ ]]; then
+            echo "::error::$GITHUB_REF_NAME is not a semantic version tag such as v1.2.3 or v1.2.3-rc.1."
+            exit 1
+          fi
+          {
+            echo "version=$version"
+            echo "prerelease=$([[ $version == *-* ]] && echo true || echo false)"
+            echo "registry=ghcr.io/${GITHUB_REPOSITORY,,}"
+            echo "platforms=linux/amd64,linux/arm64"
+          } >> "$GITHUB_OUTPUT"
+      - id: images
+        name: List the chart's images and their workspaces
+        run: |
+          source deployment/script/stack-chart.sh
+          images=$(stack_image_workspaces | jq -Rnc '[inputs | split(" ") | {name: .[0], workspace: .[1]}]')
+          echo "images=$images" >> "$GITHUB_OUTPUT"
+
+  verify:
+    name: Verify
+    uses: ./.github/workflows/ci.yaml
+
+  # ---------------------------------------------------------------------------------------------------
+  # Images: Docker's reusable builder runs each platform on its own native runner, merges them into one
+  # multi-platform image per tag, and signs the build provenance.
+  # ---------------------------------------------------------------------------------------------------
+  images:
+    name: ${{ matrix.image.name }}
+    needs: [plan, verify]
+    strategy:
+      # Let the other images finish, so a failed one can be retried alone with "Re-run failed jobs".
+      fail-fast: false
+      matrix:
+        image: ${{ fromJSON(needs.plan.outputs.images) }}
+    permissions:
+      contents: read
+      # Signs the provenance attestations with the workflow's identity.
+      id-token: write
+      packages: write
+    uses: docker/github-builder/.github/workflows/build.yml@58cb9f5b71b1836d6f690c1e95effdeb9b98cb8a # v1.17.0
+    with:
+      output: image
+      push: true
+      platforms: ${{ needs.plan.outputs.platforms }}
+      file: ${{ matrix.image.workspace }}/container/Dockerfile
+      meta-images: ${{ needs.plan.outputs.registry }}/${{ matrix.image.name }}
+      # The full version, plus <major>.<minor> and latest for releases that are not prereleases.
+      meta-tags: |
+        type=semver,pattern={{version}}
+        type=semver,pattern={{major}}.{{minor}}
+      # The OCI source label and annotation link each package to this repository.
+      set-meta-labels: true
+      set-meta-annotations: true
+    secrets:
+      registry-auths: |
+        - registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+  # ---------------------------------------------------------------------------------------------------
+  # Release: the chart, pushed once every image it references exists, then the GitHub release.
+  # ---------------------------------------------------------------------------------------------------
+  release:
+    name: Chart and GitHub release
+    needs: [plan, images]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      packages: write
+    env:
+      VERSION: ${{ needs.plan.outputs.version }}
+      REGISTRY: ${{ needs.plan.outputs.registry }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: v4.3.0
+      - id: chart
+        name: Package the chart
+        run: |
+          name=$(helm show chart deployment/helm | sed -n 's/^name: //p')
+          helm package deployment/helm --version "$VERSION" --app-version "$VERSION" \
+            --destination "$RUNNER_TEMP/chart"
+          {
+            echo "name=$name"
+            echo "package=$RUNNER_TEMP/chart/$name-$VERSION.tgz"
+          } >> "$GITHUB_OUTPUT"
+      - name: Push the chart
+        env:
+          PACKAGE: ${{ steps.chart.outputs.package }}
+        run: |
+          helm registry login "${REGISTRY%%/*}" --username "$GITHUB_ACTOR" --password-stdin <<< "$GH_TOKEN"
+          helm push "$PACKAGE" "oci://$REGISTRY/charts"
+      - name: Create the GitHub release
+        env:
+          CHART: ${{ steps.chart.outputs.name }}
+          PACKAGE: ${{ steps.chart.outputs.package }}
+          PRERELEASE: ${{ needs.plan.outputs.prerelease }}
+          PLATFORMS: ${{ needs.plan.outputs.platforms }}
+          IMAGES: ${{ needs.plan.outputs.images }}
+        run: |
+          image_list=$(jq -r --arg registry "$REGISTRY" --arg version "$VERSION" \
+            '.[] | "- `\($registry)/\(.name):\($version)`"' <<< "$IMAGES")
+          cat > "$RUNNER_TEMP/notes.md" <<EOF
+          ## Install
+
+          Copy \`deployment/helm/values.prod.yaml\` from this tag, set your hosts, and install it with your
+          credentials file:
+
+          \`\`\`sh
+          helm upgrade everything oci://$REGISTRY/charts/$CHART --version $VERSION \\
+            --install --namespace everything --values values.prod.yaml --values <credentials file>
+          \`\`\`
+
+          ## Images
+
+          Built for ${PLATFORMS//,/ and }:
+
+          $image_list
+          EOF
+          prerelease=()
+          if [ "$PRERELEASE" = true ]; then prerelease=(--prerelease); fi
+          # GitHub's generated notes, listing the changes since the previous release, follow these.
+          gh release create "$GITHUB_REF_NAME" "$PACKAGE" --verify-tag --title "$GITHUB_REF_NAME" \
+            --notes-file "$RUNNER_TEMP/notes.md" --generate-notes "${prerelease[@]}"

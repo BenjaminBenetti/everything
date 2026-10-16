@@ -18,8 +18,8 @@
     "cluster:up": "bash deployment/script/deploy-local.sh",
     "cluster:down": "bash deployment/script/remove-local.sh",
     "cluster:forward": "bash deployment/script/forward-local.sh",
-    "format": "prettier --write \"lib/**/*.{ts,tsx,css,json}\" \"services/**/*.{ts,tsx,css,html,js,json,yaml,webmanifest}\" \"testing/**/*.{ts,mjs,json,yaml}\" \"deployment/**/*.{mjs,yaml,json}\" package.json pnpm-workspace.yaml tsconfig.base.json",
-    "format:check": "prettier --check \"lib/**/*.{ts,tsx,css,json}\" \"services/**/*.{ts,tsx,css,html,js,json,yaml,webmanifest}\" \"testing/**/*.{ts,mjs,json,yaml}\" \"deployment/**/*.{mjs,yaml,json}\" package.json pnpm-workspace.yaml tsconfig.base.json",
+    "format": "prettier --write \"lib/**/*.{ts,tsx,css,json}\" \"services/**/*.{ts,tsx,css,html,js,json,yaml,webmanifest}\" \"testing/**/*.{ts,mjs,json,yaml}\" \"deployment/**/*.{mjs,yaml,json}\" \".github/**/*.yaml\" package.json pnpm-workspace.yaml tsconfig.base.json",
+    "format:check": "prettier --check \"lib/**/*.{ts,tsx,css,json}\" \"services/**/*.{ts,tsx,css,html,js,json,yaml,webmanifest}\" \"testing/**/*.{ts,mjs,json,yaml}\" \"deployment/**/*.{mjs,yaml,json}\" \".github/**/*.yaml\" package.json pnpm-workspace.yaml tsconfig.base.json",
     "test:ui": "pnpm --filter @everything/ui-tests test:browser"
   },
   "devDependencies": {

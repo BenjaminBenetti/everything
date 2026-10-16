@@ -1,0 +1,3 @@
+# Fixed development credentials stay out of the published chart; the local scripts pass the file
+# from the repository.
+values.dev.yaml

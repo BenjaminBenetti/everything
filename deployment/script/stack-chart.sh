@@ -30,6 +30,20 @@ stack_images() {
   render_stack "$@" | sed -n 's/^[ -]*image: *"\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' | sort -u
 }
 
+# List each image the release runs with the workspace that builds it, as `<image> <workspace>` lines.
+# A workspace names both in its build:image script: `build-image.sh <workspace> <image>:<tag>`.
+stack_image_workspaces() {
+  local image workspace
+  for image in $(stack_images --values "$dev_values" | sed 's/:[^:]*$//'); do
+    workspace=$(sed -n "s/.*build-image\.sh \([^ ]*\) $image:.*/\1/p" services/*/package.json)
+    if [ "$(printf '%s' "$workspace" | grep -c .)" -ne 1 ]; then
+      echo "Expected exactly one workspace whose build:image script builds $image." >&2
+      return 1
+    fi
+    echo "$image $workspace"
+  done
+}
+
 # Find the workload containing a named environment setting in the rendered chart.
 stack_workload_with_environment() {
   local setting=$1

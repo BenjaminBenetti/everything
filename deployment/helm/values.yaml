@@ -2,7 +2,8 @@
 # Env values, env secret names, and secret volume names are rendered as templates, so they can
 # reference these settings, for example "{{ tpl .Values.global.publicOrigin . }}".
 global:
-  # Every service image is <registry>/<image>:<tag>; an empty registry uses local images.
+  # Every service image is <registry>/<image>:<tag>; an empty registry uses local images, and an empty
+  # tag uses the chart's appVersion, which the release workflow sets to the released version.
   image:
     registry: ""
     tag: foundation

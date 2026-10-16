@@ -21,16 +21,30 @@ The application's origin is `http://localhost:8080`: `cluster:forward` forwards 
 
 ## Deploy to a cluster
 
-The same chart deploys to any Kubernetes cluster with an ingress controller. `deployment/helm/values.prod.yaml` overrides the development defaults: the image registry and tag, the pull policy, the public origin and artifact origin, and the application, artifact, and registry hostnames. Replace its example values and push the images to that registry as `<registry>/<image>:<tag>`. The chart creates every Secret and the Keycloak realm itself; pass the passwords in a credentials values file kept out of Git, setting each key under `secrets` in `values.yaml`. A missing value fails the render and names the key. Create the release's namespace beforehand, labelled to admit the privileged Docker sidecar in Everything's pod. The chart creates the artifact, build, and Fleet namespaces, named after the release's namespace (`everything-artifacts`, `everything-builds`, and `everything-fleet` here), and keeps them when the release is uninstalled. Cluster-wide resources are named after it too, so several installations can share a cluster, each in its own namespace.
+The same chart deploys to any Kubernetes cluster with an ingress controller, installed from a release (see [releases](#releases)). `deployment/helm/values.prod.yaml` overrides the development defaults: the image registry, the pull policy, the public origin and artifact origin, and the application, artifact, and registry hostnames. Its image tag is empty, so each chart version runs the images released with it. Copy it and replace its example hosts. The chart creates every Secret and the Keycloak realm itself; pass the passwords in a credentials values file kept out of Git, setting each key under `secrets` in `values.yaml`. A missing value fails the render and names the key. Create the release's namespace beforehand, labelled to admit the privileged Docker sidecar in Everything's pod. The chart creates the artifact, build, and Fleet namespaces, named after the release's namespace (`everything-artifacts`, `everything-builds`, and `everything-fleet` here), and keeps them when the release is uninstalled. Cluster-wide resources are named after it too, so several installations can share a cluster, each in its own namespace.
 
 ```sh
 kubectl create namespace everything
 kubectl label namespace everything pod-security.kubernetes.io/enforce=privileged
-helm upgrade everything deployment/helm --install --namespace everything \
-  --values deployment/helm/values.prod.yaml --values <credentials file>
+helm upgrade everything oci://ghcr.io/benjaminbenetti/everything/charts/everything \
+  --version <version> --install --namespace everything \
+  --values values.prod.yaml --values <credentials file>
 ```
 
 The application's Ingress uses the cluster's default class unless `global.ingress.className` names one; the artifact host's Ingress reads the same settings from `global.artifactIngress`, and the registry's from `global.registryIngress`, whose host is `global.externalRegistryHostname`. TLS terminates at the cluster's ingress: configure the certificates there, for example through each Ingress's annotations for a certificate issuer and its `tlsSecretName` for the Secret the issuer fills. Nodes pull from the registry's hostname over HTTPS, so its certificate must be one they trust, and its Ingress must accept image uploads of any size, for example with ingress-nginx's `nginx.ingress.kubernetes.io/proxy-body-size: "0"` annotation. Services communicate over plain HTTP inside the cluster. `global.storageClassName` selects storage for every volume that does not name its own class.
+
+### Releases
+
+`.github/workflows/ci.yaml` runs the format check, `pnpm build`, and `pnpm test` on every push to `main` and every pull request. Pushing a semantic version tag publishes a release:
+
+```sh
+git tag v1.2.3
+git push origin v1.2.3
+```
+
+`.github/workflows/release.yaml` first runs the same checks. It then builds every image the chart runs for `linux/amd64` and `linux/arm64`, each on a native runner, through Docker's reusable [GitHub Builder](https://github.com/docker/github-builder) workflow, which also signs the images' build provenance. It reads the images from the rendered chart and finds the workspace that builds each one from its `build:image` script, so a new service's image is released without changing the workflow; `pnpm build` fails if a chart image has no such workspace. Images are pushed to `ghcr.io/benjaminbenetti/everything/<image>`, tagged with the version without its `v` (`1.2.3`), plus `1.2` and `latest` for releases that are not prereleases. Once every image exists, the workflow packages the chart with the same version as its chart version and appVersion, pushes it to `oci://ghcr.io/benjaminbenetti/everything/charts/everything`, and creates a GitHub release with install instructions, the image list, generated change notes, and the packaged chart attached. Tags with a prerelease suffix, such as `v1.2.3-rc.1`, publish only the full version tag and mark the GitHub release as a prerelease. Tags with build metadata (`+...`) are rejected, because image and chart tags cannot carry it. The published chart leaves out `values.dev.yaml`.
+
+GitHub creates each package the first time a release pushes it, and new packages can start out private. Nodes pull the images anonymously, because the chart configures no image pull secrets, so after the first release check each package's visibility on GitHub and make it public.
 
 ## Authentication and secrets
 

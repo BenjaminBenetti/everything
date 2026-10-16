@@ -42,10 +42,13 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version }}
 {{- end }}
 
-{{/* Image reference `<registry>/<image>:<tag>` from the global registry and tag and the service's image name. */}}
+{{/*
+Image reference `<registry>/<image>:<tag>` from the global registry and tag and the service's image
+name. An empty tag selects the chart's appVersion.
+*/}}
 {{- define "stack.image" -}}
 {{- $image := required (printf "services.%s.image is required" .name) .image -}}
-{{- with .root.Values.global.image.registry }}{{ trimSuffix "/" . }}/{{ end }}{{ $image }}:{{ .root.Values.global.image.tag }}
+{{- with .root.Values.global.image.registry }}{{ trimSuffix "/" . }}/{{ end }}{{ $image }}:{{ .root.Values.global.image.tag | default .root.Chart.AppVersion }}
 {{- end }}
 
 {{/*

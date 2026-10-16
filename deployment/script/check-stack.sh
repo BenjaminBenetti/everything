@@ -17,3 +17,5 @@ for values in "" "$chart/values.prod.yaml" "$chart"/ci/*-values.yaml; do
   # Lint only warns about missing required values; rendering fails on them.
   render_stack "${arguments[@]}" > /dev/null
 done
+# The release workflow builds every image the chart runs from the workspace that names it.
+stack_image_workspaces > /dev/null
