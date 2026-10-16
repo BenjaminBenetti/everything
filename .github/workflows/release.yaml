@@ -1,5 +1,5 @@
 # Publish a release when a semantic version tag such as v1.2.3 or v1.2.3-rc.1 is pushed: every image
-# the chart builds, the chart as an OCI artifact, and a GitHub release. Images and the chart share the
+# the chart builds, the chart as an OCI artifact, and a GitHub release with the installer attached. Images and the chart share the
 # version without its `v`, which the packaged chart also uses as its appVersion and default image tag.
 name: Release
 
@@ -144,10 +144,21 @@ jobs:
         run: |
           helm registry login "${REGISTRY%%/*}" --username "$GITHUB_ACTOR" --password-stdin <<< "$GH_TOKEN"
           helm push "$PACKAGE" "oci://$REGISTRY/charts"
+      # The published installer installs this release unless told otherwise.
+      - id: installer
+        name: Set the installer's default version
+        run: |
+          installer="$RUNNER_TEMP/install.sh"
+          sed "s/^release_version=\"\"\$/release_version=\"$VERSION\"/" deployment/script/install.sh \
+            > "$installer"
+          # Fail if the line the installer reads its default version from has changed.
+          grep -qx "release_version=\"$VERSION\"" "$installer"
+          echo "path=$installer" >> "$GITHUB_OUTPUT"
       - name: Create the GitHub release
         env:
           CHART: ${{ steps.chart.outputs.name }}
           PACKAGE: ${{ steps.chart.outputs.package }}
+          INSTALLER: ${{ steps.installer.outputs.path }}
           PRERELEASE: ${{ needs.plan.outputs.prerelease }}
           PLATFORMS: ${{ needs.plan.outputs.platforms }}
           IMAGES: ${{ needs.plan.outputs.images }}
@@ -157,8 +168,16 @@ jobs:
           cat > "$RUNNER_TEMP/notes.md" <<EOF
           ## Install
 
-          Copy \`deployment/helm/values.prod.yaml\` from this tag, set your hosts, and install it with your
-          credentials file:
+          From a terminal where \`helm\` and \`kubectl\` reach the target cluster, run the installer. It asks
+          for your hostnames and credentials, saves them in a settings file that later upgrades reuse, and
+          installs this version:
+
+          \`\`\`sh
+          curl -fsSL https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME/install.sh | bash
+          \`\`\`
+
+          To install the chart yourself, copy \`deployment/helm/values.prod.yaml\` from this tag, set your
+          hosts, and pass your credentials file:
 
           \`\`\`sh
           helm upgrade everything oci://$REGISTRY/charts/$CHART --version $VERSION \\
@@ -174,5 +193,5 @@ jobs:
           prerelease=()
           if [ "$PRERELEASE" = true ]; then prerelease=(--prerelease); fi
           # GitHub's generated notes, listing the changes since the previous release, follow these.
-          gh release create "$GITHUB_REF_NAME" "$PACKAGE" --verify-tag --title "$GITHUB_REF_NAME" \
+          gh release create "$GITHUB_REF_NAME" "$PACKAGE" "$INSTALLER" --verify-tag --title "$GITHUB_REF_NAME" \
             --notes-file "$RUNNER_TEMP/notes.md" --generate-notes "${prerelease[@]}"

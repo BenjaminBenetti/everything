@@ -6,10 +6,11 @@
 # must accept image uploads of any size, for example with ingress-nginx's
 # `nginx.ingress.kubernetes.io/proxy-body-size: "0"` annotation.
 #
-# Create the release's namespace, which admits Everything's privileged Docker sidecar; the chart
-# creates the namespaces its services run workloads in. Install a released version of the chart,
-# passing a copy of this file and the credentials in a separate values file kept out of Git, with
-# every key under `secrets` in values.yaml set:
+# deployment/script/install.sh asks for these settings and the credentials and runs the steps below.
+# To install by hand, create the release's namespace, which admits Everything's privileged Docker
+# sidecar; the chart creates the namespaces its services run workloads in. Install a released version
+# of the chart, passing a copy of this file and the credentials in a separate values file kept out of
+# Git, with every key under `secrets` in values.yaml set:
 #   kubectl create namespace everything
 #   kubectl label namespace everything pod-security.kubernetes.io/enforce=privileged
 #   helm upgrade everything oci://ghcr.io/benjaminbenetti/everything/charts/everything \
