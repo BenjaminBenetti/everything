@@ -68,17 +68,25 @@ export class ArtifactService {
   // Operations
   // ===========================================
 
-  /** List every artifact of the owner, most recently updated first. */
+  /** List the owner's artifacts with capability flags from their current deployments, including stopped apps. */
   async list(ownerId: string): Promise<ArtifactSummary[]> {
     const [artifacts, runtimes] = await Promise.all([
       this.artifacts.list({ ownerId }),
       this.orchestrator.runtimes(),
     ]);
-    return artifacts.map((artifact) =>
-      representSummary(
-        artifact,
-        runtimes.get(artifact.id),
-        this.artifactOrigin,
+    return Promise.all(
+      artifacts.map(async (artifact) =>
+        representSummary(
+          artifact,
+          runtimes.get(artifact.id),
+          this.artifactOrigin,
+          artifact.liveDeployment === null
+            ? undefined
+            : await this.deployments.findByRelease(
+                { ownerId, artifactId: artifact.id },
+                artifact.liveDeployment,
+              ),
+        ),
       ),
     );
   }

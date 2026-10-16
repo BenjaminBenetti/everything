@@ -14,10 +14,15 @@ import type { ConversationOperations } from "../interface/conversation-operation
 import type { ConversationMessageStore } from "../interface/message-repository.js";
 import type { MessagePage, MessageReceipt } from "../model/message.js";
 import { AgentLock } from "./agent-lock.js";
+import type { SubagentScope } from "../../subagent/interface/subagent-operations.js";
+import type {
+  SubagentSession,
+  SubagentSessionAccess,
+} from "../../subagent/interface/subagent-sessions.js";
 
 /** Coordinates durable chat and interruptible execution through runtime and storage interfaces. */
 export class ConversationService
-  implements ConversationOperations, AgentRemoval
+  implements ConversationOperations, AgentRemoval, SubagentSessionAccess
 {
   // ===========================================
   // State
@@ -78,6 +83,22 @@ export class ConversationService
   async status(ownerId: string, agentId: string): Promise<RuntimeStatus> {
     await this.agents.get(ownerId, agentId);
     return this.runtimes.get(agentId)?.status ?? unloadedRuntimeStatus;
+  }
+
+  /** Authorize and serialize private work with main-conversation lifecycle, without interrupting it. */
+  withSubagents<T>(
+    scope: SubagentScope,
+    load: boolean,
+    operation: (session: SubagentSession | undefined) => Promise<T>,
+  ): Promise<T> {
+    return this.locks.run(scope.agentId, async () => {
+      if (this.closing) throw new ServiceShuttingDownError();
+      const agent = await this.agents.get(scope.ownerId, scope.agentId);
+      const runtime =
+        this.runtimes.get(agent.id) ??
+        (load ? await this.loadRuntime(agent) : undefined);
+      return operation(runtime?.subagents);
+    });
   }
 
   /** Stop active work while retaining the saved conversation. */

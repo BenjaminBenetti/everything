@@ -20,10 +20,84 @@
 .artifact-card:hover {
   border-color: var(--border-active);
 }
-.artifact-kind {
+.artifact-metadata {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.artifact-creator {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+.artifact-creator-name {
   font-size: 11px;
   color: var(--text-secondary);
-  margin-bottom: 7px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.artifact-creator-fallback {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--border-default);
+  border-radius: 50%;
+}
+.artifact-capabilities {
+  display: flex;
+  gap: 3px;
+  flex: none;
+}
+.artifact-indicator {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  color: var(--text-secondary);
+}
+.artifact-indicator-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  cursor: help;
+}
+.artifact-capabilities .artifact-indicator-icon {
+  width: 30px;
+  height: 30px;
+}
+.artifact-indicator-icon > svg,
+.artifact-creator-fallback > svg {
+  width: 16px;
+  height: 16px;
+}
+.artifact-indicator-icon:focus-visible {
+  outline: 2px solid var(--text-accent);
+  outline-offset: 2px;
+}
+.artifact-tooltip {
+  position: absolute;
+  bottom: 100%;
+  right: 0;
+  width: max-content;
+  max-width: min(220px, calc(100vw - 100px));
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: var(--surface-panel);
+  color: var(--text-primary);
+  font-size: 11px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  box-shadow: 0 4px 16px var(--shadow-color);
+}
+.artifact-creator .artifact-tooltip {
+  left: 0;
+  right: auto;
 }
 .artifact-card h2 {
   font-size: 17px;
@@ -115,16 +189,51 @@
   }
 }
 .artifact-list-tools {
-  gap: 16px;
-  margin-bottom: 30px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+.artifact-filters {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  min-width: 0;
+}
+.artifact-filter-field {
+  min-width: 0;
+}
+.artifact-filter-field .select-trigger {
+  max-width: 100%;
+}
+.artifact-filter-field .select-option-icon,
+.artifact-filter-field .select-option-icon > * {
+  width: 18px;
+  height: 18px;
+}
+.artifact-filter-teammate {
+  width: 160px;
+}
+.artifact-filter-type {
+  width: 120px;
+}
+.artifact-filter-capabilities {
+  width: 160px;
 }
 .artifact-list-tools .search-input {
-  width: min(100%, 380px);
+  flex: 0 1 240px;
+  min-width: 130px;
+  width: 240px;
+}
+.artifact-list-tools > .icon-button {
+  flex: none;
 }
 .artifact-result-count {
   color: var(--text-secondary);
   font-size: 12px;
   white-space: nowrap;
+  margin-left: auto;
 }
 .artifact-empty-search {
   padding: 48px 20px;
@@ -150,13 +259,30 @@
   }
 }
 
-@media (max-width: 650px) {
+@media (max-width: 900px) {
   .artifact-list-tools {
-    align-items: stretch;
-    flex-direction: column;
-    gap: 12px;
+    flex-wrap: wrap;
+    justify-content: flex-start;
   }
   .artifact-list-tools .search-input {
+    flex-basis: 100%;
+  }
+}
+
+@media (max-width: 650px) {
+  .artifact-filters {
+    width: 100%;
+    flex: auto;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .artifact-filter-teammate {
+    flex: 1 1 120px;
+  }
+  .artifact-filter-capabilities {
+    flex: 1 1 128px;
+  }
+  .artifact-filter-field .select-trigger {
     width: 100%;
   }
   .artifact-grid {

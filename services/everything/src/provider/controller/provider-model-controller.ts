@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { subject } from "@everything/security/fastify";
 import type { ProviderModels } from "../interface/provider-models.js";
+import { providerModelsResponse } from "../schema/provider-response.js";
 import {
   providerParams,
   type ProviderParams,
@@ -13,7 +14,13 @@ export async function providerModelController(
 ): Promise<void> {
   app.get<{ Params: ProviderParams }>(
     "/providers/:provider/models",
-    { schema: { params: providerParams } },
+    {
+      schema: {
+        summary: "List available models and effort levels",
+        params: providerParams,
+        response: { 200: providerModelsResponse },
+      },
+    },
     async (request) => ({
       models: await models.list(subject(request), request.params.provider),
     }),

@@ -1,15 +1,19 @@
 import * as Primitive from "@radix-ui/react-select";
 import { Check, ChevronDown, ChevronUp } from "lucide-react";
+import type { ReactNode } from "react";
+
+export { MultiSelect } from "./multi-select.js";
 
 // ===========================================
 // Public contracts
 // ===========================================
 
-/** A selectable value with readable text and an optional unavailable state. */
+/** A selectable value with readable text, optional artwork, and an optional unavailable state. */
 export interface SelectOption {
   readonly value: string;
   readonly label: string;
   readonly disabled?: boolean;
+  readonly icon?: ReactNode;
 }
 
 /** Controlled selection with a required accessible name and optional field associations. */
@@ -95,7 +99,18 @@ export function Select({
                 className="select-option"
                 data-empty={option.value === "" ? "" : undefined}
               >
-                <Primitive.ItemText>{option.label}</Primitive.ItemText>
+                <Primitive.ItemText>
+                  {option.icon ? (
+                    <span className="select-option-label">
+                      <span className="select-option-icon" aria-hidden="true">
+                        {option.icon}
+                      </span>
+                      <span>{option.label}</span>
+                    </span>
+                  ) : (
+                    option.label
+                  )}
+                </Primitive.ItemText>
                 <Primitive.ItemIndicator className="select-indicator">
                   <Check aria-hidden="true" />
                 </Primitive.ItemIndicator>

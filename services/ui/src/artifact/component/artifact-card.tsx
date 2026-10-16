@@ -6,10 +6,11 @@ import type { ArtifactSummary } from "@everything/artifact-contracts";
 import { useAppAction, type AppAction } from "../hook/use-app-action.js";
 import {
   isViewable,
-  kindLabels,
   relativeTime,
   statusLabels,
 } from "../model/artifact-presentation.js";
+import type { AppCreator } from "../model/artifact-filters.js";
+import { ArtifactMetadata } from "./artifact-metadata.js";
 
 const pendingLabels: Record<AppAction, string> = {
   start: "Starting…",
@@ -20,9 +21,11 @@ const pendingLabels: Record<AppAction, string> = {
 /** Open a live app from its whole card, with separate guarded lifecycle controls. */
 export function ArtifactCard({
   artifact,
+  creator,
   unavailable,
 }: {
   artifact: ArtifactSummary;
+  creator: AppCreator;
   unavailable: boolean;
 }) {
   const heading = useId();
@@ -56,7 +59,7 @@ export function ArtifactCard({
           aria-label={`Open ${artifact.title} in a new tab`}
         />
       )}
-      <p className="artifact-kind">{kindLabels[artifact.kind]}</p>
+      <ArtifactMetadata artifact={artifact} creator={creator} />
       <h2 id={heading}>{artifact.title}</h2>
       <p className="artifact-description">
         {artifact.description || `/${artifact.slug}`}

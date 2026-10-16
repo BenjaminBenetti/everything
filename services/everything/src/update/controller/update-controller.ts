@@ -6,6 +6,11 @@ import {
 } from "../../agent/schema/agent-request.js";
 import type { UpdateOperations } from "../interface/update-operations.js";
 import {
+  updateCountResponse,
+  updatePageResponse,
+} from "../schema/update-response.js";
+import { noContentResponse } from "../../http/schema/http-response.js";
+import {
   readMessagesBody,
   updateFeedQuery,
   type ReadMessagesBody,
@@ -19,21 +24,51 @@ export async function updateController(
 ): Promise<void> {
   app.get<{ Querystring: UpdateFeedQuery }>(
     "/updates",
-    { schema: { querystring: updateFeedQuery } },
+    {
+      schema: {
+        summary: "Read unread updates",
+        description:
+          "Newest first, up to 50 per page. Pass nextCursor as before to continue; reading does not mark updates as seen.",
+        querystring: updateFeedQuery,
+        response: { 200: updatePageResponse },
+      },
+    },
     (request) => updates.list(subject(request), request.query.before),
   );
 
-  app.get("/updates/count", (request) => updates.count(subject(request)));
+  app.get(
+    "/updates/count",
+    {
+      schema: {
+        summary: "Count unread updates",
+        response: { 200: updateCountResponse },
+      },
+    },
+    (request) => updates.count(subject(request)),
+  );
 
   app.get<{ Querystring: UpdateFeedQuery }>(
     "/updates/seen",
-    { schema: { querystring: updateFeedQuery } },
+    {
+      schema: {
+        summary: "Read previously seen updates",
+        querystring: updateFeedQuery,
+        response: { 200: updatePageResponse },
+      },
+    },
     (request) => updates.seen(subject(request), request.query.before),
   );
 
   app.post<{ Params: AgentParams; Body: ReadMessagesBody }>(
     "/agents/:agentId/messages/read",
-    { schema: { params: agentParams, body: readMessagesBody } },
+    {
+      schema: {
+        summary: "Mark specified messages as read",
+        params: agentParams,
+        body: readMessagesBody,
+        response: { 204: noContentResponse },
+      },
+    },
     async (request, reply) => {
       await updates.read(
         subject(request),

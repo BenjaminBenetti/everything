@@ -40,6 +40,8 @@ import { ForkingAgentSession } from "../service/forking-agent-session.js";
 import { PiForkHistory } from "./pi-fork-history.js";
 import type { WorkspaceActivityRecorder } from "../../workspace/interface/workspace-activity.js";
 import { fleetWorkspaceActivity } from "../tool/fleet-workspace-activity.js";
+import type { ApiDocumentationReader } from "../../api-documentation/interface/api-documentation.js";
+import { apiDocumentationTool } from "../../api-documentation/tool/api-documentation-tool.js";
 
 /** Pi's per-agent configuration and session paths inside the agent's workspace. */
 interface AgentDirectories {
@@ -54,13 +56,14 @@ export class PiSessionFactory implements AgentSessionFactory {
   // Construction
   // ===========================================
 
-  /** Receive owner-scoped inference, workspace tools, Fleet, and optional interaction recording. */
+  /** Receive inference, workspace tools, Fleet, API documentation, and optional interaction recording. */
   constructor(
     private readonly inference: InferenceRuntimeFactory,
     private readonly workspaces: Pick<AgentWorkspaces, "directory" | "shared">,
     private readonly artifacts: ArtifactWorkbench,
     private readonly workspace: WorkspaceTools,
     private readonly fleet: FleetMcpServer,
+    private readonly apiDocumentation: ApiDocumentationReader,
     private readonly workspaceActivity?: WorkspaceActivityRecorder,
   ) {}
 
@@ -117,11 +120,23 @@ export class PiSessionFactory implements AgentSessionFactory {
       );
     };
     const root = await open(main);
-    family = new ForkingAgentSession(root, {
-      /** Start fresh unless the caller explicitly requests a snapshot of its context. */
-      create: async (parentId, context) =>
-        open(histories.fork(parentId, context), parentId),
-    });
+    family = new ForkingAgentSession(
+      root,
+      {
+        /** Start fresh unless requested otherwise, removing setup state if opening fails. */
+        create: async (parentId, context, temporary) => {
+          const manager = histories.fork(parentId, context, temporary);
+          try {
+            return await open(manager, parentId);
+          } catch (error) {
+            await histories.remove([manager.getSessionId()]);
+            throw error;
+          }
+        },
+      },
+      undefined,
+      histories,
+    );
     try {
       for (const { manager, parentId } of await histories.restore())
         family.restore(await open(manager, parentId), parentId);
@@ -161,6 +176,7 @@ export class PiSessionFactory implements AgentSessionFactory {
     });
     const tools = [
       sendMessageTool(sendMessage, parentId !== undefined),
+      apiDocumentationTool(this.apiDocumentation, agent.id),
       ...forkTools(messaging),
       ...workspaceTools(this.workspace, agent.id),
       ...appTools(this.artifacts, {

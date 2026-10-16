@@ -1,3 +1,5 @@
+import { testApiDocumentation } from "./api-documentation-fixtures.js";
+import { apiDocumentationToolName } from "../../api-documentation/model/api-documentation.js";
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import {
@@ -53,6 +55,7 @@ test("refuses to open a session until a provider is connected, before touching t
     {} as ArtifactWorkbench,
     {} as WorkspaceTools,
     stoppedFleet,
+    testApiDocumentation,
   );
   await assert.rejects(
     factory.create(agent, async () => {}),
@@ -148,6 +151,7 @@ test("Pi sends only the teammate's initial context, applies saved inference, and
     {} as ArtifactWorkbench,
     {} as WorkspaceTools,
     stoppedFleet,
+    testApiDocumentation,
   );
   const definition: AgentDefinition = {
     ...agent,
@@ -169,7 +173,12 @@ test("Pi sends only the teammate's initial context, applies saved inference, and
     function: { name: string; description: string };
   }[];
   const toolNames = tools.map((tool) => tool.function.name);
-  for (const name of ["file_read", "file_write", "bash"])
+  for (const name of [
+    "file_read",
+    "file_write",
+    "bash",
+    apiDocumentationToolName,
+  ])
     assert.ok(toolNames.includes(name), name);
   assert.match(
     tools.find((tool) => tool.function.name === "send_message")?.function

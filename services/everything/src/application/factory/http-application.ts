@@ -43,9 +43,18 @@ import type { WorkspaceActivityReader } from "../../workspace/interface/workspac
 import { workspaceActivityController } from "../../workspace/controller/workspace-activity-controller.js";
 import type { UpdateOperations } from "../../update/interface/update-operations.js";
 import { updateController } from "../../update/controller/update-controller.js";
+import type { SubagentOperations } from "../../subagent/interface/subagent-operations.js";
+import { subagentController } from "../../subagent/controller/subagent-controller.js";
+import { registerApiDocumentation } from "../../api-documentation/adapter/fastify-api-documentation.js";
+import { apiDocumentationController } from "../../api-documentation/controller/api-documentation-controller.js";
+import type {
+  ApiDocumentationReader,
+  ApiDocumentationPublisher,
+} from "../../api-documentation/interface/api-documentation.js";
 
 /** Use cases and transport settings supplied by the composition root. */
 export interface HttpDependencies {
+  readonly apiDocumentation: ApiDocumentationReader & ApiDocumentationPublisher;
   readonly verifier: TokenVerifier;
   readonly sessions: SessionOperations;
   readonly publicOrigin: string;
@@ -57,6 +66,7 @@ export interface HttpDependencies {
   readonly profiles: AgentEditing;
   readonly removal: AgentRemoval;
   readonly conversations: ConversationOperations;
+  readonly subagents: SubagentOperations;
   readonly updates: UpdateOperations;
   readonly artifacts: ArtifactLibrary;
   readonly workers: WorkerSettingsOperations;
@@ -123,6 +133,7 @@ function protectedApi(
   cookie: SessionCookie,
 ): FastifyPluginAsync {
   return async (scope) => {
+    await registerApiDocumentation(scope, dependencies.apiDocumentation);
     scope.addHook("onRequest", async (request) => {
       cookie.protectMutation(request);
     });
@@ -137,9 +148,11 @@ function protectedApi(
       reply.header("Cache-Control", "no-store");
     });
     await identityController(scope);
+    await apiDocumentationController(scope, dependencies.apiDocumentation);
     await providerController(scope, dependencies.providers);
     await providerModelController(scope, dependencies.models);
     await conversationController(scope, dependencies.conversations);
+    await subagentController(scope, dependencies.subagents);
     await updateController(scope, dependencies.updates);
     await agentController(scope, dependencies.agents, dependencies.removal);
     await agentActivityController(scope, dependencies.agentActivity);

@@ -155,6 +155,10 @@ export interface ArtifactSummary {
   readonly kind: ArtifactKind;
   readonly title: string;
   readonly description: string;
+  /** Whether the current deployment is configured with a database, including while stopped. */
+  readonly database: boolean;
+  /** Capabilities enabled for the current deployment; empty before deployment and for static apps. */
+  readonly capabilities: readonly ArtifactCapability[];
   /** Link that opens the artifact on the artifact host. */
   readonly url: string;
   readonly status: ArtifactStatus;

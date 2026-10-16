@@ -7,6 +7,10 @@ import type {
 } from "../interface/session-forks.js";
 import { ForkUnavailableError, ForkLimitError } from "../error/fork-errors.js";
 import { SessionMailbox } from "./session-mailbox.js";
+import type { SubagentSession } from "../../subagent/interface/subagent-sessions.js";
+import { SubagentNotFoundError } from "../../subagent/error/subagent-errors.js";
+import { subagentDescendants } from "../../subagent/model/subagent-tree.js";
+import type { SessionForkHistory } from "../interface/session-fork-history.js";
 import { sendMessageToolName } from "../model/message-delivery.js";
 import {
   backgroundActivityGraceMs,
@@ -18,6 +22,8 @@ import {
 interface ForkMember {
   readonly parentId: string;
   readonly mailbox: SessionMailbox;
+  readonly deleteOnCompletion: boolean;
+  deletion: Promise<void> | undefined;
   generation: number;
   delivered: number;
   reported: number;
@@ -45,6 +51,7 @@ export class ForkingAgentSession implements AgentSession {
     private readonly session: ForkableSession,
     private readonly factory: SessionForkFactory,
     private readonly now: () => number = () => performance.now(),
+    private readonly history?: SessionForkHistory,
   ) {
     this.root = new SessionMailbox(session);
   }
@@ -71,6 +78,53 @@ export class ForkingAgentSession implements AgentSession {
   /** Private fork messages never show a typing indicator in the user's chat. */
   get typing(): boolean {
     return this.session.typing;
+  }
+
+  /** API consumers operate on the same family as tools, with explicit resumption after Stop. */
+  get subagents(): SubagentSession | undefined {
+    const history = this.history;
+    if (!history) return undefined;
+    return {
+      /** API-created work is parented to main and keeps incoming requests labeled as API input. */
+      create: async (input) => {
+        this.resumeFromApi();
+        return this.fork(
+          "main",
+          input.task,
+          input.context ?? false,
+          "API consumer",
+        );
+      },
+      /** Event work uses the normal tool loop and parent routing, with automatic subtree cleanup. */
+      wakeup: async (input) => {
+        this.resumeFromApi();
+        return this.fork(
+          "main",
+          input.task,
+          input.context ?? false,
+          "API event",
+          true,
+        );
+      },
+      list: () => this.list(),
+      /** Validate the target before waking a stopped family. */
+      send: (id, text) => {
+        this.requireFork(id);
+        this.resumeFromApi();
+        this.deliver(id, `Private message from API consumer:\n${text}`);
+        return this.list().find((fork) => fork.id === id)!;
+      },
+      /** Read only a known background history; main is never an API subagent address. */
+      messages: (id, before) => {
+        this.requireFork(id);
+        return history.messages(id, before);
+      },
+      /** Reject external deletion after disposal while allowing internal shutdown cleanup to finish. */
+      delete: (id) => {
+        if (this.disposed) throw new ForkUnavailableError();
+        return this.deleteFork(id);
+      },
+    };
   }
 
   /** Smooth the displayed fork count while reporting actual execution independently. */
@@ -140,6 +194,7 @@ export class ForkingAgentSession implements AgentSession {
       this.root.stop(),
       ...[...this.forks.values()].map((fork) => fork.mailbox.stop()),
     ]);
+    await this.deleteTemporaryForks();
   }
 
   /** Release all sessions, including idle forks retained for later messages. */
@@ -147,6 +202,7 @@ export class ForkingAgentSession implements AgentSession {
     this.disposed = true;
     this.stopped = true;
     this.generation++;
+    await this.deleteTemporaryForks();
     await Promise.all([
       this.root.dispose(),
       ...[...this.forks.values()].map((fork) => fork.mailbox.dispose()),
@@ -167,11 +223,17 @@ export class ForkingAgentSession implements AgentSession {
     };
   }
 
-  /** Register a restored history without restarting previously interrupted work. */
-  restore(session: ForkableSession, parentId: string): void {
+  /** Register a session while keeping previously interrupted work stopped until explicitly prompted. */
+  restore(
+    session: ForkableSession,
+    parentId: string,
+    deleteOnCompletion = false,
+  ): void {
     this.forks.set(session.id, {
       parentId,
       mailbox: new SessionMailbox(session, true),
+      deleteOnCompletion,
+      deletion: undefined,
       generation: 0,
       delivered: 0,
       reported: 0,
@@ -186,6 +248,8 @@ export class ForkingAgentSession implements AgentSession {
     sender: string,
     task: string,
     context: boolean,
+    source = sender,
+    temporary = false,
   ): Promise<SessionFork> {
     this.checkSender(sender);
     this.checkCapacity();
@@ -193,7 +257,7 @@ export class ForkingAgentSession implements AgentSession {
     const parentGeneration = this.forks.get(sender)?.generation;
     this.creating++;
     try {
-      const session = await this.factory.create(sender, context);
+      const session = await this.factory.create(sender, context, temporary);
       if (
         this.stopped ||
         this.disposed ||
@@ -201,10 +265,11 @@ export class ForkingAgentSession implements AgentSession {
         parentGeneration !== this.forks.get(sender)?.generation
       ) {
         await session.dispose();
+        await this.history?.remove([session.id]);
         throw new ForkUnavailableError();
       }
-      this.restore(session, sender);
-      this.deliver(session.id, `Background task from ${sender}:\n${task}`);
+      this.restore(session, sender, temporary);
+      this.deliver(session.id, `Background task from ${source}:\n${task}`);
       return this.list().find((fork) => fork.id === session.id)!;
     } finally {
       this.creating--;
@@ -259,12 +324,23 @@ export class ForkingAgentSession implements AgentSession {
           if (this.canReport(fork, generation))
             this.deliver(
               fork.parentId,
-              `Fork ${recipient} could not finish. Check the model provider or send the fork another message to continue.`,
+              fork.deleteOnCompletion
+                ? `Temporary background work ${recipient} could not finish. Check the model provider before submitting the event again.`
+                : `Fork ${recipient} could not finish. Check the model provider or send the fork another message to continue.`,
             );
         },
       )
-      .catch(() => {})
-      .finally(() => this.startWaitingForks());
+      .finally(async () => {
+        this.startWaitingForks();
+        if (
+          fork.deleteOnCompletion &&
+          this.forks.get(recipient) === fork &&
+          !["running", "queued"].includes(fork.mailbox.status)
+        )
+          await this.deleteFork(recipient);
+      })
+      // A failed filesystem cleanup retains the temporary marker for recovery on reopening.
+      .catch(() => {});
   }
 
   /** Suppress late completion and error messages after cancellation or disposal. */
@@ -279,6 +355,68 @@ export class ForkingAgentSession implements AgentSession {
       parentId: fork.parentId,
       status: fork.mailbox.status,
     }));
+  }
+
+  /** Distinguish unknown addresses from temporarily stopping sessions without revealing other families. */
+  private requireFork(id: string): ForkMember {
+    const fork = this.forks.get(id);
+    if (!fork) throw new SubagentNotFoundError();
+    if (fork.stopping || this.disposed) throw new ForkUnavailableError();
+    return fork;
+  }
+
+  /** Explicit API work may resume after Stop without restarting unrelated stopped descendants. */
+  private resumeFromApi(): void {
+    if (this.disposed) throw new ForkUnavailableError();
+    this.stopped = false;
+    this.root.resume();
+  }
+
+  /** Share overlapping cleanup so automatic deletion, API deletion, and shutdown dispose each session once. */
+  private deleteFork(id: string): Promise<void> {
+    const target = this.forks.get(id);
+    if (!target) throw new SubagentNotFoundError();
+    if (target.deletion) return target.deletion;
+    const ids = subagentDescendants(this.list(), id);
+    const members = ids.map((target) => ({
+      id: target,
+      fork: this.forks.get(target)!,
+    }));
+    const pending = members.flatMap(({ fork }) =>
+      fork.deletion ? [fork.deletion] : [],
+    );
+    const owned = members.filter(({ fork }) => !fork.deletion);
+    for (const { fork } of owned) {
+      fork.generation++;
+      fork.accepting = false;
+      fork.stopping = true;
+      fork.activeUntil = undefined;
+    }
+    const deletion = Promise.resolve()
+      .then(async () => {
+        await Promise.all([
+          ...pending,
+          ...owned.map(({ fork }) => fork.mailbox.stop()),
+        ]);
+        await Promise.all(owned.map(({ fork }) => fork.mailbox.dispose()));
+        await this.history!.remove(owned.map(({ id }) => id));
+        for (const { id } of owned) this.forks.delete(id);
+      })
+      .finally(() => {
+        for (const { fork } of owned) fork.deletion = undefined;
+        this.startWaitingForks();
+      });
+    for (const { fork } of owned) fork.deletion = deletion;
+    return deletion;
+  }
+
+  /** Await event cleanup during cancellation and shutdown, including already-started deletion. */
+  private async deleteTemporaryForks(): Promise<void> {
+    await Promise.all(
+      [...this.forks]
+        .filter(([, fork]) => fork.deleteOnCompletion)
+        .map(([id]) => this.deleteFork(id)),
+    );
   }
 
   /** Stop descendants only, avoiding a tool waiting for its own session to abort. */
@@ -305,8 +443,13 @@ export class ForkingAgentSession implements AgentSession {
     try {
       await Promise.all(members.map((fork) => fork.mailbox.stop()));
     } finally {
-      for (const fork of members) fork.stopping = false;
+      for (const fork of members) if (!fork.deletion) fork.stopping = false;
     }
+    await Promise.all(
+      [...targets]
+        .filter((target) => this.forks.get(target)?.deleteOnCompletion)
+        .map((target) => this.deleteFork(target)),
+    );
     this.startWaitingForks();
   }
 

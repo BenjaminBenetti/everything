@@ -187,6 +187,39 @@ A successful user turn must deliver a visible reply. If the model finishes with 
 
 Already saved state must survive restart. An in-flight turn can be interrupted or lost, and is not replayed automatically. PVCs protect against pod replacement, not volume deletion or loss of the cluster.
 
+### Generated API documentation
+
+Teammates and their private subagents have the `everythion-api-docs` tool. It returns `{ agentId, definition }`, where `agentId` identifies the current saved teammate and `definition` is an OpenAPI 3.0.3 document. Call it with `{}` for the full API, or filter with `{ "path": "/v1/agents/:agentId/subagent", "method": "POST" }`. Paths accept both Fastify's `:agentId` and OpenAPI's `{agentId}` spelling, match at segment boundaries, and include descendants. Filtering retains referenced components. The harness instructs teammates to request this definition before writing apps or integrations against Everything.
+
+`@fastify/swagger` reflects the routes registered inside the authenticated API scope and their TypeBox request and response schemas. Route registration is the source of truth: adding an endpoint or changing its schema updates the generated definition on the next startup without editing a separate endpoint catalog. Endpoint summaries and behavioral details live alongside the controller's schemas. The snapshot is published only after all routes are registered; reading it never runs a handler or accesses user data, credentials, or provider connections. Response schemas also describe the API's actual JSON serialization.
+
+Authenticated consumers can fetch the same full definition at `GET /v1/openapi.json`; responses are marked `Cache-Control: no-store`. It documents bearer authentication through the app's `EVERYTHING_*` variables, inputs, success responses, the common safe error envelope, and the subagent wakeup lifecycle. Browser sign-in routes, OAuth callbacks, probes, and internal service endpoints are outside this authenticated API definition. Tests validate the generated document, its filtered form, and automatic reflection of new routes and changed constraints.
+
+### Background subagent API
+
+Authenticated consumers, including apps with the `everything-api` capability, can manage a teammate's private Pi subagents. Every request checks ownership of the saved teammate. These are the same sessions created by the `fork` tool: they share its model settings, tools, and workspace, and their replies can wake their parent. API-created subagents have `parentId: "main"`. They do not create another user-facing conversation or a Fleet workspace agent.
+
+All paths below start with `/v1/agents/:agentId`:
+
+| Method | Path | Request and response |
+| --- | --- | --- |
+| `POST` | `/subagent` | Body `{ "task": "Do background work", "context": false }`; returns `201` with `{ id, parentId, status }`. `task` is required; `context` defaults to `false`. Set it to `true` to copy the main session's current context. |
+| `POST` | `/subagent/wakeup` | Body `{ "task": "Handle this remote event", "context": false }`; returns `202` with `{ id, parentId, status }`. Runs a temporary subagent and deletes it when it stops. |
+| `GET` | `/subagent` | Returns `{ subagents: [{ id, parentId, status }] }`, including nested and tool-created sessions. |
+| `DELETE` | `/subagent/:subagentId` | Stops and deletes the session, its descendants, and their saved transcripts; returns `204`. |
+| `POST` | `/subagent/:subagentId/messages` | Body `{ "text": "Follow-up instructions" }`; returns `202` with `{ id, parentId, status }`. Wakes an idle or stopped session, or queues behind its active turn. |
+| `GET` | `/subagent/:subagentId/messages` | Returns `{ messages, nextCursor }`, with the latest 100 text messages in chronological order. Use `?before=<nextCursor>` for earlier messages. |
+
+Tasks and messages must contain non-whitespace text and are limited to 32,000 characters. Status is `running`, `queued`, `idle`, `stopped`, or `error`. Creation returns once the session is opened and its task is queued, without waiting for its result. At most eight subagents run concurrently per teammate; creation at capacity returns `409`, while messages to existing sessions wait for a slot. API input does not interrupt the main conversation or appear as a user message in it. Background results reach the parent through the existing private messaging path, so the main teammate can subsequently send a visible reply.
+
+History contains the subagent's incoming text, assistant text, and successfully delivered explicit messages. It excludes inherited parent context, thinking, arbitrary tool calls and results, and provider errors. Message IDs are opaque cursors scoped to that subagent; an inaccessible cursor returns an empty page. Missing or inaccessible teammates and subagents return `404`. Creation and messaging require an available model runtime; listing, reading history, and deleting saved sessions work without a connected provider.
+
+Native transcripts survive restart, and restored sessions report `stopped` until explicitly messaged. A queued message enters the transcript when its turn starts; queues and in-flight work are process-local and can be lost on stop, deletion, or restart. They are not replayed automatically.
+
+Use `POST /v1/agents/:agentId/subagent/wakeup` for remote events. Each accepted request creates a new temporary subagent and returns without waiting for the result. The prompt runs through the normal model/tool loop; its messages and final result can wake the main teammate through the existing private routing. Once the subagent has no more turns to run, its session, descendants, and transcripts are deleted. Cleanup also runs after failure, explicit cancellation, or graceful shutdown. If the process crashes, temporary histories and their descendants are removed when that teammate's sessions are next opened or inspected, without replaying the event. Files the subagent wrote in the workspace and messages already delivered to main remain. Ordinary subagents retain their histories as before.
+
+Wakeup uses the same ownership checks, task limit, optional context copying, and eight-subagent concurrency limit as creation. At capacity it returns `409` without accepting the event. Every successful request is a separate event; callers are responsible for avoiding duplicate submissions. The returned ID is useful only while the temporary session exists; subsequent history or messaging requests return `404` after cleanup.
+
 ## Teammate tools pods
 
 Everything reconciles persisted teammate records on startup and every five seconds. Every teammate, including one without a connected model, gets a one-replica StatefulSet and a private ClusterIP Service. Kubernetes recreates missing pods immediately; Everything recreates missing workloads and Services, updates them when the template changes, and removes orphans. Controller restarts leave tools pods running. There is no idle shutdown.

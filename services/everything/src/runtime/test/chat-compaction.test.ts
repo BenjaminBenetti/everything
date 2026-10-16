@@ -1,3 +1,5 @@
+import { testApiDocumentation } from "./api-documentation-fixtures.js";
+import { apiDocumentationToolName } from "../../api-documentation/model/api-documentation.js";
 import assert from "node:assert/strict";
 import type { WorkspaceTools } from "../../workspace/interface/workspace-tools.js";
 import { workspaceToolNames } from "../tool/workspace-tools.js";
@@ -188,6 +190,7 @@ async function fixture(context: TestContext) {
     {} as ArtifactWorkbench,
     {} as WorkspaceTools,
     stoppedFleet,
+    testApiDocumentation,
   );
   const definition: AgentDefinition = {
     id: "teammate",
@@ -274,6 +277,7 @@ test("repeated automatic compaction retains visible replies and reopens the same
     request.tools!.map((tool) => tool.function.name).sort(),
     [
       sendMessageToolName,
+      apiDocumentationToolName,
       ...Object.values(appToolNames),
       ...Object.values(workspaceToolNames),
       ...Object.values(forkToolNames),

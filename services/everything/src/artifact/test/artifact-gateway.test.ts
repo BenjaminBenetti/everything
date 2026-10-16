@@ -114,13 +114,29 @@ test("publishing uploads only content the artifact service lacks, then publishes
 
 test("browser endpoints list artifacts and open them, hiding artifact service details", async (context) => {
   const failures: Error[] = [];
+  const summary = {
+    id: "app-id",
+    slug: "for-owner",
+    kind: "static" as const,
+    title: "Site",
+    description: "A site",
+    database: false,
+    capabilities: [],
+    url: "http://artifacts.test/for-owner",
+    status: "live" as const,
+    release: 1,
+    createdAt: "now",
+    updatedAt: "now",
+    createdBy: { id: "owner", name: "You" },
+    updatedBy: { id: "owner", name: "You" },
+  };
   const library = new ArtifactLibraryService({
     start: async () => ({}) as ArtifactDetails,
     stop: async () => ({}) as ArtifactDetails,
     delete: async () => {},
     list: async (ownerId) => {
       if (failures.length) throw failures.shift();
-      return [{ slug: `for-${ownerId}` } as never];
+      return [{ ...summary, slug: `for-${ownerId}` }];
     },
     view: async (_ownerId, input) => {
       if (input.slug === "missing")
@@ -136,7 +152,7 @@ test("browser endpoints list artifacts and open them, hiding artifact service de
   context.after(() => app.close());
   await artifactController(app, library);
   const listed = await app.inject({ url: "/artifacts" });
-  assert.deepEqual(listed.json(), { artifacts: [{ slug: "for-owner" }] });
+  assert.deepEqual(listed.json(), { artifacts: [summary] });
   const opened = await app.inject({
     method: "POST",
     url: "/artifact-views",

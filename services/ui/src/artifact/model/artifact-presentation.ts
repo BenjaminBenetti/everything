@@ -1,14 +1,13 @@
 import type {
-  ArtifactKind,
   ArtifactStatus,
   ArtifactSummary,
 } from "@everything/artifact-contracts";
 
-/** Plain-language label for each kind of artifact. */
-export const kindLabels: Readonly<Record<ArtifactKind, string>> = {
-  static: "Page",
-  dynamic: "App",
-};
+import {
+  allApps,
+  matchesAppFilters,
+  type AppFilters,
+} from "./artifact-filters.js";
 
 /** Live pages and running servers lead, followed by starting, failing, stopped, and unpublished apps. */
 const statusOrder: Readonly<Record<ArtifactStatus, number>> = {
@@ -20,17 +19,20 @@ const statusOrder: Readonly<Record<ArtifactStatus, number>> = {
   unpublished: 4,
 };
 
-/** Search app titles, descriptions, and slugs, then order by state and newest update without mutating cached data. */
+/** Combine search and filters, then order by state and newest update without mutating cached data. */
 export function visibleApps(
   apps: readonly ArtifactSummary[],
   search: string,
+  filters: AppFilters = allApps,
 ): ArtifactSummary[] {
   const term = search.trim().toLocaleLowerCase();
   return apps
-    .filter((app) =>
-      `${app.title} ${app.description} ${app.slug}`
-        .toLocaleLowerCase()
-        .includes(term),
+    .filter(
+      (app) =>
+        matchesAppFilters(app, filters) &&
+        `${app.title} ${app.description} ${app.slug}`
+          .toLocaleLowerCase()
+          .includes(term),
     )
     .sort(
       (a, b) =>

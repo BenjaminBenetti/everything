@@ -1,10 +1,13 @@
 import type { AgentDefinition } from "../../agent/model/agent.js";
+import type { SubagentSession } from "../../subagent/interface/subagent-sessions.js";
 
 /** Commits text the agent deliberately sends to the user's visible conversation. */
 export type MessageDelivery = (text: string) => Promise<void>;
 
 /** One agent's loaded model session, independent of the runtime implementation. */
 export interface AgentSession {
+  /** Optional background API for runtimes that own durable private session families. */
+  readonly subagents?: SubagentSession | undefined;
   /** Durable session identifier, stable across process restarts. */
   readonly id: string;
   /** Whether the model is summarizing older context before continuing. */

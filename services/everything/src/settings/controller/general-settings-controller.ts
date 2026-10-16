@@ -11,12 +11,25 @@ export async function generalSettingsController(
   app: FastifyInstance,
   settings: GeneralSettingsOperations,
 ): Promise<void> {
-  app.get("/settings/general", async (request) =>
-    settings.read(subject(request)),
+  app.get(
+    "/settings/general",
+    {
+      schema: {
+        summary: "Read your general preferences",
+        response: { 200: generalSettingsBody },
+      },
+    },
+    async (request) => settings.read(subject(request)),
   );
   app.put<{ Body: GeneralSettingsBody }>(
     "/settings/general",
-    { schema: { body: generalSettingsBody } },
+    {
+      schema: {
+        summary: "Replace your general preferences",
+        body: generalSettingsBody,
+        response: { 200: generalSettingsBody },
+      },
+    },
     async (request) => settings.update(subject(request), request.body),
   );
 }

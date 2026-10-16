@@ -35,6 +35,11 @@ export class AgentRuntime {
   // Accessors
   // ===========================================
 
+  /** Expose only the private-family capability to authorized API operations. */
+  get subagents(): AgentSession["subagents"] {
+    return this.session.subagents;
+  }
+
   /** Combine the latest turn state with live activity and background teammate counts. */
   get status(): RuntimeStatus {
     const background = this.session.background;

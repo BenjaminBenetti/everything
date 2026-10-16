@@ -1,3 +1,4 @@
+import { testApiDocumentation } from "./api-documentation-fixtures.js";
 import assert from "node:assert/strict";
 import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -133,6 +134,7 @@ async function fixture(
     {} as ArtifactWorkbench,
     {} as WorkspaceTools,
     fleet,
+    testApiDocumentation,
     options?.activity,
   );
   return { directory, factory, requests };

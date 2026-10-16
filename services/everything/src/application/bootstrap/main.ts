@@ -20,6 +20,9 @@ import { PostgresAgentActivityRepository } from "../../agent/repository/postgres
 import { AgentEditingService } from "../../agent/service/agent-editing-service.js";
 import { PostgresMessageRepository } from "../../conversation/repository/postgres-message-repository.js";
 import { ConversationService } from "../../conversation/service/conversation-service.js";
+import { SubagentService } from "../../subagent/service/subagent-service.js";
+import { PiSubagentArchives } from "../../subagent/adapter/pi-subagent-archives.js";
+import { ApiDocumentationService } from "../../api-documentation/service/api-documentation-service.js";
 import { ModelUpdateSummarizer } from "../../update/adapter/model-update-summarizer.js";
 import { PostgresUpdateRepository } from "../../update/repository/postgres-update-repository.js";
 import { UpdateSummaryScheduler } from "../../update/service/update-summary-scheduler.js";
@@ -148,6 +151,7 @@ async function main(): Promise<void> {
     ),
     workspaceInstances,
   );
+  const apiDocumentation = new ApiDocumentationService();
   const conversations = new ConversationService(
     agents,
     new PostgresMessageRepository(database),
@@ -160,11 +164,13 @@ async function main(): Promise<void> {
         config.sessionEncryptionKey,
       ),
       fleet,
+      apiDocumentation,
       workspaceActivity,
     ),
     workspaces,
   );
   const app = await createHttpApplication({
+    apiDocumentation,
     providers,
     models,
     chatGptRedirectUri: config.chatGptRedirectUri,
@@ -175,6 +181,10 @@ async function main(): Promise<void> {
     ),
     removal: conversations,
     conversations,
+    subagents: new SubagentService(
+      conversations,
+      new PiSubagentArchives(workspaces),
+    ),
     updates: new UpdateService(updates, generalSettings),
     generalSettings,
     artifacts: new ArtifactLibraryService(artifactGateway),

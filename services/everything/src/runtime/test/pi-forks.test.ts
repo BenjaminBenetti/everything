@@ -1,3 +1,4 @@
+import { testApiDocumentation } from "./api-documentation-fixtures.js";
 import assert from "node:assert/strict";
 import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -276,6 +277,7 @@ for (const copyContext of [undefined, false, true]) {
         },
       } satisfies WorkspaceTools,
       stoppedFleet,
+      testApiDocumentation,
     );
     const definition: AgentDefinition = {
       id: "teammate",

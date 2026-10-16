@@ -43,11 +43,12 @@ function statusOf(
   return runtime?.state ?? "stopped";
 }
 
-/** Present an artifact as listed, with its link on the artifact host and its status. */
+/** Present an artifact with its status and current deployment's public capability flags. */
 export function representSummary(
   artifact: Artifact,
   observed: ArtifactRuntime | undefined,
   artifactOrigin: string,
+  deployment: Pick<ArtifactDeployment, "database" | "capabilities"> | undefined,
 ): ArtifactSummary {
   return {
     id: artifact.id,
@@ -55,6 +56,8 @@ export function representSummary(
     kind: artifact.kind,
     title: artifact.title,
     description: artifact.description,
+    database: deployment?.database ?? false,
+    capabilities: deployment?.capabilities ?? [],
     url: `${artifactOrigin}/${artifact.slug}/`,
     status: statusOf(artifact, runtimeOf(artifact, observed)),
     release: artifact.release,
@@ -87,7 +90,7 @@ export function representDetails(
       }
     : null;
   return {
-    ...representSummary(artifact, observed, artifactOrigin),
+    ...representSummary(artifact, observed, artifactOrigin, history.deployment),
     liveRevision: artifact.liveRevision,
     revisions: history.revisions,
     builds: history.builds,

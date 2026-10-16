@@ -48,6 +48,11 @@ export class ReplyingAgentSession implements AgentSession {
     return this.session.background;
   }
 
+  /** Preserve the same private family when user-turn delivery is decorated. */
+  get subagents(): AgentSession["subagents"] {
+    return this.session.subagents;
+  }
+
   // ===========================================
   // User turns
   // ===========================================

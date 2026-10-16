@@ -1,11 +1,9 @@
 import type { AgentSession } from "./agent-session.js";
 
-/** Private address and lifecycle of a teammate's background session. */
-export interface SessionFork {
-  readonly id: string;
-  readonly parentId: string;
-  readonly status: "running" | "queued" | "idle" | "stopped" | "error";
-}
+import type { Subagent } from "@everything/agent-contracts/subagent";
+
+/** Tools and API consumers share one background session identity and lifecycle. */
+export type SessionFork = Subagent;
 
 /** Tools receive only the operations bound to their own conversation family. */
 export interface SessionForkOperations {
@@ -26,6 +24,10 @@ export interface ForkableSession extends AgentSession {
 
 /** Opens provider-specific sessions without exposing their history to the coordinator. */
 export interface SessionForkFactory {
-  /** Open a separate session with the same configuration, optionally copying the parent's history. */
-  create(parentId: string, context: boolean): Promise<ForkableSession>;
+  /** Open a separate session, recording temporary lifetime before any model work can begin. */
+  create(
+    parentId: string,
+    context: boolean,
+    temporary?: boolean,
+  ): Promise<ForkableSession>;
 }

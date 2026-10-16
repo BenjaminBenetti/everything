@@ -10,11 +10,26 @@ export async function settingsController(
   app: FastifyInstance,
   workers: WorkerSettingsOperations,
 ): Promise<void> {
-  app.get("/settings/workers", async () => workers.read());
+  app.get(
+    "/settings/workers",
+    {
+      schema: {
+        summary: "Read installation-wide worker settings",
+        response: { 200: workerSettingsBody },
+      },
+    },
+    async () => workers.read(),
+  );
 
   app.put<{ Body: WorkerSettingsBody }>(
     "/settings/workers",
-    { schema: { body: workerSettingsBody } },
+    {
+      schema: {
+        summary: "Replace installation-wide worker settings",
+        body: workerSettingsBody,
+        response: { 200: workerSettingsBody },
+      },
+    },
     async (request) => workers.update({ privileged: request.body.privileged }),
   );
 }

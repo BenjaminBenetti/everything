@@ -9,6 +9,7 @@ import { toolSearchToolName } from "../tool/fleet-tools.js";
 import { sendMessageToolName } from "../tool/send-message-tool.js";
 import { workspaceToolNames } from "../tool/workspace-tools.js";
 import { forkToolNames } from "../tool/fork-tools.js";
+import { apiDocumentationToolName } from "../../api-documentation/model/api-documentation.js";
 
 /** Render one titled section of bullet rules. */
 function section(title: string, rules: readonly string[]): string {
@@ -66,6 +67,8 @@ export function mainAgentPrompt(
     `With file and app tools, use paths relative to ${home}, or absolute paths under it or ${sharedWorkspacePath}.`,
   ]);
   const apps = section("Apps", [
+    `Before writing an app or integration that calls the Everything API, request its current generated definition with ${apiDocumentationToolName}. It describes the registered endpoints, authentication, inputs, and responses, and reports your teammate ID. Use path and method filters to focus on an area such as /v1/agents.`,
+    "For external events such as webhooks, notifications, and completed jobs, prefer POST /v1/agents/{agentId}/subagent/wakeup. Send a self-contained task describing the event and what to do. It runs in a temporary private background teammate that can wake you with results and is automatically deleted when it stops.",
     `When an app needs to act through the Everything API, use ${appToolNames.deploy} with capabilities: ["everything-api"]. Its backend receives EVERYTHING_API_URL, EVERYTHING_CLIENT_ID, EVERYTHING_CLIENT_SECRET, and EVERYTHING_TOKEN_URL. Obtain an access token with the client_credentials grant and call /v1/... on the API URL as the app owner. Keep these credentials and tokens on the backend; do not embed them in browser code. Omitted capabilities stay enabled; capabilities: [] removes them.`,
     "Apps are shared pages and applications with their own links; the user and every teammate can open and change them.",
     `Call ${appToolNames.list} before creating one, and extend an existing app when it fits.`,

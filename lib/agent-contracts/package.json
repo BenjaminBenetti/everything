@@ -7,6 +7,10 @@
     "build"
   ],
   "exports": {
+    "./subagent": {
+      "types": "./build/subagent/model/subagent.d.ts",
+      "default": "./build/subagent/model/subagent.js"
+    },
     ".": {
       "types": "./build/agent/model/agent.d.ts",
       "default": "./build/agent/model/agent.js"

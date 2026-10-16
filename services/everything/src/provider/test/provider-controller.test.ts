@@ -13,7 +13,17 @@ test("provider routes derive ownership from authentication and reject unsupporte
     /** Record only schema-validated arguments and the authenticated subject. */
     async save(...args: unknown[]) {
       calls.push(args);
-      return { status: "verified" };
+      return {
+        provider: "anthropic",
+        configured: true,
+        status: "verified",
+        baseUrl: null,
+        model: null,
+        account: null,
+        verifiedAt: "now",
+        lastCheckedAt: "now",
+        message: null,
+      };
     },
   } as unknown as ProviderConnections;
   await providerController(app, operations);

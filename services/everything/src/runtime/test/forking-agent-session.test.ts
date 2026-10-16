@@ -83,6 +83,7 @@ function fixture() {
   let now = 0;
   const main = controlled("main-session");
   const children = new Map<string, ReturnType<typeof controlled>>();
+  const removed: string[] = [];
   const family = new ForkingAgentSession(
     main.session,
     {
@@ -94,11 +95,18 @@ function fixture() {
       },
     },
     () => now,
+    {
+      messages: () => ({ messages: [], nextCursor: null }),
+      remove: async (ids) => {
+        removed.push(...ids);
+      },
+    },
   );
   return {
     family,
     main,
     children,
+    removed,
     tools: family.operations("main"),
     /** Advance indicator time without real waits or triggering runtime work. */
     advance(milliseconds: number) {
@@ -133,6 +141,111 @@ test("forks return immediately, work concurrently, and wake an idle main session
   assert.equal(runtime.status.backgroundCount, 0);
   await f.family.dispose();
   assert.ok([...f.children.values()].every((child) => child.state().disposed));
+});
+
+test("API work queues messages without interrupting main, and can resume after the whole family stops", async () => {
+  const f = fixture();
+  const mainTurn = f.family.prompt("Keep main working");
+  const child = await f.family.subagents!.create({ task: "API task" });
+  const worker = f.children.get(child.id)!;
+  assert.equal(f.main.state().running, true);
+  assert.equal(f.main.state().aborts, 0);
+  assert.match(worker.prompts[0]!, /Background task from API consumer/);
+  f.family.subagents!.send(child.id, "Followup");
+  assert.equal(worker.prompts.length, 1);
+  worker.finish("Initial result");
+  await settle();
+  assert.match(
+    worker.prompts[1]!,
+    /Private message from API consumer:\nFollowup/,
+  );
+  assert.equal(
+    f.main.prompts.length,
+    1,
+    "results queue behind the active main turn",
+  );
+  await f.family.abort();
+  await mainTurn;
+  f.family.subagents!.send(child.id, "Resume after stop");
+  worker.finish("Resumed result");
+  await settle();
+  assert.match(f.main.prompts.at(-1)!, /Resumed result/);
+  await f.family.abort();
+  await f.family.subagents!.create({ task: "New API work after stop" });
+  assert.equal(f.family.subagents!.list().length, 2);
+  await f.family.abort();
+});
+
+test("API deletion stops and removes a whole subtree, suppresses late reports, and retains siblings", async () => {
+  const f = fixture();
+  const parent = await f.family.subagents!.create({ task: "Parent" });
+  const child = await f.family.operations(parent.id).fork("Child");
+  const sibling = await f.family.subagents!.create({ task: "Sibling" });
+  const deleting = f.family.subagents!.delete(parent.id);
+  assert.throws(
+    () => f.family.operations(sibling.id).send(child.id, "Too late"),
+    { code: "FORK_UNAVAILABLE" },
+  );
+  await deleting;
+  await settle();
+  assert.deepEqual(
+    f.family.subagents!.list().map((item) => item.id),
+    [sibling.id],
+  );
+  assert.deepEqual(f.removed, [parent.id, child.id]);
+  assert.equal(f.main.prompts.length, 0);
+  for (const id of [parent.id, child.id]) {
+    assert.equal(f.children.get(id)!.state().disposed, true);
+    assert.throws(() => f.family.subagents!.send(id, "Gone"), {
+      code: "SUBAGENT_NOT_FOUND",
+    });
+    assert.throws(() => f.family.subagents!.messages(id), {
+      code: "SUBAGENT_NOT_FOUND",
+    });
+  }
+  assert.throws(
+    () => f.family.subagents!.send("main", "Not a background address"),
+    { code: "SUBAGENT_NOT_FOUND" },
+  );
+  await f.family.abort();
+  await f.family.subagents!.delete(sibling.id);
+  assert.equal(f.family.subagents!.list().length, 0);
+});
+
+test("a descendant still opening when its parent is deleted is discarded with its native history", async () => {
+  const main = controlled("main-session");
+  const parent = controlled("parent");
+  const child = controlled("late-child");
+  const removed: string[] = [];
+  let release!: (session: ForkableSession) => void;
+  const family = new ForkingAgentSession(
+    main.session,
+    {
+      create: async (parentId) =>
+        parentId === "main"
+          ? parent.session
+          : new Promise((resolve) => {
+              release = resolve;
+            }),
+    },
+    undefined,
+    {
+      messages: () => ({ messages: [], nextCursor: null }),
+      remove: async (ids) => {
+        removed.push(...ids);
+      },
+    },
+  );
+  await family.subagents!.create({ task: "Parent task" });
+  const opening = family.operations(parent.session.id).fork("Late child");
+  const rejected = assert.rejects(opening, { code: "FORK_UNAVAILABLE" });
+  await family.subagents!.delete(parent.session.id);
+  release(child.session);
+  await rejected;
+  assert.equal(child.state().disposed, true);
+  assert.deepEqual(removed, [parent.session.id, child.session.id]);
+  assert.equal(family.subagents!.list().length, 0);
+  await family.abort();
 });
 
 test("the background count retains short pauses and expires ten seconds after the latest turn ends", async () => {
@@ -302,6 +415,10 @@ test("foreign addresses and excessive concurrent work are rejected without expos
   });
   for (let i = 0; i < 8; i++) await f.tools.fork(`Task ${i}`);
   await assert.rejects(f.tools.fork("One too many"), { code: "FORK_LIMIT" });
+  await assert.rejects(
+    f.family.subagents!.wakeup({ task: "Event at capacity" }),
+    { code: "FORK_LIMIT" },
+  );
   assert.equal(f.children.size, 8);
   f.children.get("fork-1")!.finish("Complete");
   await settle();
@@ -429,4 +546,95 @@ test("a main turn awakened by a fork exposes safe failure status and can recover
   await settle();
   assert.equal(runtime.status.status, "idle");
   await runtime.close();
+});
+
+test("wakeup routes the result before deleting its subtree and preserves ordinary subagents", async () => {
+  const f = fixture();
+  const retained = await f.family.subagents!.create({
+    task: "Keep this session",
+  });
+  const event = await f.family.subagents!.wakeup({ task: "Handle event" });
+  const nested = await f.family.operations(event.id).fork("Supporting work");
+  assert.equal(f.family.subagents!.list().length, 3);
+  assert.match(
+    f.children.get(event.id)!.prompts[0]!,
+    /Background task from API event:\nHandle event/,
+  );
+  f.children.get(event.id)!.finish("Event result");
+  await settle();
+  assert.match(f.main.prompts[0]!, /Event result/);
+  assert.equal(f.main.state().running, true);
+  assert.equal(f.main.state().aborts, 0);
+  assert.deepEqual(
+    f.family.subagents!.list().map((item) => item.id),
+    [retained.id],
+  );
+  assert.deepEqual(f.removed, [event.id, nested.id]);
+  for (const id of [event.id, nested.id])
+    assert.equal(f.children.get(id)!.state().disposed, true);
+  assert.equal(f.children.get(retained.id)!.state().disposed, false);
+  assert.throws(() => f.family.subagents!.messages(event.id), {
+    code: "SUBAGENT_NOT_FOUND",
+  });
+  await f.family.abort();
+});
+
+test("wakeup waits for queued turns to finish and can finish silently", async () => {
+  const f = fixture();
+  const event = await f.family.subagents!.wakeup({ task: "Check event" });
+  const worker = f.children.get(event.id)!;
+  f.family.subagents!.send(event.id, "Followup while working");
+  worker.finish("");
+  await settle();
+  assert.equal(worker.prompts.length, 2);
+  assert.equal(f.family.subagents!.list().length, 1);
+  assert.equal(worker.state().disposed, false);
+  worker.finish("");
+  await settle();
+  assert.equal(f.main.prompts.length, 0);
+  assert.equal(f.family.subagents!.list().length, 0);
+  assert.deepEqual(f.removed, [event.id]);
+  await f.family.abort();
+});
+
+for (const ending of [
+  "error",
+  "stop",
+  "shutdown",
+  "tool stop",
+  "delete",
+] as const) {
+  test(`wakeup cleans up on ${ending} without duplicate deletion or late replies`, async () => {
+    const f = fixture();
+    const event = await f.family.subagents!.wakeup({ task: "Handle event" });
+    const worker = f.children.get(event.id)!;
+    if (ending === "error") worker.fail();
+    else if (ending === "stop") await f.family.abort();
+    else if (ending === "shutdown") await f.family.dispose();
+    else if (ending === "tool stop") await f.tools.stop(event.id);
+    else await f.family.subagents!.delete(event.id);
+    await settle();
+    assert.equal(f.family.subagents!.list().length, 0);
+    assert.equal(worker.state().disposed, true);
+    assert.deepEqual(f.removed, [event.id]);
+    assert.equal(f.main.prompts.length, ending === "error" ? 1 : 0);
+    assert.doesNotMatch(
+      f.main.prompts.join("\n"),
+      /secret provider|send the fork another message/,
+    );
+    await f.family.abort();
+  });
+}
+
+test("overlapping descendant deletion and wakeup cleanup share teardown", async () => {
+  const f = fixture();
+  const event = await f.family.subagents!.wakeup({ task: "Handle event" });
+  const child = await f.family.operations(event.id).fork("Child");
+  const deleting = f.family.subagents!.delete(child.id);
+  f.children.get(event.id)!.finish();
+  await deleting;
+  await settle();
+  assert.deepEqual([...f.removed].sort(), [event.id, child.id].sort());
+  assert.equal(f.family.subagents!.list().length, 0);
+  await f.family.abort();
 });
