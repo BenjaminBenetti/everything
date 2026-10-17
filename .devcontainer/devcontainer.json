@@ -29,10 +29,7 @@
       "golangciLintVersion": "latest"
     }
   },
-  "mounts": [
-    // Host kernel modules, so post-start.sh can load br_netfilter.
-    "source=/lib/modules,target=/lib/modules,type=bind,readonly"
-  ],
+  // Starts Minikube when the host provides what it needs; see post-start.sh.
   "postStartCommand": "bash ${containerWorkspaceFolder}/.devcontainer/post-start.sh",
   "hostRequirements": {
     "cpus": 2,
