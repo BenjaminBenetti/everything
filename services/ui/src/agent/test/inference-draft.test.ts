@@ -104,7 +104,7 @@ test("Fast mode is offered and valid only for models that list it", () => {
   assert.equal(isSupportedDraft(draft, listed), false);
 });
 
-test("the saved selection carries the requested speed only once every choice is made", () => {
+test("the saved selection is complete before saving and names a speed only when Fast is requested", () => {
   assert.equal(draftSelection(withProvider("chatgpt")), undefined);
   assert.deepEqual(
     draftSelection({
@@ -123,12 +123,7 @@ test("the saved selection carries the requested speed only once every choice is 
         effort: "high",
       }),
     ),
-    {
-      provider: "anthropic",
-      model: "claude-opus-4-6",
-      effort: "high",
-      speed: "standard",
-    },
+    { provider: "anthropic", model: "claude-opus-4-6", effort: "high" },
   );
 });
 

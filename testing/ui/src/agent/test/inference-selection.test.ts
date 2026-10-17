@@ -10,6 +10,7 @@ interface Selection {
   provider: string;
   model: string;
   effort: string;
+  speed?: string;
 }
 interface Teammate {
   id: string;
@@ -83,6 +84,7 @@ async function workspace(context: BrowserContext, existing?: Selection | null) {
       name: string;
       efforts: string[];
       defaultEffort: string;
+      speeds?: string[];
     }[],
     providers,
   };
@@ -186,6 +188,10 @@ async function workspace(context: BrowserContext, existing?: Selection | null) {
     state.agents[0] = { ...state.agents[0]!, ...input };
     return route.fulfill({ json: state.agents[0] });
   });
+  // The sidebar reads recent teammates; registered last so it wins over the editing route.
+  await context.route("**/v1/agents/recent", (route) =>
+    route.fulfill({ json: { agents: [] } }),
+  );
   return state;
 }
 
@@ -568,4 +574,110 @@ test("dropdown menus follow every theme and keep long model catalogs within the 
       state.extraModels.at(-1)!.name,
     );
   }
+});
+
+test("Fast mode is offered only on models that list it, starts off with a usage warning, saves the request, and turns off for other models", async ({
+  page,
+  context,
+}) => {
+  const state = await workspace(context, {
+    provider: "chatgpt",
+    model: "reasoning-model",
+    effort: "high",
+  });
+  state.extraModels = [
+    {
+      id: "sol-model",
+      name: "Sol model",
+      efforts: ["low", "high"],
+      defaultEffort: "low",
+      speeds: ["standard", "fast"],
+    },
+  ];
+  await page.goto("/team");
+  const dialog = page.getByRole("dialog");
+  const settings = page
+    .locator("summary")
+    .filter({ hasText: "Model settings" });
+  const fast = dialog.getByRole("switch", {
+    name: "Request Fast mode",
+    exact: true,
+  });
+  const save = page.getByRole("button", { name: "Save changes", exact: true });
+  const edit = page.getByRole("button", {
+    name: "Edit Researcher",
+    exact: true,
+  });
+  await edit.click();
+  await settings.click();
+  await expect(dropdown(page, "Effort level")).toHaveText("High");
+  // Models without Fast mode, including catalogs that list no speeds, show no switch.
+  await expect(fast).toHaveCount(0);
+  await choose(page, "Model", "Sol model");
+  await expect(fast).toBeVisible();
+  await expect(fast).not.toBeChecked();
+  await expect(dialog).toContainText(
+    "It uses your plan or credits faster, or costs more",
+  );
+  await expect(settings).not.toContainText("Fast requested");
+  await dialog.getByText("Request Fast mode", { exact: true }).click();
+  await expect(fast).toBeChecked();
+  await expect(settings).toContainText(
+    /ChatGPT.*Sol model.*Low.*Fast requested/,
+  );
+  await save.click();
+  await expect(dialog).toHaveCount(0);
+  expect(state.saves.at(-1)?.inference).toEqual({
+    provider: "chatgpt",
+    model: "sol-model",
+    effort: "low",
+    speed: "fast",
+  });
+  await page
+    .getByRole("button", { name: "View Researcher", exact: true })
+    .click();
+  await expect(dialog).toContainText("Fast mode requested");
+  await page.getByRole("button", { name: "Edit", exact: true }).click();
+  await expect(settings).toContainText("Fast requested");
+  await settings.click();
+  await expect(fast).toBeChecked();
+  // Choosing a model without Fast mode removes the switch and the saved request.
+  await choose(page, "Model", "Reasoning model");
+  await expect(fast).toHaveCount(0);
+  await expect(settings).not.toContainText("Fast requested");
+  await choose(page, "Effort level", "High");
+  await save.click();
+  await expect(dialog).toHaveCount(0);
+  expect(state.saves.at(-1)?.inference).toEqual({
+    provider: "chatgpt",
+    model: "reasoning-model",
+    effort: "high",
+  });
+  // A saved request on a model that no longer offers Fast mode stays visible until turned off.
+  state.agents[0] = {
+    ...state.agents[0]!,
+    inference: {
+      provider: "chatgpt",
+      model: "reasoning-model",
+      effort: "high",
+      speed: "fast",
+    },
+  };
+  await page.reload();
+  await edit.click();
+  await settings.click();
+  await expect(fast).toBeChecked();
+  await expect(dialog).toContainText(
+    "Fast mode isn’t available for this model.",
+  );
+  await dialog.getByText("Request Fast mode", { exact: true }).click();
+  await expect(fast).toHaveCount(0);
+  await expect(dialog).not.toContainText("Fast mode isn’t available");
+  await save.click();
+  await expect(dialog).toHaveCount(0);
+  expect(state.saves.at(-1)?.inference).toEqual({
+    provider: "chatgpt",
+    model: "reasoning-model",
+    effort: "high",
+  });
 });

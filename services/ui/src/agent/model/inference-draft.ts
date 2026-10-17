@@ -84,12 +84,15 @@ export function isChangedDraft(
   );
 }
 
-/** The complete selection to save, or undefined while a choice is still missing. */
+/**
+ * The complete selection to save, or undefined while a choice is still missing. Standard is sent
+ * as no speed, which the API reads the same way and which an API from before speeds existed accepts.
+ */
 export function draftSelection(
   draft: InferenceDraft,
 ): InferenceSelection | undefined {
   const { provider, model, effort, speed } = draft;
   return provider && model && effort
-    ? { provider, model, effort, speed }
+    ? { provider, model, effort, ...(speed === "fast" ? { speed } : {}) }
     : undefined;
 }
