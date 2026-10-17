@@ -524,6 +524,8 @@ test("dropdown menus follow every theme and keep long model catalogs within the 
     "graphite-dimmed",
     "daylight",
     "sand",
+    "solarized-light",
+    "solarized-dark",
   ]) {
     await page.goto(`/team?theme=${theme}`);
     await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
@@ -554,7 +556,9 @@ test("dropdown menus follow every theme and keep long model catalogs within the 
     expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(
       page.viewportSize()!.height,
     );
-    if (theme === "midnight" || theme === "sand")
+    if (
+      ["midnight", "sand", "solarized-light", "solarized-dark"].includes(theme)
+    )
       await page.screenshot({ path: info.outputPath(`dropdown-${theme}.png`) });
     await page.keyboard.press("End");
     const last = page.getByRole("option", {

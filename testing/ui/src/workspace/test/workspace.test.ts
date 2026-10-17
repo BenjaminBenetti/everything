@@ -119,6 +119,8 @@ test("real sign-in, all non-chat pages, themes, deep links, and sign-out", async
     "graphite-dimmed",
     "daylight",
     "sand",
+    "solarized-light",
+    "solarized-dark",
   ]) {
     await page
       .locator(".choice-card")
@@ -149,7 +151,10 @@ test("real sign-in, all non-chat pages, themes, deep links, and sign-out", async
   await page.keyboard.press("Escape");
   await expect(workspaceActionTrigger(page, "Preferences")).toBeFocused();
   await page.reload();
-  await expect(page.locator("html")).toHaveAttribute("data-theme", "sand");
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-theme",
+    "solarized-dark",
+  );
   await expect(
     page.getByRole("heading", { name: "Apps", exact: true }),
   ).toBeVisible();
@@ -172,9 +177,11 @@ test("real sign-in, all non-chat pages, themes, deep links, and sign-out", async
   await navigate(page, "Home");
   await openWorkspaceAction(page, "Preferences");
   await expect(
-    page.getByRole("radio", { name: "Sand", exact: true }),
+    page.getByRole("radio", { name: "Solarized Dark", exact: true }),
   ).toBeChecked();
-  await page.getByRole("radio", { name: "Sand", exact: true }).focus();
+  await page
+    .getByRole("radio", { name: "Solarized Dark", exact: true })
+    .focus();
   await page.keyboard.press("ArrowRight");
   await expect(
     page.getByRole("radio", { name: "Midnight", exact: true }),
