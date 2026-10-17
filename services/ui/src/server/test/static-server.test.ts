@@ -26,6 +26,7 @@ test("serves deep links and probes without swallowing API or asset misses", asyn
     "/team",
     "/team/06eb92d4-3ee3-4a6a-93d1-1a984d7691cb",
     "/workspaces",
+    "/keys",
     "/updates",
     "/apps",
     "/apps/open",

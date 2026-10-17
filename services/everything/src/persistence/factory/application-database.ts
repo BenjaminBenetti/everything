@@ -1,3 +1,5 @@
+import { KeyEntity } from "../../key/schema/key-entity.js";
+import { Keys1792713600000 } from "../migration/1792713600000-keys.js";
 import { SessionEntity } from "../../session/schema/session-entity.js";
 import { BrowserSessions1791763200000 } from "../migration/1791763200000-browser-sessions.js";
 import { AgentAvatars1791849600000 } from "../migration/1791849600000-agent-avatars.js";
@@ -41,6 +43,7 @@ export function createApplicationDatabase(
     poolSize: 5,
     extra: { connectionTimeoutMillis: 5000 },
     entities: [
+      KeyEntity,
       AgentEntity,
       MessageEntity,
       UpdateEntity,
@@ -62,6 +65,7 @@ export function createApplicationDatabase(
       GeneralSettingsSummaryDefault1792454400000,
       AgentInteractions1792540800000,
       UpdateHistory1792627200000,
+      Keys1792713600000,
     ],
     migrationsTableName: "everything_migrations",
     migrationsTransactionMode: "all",

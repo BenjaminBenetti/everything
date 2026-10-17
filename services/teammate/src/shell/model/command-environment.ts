@@ -5,6 +5,7 @@
  */
 export const commandVariables = [
   "PATH",
+  "SSH_AUTH_SOCK",
   "LANG",
   "TMPDIR",
   "XDG_CACHE_HOME",

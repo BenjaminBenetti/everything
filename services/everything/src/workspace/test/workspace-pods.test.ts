@@ -35,7 +35,7 @@ test("oversized tools responses are cancelled before they can exhaust Everything
   assert.equal(cancelled, true);
 });
 
-test("tools pods mount only their workspace and the shared folder at Everything's paths from one volume of the claim, with the workspace as the account's home, preserve resource limits, and receive no controller credential", () => {
+test("tools pods mount their workspace, shared folder and read-only SSH socket from one claim volume, preserve limits and receive no controller credential", () => {
   const source = {
     metadata: { labels: { "app.kubernetes.io/name": "teammate" } },
     spec: {
@@ -48,6 +48,7 @@ test("tools pods mount only their workspace and the shared folder at Everything'
           volumeMounts: [
             { name: "workspace", mountPath: "/workspace" },
             { name: "shared", mountPath: "/workspace/shared" },
+            { name: "ssh-agent", mountPath: "/run/ssh-agent", readOnly: true },
             { name: "private", mountPath: "/workspace/.pi", readOnly: true },
           ],
         },
@@ -55,6 +56,7 @@ test("tools pods mount only their workspace and the shared folder at Everything'
       volumes: [
         { name: "workspace", emptyDir: {} },
         { name: "shared", emptyDir: {} },
+        { name: "ssh-agent", emptyDir: {} },
         { name: "private", emptyDir: {} },
       ],
     },
@@ -71,6 +73,12 @@ test("tools pods mount only their workspace and the shared folder at Everything'
   assert.deepEqual(spec.containers[0]!.volumeMounts, [
     { name: "workspace", mountPath: `/workspace/${id}`, subPath: id },
     { name: "workspace", mountPath: "/workspace/shared", subPath: "shared" },
+    {
+      name: "workspace",
+      mountPath: "/run/ssh-agent",
+      subPath: ".ssh-agent",
+      readOnly: true,
+    },
     { name: "private", mountPath: `/workspace/${id}/.pi`, readOnly: true },
     {
       name: "account",
@@ -94,6 +102,12 @@ test("tools pods mount only their workspace and the shared folder at Everything'
     { name: "private", emptyDir: {} },
     { name: "account", emptyDir: { sizeLimit: "1Mi" } },
   ]);
+  assert.deepEqual(
+    spec.containers[0]!.env!.filter(
+      (variable) => variable.name === "SSH_AUTH_SOCK",
+    ),
+    [{ name: "SSH_AUTH_SOCK", value: "/run/ssh-agent/agent.sock" }],
+  );
   assert.deepEqual(
     spec.containers[0]!.env!.find(
       (variable) => variable.name === "WORKSPACE_DIRECTORY",

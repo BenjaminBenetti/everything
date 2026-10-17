@@ -9,6 +9,7 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY lib/persistence/package.json ./lib/persistence/package.json
 COPY lib/errors/package.json ./lib/errors/package.json
 COPY lib/security/package.json ./lib/security/package.json
+COPY lib/key-contracts/package.json ./lib/key-contracts/package.json
 COPY lib/agent-contracts/package.json ./lib/agent-contracts/package.json
 COPY lib/conversation-contracts/package.json ./lib/conversation-contracts/package.json
 COPY lib/provider-contracts/package.json ./lib/provider-contracts/package.json
@@ -29,6 +30,7 @@ COPY services/everything/src ./services/everything/src
 COPY lib/persistence ./lib/persistence
 COPY lib/errors ./lib/errors
 COPY lib/security ./lib/security
+COPY lib/key-contracts ./lib/key-contracts
 COPY lib/agent-contracts ./lib/agent-contracts
 COPY lib/conversation-contracts ./lib/conversation-contracts
 COPY lib/provider-contracts ./lib/provider-contracts

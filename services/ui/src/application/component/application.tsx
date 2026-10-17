@@ -1,3 +1,6 @@
+import type { KeyDirectory } from "../../key/interface/key-directory.js";
+import { KeyDirectoryProvider } from "../../key/component/key-directory-provider.js";
+import { KeysPage } from "../../key/page/keys-page.js";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import type { BrowserSession } from "@everything/security/browser";
@@ -44,6 +47,7 @@ export function Application({
   settings,
   upgrades,
   workspaces,
+  keys,
   queryClient,
 }: {
   session: BrowserSession;
@@ -55,6 +59,7 @@ export function Application({
   settings: WorkspaceSettings;
   upgrades: InstallationUpgrades;
   workspaces: WorkspaceDirectory;
+  keys: KeyDirectory;
   queryClient: QueryClient;
 }) {
   return (
@@ -68,7 +73,9 @@ export function Application({
                   <WorkspaceSettingsProvider settings={settings}>
                     <InstallationUpgradesProvider upgrades={upgrades}>
                       <WorkspaceDirectoryProvider directory={workspaces}>
-                        <AuthenticatedRoutes />
+                        <KeyDirectoryProvider directory={keys}>
+                          <AuthenticatedRoutes />
+                        </KeyDirectoryProvider>
                       </WorkspaceDirectoryProvider>
                     </InstallationUpgradesProvider>
                   </WorkspaceSettingsProvider>
@@ -116,6 +123,7 @@ function AuthenticatedRoutes() {
               <Navigate replace to={{ pathname: "/apps", search, hash }} />
             }
           />
+          <Route path="keys" element={<KeysPage />} />
           <Route path="workspaces" element={<WorkspacesPage />} />
           <Route path="login" element={<Navigate replace to="/" />} />
           <Route path="*" element={<Navigate replace to="/" />} />

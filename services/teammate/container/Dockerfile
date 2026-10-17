@@ -32,7 +32,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       # Init that reaps commands' orphaned processes.
       tini \
       # Everyday command-line tools.
-      ca-certificates curl git jq procps unzip xz-utils zip \
+      ca-certificates curl git jq openssh-client procps unzip xz-utils zip \
       # C and C++ compilers, make, and the C library headers native packages build against.
       build-essential \
       # Headless browser, with fonts metric-compatible with common web fonts.

@@ -8,6 +8,7 @@ import {
   Folder,
   Grid2X2,
   House,
+  KeyRound,
   LogOut,
   Plug,
   Plus,
@@ -34,6 +35,7 @@ const navigation = [
   { path: "/team", label: "Your team", icon: Grid2X2 },
   { path: "/apps", label: "Apps", icon: Folder },
   { path: "/workspaces", label: "Workspaces", icon: Boxes },
+  { path: "/keys", label: "Keys", icon: KeyRound },
 ];
 
 /** Keep workspace navigation stationary while route content changes and scrolls independently. */

@@ -16,6 +16,9 @@ import {
   sharedWorkspaceFolder,
   sharedWorkspacePath,
   workspacePath,
+  sshAgentFolder,
+  sshAgentWorkspaceMount,
+  sshAgentWorkspaceSocket,
 } from "@everything/workspace-contracts/mount";
 import type { WorkspacePods } from "../interface/workspace-pods.js";
 import {
@@ -48,7 +51,7 @@ export function createWorkspacePodClients() {
  * Build a singleton StatefulSet from the chart's zero-replica tools template. The pod mounts the
  * teammate's folder of the workspace volume at `/workspace/<agent id>`, where Everything's container
  * sees it too, and the shared folder at `/workspace/shared`; it never sees other teammates' folders.
- * Both mounts are subpaths of one volume: a second volume naming the same claim leaves the pod
+ * These folders and the read-only SSH socket are subpaths of one volume: a second volume naming the same claim leaves the pod
  * waiting for a mount that some storage drivers never report.
  */
 export function workspaceStatefulSet(
@@ -87,10 +90,13 @@ export function workspaceStatefulSet(
   container.env = [
     ...(container.env ?? []).filter(
       (variable) =>
-        !["WORKSPACE_TOKEN", "WORKSPACE_DIRECTORY"].includes(variable.name),
+        !["WORKSPACE_TOKEN", "WORKSPACE_DIRECTORY", "SSH_AUTH_SOCK"].includes(
+          variable.name,
+        ),
     ),
     { name: "WORKSPACE_DIRECTORY", value: workspace },
     { name: "WORKSPACE_TOKEN", value: workspaceToken(settings.key, agentId) },
+    { name: "SSH_AUTH_SOCK", value: sshAgentWorkspaceSocket },
   ];
   const mounts = {
     workspace: { mountPath: workspace, subPath: agentId },
@@ -101,6 +107,12 @@ export function workspaceStatefulSet(
     },
     // Hides Pi's private conversation state inside the workspace.
     private: { mountPath: `${workspace}/.pi` },
+    "ssh-agent": {
+      name: "workspace",
+      mountPath: sshAgentWorkspaceMount,
+      subPath: sshAgentFolder,
+      readOnly: true,
+    },
   };
   for (const [name, mount] of Object.entries(mounts)) {
     const volumeMount = container.volumeMounts?.find(
@@ -114,7 +126,7 @@ export function workspaceStatefulSet(
     Object.assign(volumeMount, mount);
   }
   template.spec.volumes = template.spec.volumes!.flatMap((volume) => {
-    if (volume.name === "shared") return [];
+    if (volume.name === "shared" || volume.name === "ssh-agent") return [];
     if (volume.name !== "workspace") return [volume];
     return [
       {

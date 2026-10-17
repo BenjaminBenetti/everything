@@ -40,6 +40,14 @@ import { FileSystemWorkspaces } from "../../workspace/service/file-system-worksp
 import { loadApplicationConfig } from "../config/application-config.js";
 import { createHttpApplication } from "../factory/http-application.js";
 import { createOidcIdentityVerifier } from "@everything/security/oidc";
+import { KeyService } from "../../key/service/key-service.js";
+import { PostgresKeyRepository } from "../../key/repository/postgres-key-repository.js";
+import { PostgresSshKeyRepository } from "../../key/repository/postgres-ssh-key-repository.js";
+import { SshEnabledKeys } from "../../key/service/ssh-enabled-keys.js";
+import { OpenSshAgent } from "../../ssh/adapter/open-ssh-agent.js";
+import { SshKeySynchronizer } from "../../ssh/service/ssh-key-synchronizer.js";
+import { sshAgentHostSocket } from "@everything/workspace-contracts/mount";
+import { isSshKeyMaterial } from "@everything/key-contracts/ssh";
 import { PostgresProviderRepository } from "../../provider/repository/postgres-provider-repository.js";
 import { ProviderConnectionService } from "../../provider/service/provider-connections.js";
 import { OpenAiChatGptAuthorization } from "../../provider/adapter/chatgpt-authorization.js";
@@ -79,6 +87,22 @@ async function main(): Promise<void> {
   const database = createApplicationDatabase(config);
   await database.initialize();
   await database.runMigrations();
+  const sshKeys = new PostgresSshKeyRepository(database);
+  const sshAgent = new OpenSshAgent(sshAgentHostSocket);
+  const ssh = new SshKeySynchronizer(
+    {
+      /** Read the installation's SSH pool without bringing user metadata into runtime state. */
+      read: async () =>
+        (await sshKeys.list({ usage: "installation-ssh" })).map(
+          ({ id, encryptedMaterial }) => ({ id, encryptedMaterial }),
+        ),
+    },
+    new SessionCipher(config.sessionEncryptionKey),
+    sshAgent,
+    () =>
+      console.warn("SSH keys could not synchronize; Everything will retry."),
+  );
+  await ssh.start();
   const providers = new ProviderConnectionService(
     new PostgresProviderRepository(database),
     new SessionCipher(config.sessionEncryptionKey),
@@ -133,10 +157,13 @@ async function main(): Promise<void> {
     host: fleet,
     workers,
     workspaces: workspaceInstances,
-  } = createFleetRuntime(config.fleet, (error) =>
-    console.warn("Fleet failed; Everything will retry.", {
-      reason: error instanceof Error ? error.message : "unknown",
-    }),
+  } = createFleetRuntime(
+    config.fleet,
+    (error) =>
+      console.warn("Fleet failed; Everything will retry.", {
+        reason: error instanceof Error ? error.message : "unknown",
+      }),
+    { ...process.env, SSH_AUTH_SOCK: sshAgent.socketPath },
   );
   const inference = new PiInferenceRuntimeFactory(
     providers,
@@ -177,6 +204,14 @@ async function main(): Promise<void> {
   );
   const app = await createHttpApplication({
     apiDocumentation,
+    keys: new SshEnabledKeys(
+      new KeyService(
+        new PostgresKeyRepository(database),
+        new SessionCipher(config.sessionEncryptionKey),
+        new Map([["ssh", { accepts: isSshKeyMaterial }]]),
+      ),
+      ssh,
+    ),
     providers,
     models,
     chatGptRedirectUri: config.chatGptRedirectUri,
@@ -213,6 +248,7 @@ async function main(): Promise<void> {
     /** Check the durable backing store before advertising readiness. */
     readiness: async () => {
       await database.getRepository(AgentEntity).exists();
+      await sshAgent.inventory();
     },
   });
   const summaries = new UpdateSummaryScheduler(
@@ -238,6 +274,7 @@ async function main(): Promise<void> {
     await conversations.close();
     await workspaces.close();
     await fleet.close();
+    await ssh.close();
     await database.destroy();
   });
   closeOnTermination(app);

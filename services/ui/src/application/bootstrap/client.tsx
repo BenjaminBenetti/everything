@@ -1,3 +1,5 @@
+import { HttpKeyDirectory } from "../../key/adapter/http-key-directory.js";
+import "../../key/style/keys.css";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
@@ -68,6 +70,7 @@ async function bootstrap(): Promise<void> {
               workspaces={
                 new HttpWorkspaceDirectory(createAuthenticatedTransport())
               }
+              keys={new HttpKeyDirectory(createAuthenticatedTransport())}
               queryClient={new QueryClient()}
             />
           </AvatarAnimationProvider>

@@ -36,7 +36,13 @@ export function fleetHome(directory: string): FleetHome {
 }
 
 /** Variables of Everything's environment that fleetd and the tools it runs need. */
-const inheritedVariables = ["PATH", "LANG", "TZ", "DOCKER_HOST"] as const;
+const inheritedVariables = [
+  "PATH",
+  "LANG",
+  "TZ",
+  "DOCKER_HOST",
+  "SSH_AUTH_SOCK",
+] as const;
 
 /**
  * The environment of fleetd and of the Fleet commands Everything runs, with Fleet's home as HOME so

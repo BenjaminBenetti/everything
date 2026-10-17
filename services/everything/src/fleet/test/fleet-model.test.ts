@@ -33,6 +33,7 @@ test("gives Fleet its own home and keeps Everything's secrets out of its environ
       HOME: "/state/home",
       PATH: "/usr/bin",
       DOCKER_HOST: "unix:///run/docker-socket/docker.sock",
+      SSH_AUTH_SOCK: "/workspace/.ssh-agent/agent.sock",
       DATABASE_PASSWORD: "secret",
       REGISTRY_PASSWORD: "secret",
     }),
@@ -40,6 +41,7 @@ test("gives Fleet its own home and keeps Everything's secrets out of its environ
       HOME: "/fleet",
       PATH: "/usr/bin",
       DOCKER_HOST: "unix:///run/docker-socket/docker.sock",
+      SSH_AUTH_SOCK: "/workspace/.ssh-agent/agent.sock",
     },
   );
 });

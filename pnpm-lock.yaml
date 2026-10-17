@@ -66,6 +66,12 @@ importers:
         specifier: 7.0.2
         version: 7.0.2
 
+  lib/key-contracts:
+    devDependencies:
+      typescript:
+        specifier: 7.0.2
+        version: 7.0.2
+
   lib/persistence:
     dependencies:
       p-retry:
@@ -274,6 +280,9 @@ importers:
       '@everything/errors':
         specifier: workspace:*
         version: link:../../lib/errors
+      '@everything/key-contracts':
+        specifier: workspace:*
+        version: link:../../lib/key-contracts
       '@everything/persistence':
         specifier: workspace:*
         version: link:../../lib/persistence
@@ -401,6 +410,9 @@ importers:
       '@everything/conversation-contracts':
         specifier: workspace:*
         version: link:../../lib/conversation-contracts
+      '@everything/key-contracts':
+        specifier: workspace:*
+        version: link:../../lib/key-contracts
       '@everything/provider-contracts':
         specifier: workspace:*
         version: link:../../lib/provider-contracts

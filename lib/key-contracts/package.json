@@ -1,0 +1,26 @@
+{
+  "name": "@everything/key-contracts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "files": [
+    "build"
+  ],
+  "exports": {
+    ".": {
+      "types": "./build/key/model/key.d.ts",
+      "default": "./build/key/model/key.js"
+    },
+    "./ssh": {
+      "types": "./build/key/service/ssh-key-format.d.ts",
+      "default": "./build/key/service/ssh-key-format.js"
+    }
+  },
+  "scripts": {
+    "build": "rm -rf build && tsc -p tsconfig.build.json",
+    "check": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "typescript": "7.0.2"
+  }
+}

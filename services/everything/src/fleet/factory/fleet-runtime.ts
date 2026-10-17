@@ -26,9 +26,10 @@ export interface FleetRuntime {
 export function createFleetRuntime(
   settings: FleetSettings,
   reportFailure: (error: unknown) => void,
+  sourceEnvironment: NodeJS.ProcessEnv = process.env,
 ): FleetRuntime {
   const home = fleetHome(settings.home);
-  const environment = fleetEnvironment(home, process.env);
+  const environment = fleetEnvironment(home, sourceEnvironment);
   const commands = new FleetCli(home.executable, environment);
   const host = new FleetHost(
     new FleetInstaller(

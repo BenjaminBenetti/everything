@@ -385,6 +385,7 @@ services:
       # Each agent keeps its files in a subdirectory named by its ID, beside the folder all agents
       # share; teammate pods mount them at the same paths, so a path means the same file everywhere.
       AGENTS_DIRECTORY: /workspace
+      SSH_AUTH_SOCK: /workspace/.ssh-agent/agent.sock
       WORKSPACE_NAMESPACE: "{{ .Release.Namespace }}"
       WORKSPACE_TEMPLATE_NAME: teammate
       WORKSPACE_CLAIM_NAME: '{{ include "stack.claimName" (dict "name" "everything" "volumeName" "agents") }}'
@@ -516,6 +517,9 @@ services:
       agents:
         mountPath: /workspace
         persistentVolume: { size: 10Gi }
+      ssh-hosts:
+        mountPath: /etc/ssh/ssh_config.d
+        files: ssh
       # Fleet's home: the pinned release, Fleet's state and logins, and repository checkouts.
       fleet:
         mountPath: /fleet
@@ -575,6 +579,7 @@ services:
     # Reconciliation adds WORKSPACE_DIRECTORY, the teammate's own folder, and its workspace token.
     env:
       PORT: "8080"
+      SSH_AUTH_SOCK: /run/ssh-agent/agent.sock
     ports:
       http: { containerPort: 8080 }
     probes:
@@ -597,6 +602,11 @@ services:
       # /workspace/<agent id> and the shared folder at /workspace/shared, as Everything sees them.
       workspace: { mountPath: /workspace, emptyDir: {} }
       shared: { mountPath: /workspace/shared, emptyDir: {} }
+      # Reconciliation mounts only the central agent directory, without permission to replace it.
+      ssh-agent: { mountPath: /run/ssh-agent, emptyDir: {}, readOnly: true }
+      ssh-hosts:
+        mountPath: /etc/ssh/ssh_config.d
+        files: ssh
       # Hide Pi's configuration and conversation files behind a read-only empty mount, which
       # reconciliation moves to /workspace/<agent id>/.pi.
       private: { mountPath: /workspace/.pi, emptyDir: {}, readOnly: true }

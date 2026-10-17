@@ -1,3 +1,5 @@
+import type { KeyOperations } from "../../key/interface/key-operations.js";
+import { keyController } from "../../key/controller/key-controller.js";
 import fastifyCookie from "@fastify/cookie";
 import type { SessionOperations } from "../../session/interface/session-operations.js";
 import { SessionCookie } from "../../session/handler/session-cookie.js";
@@ -61,6 +63,7 @@ export interface HttpDependencies {
   readonly sessions: SessionOperations;
   readonly publicOrigin: string;
   readonly chatGptRedirectUri: string;
+  readonly keys: KeyOperations;
   readonly providers: ProviderConnections;
   readonly models: Pick<ProviderModels, "list">;
   readonly agents: Omit<AgentCatalog, "delete">;
@@ -102,6 +105,7 @@ export async function createHttpApplication(
       redact: [
         "req.body.password",
         "req.body.apiKey",
+        "req.body.material",
         "req.body.callback",
         "req.headers.authorization",
         "req.headers.cookie",
@@ -152,6 +156,7 @@ function protectedApi(
     });
     await identityController(scope);
     await apiDocumentationController(scope, dependencies.apiDocumentation);
+    await keyController(scope, dependencies.keys);
     await providerController(scope, dependencies.providers);
     await providerModelController(scope, dependencies.models);
     await conversationController(scope, dependencies.conversations);

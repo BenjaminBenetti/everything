@@ -25,6 +25,7 @@
     "@everything/artifact-contracts": "workspace:*",
     "@everything/conversation-contracts": "workspace:*",
     "@everything/errors": "workspace:*",
+    "@everything/key-contracts": "workspace:*",
     "@everything/persistence": "workspace:*",
     "@everything/provider-contracts": "workspace:*",
     "@everything/security": "workspace:*",
