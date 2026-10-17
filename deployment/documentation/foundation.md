@@ -342,7 +342,7 @@ Whether instances may run privileged pods, which Docker inside an instance needs
 
 Fleet pushes each image to the registry's hostname and names it by that address, which nodes pull from. The Docker engine in Everything's pod reaches the hostname through the ingress, as the nodes do, and Fleet builds the pull Secret nodes use from the registry login Everything writes to `/fleet/.docker/config.json`.
 
-fleetd receives only `PATH`, `LANG`, `TZ`, and `DOCKER_HOST` from Everything's environment, with `/fleet` as `HOME`; devcontainers that read `${localEnv:…}` see none of Everything's settings or secrets. The `fleet` command in the container runs Fleet's client with the same home, so it reaches Everything's fleetd:
+fleetd receives only `PATH`, `LANG`, `TZ`, `DOCKER_HOST`, and `SSH_AUTH_SOCK` from Everything's environment, with `/fleet` as `HOME`; devcontainers that read `${localEnv:…}` see none of Everything's settings or secrets. The `fleet` command in the container runs Fleet's client with the same home, so it reaches Everything's fleetd:
 
 ```sh
 kubectl --context minikube -n everything exec -it everything-0 -c api -- fleet cluster ls everything
@@ -357,7 +357,24 @@ Fleet `v3.2.0-beta` exposes fleet configuration through `fleet_create`, `fleet_s
 
 Everything fills omitted `claude_code_mount`, `codex_mount`, `gh_mount`, and `fleet_mcp` settings with `true` on teammate calls that create a fleet. Explicit values, including `false`, take precedence. This applies to `fleet_create` and to `fleet_up` with a remote when Fleet reports that the named fleet does not exist, including calls from private forks. The pre-execution hook checks `fleet_status`, which includes empty fleets, before adding settings to `fleet_up`; an unavailable or malformed status blocks that creation attempt. Calls for existing fleets and `fleet_edit` retain their original arguments. Fleet calls made outside Everything’s teammate tool path retain Fleet’s own defaults.
 
-fleetd clones repositories with Git. Public repositories clone over HTTPS without credentials. SSH remotes use `/fleet/.ssh`, because the container's account has Fleet's home as its home directory, which OpenSSH reads instead of `$HOME`: host keys a user accepts in Fleet's prompt are saved to `/fleet/.ssh/known_hosts`, and fleetd authenticates with the SSH agent of a connected Fleet client or, failing that, a key in `/fleet/.ssh`, such as a deploy key. A client started through `kubectl exec` has no agent to offer.
+fleetd clones repositories with Git, in its own process, before it copies a checkout into an instance. Public repositories clone over HTTPS without credentials. SSH remotes use `/fleet/.ssh`, because the container's account has Fleet's home as its home directory, which OpenSSH reads instead of `$HOME`: host keys a user accepts in Fleet's prompt are saved to `/fleet/.ssh/known_hosts`. Fleet runs Git with its own `GIT_SSH_COMMAND` (batch mode, strict host-key checking), and only when neither `GIT_SSH_COMMAND`, `GIT_SSH`, nor `core.sshCommand` is set, so Everything sets none of them. Authentication uses the [installation's saved SSH keys](#ssh-keys) first, then the agent of an attached Fleet client, then a key in `/fleet/.ssh`, such as a deploy key.
+
+## SSH keys
+
+**Settings → Keys** stores keys for the whole installation. Everything is a single-user system, so every signed-in account shares the same keys: any account can add, rename, or delete them, and every teammate pod and Fleet can authenticate with them. Accounts are not isolated from each other's keys. `POST /v1/keys` encrypts the uploaded file with the session encryption key before it reaches the `keys` table, and no response returns key material; a rename never reloads it. Public keys, passphrase-protected private keys, and formats OpenSSH clients no longer accept, such as DSA, are stored only and listed as unavailable. An unencrypted OpenSSH or PEM private key (Ed25519, ECDSA, or RSA) is loaded and listed as ready.
+
+Everything decrypts each usable key in memory and loads it into its own OpenSSH agent through `ssh-add`'s standard input, so keys never reach a file, command line, image, or log. The agent listens at `/tmp/everything-ssh/agent.sock`, in Everything's own `/tmp` volume, which no other pod mounts. Synchronization runs after every upload and deletion and every five seconds. It adds new keys and removes deleted ones one at a time, leaving every other identity in the agent loaded. If the agent has exited, it starts again at the same path and the keys are reloaded. If it refuses a removal, or refuses a key it held before, as a locked agent does, it is replaced with a fresh agent and the saved keys are loaded again, so a deleted key never survives. A database outage leaves the loaded keys as they are.
+
+Consumers never reach that agent directly. Everything serves relays that pass on only listing identities, signing, and OpenSSH's `session-bind@openssh.com`, and answer every other request, such as adding, removing, or locking keys, with a failure:
+
+| Socket | Used by | Offers |
+| --- | --- | --- |
+| `/workspace/.ssh-agent/agent.sock` | Teammate pods, which mount its directory read-only at `/run/ssh-agent` with `SSH_AUTH_SOCK=/run/ssh-agent/agent.sock`, and fleetd, which is started with it as `SSH_AUTH_SOCK` and falls back to it | The saved keys |
+| `/tmp/everything-ssh/fleet-git.sock` | SSH clients in Everything's container, including fleetd's Git, through `IdentityAgent` in the image's `/etc/ssh/ssh_config` | The saved keys first, then the keys at fleetd's relay, `/fleet/.fleet/ssh-agent/agent.sock`, without duplicates; each signature comes from the agent that offered the key |
+
+fleetd points its children's `SSH_AUTH_SOCK` at its relay. That relay answers with the agent of the newest attached Fleet client that has one, and with the agent fleetd was started with only when none does, so an attached client would otherwise hide the saved keys from fleetd's clones. `FLEET_SSH_AGENT_SOCK` changes only which agent instances use, not fleetd's own Git, so Everything doesn't set it. `IdentityAgent` doesn't change Fleet's `GIT_SSH_COMMAND` or its host-key checks, and an `IdentityAgent` in `/fleet/.ssh/config` still takes precedence. Instances keep Fleet's order: an attached client's agent, then the saved keys.
+
+Host trust is unchanged. `files/ssh` supplies the shared known_hosts, which names GitHub; OpenSSH checks host keys strictly in noninteractive commands, so a teammate's first connection to another host needs that host's key in the teammate's `~/.ssh/known_hosts`, and fleetd clones from a host missing from both known_hosts files only after an attached Fleet client approves its key. Anyone who can run commands in a teammate pod, a Fleet instance, or Everything's container can sign with the saved keys while they stay saved, but cannot read them out of the agent.
 
 ## Validation
 

@@ -385,6 +385,8 @@ services:
       # Each agent keeps its files in a subdirectory named by its ID, beside the folder all agents
       # share; teammate pods mount them at the same paths, so a path means the same file everywhere.
       AGENTS_DIRECTORY: /workspace
+      # The installation's saved SSH keys, through Everything's relay, which lists and signs but
+      # cannot change the agent. Teammate pods mount the same socket, and fleetd falls back to it.
       SSH_AUTH_SOCK: /workspace/.ssh-agent/agent.sock
       WORKSPACE_NAMESPACE: "{{ .Release.Namespace }}"
       WORKSPACE_TEMPLATE_NAME: teammate
@@ -611,7 +613,8 @@ services:
       # /workspace/<agent id> and the shared folder at /workspace/shared, as Everything sees them.
       workspace: { mountPath: /workspace, emptyDir: {} }
       shared: { mountPath: /workspace/shared, emptyDir: {} }
-      # Reconciliation mounts only the central agent directory, without permission to replace it.
+      # Reconciliation mounts only the directory of Everything's SSH relay, read-only: commands can
+      # list and sign with the installation's saved keys, but not add, remove, or lock them.
       ssh-agent: { mountPath: /run/ssh-agent, emptyDir: {}, readOnly: true }
       ssh-hosts:
         mountPath: /etc/ssh/ssh_config.d

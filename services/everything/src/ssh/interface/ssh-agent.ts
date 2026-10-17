@@ -1,26 +1,19 @@
-/** A private key kept in memory only while it is being loaded into OpenSSH. */
-export interface SshIdentity {
-  readonly id: string;
-  readonly material: string;
-}
-
-/** A safe per-key result that contains neither key contents nor command diagnostics. */
-export interface SshIdentityResult {
-  readonly id: string;
-  readonly loaded: boolean;
-}
-
 /** A managed SSH authentication socket, independent of its operating-system implementation. */
 export interface SshAgent {
   readonly socketPath: string;
-  /** Start or recover the authentication process at its stable socket path. */
+  /** Start the authentication process, or recover one that exited, at its stable socket path. */
   start(): Promise<void>;
-  /** Return a digest of the agent's current public identities to detect drift. */
-  inventory(): Promise<string>;
-  /** Replace the managed identities without writing private keys to files. */
-  replace(
-    identities: readonly SshIdentity[],
-  ): Promise<readonly SshIdentityResult[]>;
+  /** Replace the process with a fresh, empty one at the same path, such as after it was locked. */
+  restart(): Promise<void>;
+  /** Return the base64 wire-format public keys the agent currently offers. */
+  identities(): Promise<ReadonlySet<string>>;
+  /**
+   * Load one private key without writing it to a file, leaving other identities in place. Return
+   * its base64 public key once the agent offers it, or undefined for material the agent cannot use.
+   */
+  add(material: string): Promise<string | undefined>;
+  /** Remove one identity by its base64 public key, leaving other identities in place. */
+  remove(publicKey: string): Promise<void>;
   /** Stop the process and release its socket. */
   close(): Promise<void>;
 }

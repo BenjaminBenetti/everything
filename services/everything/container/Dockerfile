@@ -63,6 +63,12 @@ COPY --chmod=755 services/everything/container/fleet /usr/local/bin/fleet
 # chart's fleet volume, so the host keys a user accepts for Fleet's clones, and any SSH key they add
 # there, persist; Everything keeps its own HOME below.
 RUN usermod --home /fleet node
+# fleetd points its children's SSH_AUTH_SOCK at its relay, which prefers an attached client's agent.
+# Git's SSH in this container uses Everything's relay instead: the installation's saved keys first,
+# then the keys fleetd relays from its clients. Fleet's own GIT_SSH_COMMAND, host-key checking, and
+# known_hosts stay as they are; an IdentityAgent in /fleet/.ssh/config still takes precedence.
+# src/ssh/model/ssh-sockets.ts names the same socket.
+RUN printf '\nHost *\n    IdentityAgent /tmp/everything-ssh/fleet-git.sock\n' >> /etc/ssh/ssh_config
 ENV NODE_ENV=production HOME=/state/home
 WORKDIR /app
 COPY --from=build /output ./
