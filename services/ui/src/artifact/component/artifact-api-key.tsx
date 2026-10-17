@@ -24,6 +24,8 @@ export function ArtifactApiKey({
   const id = useId();
   const root = useRef<HTMLSpanElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
+  /** Set while Escape returns focus to the trigger, so that focus doesn't reopen the key. */
+  const returningFocus = useRef(false);
   const [open, setOpen] = useState(false);
   const [reveal, setReveal] = useState<Reveal>({ state: "loading" });
   const [copied, setCopied] = useState(false);
@@ -81,8 +83,10 @@ export function ArtifactApiKey({
       onKeyDown={(event) => {
         if (event.key !== "Escape" || !open) return;
         event.stopPropagation();
-        setOpen(false);
+        returningFocus.current = true;
         trigger.current?.focus();
+        returningFocus.current = false;
+        setOpen(false);
       }}
     >
       <button
@@ -92,7 +96,9 @@ export function ArtifactApiKey({
         aria-label={`API Key for ${title}`}
         aria-expanded={open}
         aria-controls={open ? id : undefined}
-        onFocus={() => setOpen(true)}
+        onFocus={() => {
+          if (!returningFocus.current) setOpen(true);
+        }}
         onClick={() => setOpen(true)}
       >
         <KeyRound aria-hidden="true" />

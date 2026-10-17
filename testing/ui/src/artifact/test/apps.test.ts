@@ -345,6 +345,47 @@ test("only apps with an API key show the key icon, which reveals the key on requ
   await page.keyboard.press("Escape");
 });
 
+test("Escape from the copy button closes the key and returns focus without reopening it", async ({
+  page,
+  context,
+}, info) => {
+  const state = await prepareApps(context);
+  const phone = info.project.name === "phone";
+  await page.goto("/apps");
+  const card = page.getByRole("article", { name: "Dashboard", exact: true });
+  const trigger = card.getByRole("button", {
+    name: "API Key for Dashboard",
+    exact: true,
+  });
+  const key = card.getByText(apiKey, { exact: true });
+  if (phone) await trigger.tap();
+  else await trigger.click();
+  await expect(key).toBeVisible();
+  const reads = state.keyReads.length;
+  const copy = card.getByRole("button", { name: "Copy API key" });
+  await copy.focus();
+  await expect(copy).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(trigger).toBeFocused();
+  await expect(trigger).toHaveAttribute("aria-expanded", "false");
+  await expect(key).toHaveCount(0);
+  await expect(card.getByText(/X-Api-Key header/)).toHaveCount(0);
+  // A reopened panel would request the key again; give a late reopen time to show.
+  await page.waitForTimeout(300);
+  await expect(key).toHaveCount(0);
+  expect(state.keyReads.length).toBe(reads);
+
+  // Clicking or tapping outside still dismisses a panel opened by a tap or click.
+  if (phone) await trigger.tap();
+  else await trigger.click();
+  await expect(key).toBeVisible();
+  const heading = page.getByRole("heading", { name: "Apps", exact: true });
+  if (phone) await heading.tap();
+  else await heading.click();
+  await expect(key).toHaveCount(0);
+  await expect(trigger).toHaveAttribute("aria-expanded", "false");
+});
+
 test("teammate, type, DB, API, and search filters combine and reset to all apps", async ({
   page,
   context,
