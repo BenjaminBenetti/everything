@@ -191,3 +191,32 @@ test("provider errors, interrupted output, empty replies and missing selections 
   await assert.rejects(f.summarizer.summarize(update, AbortSignal.abort()));
   assert.equal(f.requests.length, before + 1);
 });
+
+test("summaries of a Fast teammate's updates don't request Fast mode", async () => {
+  const selections: unknown[] = [];
+  const summarizer = new ModelUpdateSummarizer({
+    /** Record the selection the summary would run with, then stop before inference. */
+    async create(_ownerId, selection) {
+      selections.push(selection);
+      throw new Error("Selection recorded");
+    },
+  });
+  await assert.rejects(
+    summarizer.summarize(
+      {
+        ...update,
+        inference: {
+          provider: "chatgpt",
+          model: "gpt-6.1-sol",
+          effort: "high",
+          speed: "fast",
+        },
+      },
+      new AbortController().signal,
+    ),
+    /Selection recorded/,
+  );
+  assert.deepEqual(selections, [
+    { provider: "chatgpt", model: "gpt-6.1-sol", effort: "high" },
+  ]);
+});

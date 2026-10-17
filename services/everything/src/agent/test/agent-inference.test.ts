@@ -7,6 +7,9 @@ import {
   ProviderInactiveError,
   InferenceSelectionError,
 } from "../../provider/error/provider-errors.js";
+import { ProviderModelService } from "../../provider/service/provider-models.js";
+import { PiModelCapabilities } from "../../runtime/adapter/pi-model-capabilities.js";
+import { createModelRuntime } from "../../runtime/factory/model-runtime.js";
 import { AgentService } from "../service/agent-service.js";
 import { AgentEditingService } from "../service/agent-editing-service.js";
 import { agentController } from "../controller/agent-controller.js";
@@ -140,4 +143,139 @@ test("create and edit round-trip validated inference atomically, preserve histor
   await assert.rejects(foreign.update("outsider", id, { inference }), {
     code: "AGENT_NOT_FOUND",
   });
+});
+
+test("Fast mode round-trips through create and edit, selections without a speed keep their shape, and unsupported Fast is refused before saving", async (context) => {
+  const id = "0b7f2a4e-3f6d-4f41-9c3a-6e1d2b9c8a70";
+  let saved: AgentDefinition | undefined;
+  let mutations = 0;
+  const repository: AgentRepository & AgentProfileStore = {
+    /** Use explicit ownership on every read and write. */
+    async list({ ownerId }) {
+      return saved?.ownerId === ownerId ? [saved] : [];
+    },
+    /** Store selections exactly as validated, as the JSON column does. */
+    async create({ ownerId }, input) {
+      mutations++;
+      return (saved = structuredClone({
+        ...input,
+        id,
+        ownerId,
+        createdAt: "2026-01-01",
+        avatarId: input.avatarId ?? defaultAgentAvatarId,
+        inference: input.inference ?? null,
+      }));
+    },
+    /** Missing and foreign definitions are indistinguishable. */
+    async getById({ ownerId }, target) {
+      return saved?.ownerId === ownerId && saved.id === target
+        ? saved
+        : undefined;
+    },
+    /** Apply the full selection in one persistence operation. */
+    async update(scope, target, changes) {
+      if (!(await this.getById(scope, target))) return undefined;
+      mutations++;
+      return (saved = structuredClone({ ...saved!, ...changes }));
+    },
+    /** Delete only an owned definition. */
+    async delete(scope, target) {
+      if (await this.getById(scope, target)) saved = undefined;
+    },
+  };
+  // Validate through the real capability table so the API refuses undocumented Fast models.
+  const models = new ProviderModelService(
+    {
+      /** The owner's ChatGPT connection is active. */
+      async access() {
+        return { credential: {}, baseUrl: null, model: null };
+      },
+    },
+    {
+      /** The account offers one Fast-capable model and one without Fast mode. */
+      async discover() {
+        return [
+          { id: "gpt-6.1-sol", name: "GPT-6.1 Sol" },
+          { id: "o3-mini", name: "o3-mini" },
+        ];
+      },
+    },
+    new PiModelCapabilities(await createModelRuntime()),
+  );
+  const [sol, mini] = await models.list("owner", "chatgpt");
+  const app = authenticatedTestServer();
+  context.after(() => app.close());
+  const agents = new AgentService(repository, models);
+  await agentController(app, agents, agents);
+  await agentEditingController(
+    app,
+    new AgentEditingService(repository, models),
+  );
+  const legacy = {
+    provider: "chatgpt",
+    model: mini!.id,
+    effort: mini!.defaultEffort,
+  } as const;
+  const created = await app.inject({
+    method: "POST",
+    url: "/agents",
+    payload: { name: "Legacy", systemPrompt: "Help", inference: legacy },
+  });
+  assert.equal(created.statusCode, 201);
+  assert.deepEqual(created.json().inference, legacy);
+  assert.ok(!("speed" in created.json().inference));
+  const fast = {
+    provider: "chatgpt",
+    model: sol!.id,
+    effort: sol!.defaultEffort,
+    speed: "fast",
+  } as const;
+  const edited = await app.inject({
+    method: "PATCH",
+    url: `/agents/${id}`,
+    payload: { inference: fast },
+  });
+  assert.equal(edited.statusCode, 200, edited.body);
+  assert.deepEqual(edited.json().inference, fast);
+  assert.deepEqual(saved?.inference, fast);
+  await app.inject({
+    method: "PATCH",
+    url: `/agents/${id}`,
+    payload: { name: "Renamed" },
+  });
+  assert.deepEqual((await app.inject(`/agents/${id}`)).json().inference, fast);
+  const before = mutations;
+  const refused = await app.inject({
+    method: "PATCH",
+    url: `/agents/${id}`,
+    payload: { inference: { ...legacy, speed: "fast" } },
+  });
+  assert.equal(refused.statusCode, 400);
+  assert.equal(refused.json().code, "FAST_MODE_UNSUPPORTED");
+  for (const speed of ["turbo", "priority", null, 1])
+    assert.equal(
+      (
+        await app.inject({
+          method: "PATCH",
+          url: `/agents/${id}`,
+          payload: { inference: { ...fast, speed } },
+        })
+      ).statusCode,
+      400,
+    );
+  assert.equal(mutations, before);
+  assert.deepEqual(saved?.inference, fast);
+  const standard = {
+    ...fast,
+    model: mini!.id,
+    effort: mini!.defaultEffort,
+    speed: "standard",
+  } as const;
+  const turnedOff = await app.inject({
+    method: "PATCH",
+    url: `/agents/${id}`,
+    payload: { inference: standard },
+  });
+  assert.equal(turnedOff.statusCode, 200);
+  assert.deepEqual(turnedOff.json().inference, standard);
 });

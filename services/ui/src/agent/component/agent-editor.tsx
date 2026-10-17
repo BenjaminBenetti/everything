@@ -9,8 +9,13 @@ import { useSession } from "../../session/component/session-provider.js";
 import { AvatarPicker } from "./avatar-picker.js";
 import { TeammateAvatar } from "./teammate-avatar.js";
 import { randomTeammateAvatarId } from "../model/teammate-avatars.js";
-import { InferenceFields, type InferenceDraft } from "./inference-fields.js";
-import type { InferenceSelection } from "@everything/provider-contracts/inference";
+import { InferenceFields } from "./inference-fields.js";
+import {
+  draftSelection,
+  inferenceDraft,
+  isChangedDraft,
+  type InferenceDraft,
+} from "../model/inference-draft.js";
 
 /** Require a model for new teammates and preserve the complete profile draft after API failures. */
 export function AgentEditor({
@@ -29,20 +34,14 @@ export function AgentEditor({
   );
   const [avatarChoice, setAvatarChoice] = useState(avatarId);
   const [choosingAvatar, setChoosingAvatar] = useState(false);
-  const [inference, setInference] = useState<InferenceDraft>(
-    agent?.inference ?? { provider: "", model: "", effort: "" },
+  const [inference, setInference] = useState<InferenceDraft>(() =>
+    inferenceDraft(agent?.inference),
   );
   const [validInference, setValidInference] = useState(false);
-  const inferenceChanged =
-    inference.provider !== (agent?.inference?.provider ?? "") ||
-    inference.model !== (agent?.inference?.model ?? "") ||
-    inference.effort !== (agent?.inference?.effort ?? "");
+  const inferenceChanged = isChangedDraft(inference, agent?.inference);
+  const selection = draftSelection(inference);
   const inferenceReady =
-    (!!agent && !inferenceChanged) ||
-    (validInference &&
-      !!inference.provider &&
-      !!inference.model &&
-      !!inference.effort);
+    (!!agent && !inferenceChanged) || (validInference && !!selection);
   const formId = useId();
   const avatarButton = useRef<HTMLButtonElement>(null);
   const wasChoosingAvatar = useRef(false);
@@ -60,12 +59,7 @@ export function AgentEditor({
         name: name.trim(),
         systemPrompt: description.trim() || "Help me with my everyday work.",
         avatarId,
-        ...(inferenceChanged &&
-        inference.provider &&
-        inference.model &&
-        inference.effort
-          ? { inference: inference as InferenceSelection }
-          : {}),
+        ...(inferenceChanged && selection ? { inference: selection } : {}),
       };
       return agent
         ? directory.update(agent.id, input)

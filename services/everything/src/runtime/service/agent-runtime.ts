@@ -1,10 +1,22 @@
 import { randomUUID } from "node:crypto";
 import type { AgentSession } from "../interface/agent-session.js";
 import type { RuntimeStatus } from "../model/runtime-status.js";
+import {
+  FastModeLimitedError,
+  FastModeRejectedError,
+} from "../error/runtime-errors.js";
 
 /** Caller-safe failure text; provider details stay in the private session transcript. */
 const runFailure =
   "Your teammate couldn’t finish replying. Check the model provider, then send a message to continue.";
+
+/** Explain a refused Fast mode request with its recovery, and every other failure generically. */
+function failureText(error: unknown): string {
+  return error instanceof FastModeRejectedError ||
+    error instanceof FastModeLimitedError
+    ? error.message
+    : runFailure;
+}
 
 /** One agent's loaded session, its in-flight turn, and the public status of that turn. */
 export class AgentRuntime {
@@ -106,8 +118,12 @@ export class AgentRuntime {
     try {
       await this.session.prompt(text);
       this.current = { ...this.current, status: "idle" };
-    } catch {
-      this.current = { ...this.current, status: "error", error: runFailure };
+    } catch (error) {
+      this.current = {
+        ...this.current,
+        status: "error",
+        error: failureText(error),
+      };
     }
   }
 }

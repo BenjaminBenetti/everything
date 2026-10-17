@@ -202,6 +202,7 @@ test("selection returns reported limits while the public catalog keeps only safe
     "efforts",
     "id",
     "name",
+    "speeds",
   ]);
   const selected = await service.select("owner", {
     provider: "openai-compatible",
