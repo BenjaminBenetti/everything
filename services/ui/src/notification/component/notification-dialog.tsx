@@ -33,7 +33,11 @@ export function NotificationDialog({ onClose }: { onClose: () => void }) {
           </span>
           <div>
             <h3 id="desktop-notifications-heading">Desktop</h3>
-            <p>Get notified on this computer, even in another tab or app.</p>
+            <p>
+              Keep an Everything tab open to get notifications while you use
+              another tab or app. Notifications stop when you close all
+              Everything tabs.
+            </p>
           </div>
         </div>
         <DesktopNotificationControls />

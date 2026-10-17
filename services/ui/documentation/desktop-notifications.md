@@ -4,7 +4,7 @@ Everything can show a desktop browser notification when a teammate sends you a m
 
 ## Turning them on
 
-The topbar's Notification settings button (the Notifications item in the phone menu) opens **Notifications**. Its **Desktop notifications** switch is off by default and saved per signed-in user on this device, in browser storage like the color theme. Other tabs follow changes immediately. If storage refuses the choice (private windows, a full or read-only storage area), it still applies on that page until it closes or another tab saves a newer one.
+The topbar's Notification settings button (the same item in the phone's workspace menu) opens **Notifications**. Its Desktop section tells the user to keep an Everything tab open to get notifications while using another tab or app, and that notifications stop when all Everything tabs are closed. Its **Desktop notifications** switch is off by default and saved per signed-in user on this device, in browser storage like the color theme. Other tabs follow changes immediately. If storage refuses the choice (private windows, a full or read-only storage area), it still applies on that page until it closes or another tab saves a newer one.
 
 The browser is asked for permission only when the user turns the switch on, from that click. Page loads, arriving messages, reloads, and other automatic effects never ask. The switch is on only while the user's choice is on **and** the browser allows notifications. The text under the switch matches the current state:
 

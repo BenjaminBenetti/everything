@@ -116,6 +116,17 @@ function shown(page: Page): Promise<ShownNotification[]> {
   );
 }
 
+/** What the Desktop section says about keeping a tab open, since there's no push delivery. */
+const keepTabOpen =
+  "Keep an Everything tab open to get notifications while you use another tab or app. Notifications stop when you close all Everything tabs.";
+
+/** The dialog's Desktop section. */
+function desktopSection(page: Page) {
+  return page
+    .getByRole("dialog")
+    .getByRole("region", { name: "Desktop", exact: true });
+}
+
 /** Click the switch's visible label, as a user does; the checkbox itself is visually hidden. */
 async function toggleDesktopNotifications(page: Page) {
   await page
@@ -284,6 +295,9 @@ test("turning on desktop notifications asks once from the switch and is remember
   await expect(dialog.getByRole("status")).toHaveText(
     "Your browser will ask for permission when you turn this on.",
   );
+  await expect(
+    desktopSection(page).getByText(keepTabOpen, { exact: true }),
+  ).toBeInViewport();
   expect(await requests(page)).toBe(0);
   await page.screenshot({ path: info.outputPath("notifications-off.png") });
   await toggleDesktopNotifications(page);
@@ -358,6 +372,9 @@ test("phones never ask for desktop notification permission and keep the Home Scr
   await expect(dialog.getByRole("status")).toContainText(
     "This browser can’t show desktop notifications",
   );
+  await expect(
+    desktopSection(page).getByText(keepTabOpen, { exact: true }),
+  ).toBeVisible();
   await expect(dialog).toContainText("Add to Home Screen");
   await expect(dialog).toContainText(
     "Phone notifications aren’t available yet",
