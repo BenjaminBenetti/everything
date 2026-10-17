@@ -38,6 +38,8 @@ import { providerModelController } from "../../provider/controller/provider-mode
 import { settingsController } from "../../settings/controller/settings-controller.js";
 import { generalSettingsController } from "../../settings/controller/general-settings-controller.js";
 import type { GeneralSettingsOperations } from "../../settings/interface/general-settings.js";
+import { teammateOrderController } from "../../settings/controller/teammate-order-controller.js";
+import type { TeammateOrderOperations } from "../../settings/interface/teammate-order.js";
 import type { WorkerSettingsOperations } from "../../settings/interface/worker-settings.js";
 import type { WorkspaceInstances } from "../../workspace/interface/workspace-instances.js";
 import { workspaceInstanceController } from "../../workspace/controller/workspace-instance-controller.js";
@@ -77,6 +79,7 @@ export interface HttpDependencies {
   readonly artifacts: ArtifactLibrary;
   readonly workers: WorkerSettingsOperations;
   readonly generalSettings: GeneralSettingsOperations;
+  readonly teammateOrder: TeammateOrderOperations;
   readonly workspaces: WorkspaceInstances;
   readonly workspaceActivity: WorkspaceActivityReader;
   readonly readiness: ReadinessCheck;
@@ -169,6 +172,7 @@ function protectedApi(
     await artifactController(scope, dependencies.artifacts);
     await settingsController(scope, dependencies.workers);
     await generalSettingsController(scope, dependencies.generalSettings);
+    await teammateOrderController(scope, dependencies.teammateOrder);
     await workspaceInstanceController(scope, dependencies.workspaces);
     await workspaceActivityController(scope, dependencies.workspaceActivity);
   };

@@ -3,20 +3,23 @@ import { Pencil, Plus } from "lucide-react";
 import { Button } from "@everything/ui/button";
 import { SearchInput } from "@everything/ui/search-input";
 import { useAgents } from "../component/agent-directory-provider.js";
+import { useArrangedAgents } from "../hook/use-arranged-agents.js";
 import { AgentCard } from "../component/agent-card.js";
 import { PageHeading } from "../../workspace/component/page-heading.js";
 import { useWorkspaceDialogs } from "../../workspace/component/workspace-dialogs.js";
 import { useUpdateCount } from "../../update/hook/use-updates.js";
 
-/** Search and manage teammates with their unread totals from the shared count query. */
+/** Search and manage teammates in the owner's order, with unread totals from the shared count query. */
 export function TeamPage() {
   const [search, setSearch] = useState("");
   const agents = useAgents();
+  const { teammates } = useArrangedAgents(agents.data);
   const updateCounts = useUpdateCount().data;
   const { open } = useWorkspaceDialogs();
   const term = search.trim().toLocaleLowerCase();
+  const loading = agents.isPending || (agents.isSuccess && !teammates);
   const filtered =
-    agents.data?.filter((agent) =>
+    teammates?.filter((agent) =>
       `${agent.name} ${agent.systemPrompt}`.toLocaleLowerCase().includes(term),
     ) ?? [];
   return (
@@ -43,7 +46,7 @@ export function TeamPage() {
           onChange={(event) => setSearch(event.target.value)}
         />
       </div>
-      {agents.isPending && (
+      {loading && (
         <p className="status-panel" role="status">
           Loading your team…
         </p>
@@ -56,7 +59,7 @@ export function TeamPage() {
           </Button>
         </div>
       )}
-      {!agents.isPending && !agents.isError && (
+      {!loading && !agents.isError && (
         <div className="agent-grid">
           {filtered.map((agent) => (
             <AgentCard

@@ -13,6 +13,10 @@ async function prepareWorkspace(context: BrowserContext): Promise<void> {
       },
     }),
   );
+  // The sidebar reads the saved teammate order; an empty one keeps creation order.
+  await context.route("**/v1/settings/teammate-order", (route) =>
+    route.fulfill({ json: { teammateIds: [] } }),
+  );
   await context.route("**/v1/agents", (route) =>
     route.fulfill({ json: { agents: [] } }),
   );

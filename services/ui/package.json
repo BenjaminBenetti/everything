@@ -18,6 +18,9 @@
     "build:image": "bash ../../deployment/script/build-image.sh services/ui everything-ui:foundation"
   },
   "dependencies": {
+    "@dnd-kit/core": "6.3.1",
+    "@dnd-kit/sortable": "10.0.0",
+    "@dnd-kit/utilities": "3.2.2",
     "@everything/agent-contracts": "workspace:*",
     "@everything/artifact-contracts": "workspace:*",
     "@everything/conversation-contracts": "workspace:*",

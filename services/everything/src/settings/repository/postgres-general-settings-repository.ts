@@ -5,9 +5,11 @@ import {
   type OwnerScope,
 } from "@everything/persistence/repository";
 import { serializableTransaction } from "@everything/persistence/transaction";
-import type { GeneralSettings } from "@everything/settings-contracts";
 import type { GeneralSettingsRepository } from "../interface/general-settings-repository.js";
-import type { StoredGeneralSettings } from "../model/general-settings.js";
+import type {
+  GeneralPreferences,
+  StoredGeneralSettings,
+} from "../model/general-settings.js";
 import { GeneralSettingsEntity } from "../schema/general-settings-entity.js";
 
 /** Store general preferences independently of worker availability and browser state. */
@@ -28,8 +30,11 @@ export class PostgresGeneralSettingsRepository
   // Operations
   // ===========================================
 
-  /** Serialize creation and replacement without changing the record's ID or creation time. */
-  async save(scope: OwnerScope, settings: GeneralSettings): Promise<void> {
+  /** Serialize creation and changes without touching other preferences, the record's ID, or creation time. */
+  async save(
+    scope: OwnerScope,
+    preferences: Partial<GeneralPreferences>,
+  ): Promise<void> {
     const where = this.scopeWhere(scope);
     await serializableTransaction(this.orm.manager, async (manager) => {
       const repository = manager.getRepository(GeneralSettingsEntity);
@@ -37,9 +42,9 @@ export class PostgresGeneralSettingsRepository
       await repository.save(
         repository.create({
           ...previous,
+          ...pickPreferences(preferences),
           id: previous?.id ?? randomUUID(),
           ownerId: scope.ownerId,
-          summarizeUpdates: settings.summarizeUpdates,
         }),
       );
     });
@@ -63,7 +68,19 @@ export class PostgresGeneralSettingsRepository
     ownerId,
     createdAt,
     summarizeUpdates,
+    teammateIds,
   }: StoredGeneralSettings): StoredGeneralSettings {
-    return { id, ownerId, createdAt, summarizeUpdates };
+    return { id, ownerId, createdAt, summarizeUpdates, teammateIds };
   }
+}
+
+/** Copy only known preference fields so a caller's extra properties never reach a column. */
+function pickPreferences({
+  summarizeUpdates,
+  teammateIds,
+}: Partial<GeneralPreferences>): Partial<GeneralPreferences> {
+  return {
+    ...(summarizeUpdates === undefined ? {} : { summarizeUpdates }),
+    ...(teammateIds === undefined ? {} : { teammateIds: [...teammateIds] }),
+  };
 }
