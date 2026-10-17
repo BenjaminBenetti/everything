@@ -83,3 +83,26 @@ export async function lockAgent(socket: string): Promise<number> {
 export async function killAgent(socket: string): Promise<void> {
   await execute("pkill", ["-KILL", "-f", `ssh-agent -D -a ${socket}`]);
 }
+
+/**
+ * Keep an unencrypted OpenSSH key's readable public key but break its private section's check
+ * integers, as a damaged upload would, so OpenSSH refuses to load it.
+ */
+export function corruptPrivateKey(material: string): string {
+  const lines = material.trim().split("\n");
+  const body = Buffer.from(lines.slice(1, -1).join(""), "base64");
+  // After "openssh-key-v1\0": cipher, KDF, and KDF options, then the key count and public key.
+  let offset = 15;
+  for (let field = 0; field < 3; field++)
+    offset += 4 + body.readUInt32BE(offset);
+  offset += 4;
+  offset += 4 + body.readUInt32BE(offset);
+  // The private section's length, then two check integers that must match.
+  offset += 4;
+  body.writeUInt32BE((body.readUInt32BE(offset) ^ 1) >>> 0, offset + 4);
+  const encoded = body
+    .toString("base64")
+    .match(/.{1,70}/g)!
+    .join("\n");
+  return `${lines[0]}\n${encoded}\n${lines.at(-1)}\n`;
+}

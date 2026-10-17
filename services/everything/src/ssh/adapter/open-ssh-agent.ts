@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import { generateKeyPairSync } from "node:crypto";
 import { chmod } from "node:fs/promises";
 import path from "node:path";
 import pRetry from "p-retry";
@@ -87,7 +88,11 @@ export class OpenSshAgent implements SshAgent {
     );
   }
 
-  /** Load one key through `ssh-add`'s stdin and confirm the agent now offers its public key. */
+  /**
+   * Load one key through `ssh-add`'s stdin and confirm the agent now offers its public key. A
+   * refusal counts against the material only if the agent still accepts a throwaway key; an agent
+   * that refuses every key, such as a locked one, throws so it can be replaced.
+   */
   async add(material: string): Promise<string | undefined> {
     // OpenSSH's private-key reader requires a terminating newline, including pasted keys.
     const normalized = `${material.trim().replace(/\r\n/g, "\n")}\n`;
@@ -95,8 +100,11 @@ export class OpenSshAgent implements SshAgent {
     if (!publicKey) return undefined;
     const result = await this.command(["-q", "-"], normalized);
     if (result === 2) throw new Error("SSH agent is unavailable");
-    if (result !== 0) return undefined;
-    return (await this.identities()).has(publicKey) ? publicKey : undefined;
+    if (result === 0 && (await this.identities()).has(publicKey))
+      return publicKey;
+    if (!(await this.acceptsIdentities()))
+      throw new Error("SSH agent refuses new identities");
+    return undefined;
   }
 
   /** Remove one identity over the agent protocol; a refusal means the agent cannot be trusted to revoke. */
@@ -111,6 +119,37 @@ export class OpenSshAgent implements SshAgent {
     );
     if (messageType(reply) !== agentMessage.success)
       throw new Error("SSH agent refused to remove an identity");
+  }
+
+  /** Add and remove a throwaway Ed25519 key generated in memory, which only a refusing agent rejects. */
+  private async acceptsIdentities(): Promise<boolean> {
+    const { publicKey, privateKey } = generateKeyPairSync("ed25519");
+    const point = Buffer.from(
+      publicKey.export({ format: "jwk" }).x!,
+      "base64url",
+    );
+    const seed = Buffer.from(
+      privateKey.export({ format: "jwk" }).d!,
+      "base64url",
+    );
+    const reply = await agentRequest(
+      this.socketPath,
+      frame(
+        agentMessage.addIdentity,
+        sshString("ssh-ed25519"),
+        sshString(point),
+        sshString(Buffer.concat([seed, point])),
+        sshString("everything-probe"),
+      ),
+      commandTimeoutMs,
+    );
+    if (messageType(reply) !== agentMessage.success) return false;
+    await this.remove(
+      Buffer.concat([sshString("ssh-ed25519"), sshString(point)]).toString(
+        "base64",
+      ),
+    );
+    return true;
   }
 
   // ===========================================

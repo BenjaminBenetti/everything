@@ -124,8 +124,9 @@ export class SshKeySynchronizer implements SshKeySynchronization {
 
   /**
    * Remove identities of deleted or changed keys that no remaining key shares, then load keys the
-   * agent does not offer. A refused removal, or a key that loaded before but is refused now, means
-   * the agent is locked or broken, which throws so the agent is replaced.
+   * agent does not offer. A refused removal, an agent that refuses keys altogether, or a key that
+   * loaded before but is refused now means the agent is locked or broken, which throws so the agent
+   * is replaced. Material the agent cannot use is remembered and not retried until it changes.
    */
   private async converge(
     records: readonly EncryptedSshIdentity[],

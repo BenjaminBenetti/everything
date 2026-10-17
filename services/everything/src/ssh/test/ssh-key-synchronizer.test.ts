@@ -1,9 +1,14 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { SessionCipher } from "@everything/security/session-cipher";
+import { OpenSshAgent } from "../adapter/open-ssh-agent.js";
 import type { SshAgent } from "../interface/ssh-agent.js";
 import type { EncryptedSshIdentity } from "../interface/ssh-key-source.js";
 import { SshKeySynchronizer } from "../service/ssh-key-synchronizer.js";
+import { corruptPrivateKey, createKey, lockAgent } from "./ssh-key-fixtures.js";
 
 /** Exercise convergence with an independent durable source and a controllable authentication process. */
 async function fixture() {
@@ -46,9 +51,10 @@ async function fixture() {
     async identities() {
       return new Set(state.locked ? [] : state.held.keys());
     },
-    /** Refuse unusable material and every change while locked. */
+    /** Return nothing for unusable material, and throw while locked, as OpenSSH's adapter does. */
     async add(material) {
-      if (state.locked || material === "unusable") return undefined;
+      if (state.locked) throw new Error("refused");
+      if (material === "unusable") return undefined;
       const publicKey = `public:${material}`;
       state.held.set(publicKey, material);
       state.added.push(publicKey);
@@ -210,4 +216,68 @@ test("a deletion during synchronization cannot be lost behind an older snapshot"
   assert.equal(state.readCount, 2);
   assert.deepEqual([...state.held.keys()], []);
   await service.close();
+});
+
+test("a key saved while the empty agent is locked loads once the agent is replaced", async () => {
+  const { state, service, cipher } = await fixture();
+  state.records = [];
+  await service.refresh();
+  state.locked = true;
+  state.records.push({
+    id: "first",
+    encryptedMaterial: await cipher.seal("first private key"),
+  });
+  await service.refresh();
+  assert.equal(service.status("first"), "ready");
+  assert.equal(state.restarts, 1);
+  assert.deepEqual([...state.held.keys()], ["public:first private key"]);
+  await service.close();
+});
+
+test("OpenSSH: a locked empty agent is replaced for a new key, and damaged material is not retried", async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), "keys-sync-"));
+  const cipher = new SessionCipher(Buffer.alloc(32, 7).toString("base64"));
+  const agent = new OpenSshAgent(path.join(root, "private", "agent.sock"));
+  let restarts = 0;
+  const restart = agent.restart.bind(agent);
+  agent.restart = async () => {
+    restarts++;
+    await restart();
+  };
+  const records: EncryptedSshIdentity[] = [];
+  const failures: unknown[][] = [];
+  const service = new SshKeySynchronizer(
+    { read: async () => [...records] },
+    cipher,
+    agent,
+    (...args: unknown[]) => {
+      failures.push(args);
+    },
+  );
+  context.after(async () => {
+    await service.close();
+    await rm(root, { recursive: true, force: true });
+  });
+  const key = await createKey(root, "valid");
+  const damaged = await createKey(root, "damaged");
+  await service.start();
+  assert.equal(await lockAgent(agent.socketPath), 6);
+  records.push({
+    id: "valid",
+    encryptedMaterial: await cipher.seal(key.material),
+  });
+  await service.refresh();
+  assert.equal(service.status("valid"), "ready");
+  assert.equal(restarts, 1);
+  assert.deepEqual(await agent.identities(), new Set([key.blob]));
+  records.push({
+    id: "damaged",
+    encryptedMaterial: await cipher.seal(corruptPrivateKey(damaged.material)),
+  });
+  for (let pass = 0; pass < 3; pass++) await service.refresh();
+  assert.equal(service.status("damaged"), "unavailable");
+  assert.equal(service.status("valid"), "ready");
+  assert.equal(restarts, 1);
+  assert.deepEqual(await agent.identities(), new Set([key.blob]));
+  assert.deepEqual(failures, []);
 });

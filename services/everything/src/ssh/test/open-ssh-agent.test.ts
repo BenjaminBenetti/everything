@@ -5,7 +5,14 @@ import path from "node:path";
 import { test } from "node:test";
 import pRetry from "p-retry";
 import { OpenSshAgent } from "../adapter/open-ssh-agent.js";
-import { createKey, killAgent, lockAgent, sshAdd } from "./ssh-key-fixtures.js";
+import { sshPublicKey } from "../adapter/ssh-public-key.js";
+import {
+  corruptPrivateKey,
+  createKey,
+  killAgent,
+  lockAgent,
+  sshAdd,
+} from "./ssh-key-fixtures.js";
 
 test("OpenSSH adds and removes single keys through stdin while other identities stay loaded", async (context) => {
   const root = await mkdtemp(path.join(tmpdir(), "keys-ssh-"));
@@ -67,7 +74,7 @@ test("a locked or exited agent is replaced at the same path without its identiti
   assert.equal(await agent.add(key.material), key.blob);
   assert.equal(await lockAgent(agent.socketPath), 6);
   assert.deepEqual([...(await agent.identities())], []);
-  assert.equal(await agent.add(key.material), undefined);
+  await assert.rejects(agent.add(key.material), /refuses new identities/);
   await assert.rejects(agent.remove(key.blob));
   await agent.restart();
   assert.deepEqual([...(await agent.identities())], []);
@@ -83,6 +90,26 @@ test("a locked or exited agent is replaced at the same path without its identiti
     { retries: 20, minTimeout: 25, maxTimeout: 100 },
   );
   assert.equal(await agent.add(key.material), key.blob);
+});
+
+test("a locked agent's refusal throws, while damaged material on a working agent is merely unusable", async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), "keys-ssh-"));
+  const agent = new OpenSshAgent(path.join(root, "managed", "agent.sock"));
+  context.after(async () => {
+    await agent.close();
+    await rm(root, { recursive: true, force: true });
+  });
+  const key = await createKey(root, "fixture");
+  const damaged = corruptPrivateKey(key.material);
+  assert.equal(sshPublicKey(damaged), key.blob);
+  await agent.start();
+  assert.equal(await lockAgent(agent.socketPath), 6);
+  await assert.rejects(agent.add(key.material), /refuses new identities/);
+  await agent.restart();
+  assert.equal(await agent.add(damaged), undefined);
+  assert.deepEqual([...(await agent.identities())], []);
+  assert.equal(await agent.add(key.material), key.blob);
+  assert.deepEqual(await agent.identities(), new Set([key.blob]));
 });
 
 test("a new agent at a closed agent's path starts empty", async (context) => {

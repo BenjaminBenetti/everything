@@ -7,6 +7,7 @@ export const agentMessage = {
   requestIdentities: 11,
   identitiesAnswer: 12,
   signRequest: 13,
+  addIdentity: 17,
   removeIdentity: 18,
   extension: 27,
 } as const;

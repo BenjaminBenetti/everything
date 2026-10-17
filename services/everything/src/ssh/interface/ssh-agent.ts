@@ -10,6 +10,7 @@ export interface SshAgent {
   /**
    * Load one private key without writing it to a file, leaving other identities in place. Return
    * its base64 public key once the agent offers it, or undefined for material the agent cannot use.
+   * Throw when the agent refuses keys altogether, such as while it is locked.
    */
   add(material: string): Promise<string | undefined>;
   /** Remove one identity by its base64 public key, leaving other identities in place. */
