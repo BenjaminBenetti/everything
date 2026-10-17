@@ -540,6 +540,15 @@ services:
       # and serves only the socket it shares with Everything's container.
       docker:
         upstreamImage: docker.io/library/docker:29.8.2-dind
+        # Docker's networks default to 1500-byte packets. Pod networks that encapsulate traffic carry
+        # less, such as 1450 with VXLAN, and drop larger packets, which stalls HTTPS downloads in build
+        # steps. The engine takes the MTU of the pod's interface, which Kubernetes names eth0, and
+        # starts through the image's entrypoint with args.
+        command:
+          - sh
+          - -c
+          - exec dockerd-entrypoint.sh "$@" --mtu="$(cat /sys/class/net/eth0/mtu)"
+          - dockerd-entrypoint.sh
         args:
           [dockerd, --host=unix:///run/docker-socket/docker.sock, --group=1000]
         containerSecurityContext:

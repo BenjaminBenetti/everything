@@ -50,6 +50,10 @@ spec:
         - name: {{ $sidecarName }}
           {{- include "stack.containerImage" (dict "root" $ "name" (printf "%s.sidecars.%s" $name $sidecarName) "image" $sidecar.image "upstreamImage" $sidecar.upstreamImage) | nindent 10 }}
           restartPolicy: Always
+          {{- with $sidecar.command }}
+          command:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           {{- with $sidecar.args }}
           args:
             {{- toYaml . | nindent 12 }}
