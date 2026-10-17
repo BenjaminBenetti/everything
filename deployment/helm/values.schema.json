@@ -546,6 +546,12 @@
           "type": "string",
           "minLength": 1
         },
+        "command": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "args": {
           "type": "array",
           "items": {
