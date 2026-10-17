@@ -6,6 +6,15 @@ This slice runs Everything's API and real Pi SDK together, with Keycloak, Postgr
 
 Requirements: Node 24.11+, pnpm 10.34.6, Docker, kubectl, Helm, and Minikube with an ingress controller. The devcontainer provides all of them: its Node feature installs the pinned pnpm version during the image build, and its startup script starts Minikube, enables the metrics-server addon so `kubectl top` and k9s show CPU and memory, and installs Traefik as the default ingress controller (`.devcontainer/install-traefik.sh`). Package-manager setup does not need `sudo` or a post-create command; Node and pnpm use the feature's nvm-managed path. The deployment scripts only target the `minikube` context.
 
+The devcontainer mounts nothing from its host, but Minikube inside it needs two things the host provides. Docker in the container runs only when the container is privileged, which the docker-in-docker feature requests. Minikube's pods reach Services and cluster DNS only when the kernel passes bridged traffic through iptables, which the startup script checks by reading `/proc/sys/net/bridge/bridge-nf-call-iptables`: it must exist and read `1`. Fedora hosts don't load the `br_netfilter` module that provides it, so load it once on the host and at every boot:
+
+```sh
+sudo modprobe br_netfilter
+echo br_netfilter | sudo tee /etc/modules-load.d/br_netfilter.conf
+```
+
+For a devcontainer on Kubernetes, the host is the node it runs on. When either is missing, the startup script skips Minikube with a warning naming the host-side fix, and the rest of the devcontainer still works; afterwards, rerun `bash .devcontainer/post-start.sh` or restart the container.
+
 ```sh
 pnpm install --frozen-lockfile
 pnpm build
