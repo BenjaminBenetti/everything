@@ -29,6 +29,11 @@ export const summaryLabels: Readonly<
   disabled: "Message preview",
 };
 
+/** Open a teammate's conversation at one message, highlighting it and loading earlier history if needed. */
+export function messagePath(agentId: string, messageId: string): string {
+  return `/team/${encodeURIComponent(agentId)}?message=${encodeURIComponent(messageId)}`;
+}
+
 /** Describe each kind of update; a new kind needs only a new case here. */
 export function presentUpdate(
   update: Update,
@@ -38,7 +43,7 @@ export function presentUpdate(
     case "message": {
       const agent = agents.find((item) => item.id === update.agentId);
       return {
-        to: `/team/${encodeURIComponent(update.agentId)}?message=${encodeURIComponent(update.messageId)}`,
+        to: messagePath(update.agentId, update.messageId),
         source: agent?.name ?? "Teammate",
         avatarId: agent?.avatarId ?? defaultAgentAvatarId,
         icon: MessageSquare,

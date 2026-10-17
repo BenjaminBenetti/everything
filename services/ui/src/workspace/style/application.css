@@ -1076,7 +1076,8 @@
    Preferences and settings
    =========================================== */
 .preferences-dialog,
-.settings-dialog {
+.settings-dialog,
+.notification-dialog {
   width: 590px;
 }
 .settings-section-heading {
@@ -1139,6 +1140,9 @@
   border: 1px solid var(--border-default);
   border-radius: 11px;
   background: var(--surface-subtle);
+}
+.notification-status {
+  margin-top: 12px;
 }
 .settings-status {
   display: flex;
