@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage } from "node:http";
 import type { AddressInfo } from "node:net";
 import type { FleetMcpServer } from "../../fleet/interface/fleet-mcp-server.js";
 import type { FleetMcpEndpoint } from "../../fleet/model/fleet-mcp-endpoint.js";
+import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 
 /** Fleet while it has not started: sessions open without its tools. */
 export const stoppedFleet: FleetMcpServer = {
@@ -14,6 +15,14 @@ export const stoppedFleet: FleetMcpServer = {
 export interface ReceivedCall {
   readonly name: string;
   readonly arguments: unknown;
+}
+
+/** Extra tool definitions and responses for integration scenarios. */
+interface FakeFleetOptions {
+  readonly instanceTools?: boolean;
+  readonly tools?: readonly Tool[];
+  /** Return a scenario's MCP result for a recorded call. */
+  readonly respond?: (call: ReceivedCall) => CallToolResult;
 }
 
 /** The JSON-RPC messages an MCP client sends. */
@@ -36,10 +45,13 @@ async function message(request: IncomingMessage): Promise<JsonRpcMessage> {
 
 /**
  * fleetd's MCP server as teammates see it: Streamable HTTP on loopback, behind a bearer token,
- * offering `fleet_list`. It records every JSON-RPC method it receives, `DELETE` for a session the
- * client ends, and every tool call.
+ * offering `fleet_list` and optional scenario tools. It records every JSON-RPC method it receives,
+ * `DELETE` for a session the client ends, and every tool call.
  */
-export async function startFakeFleetMcp(token: string, instanceTools = false) {
+export async function startFakeFleetMcp(
+  token: string,
+  options: FakeFleetOptions = {},
+) {
   const methods: string[] = [];
   const calls: ReceivedCall[] = [];
   const server = createServer(async (request, response) => {
@@ -81,7 +93,7 @@ export async function startFakeFleetMcp(token: string, instanceTools = false) {
       case "tools/list":
         return reply({
           tools: [
-            ...(instanceTools
+            ...(options.instanceTools
               ? [
                   {
                     name: "fleet_exec",
@@ -98,6 +110,7 @@ export async function startFakeFleetMcp(token: string, instanceTools = false) {
                   },
                 ]
               : []),
+            ...(options.tools ?? []),
             {
               name: "fleet_list",
               description: "List devcontainer instances across fleets.",
@@ -108,14 +121,20 @@ export async function startFakeFleetMcp(token: string, instanceTools = false) {
             },
           ],
         });
-      case "tools/call":
-        calls.push({
+      case "tools/call": {
+        const call = {
           name: received.params?.name ?? "",
           arguments: received.params?.arguments,
-        });
-        return reply({
-          content: [{ type: "text", text: "FLEET_INSTANCES: web-01 running" }],
-        });
+        };
+        calls.push(call);
+        return reply(
+          options.respond?.(call) ?? {
+            content: [
+              { type: "text", text: "FLEET_INSTANCES: web-01 running" },
+            ],
+          },
+        );
+      }
       default:
         return reply({});
     }

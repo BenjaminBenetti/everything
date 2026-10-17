@@ -51,7 +51,7 @@ test("the prompt states only how Fleet fits into Everything, leaving its tools t
     fleet,
     /Create Fleet instances on the cluster connection "everything"/,
   );
-  assert.doesNotMatch(fleet, /mcp__fleet__|Git|tmux|job/);
+  assert.doesNotMatch(fleet, /mcp__fleet__|tmux|job/);
 });
 
 test("the prompt names the teammate's workspace, the shared folder, and Fleet templates at the paths Fleet sees", () => {

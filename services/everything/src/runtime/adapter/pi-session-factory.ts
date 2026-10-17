@@ -44,6 +44,8 @@ import type { ApiDocumentationReader } from "../../api-documentation/interface/a
 import { apiDocumentationTool } from "../../api-documentation/tool/api-documentation-tool.js";
 import type { ConversationSearchReader } from "../../conversation/interface/conversation-search.js";
 import { conversationSearchTool } from "../../conversation/tool/conversation-search-tool.js";
+import { FleetMcpClient } from "../../fleet/adapter/fleet-mcp-client.js";
+import { fleetCreationDefaults } from "../tool/fleet-creation-defaults.js";
 
 /** Pi's per-agent configuration and session paths inside the agent's workspace. */
 interface AgentDirectories {
@@ -257,6 +259,11 @@ export class PiSessionFactory implements AgentSessionFactory {
           hidden: true,
         },
         { name: "fleet-tools", factory: fleetTools(this.fleet), hidden: true },
+        {
+          name: "fleet-creation-defaults",
+          factory: fleetCreationDefaults(new FleetMcpClient(this.fleet)),
+          hidden: true,
+        },
         ...(this.workspaceActivity
           ? [
               {

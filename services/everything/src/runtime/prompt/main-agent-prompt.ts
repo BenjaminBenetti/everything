@@ -95,6 +95,7 @@ export function mainAgentPrompt(
   // Fleet's tools describe themselves; this states only how Fleet fits into Everything.
   const fleet = section("Fleet", [
     `Create Fleet instances on the cluster connection "${connectionName}", the cluster you run on.`,
+    "New fleets share Claude Code, Codex, and GitHub CLI logins and enable Fleet MCP by default. Explicit false settings disable these defaults; existing fleets keep their saved settings.",
     `Fleet sees ${home} and ${sharedWorkspacePath} at the same paths you do. Put folders you give Fleet, such as a template folder (file://${sharedWorkspacePath}/my-app), in ${sharedWorkspacePath}, so every teammate can see and update them. Use ${home} only for folders no other teammate needs.`,
   ]);
   return [

@@ -19,6 +19,7 @@ import { createModelRuntime } from "../factory/model-runtime.js";
 import { fleetToolName, toolSearchToolName } from "../tool/fleet-tools.js";
 import { startFakeFleetMcp } from "./fleet-mcp-fixtures.js";
 import type { WorkspaceActivityRecorder } from "../../workspace/interface/workspace-activity.js";
+import { fleetCreationTools } from "./fleet-creation-fixtures.js";
 
 /** What Pi sent to the model. */
 interface CompletionRequest {
@@ -212,8 +213,241 @@ test("a teammate opened while Fleet starts receives Fleet's tools once it runs",
   assert.deepEqual(server.calls, [{ name: "fleet_list", arguments: {} }]);
 });
 
+test("real Pi calls apply new-fleet defaults while preserving explicit settings and existing fleets", async (context) => {
+  const enabled = {
+    claude_code_mount: true,
+    codex_mount: true,
+    gh_mount: true,
+    fleet_mcp: true,
+  };
+  const disabled = {
+    claude_code_mount: false,
+    codex_mount: false,
+    gh_mount: false,
+    fleet_mcp: false,
+  };
+  const remote = "https://example.test/repo.git";
+  const cases: {
+    tool: string;
+    input: Record<string, unknown>;
+    expected: Record<string, unknown>;
+  }[] = [
+    {
+      tool: "fleet_create",
+      input: { fleet: "new", remote },
+      expected: { fleet: "new", remote, settings: enabled },
+    },
+    {
+      tool: "fleet_create",
+      input: { fleet: "empty", remote, settings: {} },
+      expected: { fleet: "empty", remote, settings: enabled },
+    },
+    {
+      tool: "fleet_create",
+      input: {
+        fleet: "partial",
+        remote,
+        settings: {
+          codex_mount: false,
+          home_dir: "/home/node",
+          custom_mounts: [],
+        },
+      },
+      expected: {
+        fleet: "partial",
+        remote,
+        settings: {
+          ...enabled,
+          codex_mount: false,
+          home_dir: "/home/node",
+          custom_mounts: [],
+        },
+      },
+    },
+    {
+      tool: "fleet_create",
+      input: { fleet: "disabled", remote, settings: disabled },
+      expected: { fleet: "disabled", remote, settings: disabled },
+    },
+    {
+      tool: "fleet_up",
+      input: { fleet: "new-up", instance: "one", remote },
+      expected: { fleet: "new-up", instance: "one", remote, settings: enabled },
+    },
+    {
+      tool: "fleet_up",
+      input: {
+        fleet: "partial-up",
+        instance: "one",
+        remote,
+        settings: { gh_mount: false },
+      },
+      expected: {
+        fleet: "partial-up",
+        instance: "one",
+        remote,
+        settings: { ...enabled, gh_mount: false },
+      },
+    },
+    {
+      tool: "fleet_up",
+      input: {
+        fleet: "disabled-up",
+        instance: "one",
+        remote,
+        settings: disabled,
+      },
+      expected: {
+        fleet: "disabled-up",
+        instance: "one",
+        remote,
+        settings: disabled,
+      },
+    },
+    {
+      tool: "fleet_up",
+      input: { fleet: "existing", instance: "one" },
+      expected: { fleet: "existing", instance: "one" },
+    },
+    {
+      tool: "fleet_up",
+      input: { fleet: "existing", instance: "two", remote },
+      expected: { fleet: "existing", instance: "two", remote },
+    },
+    {
+      tool: "fleet_up",
+      input: {
+        fleet: "existing",
+        instance: "three",
+        remote,
+        settings: { codex_mount: false },
+      },
+      expected: {
+        fleet: "existing",
+        instance: "three",
+        remote,
+        settings: { codex_mount: false },
+      },
+    },
+    {
+      tool: "fleet_edit",
+      input: { fleet: "existing", settings: { codex_mount: false } },
+      expected: { fleet: "existing", settings: { codex_mount: false } },
+    },
+    {
+      tool: "fleet_edit",
+      input: { fleet: "existing", settings: {} },
+      expected: { fleet: "existing", settings: {} },
+    },
+  ];
+  const server = await startFakeFleetMcp("fleet-secret-token", {
+    tools: fleetCreationTools,
+    /** Include an empty existing fleet that an instance listing would miss. */
+    respond(call) {
+      return {
+        content: [{ type: "text", text: "OK" }],
+        structuredContent:
+          call.name === "fleet_status"
+            ? { fleets: [{ fleet: "existing", total: 0 }] }
+            : {},
+      };
+    },
+  });
+  context.after(() => server.close());
+  let step = 0;
+  const { factory } = await fixture(
+    context,
+    {
+      endpoint: server.endpoint,
+      whenRunning: async () => server.endpoint,
+    },
+    {
+      /** Discover each real MCP tool, then issue the scenario through Pi's execution hooks. */
+      respond(request) {
+        const scenario = cases[step];
+        if (!scenario) return completion({ content: "Done." }, "stop");
+        const name = fleetToolName(scenario.tool);
+        if (!offeredTools(request).includes(name))
+          return toolCall(`search-${step}`, toolSearchToolName, {
+            query: scenario.tool,
+          });
+        step++;
+        return toolCall(`call-${step}`, name, scenario.input);
+      },
+    },
+  );
+  const session = await factory.create(teammate, async () => {});
+  context.after(() => session.dispose());
+  await session.prompt(
+    "Create fleets with defaults and preserve existing choices.",
+  );
+  assert.equal(step, cases.length);
+  assert.deepEqual(
+    server.calls.filter((call) => call.name !== "fleet_status"),
+    cases.map(({ tool, expected }) => ({ name: tool, arguments: expected })),
+  );
+  assert.equal(
+    server.calls.filter((call) => call.name === "fleet_status").length,
+    4,
+  );
+});
+
+test("fleet_up is blocked when existing fleets cannot be checked reliably", async (context) => {
+  for (const failure of ["unavailable", "malformed"]) {
+    await context.test(failure, async (context) => {
+      const server = await startFakeFleetMcp("fleet-secret-token", {
+        tools: fleetCreationTools,
+        /** Simulate a daemon error or an incompatible status response. */
+        respond() {
+          return failure === "unavailable"
+            ? {
+                isError: true,
+                content: [{ type: "text", text: "Unavailable" }],
+              }
+            : { content: [], structuredContent: { instances: [] } };
+        },
+      });
+      context.after(() => server.close());
+      let issued = false;
+      const { factory, requests } = await fixture(
+        context,
+        {
+          endpoint: server.endpoint,
+          whenRunning: async () => server.endpoint,
+        },
+        {
+          /** Attempt one creation and let Pi report the hook's failure. */
+          respond(request) {
+            if (issued) return completion({ content: "Done." }, "stop");
+            if (!offeredTools(request).includes(fleetToolName("fleet_up")))
+              return toolCall("search", toolSearchToolName, {
+                query: "fleet_up",
+              });
+            issued = true;
+            return toolCall("up", fleetToolName("fleet_up"), {
+              fleet: "new",
+              instance: "one",
+              remote: "https://example.test/repo.git",
+            });
+          },
+        },
+      );
+      const session = await factory.create(teammate, async () => {});
+      context.after(() => session.dispose());
+      await session.prompt("Create a new fleet and its first worker.");
+      assert.deepEqual(server.calls, [{ name: "fleet_status", arguments: {} }]);
+      assert.match(
+        JSON.stringify(requests.at(-1)?.messages.at(-1)),
+        /Fleet tool failed|invalid fleet listing/,
+      );
+    });
+  }
+});
+
 test("real Fleet calls from main, child, and nested forks retain the root teammate identity while another chat stays separate", async (context) => {
-  const server = await startFakeFleetMcp("fleet-secret-token", true);
+  const server = await startFakeFleetMcp("fleet-secret-token", {
+    instanceTools: true,
+  });
   context.after(() => server.close());
   const interactions: { agentId: string; ownerId: string; name: string }[] = [];
   const steps = new Map<string, number>();

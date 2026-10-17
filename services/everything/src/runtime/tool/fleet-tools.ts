@@ -24,7 +24,7 @@ export const toolSearchToolName = "tool_search";
 
 /**
  * Connect to fleetd's MCP server. Its tools stay out of every request until `tool_search` loads the
- * ones a teammate needs: declared up front, they would add about 21,000 characters to each request.
+ * ones a teammate needs, keeping the full tool schemas out of every request.
  */
 function serverConfig(endpoint: FleetMcpEndpoint): McpServerConfig {
   return {
