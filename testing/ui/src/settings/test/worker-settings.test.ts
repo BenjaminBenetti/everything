@@ -21,6 +21,17 @@ async function prepareWorkspace(context: BrowserContext): Promise<void> {
   await context.route("**/v1/providers", (route) =>
     route.fulfill({ json: { providers: [] } }),
   );
+  await context.route("**/v1/upgrade", (route) =>
+    route.fulfill({
+      json: {
+        availability: "ready",
+        currentVersion: "0.1.0",
+        latestVersion: null,
+        versionsChecked: true,
+        lastUpgrade: null,
+      },
+    }),
+  );
 }
 
 test("Settings turns privileged workers on and off and shows the saved state", async ({

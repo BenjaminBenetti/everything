@@ -42,6 +42,8 @@ import { workspaceInstanceController } from "../../workspace/controller/workspac
 import type { WorkspaceActivityReader } from "../../workspace/interface/workspace-activity.js";
 import { workspaceActivityController } from "../../workspace/controller/workspace-activity-controller.js";
 import type { UpdateOperations } from "../../update/interface/update-operations.js";
+import type { UpgradeOperations } from "../../upgrade/interface/upgrade-operations.js";
+import { upgradeController } from "../../upgrade/controller/upgrade-controller.js";
 import { updateController } from "../../update/controller/update-controller.js";
 import type { SubagentOperations } from "../../subagent/interface/subagent-operations.js";
 import { subagentController } from "../../subagent/controller/subagent-controller.js";
@@ -68,6 +70,7 @@ export interface HttpDependencies {
   readonly conversations: ConversationOperations;
   readonly subagents: SubagentOperations;
   readonly updates: UpdateOperations;
+  readonly upgrades: UpgradeOperations;
   readonly artifacts: ArtifactLibrary;
   readonly workers: WorkerSettingsOperations;
   readonly generalSettings: GeneralSettingsOperations;
@@ -154,6 +157,7 @@ function protectedApi(
     await conversationController(scope, dependencies.conversations);
     await subagentController(scope, dependencies.subagents);
     await updateController(scope, dependencies.updates);
+    await upgradeController(scope, dependencies.upgrades);
     await agentController(scope, dependencies.agents, dependencies.removal);
     await agentActivityController(scope, dependencies.agentActivity);
     await agentEditingController(scope, dependencies.profiles);

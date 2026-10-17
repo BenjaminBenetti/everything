@@ -1,0 +1,15 @@
+{{- /*
+The installer's settings file, which it passes as `upgrades.settings`. The upgrader installs each new
+version with that version's production values and these settings over them, as the installer would.
+The Secret is empty until the installer passes them, which leaves in-app upgrades off.
+*/ -}}
+apiVersion: v1
+kind: Secret
+metadata:
+  # Mounted by the upgrader service's `settings` volume.
+  name: upgrade-settings
+  labels:
+    {{- include "stack.commonLabels" . | nindent 4 }}
+type: Opaque
+data:
+  values.yaml: {{ .Values.upgrades.settings | b64enc | quote }}

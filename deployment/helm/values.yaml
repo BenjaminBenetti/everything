@@ -123,6 +123,19 @@ fleet:
     fleet-tmux-linux-amd64.tar.gz: a15f9be287746ab8389226ee5f117ede5bc5601c63c42284ea55655af70b282a
     fleet-tmux-linux-arm64.tar.gz: 30e19752c4d987bbdf942e147e8dcfa425c3446cff01a76b72df7129b283c39f
 
+# Upgrades from Everything: the upgrader service installs a newer released version of this chart when
+# Everything asks, the way the installer does.
+upgrades:
+  # Where released versions of the chart are published, as an oci:// reference rendered as a
+  # template. Empty turns these upgrades off, as in development, where cluster:up deploys the working tree.
+  chart: ""
+  # The installer's settings file, which it passes with --set-file. Each upgrade installs the new
+  # version with its values.prod.yaml and these settings over them; until they are set, upgrades are off.
+  settings: ""
+  # Audience of the service account tokens Everything presents to the upgrader, so they are valid
+  # nowhere else.
+  tokenAudience: "{{ .Release.Namespace }}-upgrader"
+
 # Volumes mounted by more than one service, such as files one service writes and another serves.
 # Each becomes a claim named after its key, kept on uninstall; services mount it with `sharedVolume`.
 # Shared storage needs an access mode and storage class that allow it, such as ReadWriteMany.
@@ -178,6 +191,9 @@ serviceDefaults:
   apiAccess: {}
   # Cluster-wide Kubernetes API access: RBAC rules for a ClusterRole bound to the service's account.
   clusterApiAccess: []
+  # Access to upgrade the release with Helm: everything the chart renders and every rule it grants
+  # other services, derived by templates/service-accounts.yaml, added to the service's own access.
+  releaseAccess: false
   # `startup`, `readiness`, and `liveness` probe specifications.
   probes: {}
   resources: {}
@@ -187,6 +203,7 @@ serviceDefaults:
   #   secret: <secret name>                                        mounted read-only
   #   files: <directory>                                           the chart's files/<directory>, mounted read-only
   #   emptyDir: {}                                                 scratch space; the root filesystem is read-only
+  #   serviceAccountToken: { audience, expirationSeconds? }       the pod account's token for one audience, as `token`
   volumes: {}
   # Containers that run beside the main one for the pod's whole life, by name. Each starts before
   # the main container and stops after it, and takes `image` or `upstreamImage`, `args`, `env`,
@@ -396,6 +413,9 @@ services:
         key: password
       # Fleet builds devcontainer images with the docker sidecar's engine.
       DOCKER_HOST: unix:///run/docker-socket/docker.sock
+      # The upgrader, which accepts the token on the upgrader-token volume.
+      UPGRADER_URL: http://upgrader:8080
+      UPGRADER_TOKEN_FILE: /var/run/secrets/upgrader/token
     apiAccess:
       "{{ .Release.Namespace }}":
         - apiGroups: [apps]
@@ -506,6 +526,11 @@ services:
       # Docker's images and build cache: mounted only by the sidecar, and rebuilt with the pod.
       docker-data: { emptyDir: {} }
       tmp: { mountPath: /tmp, emptyDir: {} }
+      # Proves to the upgrader that requests come from Everything's service account.
+      upgrader-token:
+        mountPath: /var/run/secrets/upgrader
+        serviceAccountToken:
+          audience: "{{ tpl .Values.upgrades.tokenAudience . }}"
     sidecars:
       # The Docker engine fleetd builds devcontainer images with. It needs a privileged container,
       # and serves only the socket it shares with Everything's container.
@@ -713,4 +738,57 @@ services:
       content:
         mountPath: /content
         persistentVolume: { size: 10Gi }
+      tmp: { mountPath: /tmp, emptyDir: {} }
+
+  # Installs newer released versions of this chart when Everything asks, the way the installer does.
+  # It alone holds the access to change the release; it accepts requests only from Everything's
+  # service account, and only to upgrade to a published version newer than the one installed. Each
+  # upgrade runs as a Job with this pod's image, account, and volumes, which outlives this pod's
+  # replacement during the upgrade.
+  upgrader:
+    image: everything-upgrader
+    releaseAccess: true
+    env:
+      PORT: "8080"
+      CHART: "{{ tpl .Values.upgrades.chart . }}"
+      CURRENT_VERSION: "{{ .Chart.Version }}"
+      RELEASE_NAME: "{{ .Release.Name }}"
+      RELEASE_NAMESPACE: "{{ .Release.Namespace }}"
+      SETTINGS_FILE: /settings/values.yaml
+      TOKEN_AUDIENCE: "{{ tpl .Values.upgrades.tokenAudience . }}"
+      CALLER_SERVICE_ACCOUNT: everything
+      # Helm keeps its configuration, caches, and downloaded charts on the scratch volume.
+      HELM_CONFIG_HOME: /tmp/helm/config
+      HELM_CACHE_HOME: /tmp/helm/cache
+      HELM_DATA_HOME: /tmp/helm/data
+    apiAccess:
+      "{{ .Release.Namespace }}":
+        # Upgrade Jobs, and their pods' reasons for failing.
+        - apiGroups: [batch]
+          resources: [jobs]
+          verbs: [get, list, create]
+        - apiGroups: [""]
+          resources: [pods]
+          verbs: [get, list]
+    clusterApiAccess:
+      # Checks that a caller's token is Everything's.
+      - apiGroups: [authentication.k8s.io]
+        resources: [tokenreviews]
+        verbs: [create]
+    ports:
+      http: { containerPort: 8080, servicePort: 8080 }
+    probes:
+      readiness:
+        httpGet: { path: /health/ready, port: http }
+        periodSeconds: 5
+      liveness:
+        httpGet: { path: /health/live, port: http }
+        periodSeconds: 15
+    # Upgrade Jobs run Helm with the same resources.
+    resources:
+      requests: { cpu: 10m, memory: 64Mi }
+      limits: { cpu: "1", memory: 512Mi }
+    volumes:
+      # The installer's settings, rendered by templates/upgrade-settings.yaml.
+      settings: { mountPath: /settings, secret: upgrade-settings }
       tmp: { mountPath: /tmp, emptyDir: {} }

@@ -27,6 +27,8 @@ import { ConversationProvider } from "../../conversation/component/conversation-
 import { ConversationPage } from "../../conversation/page/conversation-page.js";
 import type { WorkspaceSettings } from "../../settings/interface/workspace-settings.js";
 import { WorkspaceSettingsProvider } from "../../settings/component/workspace-settings-provider.js";
+import type { InstallationUpgrades } from "../../upgrade/interface/installation-upgrades.js";
+import { InstallationUpgradesProvider } from "../../upgrade/component/installation-upgrades-provider.js";
 import type { WorkspaceDirectory } from "../../workspace/interface/workspace-directory.js";
 import { WorkspaceDirectoryProvider } from "../../workspace/component/workspace-directory-provider.js";
 import { WorkspacesPage } from "../../workspace/page/workspaces-page.js";
@@ -40,6 +42,7 @@ export function Application({
   conversations,
   updates,
   settings,
+  upgrades,
   workspaces,
   queryClient,
 }: {
@@ -50,6 +53,7 @@ export function Application({
   conversations: ConversationClient;
   updates: UpdateClient;
   settings: WorkspaceSettings;
+  upgrades: InstallationUpgrades;
   workspaces: WorkspaceDirectory;
   queryClient: QueryClient;
 }) {
@@ -62,9 +66,11 @@ export function Application({
               <ConversationProvider client={conversations}>
                 <UpdateProvider client={updates}>
                   <WorkspaceSettingsProvider settings={settings}>
-                    <WorkspaceDirectoryProvider directory={workspaces}>
-                      <AuthenticatedRoutes />
-                    </WorkspaceDirectoryProvider>
+                    <InstallationUpgradesProvider upgrades={upgrades}>
+                      <WorkspaceDirectoryProvider directory={workspaces}>
+                        <AuthenticatedRoutes />
+                      </WorkspaceDirectoryProvider>
+                    </InstallationUpgradesProvider>
                   </WorkspaceSettingsProvider>
                 </UpdateProvider>
               </ConversationProvider>

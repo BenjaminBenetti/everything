@@ -8,6 +8,7 @@
     "keycloakRealm",
     "artifactRegistry",
     "fleet",
+    "upgrades",
     "sharedVolumes",
     "serviceDefaults",
     "services"
@@ -213,6 +214,24 @@
         }
       }
     },
+    "upgrades": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["chart", "settings", "tokenAudience"],
+      "properties": {
+        "chart": {
+          "type": "string",
+          "pattern": "^(oci://.+)?$"
+        },
+        "settings": {
+          "type": "string"
+        },
+        "tokenAudience": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
     "sharedVolumes": {
       "type": "object",
       "propertyNames": {
@@ -377,6 +396,9 @@
             "type": "object"
           }
         },
+        "releaseAccess": {
+          "type": "boolean"
+        },
         "probes": {
           "$ref": "#/definitions/probes"
         },
@@ -430,6 +452,21 @@
         },
         "emptyDir": {
           "type": "object"
+        },
+        "serviceAccountToken": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["audience"],
+          "properties": {
+            "audience": {
+              "type": "string",
+              "minLength": 1
+            },
+            "expirationSeconds": {
+              "type": "integer",
+              "minimum": 600
+            }
+          }
         }
       },
       "oneOf": [
@@ -447,6 +484,9 @@
         },
         {
           "required": ["emptyDir"]
+        },
+        {
+          "required": ["serviceAccountToken"]
         }
       ]
     },

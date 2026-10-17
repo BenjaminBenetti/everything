@@ -1,8 +1,14 @@
-import { Container, Globe, SlidersHorizontal } from "lucide-react";
+import {
+  CircleArrowUp,
+  Container,
+  Globe,
+  SlidersHorizontal,
+} from "lucide-react";
 import { Button } from "@everything/ui/button";
 import { Dialog } from "@everything/ui/dialog";
 import { Switch } from "@everything/ui/switch";
 import { GeneralSettingsControls } from "./general-settings-controls.js";
+import { VersionSettings } from "../../upgrade/component/version-settings.js";
 import {
   useUpdateWorkerSettings,
   useWorkerSettings,
@@ -55,6 +61,21 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
           </div>
         </div>
         <WorkerSettingsControls />
+      </section>
+      <section
+        className="settings-section"
+        aria-labelledby="version-settings-heading"
+      >
+        <div className="settings-section-heading">
+          <span className="settings-section-icon">
+            <CircleArrowUp aria-hidden="true" />
+          </span>
+          <div>
+            <h3 id="version-settings-heading">Version</h3>
+            <p>Upgrade Everything when a new version comes out.</p>
+          </div>
+        </div>
+        <VersionSettings />
       </section>
     </Dialog>
   );

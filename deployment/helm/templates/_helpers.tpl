@@ -116,3 +116,54 @@ resources:
 {{- end -}}
 {{- toJson $parsed -}}
 {{- end }}
+
+{{/*
+Rules a service with `releaseAccess` needs to manage the release's own resources with Helm, as YAML
+lists: every kind the chart's templates render, and Helm's release records, which are Secrets in the
+release's namespace. Claims and namespaces are kept on uninstall, so they are never deleted. Keep the
+kinds in step with the templates; the upgrader's tests check that they cover the rendered chart.
+*/}}
+{{- define "stack.releaseNamespaceRules" -}}
+- apiGroups: [apps]
+  resources: [deployments, statefulsets]
+  verbs: [get, list, watch, create, update, patch, delete]
+- apiGroups: [""]
+  resources: [services, secrets, configmaps, serviceaccounts]
+  verbs: [get, list, watch, create, update, patch, delete]
+- apiGroups: [""]
+  resources: [persistentvolumeclaims]
+  verbs: [get, list, watch, create, update, patch]
+- apiGroups: [networking.k8s.io]
+  resources: [ingresses]
+  verbs: [get, list, watch, create, update, patch, delete]
+# Helm waits for workloads to become ready through their replica sets and pods.
+- apiGroups: [apps]
+  resources: [replicasets]
+  verbs: [get, list, watch]
+- apiGroups: [""]
+  resources: [pods]
+  verbs: [get, list, watch]
+{{- end }}
+
+{{/*
+What the chart renders in every namespace it gives services access to or creates for their workloads:
+Roles and RoleBindings, and Secrets such as the registry's push and pull credentials.
+*/}}
+{{- define "stack.workloadNamespaceRules" -}}
+- apiGroups: [rbac.authorization.k8s.io]
+  resources: [roles, rolebindings]
+  verbs: [get, list, watch, create, update, patch, delete]
+- apiGroups: [""]
+  resources: [secrets]
+  verbs: [get, list, watch, create, update, patch, delete]
+{{- end }}
+
+{{/* The cluster-scoped kinds the chart renders. */}}
+{{- define "stack.clusterManagementRules" -}}
+- apiGroups: [""]
+  resources: [namespaces]
+  verbs: [get, list, watch, create, update, patch]
+- apiGroups: [rbac.authorization.k8s.io]
+  resources: [clusterroles, clusterrolebindings]
+  verbs: [get, list, watch, create, update, patch, delete]
+{{- end }}

@@ -1120,3 +1120,27 @@
   font-size: 11px;
   line-height: 1.5;
 }
+.version-headline {
+  color: var(--text-primary);
+  font-weight: 550;
+}
+.version-notice {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  align-self: stretch;
+  padding: 12px 14px;
+  border: 1px solid var(--border-default);
+  border-radius: 11px;
+  background: var(--surface-subtle);
+}
+.version-failure {
+  align-self: stretch;
+  max-height: 160px;
+  overflow: auto;
+  margin: 0;
+  font-size: 10px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

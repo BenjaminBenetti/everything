@@ -33,3 +33,7 @@ global:
     host: "{{ .Values.global.externalHostname }}"
   artifactIngress:
     host: "{{ .Values.global.externalArtifactHostname }}"
+# Everything upgrades itself from the charts the release workflow publishes beside its images, once
+# the installer, or `--set-file upgrades.settings=<credentials file>` by hand, has saved the settings.
+upgrades:
+  chart: "oci://{{ .Values.global.image.registry }}/charts/{{ .Chart.Name }}"

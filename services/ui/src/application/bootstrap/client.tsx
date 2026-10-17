@@ -8,6 +8,7 @@ import { HttpAgentDirectory } from "../../agent/adapter/http-agent-directory.js"
 import { HttpArtifactLibrary } from "../../artifact/adapter/http-artifact-library.js";
 import { HttpProviderConnections } from "../../provider/adapter/http-provider-connections.js";
 import { HttpWorkspaceSettings } from "../../settings/adapter/http-workspace-settings.js";
+import { HttpInstallationUpgrades } from "../../upgrade/adapter/http-installation-upgrades.js";
 import { HttpWorkspaceDirectory } from "../../workspace/adapter/http-workspace-directory.js";
 import { createAuthenticatedTransport } from "../../http/adapter/authenticated-transport.js";
 import { Application } from "../component/application.js";
@@ -60,6 +61,9 @@ async function bootstrap(): Promise<void> {
               }
               settings={
                 new HttpWorkspaceSettings(createAuthenticatedTransport())
+              }
+              upgrades={
+                new HttpInstallationUpgrades(createAuthenticatedTransport())
               }
               workspaces={
                 new HttpWorkspaceDirectory(createAuthenticatedTransport())

@@ -3,7 +3,8 @@
 #   curl -fsSL https://github.com/BenjaminBenetti/everything/releases/latest/download/install.sh | bash
 # It asks for the installation's settings, credentials, and disk sizes, saves them in a values file
 # that later runs reuse, asking again only for what that file lacks, creates the release's namespace,
-# runs `helm upgrade --install`, and offers to create the first user while Keycloak has none. It needs
+# runs `helm upgrade --install`, which also keeps the settings in the cluster so Everything can upgrade
+# itself, and offers to create the first user while Keycloak has none. It needs
 # Helm 3.8 or newer, kubectl, and a kubectl context selecting the target cluster. It runs on Bash 3.2,
 # as macOS ships.
 set -euo pipefail
@@ -584,8 +585,12 @@ metadata:
   labels:
     pod-security.kubernetes.io/enforce: privileged
 EOF
+  # The settings also go into the cluster, so Everything can upgrade itself with them later. Helm's
+  # --set-file splits on commas, so it reads a copy at a path without any.
+  cp "$settings_file" "$work/upgrade-settings.yaml"
   helm upgrade "$release" "$package" --install --kube-context "$context" --namespace "$namespace" \
-    --values "$chart_dir/values.prod.yaml" --values "$settings_file"
+    --values "$chart_dir/values.prod.yaml" --values "$settings_file" \
+    --set-file "upgrades.settings=$work/upgrade-settings.yaml"
 }
 
 # ---------------------------------------------------------------------------------------------------
@@ -697,7 +702,7 @@ print_next_steps() {
   else
     say "  Sign in at https://$app_host."
   fi
-  say "  To upgrade, run the installer again and reuse $settings_file."
+  say "  To upgrade, open Settings in Everything, or run the installer again and reuse $settings_file."
 }
 
 cleanup() {

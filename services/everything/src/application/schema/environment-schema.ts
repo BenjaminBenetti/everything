@@ -52,6 +52,13 @@ export const environmentSchema = Type.Object({
   FLEET_REGISTRY_INSECURE: Type.Boolean({ default: false }),
   REGISTRY_USERNAME: required,
   REGISTRY_PASSWORD: required,
+  /** The upgrader, reachable inside the cluster; empty leaves upgrades unavailable. */
+  UPGRADER_URL: Type.String({ pattern: "^(https?://[^/]+)?$", default: "" }),
+  /** Everything's service account token for the upgrader's audience, renewed by the kubelet. */
+  UPGRADER_TOKEN_FILE: Type.String({
+    pattern: "^/",
+    default: "/var/run/secrets/upgrader/token",
+  }),
 });
 
 /** Pinned SHA-256 of each Fleet release file, by file name. */

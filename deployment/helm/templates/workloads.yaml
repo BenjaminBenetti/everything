@@ -31,7 +31,7 @@ spec:
       labels:
         {{- include "stack.labels" $context | nindent 8 }}
     spec:
-      {{- if or $service.apiAccess $service.clusterApiAccess }}
+      {{- if or $service.apiAccess $service.clusterApiAccess $service.releaseAccess }}
       # Only services granted Kubernetes API access receive a service account token.
       serviceAccountName: {{ $name }}
       automountServiceAccountToken: true
@@ -113,7 +113,7 @@ spec:
             {{- if $volume.mountPath }}
             - name: {{ $volumeName }}
               mountPath: {{ $volume.mountPath }}
-              {{- if or $volume.secret $volume.files $volume.readOnly }}
+              {{- if or $volume.secret $volume.files $volume.serviceAccountToken $volume.readOnly }}
               readOnly: true
               {{- end }}
             {{- end }}
@@ -134,6 +134,14 @@ spec:
           {{- else if $volume.files }}
           configMap:
             name: {{ include "stack.configMapName" (dict "name" $name "volumeName" $volumeName) }}
+          {{- else if $volume.serviceAccountToken }}
+          # A token of the pod's service account for one audience, renewed by the kubelet before it expires.
+          projected:
+            sources:
+              - serviceAccountToken:
+                  audience: {{ tpl $volume.serviceAccountToken.audience $ | quote }}
+                  expirationSeconds: {{ $volume.serviceAccountToken.expirationSeconds | default 3600 }}
+                  path: token
           {{- else }}
           emptyDir:
             {{- toYaml $volume.emptyDir | nindent 12 }}

@@ -1,0 +1,30 @@
+meta {
+  name: Refuse to upgrade the development stack
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/v1/upgrade
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+  Authorization: Bearer {{accessToken}}
+}
+
+body:json {
+  {
+    "version": "99.0.0"
+  }
+}
+
+tests {
+  test("Explain that the installer upgrades this installation", () => {
+    expect(res.status).to.equal(409);
+    expect(res.body.code).to.equal("UPGRADES_OFF");
+    expect(res.body.message).to.contain("installer");
+  });
+}

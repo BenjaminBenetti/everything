@@ -44,6 +44,11 @@ export interface ApplicationConfig {
   };
   /** The Fleet release fleetd runs from, its home, its cluster connection, and its registry. */
   readonly fleet: FleetSettings;
+  /** The upgrader and the token file proving requests come from Everything; no URL, no upgrades. */
+  readonly upgrader: {
+    readonly url: string;
+    readonly tokenFile: string;
+  };
 }
 
 /** Validate deployment settings with env-schema and normalize paths. */
@@ -80,6 +85,10 @@ export function loadApplicationConfig(
       hostUrl: settings.ARTIFACT_HOST_URL,
       clientId: settings.ARTIFACT_CLIENT_ID,
       clientSecret: settings.ARTIFACT_CLIENT_SECRET,
+    },
+    upgrader: {
+      url: settings.UPGRADER_URL,
+      tokenFile: settings.UPGRADER_TOKEN_FILE,
     },
     fleet: {
       home: path.resolve(settings.FLEET_HOME),

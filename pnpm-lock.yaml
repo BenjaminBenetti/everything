@@ -159,6 +159,12 @@ importers:
         specifier: 7.0.2
         version: 7.0.2
 
+  lib/upgrade-contracts:
+    devDependencies:
+      typescript:
+        specifier: 7.0.2
+        version: 7.0.2
+
   lib/workspace-contracts:
     dependencies:
       typebox:
@@ -283,6 +289,9 @@ importers:
       '@everything/update-contracts':
         specifier: workspace:*
         version: link:../../lib/update-contracts
+      '@everything/upgrade-contracts':
+        specifier: workspace:*
+        version: link:../../lib/upgrade-contracts
       '@everything/workspace-contracts':
         specifier: workspace:*
         version: link:../../lib/workspace-contracts
@@ -407,6 +416,9 @@ importers:
       '@everything/update-contracts':
         specifier: workspace:*
         version: link:../../lib/update-contracts
+      '@everything/upgrade-contracts':
+        specifier: workspace:*
+        version: link:../../lib/upgrade-contracts
       '@everything/workspace-contracts':
         specifier: workspace:*
         version: link:../../lib/workspace-contracts
@@ -477,6 +489,55 @@ importers:
       vite:
         specifier: 8.3.4
         version: 8.3.4(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1)
+
+  services/upgrader:
+    dependencies:
+      '@everything/errors':
+        specifier: workspace:*
+        version: link:../../lib/errors
+      '@everything/security':
+        specifier: workspace:*
+        version: link:../../lib/security
+      '@everything/upgrade-contracts':
+        specifier: workspace:*
+        version: link:../../lib/upgrade-contracts
+      '@kubernetes/client-node':
+        specifier: 2.0.0
+        version: 2.0.0
+      async-lock:
+        specifier: 1.4.1
+        version: 1.4.1
+      env-schema:
+        specifier: 8.0.1
+        version: 8.0.1
+      fastify:
+        specifier: 5.12.5
+        version: 5.12.5
+      semver:
+        specifier: 7.8.5
+        version: 7.8.5
+      typebox:
+        specifier: 1.1.33
+        version: 1.1.33
+    devDependencies:
+      '@types/async-lock':
+        specifier: 1.4.2
+        version: 1.4.2
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.19.2
+      '@types/semver':
+        specifier: 7.8.0
+        version: 7.8.0
+      tsx:
+        specifier: ^4.20.0
+        version: 4.23.15
+      typescript:
+        specifier: 7.0.2
+        version: 7.0.2
+      yaml:
+        specifier: 2.9.1
+        version: 2.9.1
 
   testing/api:
     devDependencies:
@@ -2195,6 +2256,9 @@ packages:
 
   '@types/retry@0.12.0':
     resolution: {integrity: sha512-wWKOClTTiizcZhXnPY4wikVAwmdYHp8q6DmC+EJUzAMsycb7HB32Kh9RN4+0gExjmPmZSAQjgURXIGATPegAvA==}
+
+  '@types/semver@7.8.0':
+    resolution: {integrity: sha512-1mAINjtQCXXeLkJ9ehXkwOcBpqtLxiVtKhpUf83DdRNdQKV0iXZpaHYqRr7nj+wvxuJzoAmAwXI+sCNMv1CzLQ==}
 
   '@types/stream-buffers@3.0.8':
     resolution: {integrity: sha512-J+7VaHKNvlNPJPEJXX/fKa9DZtR/xPMwuIbe+yNOwp1YB+ApUOBv2aUpEoBJEi8nJgbgs1x8e73ttg0r1rSUdw==}
@@ -7139,6 +7203,8 @@ snapshots:
       csstype: 3.2.3
 
   '@types/retry@0.12.0': {}
+
+  '@types/semver@7.8.0': {}
 
   '@types/stream-buffers@3.0.8':
     dependencies:

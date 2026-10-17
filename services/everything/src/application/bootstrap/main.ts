@@ -28,6 +28,9 @@ import { ModelUpdateSummarizer } from "../../update/adapter/model-update-summari
 import { PostgresUpdateRepository } from "../../update/repository/postgres-update-repository.js";
 import { UpdateSummaryScheduler } from "../../update/service/update-summary-scheduler.js";
 import { UpdateService } from "../../update/service/update-service.js";
+import { HttpUpgrader } from "../../upgrade/adapter/http-upgrader.js";
+import { ProjectedTokenSource } from "../../upgrade/adapter/projected-token-source.js";
+import { UnavailableUpgrades } from "../../upgrade/adapter/unavailable-upgrades.js";
 import { GeneralSettingsService } from "../../settings/service/general-settings-service.js";
 import { PostgresGeneralSettingsRepository } from "../../settings/repository/postgres-general-settings-repository.js";
 import { createApplicationDatabase } from "../../persistence/factory/application-database.js";
@@ -189,6 +192,12 @@ async function main(): Promise<void> {
       new PiSubagentArchives(workspaces),
     ),
     updates: new UpdateService(updates, generalSettings),
+    upgrades: config.upgrader.url
+      ? new HttpUpgrader(
+          config.upgrader.url,
+          new ProjectedTokenSource(config.upgrader.tokenFile),
+        )
+      : new UnavailableUpgrades(),
     generalSettings,
     artifacts: new ArtifactLibraryService(artifactGateway),
     workers,

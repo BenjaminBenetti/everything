@@ -47,6 +47,7 @@ function dependencies(
     conversations: unusedOperations(),
     subagents: unusedOperations(),
     updates: unusedOperations(),
+    upgrades: unusedOperations(),
     artifacts: unusedOperations(),
     workers: unusedOperations(),
     generalSettings: unusedOperations(),
