@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { subject } from "@everything/security/fastify";
 import type { ArtifactLibrary } from "../interface/artifact-library.js";
 import {
+  artifactApiKeyResponse,
   artifactListResponse,
   artifactViewResponse,
 } from "../schema/artifact-response.js";
@@ -65,6 +66,23 @@ export async function artifactController(
       },
     );
   }
+  app.get<{ Params: AppParams }>(
+    "/artifacts/:appId/api-key",
+    {
+      schema: {
+        summary: "Show an app's API key",
+        description:
+          "Returns the current API key of a dynamic app with the API Key capability. External callers send it in the X-Api-Key header to reach that app on the app origin; it authenticates nothing else. Responses are never cached. A disabled capability, or a key still being set up, returns a conflict.",
+        params: appParams,
+        response: { 200: artifactApiKeyResponse },
+      },
+    },
+    async (request, reply) =>
+      reply
+        .header("Cache-Control", "no-store")
+        .send(await artifacts.apiKey(subject(request), request.params.appId)),
+  );
+
   app.delete<{ Params: AppParams }>(
     "/artifacts/:appId",
     {

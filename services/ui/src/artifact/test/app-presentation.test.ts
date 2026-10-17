@@ -88,7 +88,7 @@ test("creator, type, capabilities, and search intersect without confusing the up
     { ...app("notes", "running", 13), database: true },
     {
       ...app("hooks", "running", 12),
-      capabilities: ["everything-api"],
+      capabilities: ["everything-api", "api-key"],
       createdBy: { id: "grace", name: "Grace" },
     },
     { ...app("report", "live", 11), kind: "static" },
@@ -97,6 +97,14 @@ test("creator, type, capabilities, and search intersect without confusing the up
   assert.deepEqual(
     visibleApps(apps, "", both).map((item) => item.id),
     ["planner", "archive"],
+  );
+  assert.deepEqual(
+    visibleApps(apps, "", { ...allApps, apiKey: true }).map((item) => item.id),
+    ["hooks"],
+  );
+  assert.deepEqual(
+    visibleApps(apps, "", { ...both, apiKey: true }).map((item) => item.id),
+    [],
   );
   assert.deepEqual(
     visibleApps(apps, "", { ...allApps, creatorId: "grace" }).map(

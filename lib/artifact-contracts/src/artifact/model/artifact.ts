@@ -52,10 +52,11 @@ export const reservedEnvironmentNames = [
   "EVERYTHING_CLIENT_ID",
   "EVERYTHING_CLIENT_SECRET",
   "EVERYTHING_TOKEN_URL",
+  "APP_API_KEY",
 ] as const;
 
 /** Services a dynamic app can request for its backend. */
-export const artifactCapabilities = ["everything-api"] as const;
+export const artifactCapabilities = ["everything-api", "api-key"] as const;
 
 /** A provisioned service capability available to a dynamic app. */
 export type ArtifactCapability = (typeof artifactCapabilities)[number];
@@ -201,6 +202,11 @@ export interface ArtifactSource {
 /** A link that signs the viewer in to the artifact host and opens the artifact. */
 export interface ArtifactView {
   readonly url: string;
+}
+
+/** A dynamic app's API key, revealed only to its owner and never included in listings. */
+export interface ArtifactApiKey {
+  readonly apiKey: string;
 }
 
 /** Input for creating an artifact; nothing is published until a revision or deployment exists. */

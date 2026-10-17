@@ -2,6 +2,7 @@ import { Cable, Database, FileCode2, Server, UserRound } from "lucide-react";
 import type { ArtifactSummary } from "@everything/artifact-contracts";
 import { TeammateAvatar } from "../../agent/component/teammate-avatar.js";
 import type { AppCreator } from "../model/artifact-filters.js";
+import { ArtifactApiKey } from "./artifact-api-key.js";
 import { ArtifactIndicator } from "./artifact-indicator.js";
 
 /** Show the original creator and the serving type and capabilities of the current release. */
@@ -64,6 +65,9 @@ export function ArtifactMetadata({
           >
             <Cable aria-hidden="true" />
           </ArtifactIndicator>
+        )}
+        {artifact.capabilities.includes("api-key") && (
+          <ArtifactApiKey appId={artifact.id} title={artifact.title} />
         )}
       </div>
     </div>

@@ -106,10 +106,9 @@ export class MemoryArtifacts implements ArtifactRepository {
   async delete(scope: ArtifactScope, id: string) {
     if (await this.getById(scope, id)) this.records.delete(id);
   }
-  async findBySlug(scope: OwnerScope, slug: string) {
+  async findBySlug(scope: ArtifactScope, slug: string) {
     return [...this.records.values()].find(
-      (artifact) =>
-        artifact.ownerId === scope.ownerId && artifact.slug === slug,
+      (artifact) => this.inScope(scope, artifact) && artifact.slug === slug,
     );
   }
   async create(

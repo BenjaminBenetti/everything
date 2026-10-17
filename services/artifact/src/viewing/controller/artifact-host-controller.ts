@@ -5,25 +5,32 @@ import {
   type ArtifactFile,
 } from "@everything/artifact-contracts";
 import type { ArtifactRepository } from "../../artifact/interface/artifact-repository.js";
+import type { AppApiKeys } from "../../capability/service/app-api-keys.js";
 import type { ContentStore } from "../../content/interface/content-store.js";
 import type { ArtifactProxy } from "../adapter/artifact-proxy.js";
+import { presentedApiKey } from "../handler/api-key-credentials.js";
 import type { ViewCookie } from "../handler/view-cookie.js";
 import type { ViewPassCredentials } from "../handler/view-pass-credentials.js";
 import {
   viewPassSignInPath,
   type ArtifactViewer,
 } from "../model/view-credential.js";
-import { hostMessages, hostPage } from "../presenter/host-pages.js";
+import {
+  apiKeyRejection,
+  hostMessages,
+  hostPage,
+} from "../presenter/host-pages.js";
 import type { StaticSite } from "../service/static-site.js";
 import type { ViewAccess } from "../service/view-access.js";
 import type { ViewPasses } from "../service/view-passes.js";
 
-/** What the artifact host needs to sign viewers and teammates in and serve artifacts. */
+/** What the artifact host needs to sign viewers, teammates, and API callers in and serve artifacts. */
 export interface ArtifactHostDependencies {
   readonly access: Pick<ViewAccess, "redeem" | "viewer">;
   readonly cookie: ViewCookie;
   readonly passes: Pick<ViewPasses, "find">;
   readonly passCredentials: ViewPassCredentials;
+  readonly apiKeys: Pick<AppApiKeys, "authenticate">;
   readonly artifacts: Pick<ArtifactRepository, "findBySlug" | "getById">;
   readonly site: StaticSite;
   readonly content: Pick<ContentStore, "open">;
@@ -64,8 +71,8 @@ function isNavigation(request: FastifyRequest): boolean {
 }
 
 /**
- * Register the artifact host: sign-in links for users and teammates, static files, and forwarding to
- * dynamic artifacts.
+ * Register the artifact host: sign-in links for users and teammates, API keys for external callers,
+ * static files, and forwarding to dynamic artifacts.
  */
 export async function artifactHostController(
   app: FastifyInstance,
@@ -76,6 +83,7 @@ export async function artifactHostController(
     cookie,
     passes,
     passCredentials,
+    apiKeys,
     artifacts,
     site,
     content,
@@ -92,6 +100,15 @@ export async function artifactHostController(
     if (ownerId) return { ownerId, artifactId: null };
     const pass = await passes.find(passToken);
     return pass && { ownerId: pass.ownerId, artifactId: pass.artifactId };
+  }
+
+  /** The app an API key opens, limited to that app like a teammate pass. */
+  async function keyViewer(
+    slug: string,
+    key: string,
+  ): Promise<ArtifactViewer | undefined> {
+    const scope = await apiKeys.authenticate(slug, key);
+    return scope && { ownerId: scope.ownerId, artifactId: scope.artifactId };
   }
 
   /** Send a stored file with validators, so unchanged files are not downloaded again. */
@@ -201,12 +218,22 @@ export async function artifactHostController(
       queryStart === -1 ? request.url : request.url.slice(0, queryStart)
     ).slice(slug.length + 1);
     const query = queryStart === -1 ? "" : request.url.slice(queryStart);
+    // A request with an API key is judged by that key alone, never by cookies or passes.
+    const apiKey = presentedApiKey(request);
     const passToken = passCredentials.read(request);
-    const signedIn = await viewer(request, passToken);
+    const signedIn =
+      apiKey === undefined
+        ? await viewer(request, passToken)
+        : await keyViewer(slug, apiKey);
     if (!signedIn)
-      return passToken
-        ? explain(reply, 401, hostMessages.passExpired)
-        : signIn(request, reply, slug, rawPath + query);
+      return apiKey !== undefined
+        ? reply
+            .code(401)
+            .header("Cache-Control", "no-store")
+            .send(apiKeyRejection)
+        : passToken
+          ? explain(reply, 401, hostMessages.passExpired)
+          : signIn(request, reply, slug, rawPath + query);
     const artifact = await artifacts.findBySlug(
       { ownerId: signedIn.ownerId },
       slug,

@@ -44,13 +44,13 @@ export class PostgresArtifactRepository
   // Operations
   // ===========================================
 
-  /** Find an owner's artifact by slug. */
+  /** Find an artifact in scope by slug. */
   async findBySlug(
-    scope: OwnerScope,
+    scope: ArtifactScope,
     slug: string,
   ): Promise<Artifact | undefined> {
-    if (!scope.ownerId || !slug)
-      throw new Error("Lookup requires an owner and a slug");
+    if (("ownerId" in scope ? !scope.ownerId : !scope.kind) || !slug)
+      throw new Error("Lookup requires a scope and a slug");
     const record = await this.orm.findOneBy({
       ...this.scopeWhere(scope),
       slug,

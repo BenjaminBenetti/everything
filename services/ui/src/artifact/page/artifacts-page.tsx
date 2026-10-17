@@ -30,7 +30,8 @@ export function ArtifactsPage() {
     filters.creatorId ||
     filters.kind ||
     filters.database ||
-    filters.api
+    filters.api ||
+    filters.apiKey
   );
 
   /** Restore the full library, including clearing any search term. */
