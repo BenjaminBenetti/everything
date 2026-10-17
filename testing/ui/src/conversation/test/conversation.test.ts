@@ -1,4 +1,5 @@
 import { expect, test, type BrowserContext } from "@playwright/test";
+import { setConversationDetails } from "../fixture/conversation-details.js";
 
 interface Message {
   id: string;
@@ -139,6 +140,159 @@ async function workspace(context: BrowserContext, withModel = true) {
   return state;
 }
 
+test("phone chat gives messages the screen and keeps details, drafts, and navigation accessible", async ({
+  page,
+  context,
+  isMobile,
+}, info) => {
+  test.skip(!isMobile, "The compact chat is a phone layout.");
+  const state = await workspace(context);
+  await page.goto("/team/avery");
+  const toggle = page.getByRole("button", { name: "Details", exact: true });
+  const composer = page.getByRole("textbox", {
+    name: "Message Avery",
+    exact: true,
+  });
+  const send = page.getByRole("button", { name: "Send message", exact: true });
+  const history = page.locator(".chat-history");
+  await expect(composer).toBeEnabled();
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect(
+    page.getByRole("heading", { name: "Avery", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("navigation", { name: "Mobile workspace" }),
+  ).toBeHidden();
+  await expect(
+    page.getByText("Enter to send · Shift+Enter for a new line"),
+  ).toBeHidden();
+  expect((await history.boundingBox())!.height).toBeGreaterThan(
+    page.viewportSize()!.height * 0.7,
+  );
+  const collapsedHeight = (await composer.boundingBox())!.height;
+  expect(collapsedHeight).toBeLessThanOrEqual(46);
+  expect((await send.boundingBox())!.y).toBeCloseTo(
+    (await composer.boundingBox())!.y,
+    0,
+  );
+  await page.screenshot({
+    path: info.outputPath("mobile-chat.png"),
+    animations: "disabled",
+  });
+
+  await composer.fill("Keep this draft");
+  await toggle.focus();
+  await toggle.press("Enter");
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  await expect(
+    page.getByRole("complementary", { name: "Avery teammate info" }),
+  ).toContainText("o3-mini");
+  await expect(
+    page.getByRole("heading", { name: "Workspaces", exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Edit Avery", exact: true }).click();
+  const editor = page.getByRole("dialog", {
+    name: "Edit teammate",
+    exact: true,
+  });
+  await expect(editor).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(editor).toBeHidden();
+  await toggle.click();
+  await expect(composer).toHaveValue("Keep this draft");
+
+  await composer.fill("A line of notes\n".repeat(20));
+  expect((await composer.boundingBox())!.height).toBeGreaterThan(
+    collapsedHeight,
+  );
+  expect((await composer.boundingBox())!.height).toBeLessThanOrEqual(144);
+  await expect(send).toBeInViewport();
+  await expect(
+    page.getByRole("log").getByRole("article").last(),
+  ).toBeInViewport();
+  await composer.fill("");
+  expect((await composer.boundingBox())!.height).toBe(collapsedHeight);
+
+  state.runtime.status = "running";
+  state.runtime.compacting = true;
+  state.runtime.compactionStartedAt = new Date().toISOString();
+  state.runtime.backgroundCount = 2;
+  await expect(
+    page.getByRole("status", { name: "Active background teammates" }),
+  ).toHaveText("2 background");
+  await expect(page.getByText("Compacting", { exact: true })).toBeVisible();
+  for (const size of [
+    { width: 320, height: 568 },
+    { width: 390, height: 360 },
+  ]) {
+    await page.setViewportSize(size);
+    await composer.focus();
+    await expect(composer).toBeInViewport();
+    await expect(send).toBeInViewport();
+    await expect(toggle).toBeInViewport();
+    expect((await history.boundingBox())!.height).toBeGreaterThan(
+      size.height * 0.4,
+    );
+    expect(
+      await page.evaluate(
+        () =>
+          document.documentElement.scrollWidth <= innerWidth &&
+          document.documentElement.scrollHeight <= innerHeight,
+      ),
+    ).toBe(true);
+    await page.screenshot({
+      path: info.outputPath(`mobile-chat-${size.width}x${size.height}.png`),
+      animations: "disabled",
+    });
+  }
+  await page.setViewportSize({ width: 390, height: 664 });
+  // Safari can shrink only the visual viewport when its software keyboard opens.
+  await page.evaluate(() => {
+    Object.defineProperty(window.visualViewport, "height", {
+      configurable: true,
+      value: 360,
+    });
+    window.visualViewport!.dispatchEvent(new Event("resize"));
+  });
+  await expect
+    .poll(async () => (await page.locator(".chat-shell").boundingBox())!.height)
+    .toBe(360);
+  expect(
+    (await send.boundingBox())!.y + (await send.boundingBox())!.height,
+  ).toBeLessThanOrEqual(360);
+  await expect(
+    page.getByRole("log").getByRole("article").last(),
+  ).toBeInViewport();
+  await page.evaluate(() => {
+    Reflect.deleteProperty(window.visualViewport!, "height");
+    window.visualViewport!.dispatchEvent(new Event("resize"));
+  });
+  await page.setViewportSize({ width: 1440, height: 960 });
+  await expect(toggle).toBeHidden();
+  await expect(
+    page.getByRole("complementary", { name: "Avery teammate info" }),
+  ).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 664 });
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect(
+    page.getByRole("complementary", { name: "Avery teammate info" }),
+  ).toBeHidden();
+  await history.evaluate((element) => {
+    element.scrollTop = 0;
+  });
+  const earlier = page.getByRole("log").getByRole("article").first();
+  await expect(earlier).toBeInViewport();
+  await composer.fill("Keep reading the earlier messages\n".repeat(4));
+  await expect(earlier).toBeInViewport();
+  await page
+    .getByRole("link", { name: "Back to your team", exact: true })
+    .click();
+  await expect(
+    page.getByRole("navigation", { name: "Mobile workspace" }),
+  ).toBeVisible();
+  expect(state.sends).toEqual([]);
+});
+
 test("compaction shows elapsed server time through reloads and resets after a runtime restart", async ({
   page,
   context,
@@ -188,6 +342,7 @@ test("compaction shows elapsed server time through reloads and resets after a ru
 test("one conversation opens from team cards, loads all history, replies, and survives navigation and reload", async ({
   page,
   context,
+  isMobile,
 }, info) => {
   const state = await workspace(context);
   const errors: string[] = [];
@@ -198,13 +353,17 @@ test("one conversation opens from team cards, loads all history, replies, and su
     .click();
   await expect(page).toHaveURL(/\/team\/avery$/);
   await expect(page).toHaveTitle("Avery · Everything");
+  await setConversationDetails(page, true);
   const teammate = page.getByRole("complementary", {
     name: "Avery teammate info",
   });
   await expect(teammate).toContainText("OpenAI-compatible API");
   await expect(teammate).toContainText("o3-mini");
   await expect(teammate).toContainText("High");
-  const background = teammate.getByRole("status", {
+  await setConversationDetails(page, false);
+  const background = (
+    isMobile ? page.locator(".chat-mobile-header") : teammate
+  ).getByRole("status", {
     name: "Active background teammates",
   });
   await expect(background).toHaveCount(0);

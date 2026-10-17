@@ -41,9 +41,14 @@
   min-width: 0;
   max-height: calc(100% - 48px);
   overflow-y: auto;
+}
+.chat-sidebar-panel {
   display: grid;
   gap: 12px;
   grid-auto-rows: max-content;
+}
+.chat-mobile-header {
+  display: none;
 }
 .chat-teammate-card,
 .chat-workspaces-card {
@@ -401,8 +406,8 @@
 .chat-composer textarea {
   display: block;
   width: 100%;
-  resize: vertical;
-  min-height: 54px;
+  resize: none;
+  min-height: 72px;
   max-height: 22dvh;
   background: transparent;
   color: var(--text-primary);
@@ -455,29 +460,77 @@
   }
   .chat-sidebar {
     position: static;
-    display: flex;
-    flex-direction: column;
     grid-area: teammate;
     z-index: auto;
     width: auto;
-    max-height: min(36dvh, 320px);
-    margin: 20px 28px 0;
+    max-height: none;
+    overflow: visible;
+    border-bottom: 1px solid var(--border-default);
   }
-  .chat-teammate-card {
-    flex-shrink: 0;
-  }
-  .chat-workspaces-card {
+  .chat-mobile-header {
     display: flex;
-    flex-direction: column;
-    min-height: 100px;
+    align-items: center;
+    gap: 10px;
+    min-height: 60px;
+    padding: 6px 20px;
+  }
+  .chat-mobile-back {
+    display: none;
+  }
+  .chat-mobile-header > .teammate-avatar {
+    flex: 0 0 32px;
+    width: 32px;
+    height: 32px;
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    border: 0;
+  }
+  .chat-mobile-identity {
+    flex: 1;
+    min-width: 0;
+  }
+  .chat-mobile-identity h1 {
+    font-size: 16px;
+    font-weight: 550;
+    line-height: 1.4;
     overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
-  .chat-workspaces-card h2 {
+  .chat-mobile-background {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 10px;
+    line-height: 1.6;
+    color: var(--status-connected);
+  }
+  .chat-details-toggle {
     flex-shrink: 0;
+    width: 44px;
+    height: 44px;
   }
-  .chat-workspace-list {
-    min-height: 0;
+  .chat-details-toggle:hover,
+  .chat-details-toggle[aria-expanded="true"] {
+    background: var(--surface-selected);
+    color: var(--text-primary);
+  }
+  .chat-details-toggle svg {
+    width: 20px;
+    height: 20px;
+  }
+  .chat-sidebar[data-expanded="false"] .chat-sidebar-panel {
+    display: none;
+  }
+  .chat-sidebar-panel {
+    max-height: min(45dvh, 360px);
     overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 0 20px 12px;
+  }
+  .chat-sidebar-panel .chat-teammate-background {
+    display: none;
   }
   .chat-teammate-card,
   .chat-workspaces-card {
@@ -496,16 +549,28 @@
   }
 }
 @media (max-width: 650px) {
-  .topbar.chat-topbar {
-    padding: 0 12px;
+  .chat-shell {
+    height: var(--chat-viewport-height, 100dvh);
+    min-height: 0;
   }
-  .chat-topbar .notification-button,
-  .chat-topbar .settings-button,
-  .chat-topbar .signout-button {
+  .chat-shell .chat-topbar,
+  .chat-shell .mobile-nav {
     display: none;
   }
-  .chat-sidebar {
-    margin: 12px 12px 0;
+  .chat-mobile-header {
+    gap: 8px;
+    padding: max(6px, env(safe-area-inset-top)) 8px 6px;
+    padding-left: max(8px, env(safe-area-inset-left));
+    padding-right: max(8px, env(safe-area-inset-right));
+  }
+  .chat-mobile-back {
+    display: inline-flex;
+    flex-shrink: 0;
+    width: 44px;
+    height: 44px;
+  }
+  .chat-sidebar-panel {
+    padding: 0 12px 12px;
   }
   .chat-teammate-card,
   .chat-workspaces-card {
@@ -531,7 +596,9 @@
     max-width: 95%;
   }
   .chat-footer {
-    padding: 8px 12px 12px;
+    padding: 8px max(12px, env(safe-area-inset-right))
+      max(12px, env(safe-area-inset-bottom))
+      max(12px, env(safe-area-inset-left));
   }
   .chat-compaction {
     padding: 8px 12px;
@@ -540,19 +607,33 @@
     @apply sr-only;
   }
   .chat-composer {
-    padding: 12px;
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+    padding: 6px;
   }
   .chat-composer textarea {
+    flex: 1;
+    min-width: 0;
+    min-height: 44px;
+    max-height: min(25dvh, 144px);
+    padding: 9px 6px;
     font-size: 16px;
   }
   .chat-composer-actions {
-    flex-wrap: wrap;
+    flex: none;
+    margin: 0;
   }
   .chat-composer-actions p {
-    flex-basis: 100%;
+    display: none;
   }
-  .chat-composer-actions .button:last-child {
-    margin-left: auto;
+  .chat-composer-actions .button {
+    width: 44px;
+    height: 44px;
+    padding: 0;
+  }
+  .chat-composer-actions .button span {
+    @apply sr-only;
   }
   .chat-empty {
     margin-top: 5dvh;

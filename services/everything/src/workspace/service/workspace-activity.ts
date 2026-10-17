@@ -55,7 +55,7 @@ export class WorkspaceActivity
     );
   }
 
-  /** Authorize before reading activity and avoid contacting Fleet when the teammate has no history. */
+  /** Authorize recent activity and omit deleted workspaces only after a successful lifecycle lookup. */
   async recent(scope: WorkspaceActivityScope): Promise<RecentWorkspaceList> {
     await this.agents.get(scope.ownerId, scope.agentId);
     const interactions = await this.interactions.list(scope);
@@ -68,12 +68,12 @@ export class WorkspaceActivity
     );
     return {
       observedAt: new Date(this.now()).toISOString(),
-      workspaces: interactions.map(({ type, name, lastInteractedAt }) => ({
-        type,
-        name,
-        lastInteractedAt,
-        status: byIdentity.get(JSON.stringify([type, name])) ?? "unknown",
-      })),
+      workspaces: interactions.flatMap(({ type, name, lastInteractedAt }) => {
+        const status = byIdentity.get(JSON.stringify([type, name]));
+        return status === undefined
+          ? []
+          : [{ type, name, lastInteractedAt, status }];
+      }),
     };
   }
 }

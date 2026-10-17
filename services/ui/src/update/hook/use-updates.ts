@@ -1,4 +1,5 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { useMatch } from "react-router-dom";
 import { useSession } from "../../session/component/session-provider.js";
 import { useUpdateClient } from "../component/update-provider.js";
 
@@ -27,13 +28,19 @@ export function useUpdates(seen = false) {
   });
 }
 
-/** Share total and teammate counts across badges, polling while the page is visible. */
+/** Keep the open chat quiet while retaining other teammates' unread badges and the server's full counts. */
 export function useUpdateCount() {
   const client = useUpdateClient();
   const { profile } = useSession();
+  const openAgentId = useMatch("/team/:agentId")?.params.agentId;
   return useQuery({
     queryKey: [...updateQueryRoot, profile?.subject, "count"],
     queryFn: ({ signal }) => client.count(signal),
+    select: (count) => {
+      if (!openAgentId) return count;
+      const { [openAgentId]: openCount = 0, ...byAgent } = count.byAgent;
+      return { unread: Math.max(0, count.unread - openCount), byAgent };
+    },
     enabled: !!profile,
     staleTime: 5_000,
     refetchInterval: 5_000,

@@ -3,7 +3,11 @@ import { test } from "node:test";
 import { DataSource, type FindManyOptions } from "typeorm";
 import { AgentNotFoundError } from "../../agent/error/agent-errors.js";
 import { AgentEntity } from "../../agent/schema/agent-entity.js";
-import type { WorkspaceActivityScope } from "../interface/workspace-activity.js";
+import type {
+  WorkspaceActivityScope,
+  WorkspaceStates,
+} from "../interface/workspace-activity.js";
+import { WorkspaceInstancesUnavailableError } from "../error/workspace-instance-errors.js";
 import type { WorkspaceInteractionRecord } from "../model/workspace-interaction.js";
 import { WorkspaceInteractionEntity } from "../schema/workspace-interaction-entity.js";
 import { PostgresWorkspaceInteractionRepository } from "../repository/postgres-workspace-interaction-repository.js";
@@ -14,7 +18,7 @@ import {
 import { workspaceActivityController } from "../controller/workspace-activity-controller.js";
 import { authenticatedTestServer } from "../../http/test/test-server.js";
 
-test("recent workspaces are bounded, distinct, ordered, and scoped to the saved teammate and owner", async (context) => {
+test("recent workspaces are bounded, ordered, scoped, and omit deleted instances on refresh", async (context) => {
   const database = new DataSource({
     type: "postgres",
     entities: [WorkspaceInteractionEntity, AgentEntity],
@@ -47,6 +51,21 @@ test("recent workspaces are bounded, distinct, ordered, and scoped to the saved 
     database,
     recentWorkspaceListing,
   );
+  let states: Awaited<ReturnType<WorkspaceStates["states"]>> = rows.map(
+    ({ type, name }, index) => ({
+      type,
+      name,
+      status:
+        index === 11
+          ? "creating"
+          : index === 10
+            ? "running"
+            : index === 9
+              ? "stopped"
+              : "unknown",
+    }),
+  );
+  let unavailable = false;
   const activity = new WorkspaceActivity(
     {
       get: async (owner, id) => {
@@ -65,11 +84,11 @@ test("recent workspaces are bounded, distinct, ordered, and scoped to the saved 
     },
     repository,
     {
-      states: async () => [
-        { type: "web", name: "preview-11", status: "creating" },
-        { type: "web", name: "preview-10", status: "running" },
-        { type: "other-type", name: "preview-9", status: "running" },
-      ],
+      /** Report current identities separately from temporary lifecycle lookup failures. */
+      async states() {
+        if (unavailable) throw new WorkspaceInstancesUnavailableError();
+        return states;
+      },
     },
     () => Date.parse("2026-10-14T00:00:12.000Z"),
   );
@@ -83,11 +102,41 @@ test("recent workspaces are bounded, distinct, ordered, and scoped to the saved 
       .map((item) => item.name),
   );
   assert.deepEqual(
-    result.workspaces.slice(0, 3).map((item) => item.status),
-    ["creating", "running", "unknown"],
+    result.workspaces.slice(0, 4).map((item) => item.status),
+    ["creating", "running", "stopped", "unknown"],
   );
   assert.equal(result.observedAt, "2026-10-14T00:00:12.000Z");
   assert.equal("agentId" in result.workspaces[0]!, false);
+
+  // A same-named instance of another type cannot keep a deleted workspace in the card.
+  states = states.map((item) =>
+    item.name === "preview-10" ? { ...item, type: "other-type" } : item,
+  );
+  const refreshed = await activity.recent({
+    ownerId: "owner",
+    agentId: "avery",
+  });
+  assert.deepEqual(
+    refreshed.workspaces,
+    result.workspaces.filter((item) => item.name !== "preview-10"),
+  );
+
+  unavailable = true;
+  await assert.rejects(
+    activity.recent({ ownerId: "owner", agentId: "avery" }),
+    WorkspaceInstancesUnavailableError,
+  );
+  unavailable = false;
+  assert.deepEqual(
+    (await activity.recent({ ownerId: "owner", agentId: "avery" })).workspaces,
+    refreshed.workspaces,
+  );
+
+  states = [];
+  assert.deepEqual(
+    (await activity.recent({ ownerId: "owner", agentId: "avery" })).workspaces,
+    [],
+  );
 });
 
 test("another chat or owner cannot contribute timestamps, and reads never renew activity", async () => {

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
@@ -10,9 +10,7 @@ import {
   House,
   KeyRound,
   LogOut,
-  Plug,
   Plus,
-  Settings,
 } from "lucide-react";
 import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import { Brand } from "@everything/ui/brand";
@@ -22,8 +20,11 @@ import { AvatarButton } from "@everything/ui/avatar";
 import { useAgents } from "../../agent/component/agent-directory-provider.js";
 import { useSession } from "../../session/component/session-provider.js";
 import { useWorkspaceDialogs } from "./workspace-dialogs.js";
-import { useProviders } from "../../provider/component/provider-connections-context.js";
+import { RecentTeammateShortcuts } from "../../agent/component/recent-teammate-shortcuts.js";
+import { WorkspaceMenu } from "./workspace-menu.js";
+import { DesktopWorkspaceActions } from "./desktop-workspace-actions.js";
 import { useUpdateCount } from "../../update/hook/use-updates.js";
+import { useVisualViewportHeight } from "../hook/use-visual-viewport-height.js";
 import {
   UpdateCountBadge,
   unreadLinkLabel,
@@ -38,14 +39,10 @@ const navigation = [
   { path: "/keys", label: "Keys", icon: KeyRound },
 ];
 
-/** Keep workspace navigation stationary while route content changes and scrolls independently. */
+/** Keep navigation stationary and let phone conversations use their own compact header. */
 export function WorkspaceShell() {
   const { profile, signOut: endSession } = useSession();
   const agents = useAgents();
-  const providers = useProviders();
-  const hasVerifiedProvider =
-    !providers.isError &&
-    providers.data?.some((provider) => provider.status === "verified");
   const { open } = useWorkspaceDialogs();
   const updateCounts = useUpdateCount().data;
   const unreadUpdates = updateCounts?.unread ?? 0;
@@ -61,6 +58,7 @@ export function WorkspaceShell() {
     (agent) => pathname === `/team/${agent.id}`,
   );
   const isChat = pathname.startsWith("/team/");
+  const viewportHeight = useVisualViewportHeight(isChat);
   const label =
     activeAgent?.name ??
     (isChat ? "Teammate" : undefined) ??
@@ -96,7 +94,16 @@ export function WorkspaceShell() {
       </main>
     );
   return (
-    <div className="shell">
+    <div
+      className={`shell${isChat ? " chat-shell" : ""}`}
+      style={
+        viewportHeight
+          ? ({
+              "--chat-viewport-height": `${viewportHeight}px`,
+            } as CSSProperties)
+          : undefined
+      }
+    >
       <a className="skip-link" href="#workspace-content">
         Skip to content
       </a>
@@ -197,46 +204,11 @@ export function WorkspaceShell() {
             </>
           )}
           <div className="topbar-right">
-            <span className="topbar-caption">Your team, in one place.</span>
-            <IconButton
-              label={
-                hasVerifiedProvider
-                  ? "Model providers — connection verified"
-                  : "Model providers — no verified connection"
-              }
-              className={`provider-button ${hasVerifiedProvider ? "connected" : ""}`}
-              onClick={() => open({ kind: "provider" })}
-            >
-              <Plug aria-hidden="true" />
-            </IconButton>
-            <IconButton
-              label="Notification settings"
-              className="notification-button"
-              onClick={() => open({ kind: "notifications" })}
-            >
-              <Bell aria-hidden="true" />
-            </IconButton>
-            <IconButton
-              label="Settings"
-              className="settings-button"
-              onClick={() => open({ kind: "settings" })}
-            >
-              <Settings aria-hidden="true" />
-            </IconButton>
-            <IconButton
-              label="Sign out"
-              className="signout-button"
-              onClick={() => void signOut()}
-            >
-              <LogOut aria-hidden="true" />
-            </IconButton>
-            <AvatarButton
-              className="mobile-profile"
-              name={profile?.displayName ?? "You"}
-              label="Open preferences"
-              aria-haspopup="dialog"
-              onClick={() => open({ kind: "preferences" })}
-            />
+            <DesktopWorkspaceActions onSignOut={() => void signOut()} />
+            <div className="mobile-workspace-actions">
+              <RecentTeammateShortcuts />
+              <WorkspaceMenu onSignOut={() => void signOut()} />
+            </div>
           </div>
         </header>
         <main

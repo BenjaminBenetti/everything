@@ -24,6 +24,8 @@ export function useConversation(agentId: string, targetMessageId?: string) {
     },
     enabled: !!profile,
     retry: false,
+    // An open conversation receives replies even when another tab or window has focus.
+    refetchIntervalInBackground: true,
     // Keep polling every second while a displayed background count is waiting to expire.
     refetchInterval: (query) => {
       const runtime = query.state.data?.runtime;

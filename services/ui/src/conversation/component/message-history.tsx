@@ -6,7 +6,7 @@ import { useMessageReads } from "../hook/use-message-reads.js";
 
 /**
  * Render saved Markdown messages, with typing bubbles while the teammate writes a message, and
- * preserve reading position when older history is prepended.
+ * preserve reading position when older history is prepended or the composer changes size.
  */
 export function MessageHistory({
   agentId,
@@ -14,6 +14,7 @@ export function MessageHistory({
   targetMessageId,
   readEnabled,
   messages,
+  latestMessages,
   hasOlder,
   loadingOlder,
   sentMessageId,
@@ -25,6 +26,7 @@ export function MessageHistory({
   targetMessageId: string | undefined;
   readEnabled: boolean;
   messages: readonly ChatMessage[];
+  latestMessages: readonly ChatMessage[] | undefined;
   hasOlder: boolean;
   loadingOlder: boolean;
   sentMessageId: string | undefined;
@@ -32,11 +34,18 @@ export function MessageHistory({
   onOlder: () => Promise<unknown>;
 }) {
   const viewport = useRef<HTMLDivElement>(null);
+  const viewportSize = useRef({ width: 0, height: 0 });
   const follow = useRef(true);
   const previousHeight = useRef<number | null>(null);
   const newestId = messages.at(-1)?.id;
   const positionedTarget = useRef<string | undefined>(undefined);
-  const readsFailed = useMessageReads(agentId, viewport, messages, readEnabled);
+  const readsFailed = useMessageReads(
+    agentId,
+    viewport,
+    messages,
+    latestMessages,
+    readEnabled,
+  );
 
   useLayoutEffect(() => {
     follow.current = !targetMessageId;
@@ -82,6 +91,20 @@ export function MessageHistory({
   useLayoutEffect(() => {
     const element = viewport.current;
     if (!element) return;
+    const observer = new ResizeObserver(() => {
+      if (follow.current) element.scrollTop = element.scrollHeight;
+      viewportSize.current = {
+        width: element.clientWidth,
+        height: element.clientHeight,
+      };
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
+  useLayoutEffect(() => {
+    const element = viewport.current;
+    if (!element) return;
     if (previousHeight.current !== null && !loadingOlder) {
       element.scrollTop = element.scrollHeight - previousHeight.current;
       previousHeight.current = null;
@@ -114,6 +137,12 @@ export function MessageHistory({
       ref={viewport}
       onScroll={(event) => {
         const element = event.currentTarget;
+        // Resizing can emit scroll events before the observer restores the latest message.
+        if (
+          element.clientWidth !== viewportSize.current.width ||
+          element.clientHeight !== viewportSize.current.height
+        )
+          return;
         follow.current =
           element.scrollHeight - element.scrollTop - element.clientHeight < 80;
       }}

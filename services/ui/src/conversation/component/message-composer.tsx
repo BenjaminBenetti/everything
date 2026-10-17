@@ -3,8 +3,9 @@ import { ArrowUp } from "lucide-react";
 import { Button } from "@everything/ui/button";
 import { InputSurface } from "@everything/ui/input-surface";
 import { messageTextMaxLength } from "@everything/conversation-contracts";
+import { useComposerSize } from "../hook/use-composer-size.js";
 
-/** Keep the draft on failure and expose sending as an explicit action. */
+/** Size the field to its draft, keep failed sends editable, and expose sending as an explicit action. */
 export function MessageComposer({
   name,
   disabled,
@@ -17,6 +18,7 @@ export function MessageComposer({
   onSend: (text: string) => Promise<unknown>;
 }) {
   const [draft, setDraft] = useState("");
+  const field = useComposerSize(draft);
   const canSend = !!draft.trim() && !disabled && !sending;
 
   /** Clear only the submitted draft after persistence succeeds, retaining text typed during the request. */
@@ -55,7 +57,8 @@ export function MessageComposer({
       </label>
       <textarea
         id="chat-message"
-        rows={3}
+        ref={field}
+        rows={1}
         value={draft}
         onChange={(event) => setDraft(event.target.value)}
         onKeyDown={keyDown}

@@ -20,6 +20,10 @@
       "types": "./build/control/component/button.d.ts",
       "default": "./build/control/component/button.js"
     },
+    "./action-menu": {
+      "types": "./build/control/component/action-menu.d.ts",
+      "default": "./build/control/component/action-menu.js"
+    },
     "./select": {
       "types": "./build/control/component/select.d.ts",
       "default": "./build/control/component/select.js"

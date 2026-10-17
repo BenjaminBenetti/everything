@@ -1,3 +1,4 @@
+import { openWorkspaceAction } from "../../workspace/fixture/workspace-menu.js";
 import { expect, test, type BrowserContext } from "@playwright/test";
 
 /** Start with saved opt-in preferences outside the page so reloads exercise server-backed state. */
@@ -75,7 +76,7 @@ test("General saves summary preferences across reloads and immediately refreshes
   await expect(page.locator(".update-summary")).toHaveText(
     "Needs your approval of the report.",
   );
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await openWorkspaceAction(page, "Settings");
   const dialog = page.getByRole("dialog", { name: "Settings", exact: true });
   const general = dialog.getByRole("region", { name: "General", exact: true });
   const toggle = general.getByRole("switch", { name: "Summarize updates" });
@@ -92,7 +93,7 @@ test("General saves summary preferences across reloads and immediately refreshes
   );
   await expect(page.locator(".update-label")).toHaveText("Message preview");
   await page.reload();
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await openWorkspaceAction(page, "Settings");
   await expect(toggle).not.toBeChecked();
   await general.getByText("Summarize updates", { exact: true }).click();
   await expect(toggle).toBeChecked();
@@ -115,7 +116,7 @@ test("General retries loading and restores the saved toggle after a failed save"
   const state = await workspace(context);
   state.failRead = true;
   await page.goto("/");
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await openWorkspaceAction(page, "Settings");
   const general = page.getByRole("region", { name: "General", exact: true });
   await expect(general.getByRole("alert")).toContainText(
     "General settings aren’t available",

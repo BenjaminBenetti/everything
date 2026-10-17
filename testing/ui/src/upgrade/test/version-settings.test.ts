@@ -1,3 +1,4 @@
+import { openWorkspaceAction } from "../../workspace/fixture/workspace-menu.js";
 import { expect, test, type BrowserContext } from "@playwright/test";
 
 /** An upgrade from rc7 to rc8 in the given state. */
@@ -94,7 +95,7 @@ test("Version offers the newer release, follows the upgrade through Everything's
     lastUpgrade: attempt("succeeded"),
   };
   await page.goto("/");
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await openWorkspaceAction(page, "Settings");
   const version = page.getByRole("region", { name: "Version", exact: true });
   await expect(version).toContainText(
     "Version 0.1.0-rc8 is available. You’re on version 0.1.0-rc7.",
@@ -141,7 +142,7 @@ test("Version explains a failed upgrade, and says when the installer upgrades th
     ),
   };
   await page.goto("/");
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await openWorkspaceAction(page, "Settings");
   const version = page.getByRole("region", { name: "Version", exact: true });
   await expect(version.getByRole("alert")).toContainText(
     "The upgrade to version 0.1.0-rc8 didn’t finish, so Everything stayed on version 0.1.0-rc7.",
@@ -159,7 +160,7 @@ test("Version explains a failed upgrade, and says when the installer upgrades th
     lastUpgrade: null,
   };
   await page.getByRole("button", { name: "Done", exact: true }).click();
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await openWorkspaceAction(page, "Settings");
   await expect(version).toContainText(
     "Run the installer once more to let Everything upgrade itself from here.",
   );

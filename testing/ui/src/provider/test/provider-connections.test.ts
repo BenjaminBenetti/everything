@@ -1,3 +1,4 @@
+import { openWorkspaceAction } from "../../workspace/fixture/workspace-menu.js";
 import { test, expect, type BrowserContext } from "@playwright/test";
 
 /** Isolate provider UI checks from account data and the live authentication rate limit. */
@@ -65,7 +66,7 @@ test("saved connection status stays connected and automatically displays new che
     return route.fulfill({ json: connection });
   });
   await page.goto("/");
-  await page.getByRole("button", { name: /Model providers/ }).click();
+  await openWorkspaceAction(page, /Model providers/);
   const option = page.getByRole("button", { name: /^OpenAI-compatible API/ });
   await expect(option).toContainText("Connected");
   await option.click();
@@ -125,7 +126,7 @@ test("provider choices open one compact setup page and Back restores the list an
     await route.fulfill({ json: providers[2] });
   });
   await page.goto("/");
-  await page.getByRole("button", { name: /Model providers/ }).click();
+  await openWorkspaceAction(page, /Model providers/);
   await expect(page.locator(".provider-picker button")).toHaveCount(3);
   await expect(page.getByRole("dialog").locator("input")).toHaveCount(0);
   await expect(
@@ -192,7 +193,18 @@ test("provider choices open one compact setup page and Back restores the list an
   });
   await expect(savedOption).toBeFocused();
   await expect(savedOption).toContainText("Connected");
-  await expect(page.locator(".provider-button")).toHaveClass(/connected/);
+  await page.getByRole("button", { name: "Close dialog", exact: true }).click();
+  if ((page.viewportSize()?.width ?? 1000) <= 650) {
+    await page.getByRole("button", { name: "Workspace menu" }).click();
+    const providersAction = page.getByRole("menuitem", {
+      name: /Model providers/,
+    });
+    await expect(providersAction).toContainText("Connection verified");
+    await providersAction.click();
+  } else {
+    await expect(page.locator(".provider-button")).toHaveClass(/connected/);
+    await openWorkspaceAction(page, /Model providers/);
+  }
   await savedOption.click();
   await expect(page.getByLabel("API base address")).toHaveValue(
     "http://localhost:11434/v1",
@@ -246,7 +258,7 @@ test("ChatGPT returns through loopback after opener isolation and consumes brows
     await route.fulfill({ json: providers[0] });
   });
   await page.goto("/");
-  await page.getByRole("button", { name: /Model providers/ }).click();
+  await openWorkspaceAction(page, /Model providers/);
   await page.getByRole("button", { name: /^ChatGPT/ }).click();
   const opened = context.waitForEvent("page");
   await page.getByRole("link", { name: "Continue with ChatGPT" }).click();
@@ -256,7 +268,6 @@ test("ChatGPT returns through loopback after opener isolation and consumes brows
       .getByRole("region", { name: "ChatGPT", exact: true })
       .getByRole("status"),
   ).toHaveText("Connected");
-  await expect(returned.locator(".provider-button")).toHaveClass(/connected/);
   expect(new URL(returned.url()).hash).toBe("");
   expect(completions).toBe(1);
   expect(await returned.evaluate(() => Object.keys(sessionStorage))).toEqual(
@@ -303,7 +314,7 @@ test("ChatGPT exposes a copyable authorization link and accepts the matching pas
     await route.fulfill({ json: providers[0] });
   });
   await page.goto("/");
-  await page.getByRole("button", { name: /Model providers/ }).click();
+  await openWorkspaceAction(page, /Model providers/);
   await page.getByRole("button", { name: /^ChatGPT/ }).click();
   const link = page.getByRole("link", { name: "Continue with ChatGPT" });
   await expect(link).toHaveAttribute("href", url);
@@ -343,5 +354,13 @@ test("a ChatGPT callback without matching browser state never submits a code", a
   );
   expect(new URL(page.url()).hash).toBe("");
   expect(completions).toBe(0);
-  await expect(page.locator(".provider-button")).not.toHaveClass(/connected/);
+  await page.getByRole("button", { name: "Close dialog", exact: true }).click();
+  if ((page.viewportSize()?.width ?? 1000) <= 650) {
+    await page.getByRole("button", { name: "Workspace menu" }).click();
+    await expect(
+      page.getByRole("menuitem", { name: /Model providers/ }),
+    ).toContainText("No verified connection");
+  } else {
+    await expect(page.locator(".provider-button")).not.toHaveClass(/connected/);
+  }
 });

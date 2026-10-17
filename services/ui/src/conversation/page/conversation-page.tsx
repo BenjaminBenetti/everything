@@ -6,8 +6,7 @@ import { useWorkspaceDialogs } from "../../workspace/component/workspace-dialogs
 import { useConversation } from "../hook/use-conversation.js";
 import { MessageComposer } from "../component/message-composer.js";
 import { MessageHistory } from "../component/message-history.js";
-import { ConversationTeammateCard } from "../component/conversation-teammate-card.js";
-import { ConversationWorkspacesCard } from "../component/conversation-workspaces-card.js";
+import { ConversationDetails } from "../component/conversation-details.js";
 import { CompactionIndicator } from "../component/compaction-indicator.js";
 
 /** Resolve the teammate's sole conversation from the directory, including direct links. */
@@ -58,18 +57,11 @@ function TeammateConversation({ agent }: { agent: Agent }) {
     runtime?.error;
   return (
     <section className="chat-page" aria-label={`Chat with ${agent.name}`}>
-      <div className="chat-sidebar">
-        <ConversationTeammateCard
-          agent={agent}
-          backgroundCount={runtime?.backgroundCount ?? 0}
-          onEdit={() => open({ kind: "editor", agent })}
-        />
-        <ConversationWorkspacesCard
-          agentId={agent.id}
-          name={agent.name}
-          avatarId={agent.avatarId}
-        />
-      </div>
+      <ConversationDetails
+        agent={agent}
+        backgroundCount={runtime?.backgroundCount ?? 0}
+        onEdit={() => open({ kind: "editor", agent })}
+      />
       {snapshot.isPending ? (
         <p className="chat-loading" role="status">
           Loading your messages…
@@ -81,6 +73,7 @@ function TeammateConversation({ agent }: { agent: Agent }) {
           targetMessageId={targetMessageId}
           readEnabled={!targetMessageId || targetFound}
           messages={history?.messages ?? []}
+          latestMessages={snapshot.data?.page.messages}
           hasOlder={!!history?.nextCursor}
           loadingOlder={older.isPending}
           sentMessageId={send.data?.messageId}

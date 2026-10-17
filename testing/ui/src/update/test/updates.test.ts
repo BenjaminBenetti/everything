@@ -6,6 +6,7 @@ import {
   type Locator,
   type Page,
 } from "@playwright/test";
+import { setConversationDetails } from "../../conversation/fixture/conversation-details.js";
 
 interface Message {
   id: string;
@@ -32,7 +33,6 @@ function serverState() {
     failHistory: false,
     failFeed: false,
     historyFetches: 0,
-    historyDelay: undefined as Promise<void> | undefined,
     feedFetches: 0,
     seenFetches: 0,
     failSeenPages: false,
@@ -118,7 +118,6 @@ async function workspace(
         : history.length;
       const start = Math.max(0, end - 100);
       const messages = history.slice(start, end);
-      await state.historyDelay;
       return route.fulfill({
         json: { messages, nextCursor: start > 0 ? messages[0]!.id : null },
       });
@@ -307,6 +306,9 @@ test("seen pagination failures retain cards and retry, and reading an unread upd
   await unread.getByRole("link").click();
   await expect(page.locator(".update-target")).toContainText(newest.text);
   await expect.poll(() => state.read.has(newest.id)).toBe(true);
+  await page
+    .getByRole("link", { name: "Back to your team", exact: true })
+    .click();
   await navigation(page)
     .getByRole("link", { name: /^Updates/ })
     .click();
@@ -443,10 +445,13 @@ test("reading a teammate clears its badges while other teammates stay unread", a
     .getByRole("link", { name: "Chat with Avery, 2 unread", exact: true })
     .click();
   await expect.poll(() => state.read.has(second.id)).toBe(true);
-  // The phone history shows only the newest reply until the earlier one is scrolled into view.
+  // Make the earlier reply visible even when the viewport cannot fit both replies.
   await page.getByText(first.text, { exact: true }).scrollIntoViewIfNeeded();
   await expect.poll(() => state.read.has(first.id)).toBe(true);
   expect(state.read.has(other.id)).toBe(false);
+  await page
+    .getByRole("link", { name: "Back to your team", exact: true })
+    .click();
   await expect(
     navigation(page).getByRole("link", {
       name: "Updates, 1 unread",
@@ -465,6 +470,9 @@ test("reading a teammate clears its badges while other teammates stay unread", a
     .getByRole("link", { name: "Chat with Blake, 1 unread", exact: true })
     .click();
   await expect.poll(() => state.read.has(other.id)).toBe(true);
+  await page
+    .getByRole("link", { name: "Back to your team", exact: true })
+    .click();
   await expect(
     navigation(page)
       .getByRole("link", { name: "Updates", exact: true })
@@ -577,7 +585,7 @@ test("old update links load earlier history, highlight the exact message, and su
   ).toContainText(newest.text);
 });
 
-test("hidden and unfocused tabs never acknowledge fetched messages; returning and receipt retries persist", async ({
+test("open chats receive unfocused and hidden replies, retry receipts, and keep other teammates unread", async ({
   page,
   context,
 }) => {
@@ -586,47 +594,63 @@ test("hidden and unfocused tabs never acknowledge fetched messages; returning an
   await page.goto("/team/avery");
   await expect(page.getByRole("log")).toBeAttached();
   await attention(page, true, false);
+  state.failReceipts = true;
   const unfocused = state.append(
-    "A background window must not consume this message.",
+    "An open chat receives this even when another window has focus.",
+  );
+  const other = state.append(
+    "Blake still needs your attention.",
+    "assistant",
+    "blake",
   );
   await expect(page.getByText(unfocused.text, { exact: true })).toBeAttached();
-  await page.waitForTimeout(1500);
-  expect(state.read.has(unfocused.id)).toBe(false);
-  let releaseHistory!: () => void;
-  state.historyDelay = new Promise<void>((resolve) => {
-    releaseHistory = resolve;
-  });
-  const fetchedBefore = state.historyFetches;
-  const hidden = state.append("A hidden tab must retain this update.");
-  await expect.poll(() => state.historyFetches).toBeGreaterThan(fetchedBefore);
-  await attention(page, false, true);
-  releaseHistory();
-  state.historyDelay = undefined;
-  await expect(page.getByText(hidden.text, { exact: true })).toBeAttached();
-  await page.waitForTimeout(1500);
-  expect(state.read.size).toBe(0);
-  state.failReceipts = true;
-  await attention(page, true, true);
-  await expect(page.getByText(hidden.text, { exact: true })).toBeVisible();
   await expect(page.getByText(/Read status couldn’t be saved/)).toBeVisible();
-  expect(state.read.size).toBe(0);
+  expect(state.read.has(unfocused.id)).toBe(false);
+  // Even while a receipt is retrying, only other teammates contribute to navigation badges.
+  await expect(
+    page.locator('.sidebar .nav-item[href="/updates"]'),
+  ).toHaveAttribute("aria-label", "Updates, 1 unread", { timeout: 10_000 });
+  await expect(
+    page.locator('.side-agent[href="/team/avery"] .update-count-badge'),
+  ).toHaveCount(0);
+  await expect(
+    page.locator('.side-agent[href="/team/blake"] .update-count-badge'),
+  ).toHaveText("1");
   state.failReceipts = false;
   await expect
-    .poll(() => state.read.has(hidden.id), { timeout: 10_000 })
+    .poll(() => state.read.has(unfocused.id), { timeout: 10_000 })
     .toBe(true);
-  // On short viewports the earlier message may have scrolled away; it counts once seen again.
-  await page
-    .getByText(unfocused.text, { exact: true })
-    .scrollIntoViewIfNeeded();
-  await expect.poll(() => state.read.has(unfocused.id)).toBe(true);
+  await attention(page, false, false);
+  const fetchedBefore = state.historyFetches;
+  const hidden = state.append(
+    "An open chat also receives replies in a background tab.",
+  );
+  await expect.poll(() => state.historyFetches).toBeGreaterThan(fetchedBefore);
+  await expect(page.getByText(hidden.text, { exact: true })).toBeAttached();
+  await expect.poll(() => state.read.has(hidden.id)).toBe(true);
+  expect(state.read.has(other.id)).toBe(false);
+  await attention(page, true, true);
+  await page.goto("/updates");
   await page.reload();
+  await expect(
+    page.getByRole("list", { name: "Unread updates" }).getByRole("link"),
+  ).toHaveCount(1);
+  await expect(
+    page.getByRole("list", { name: "Unread updates" }),
+  ).toContainText(other.text);
+  await page.getByText(other.text, { exact: true }).click();
+  await expect.poll(() => state.read.has(other.id)).toBe(true);
+  const away = state.append(
+    "Avery should notify again after switching to Blake.",
+  );
   await page.goto("/updates");
   await expect(
-    page.getByRole("heading", { name: "You’re all caught up" }),
-  ).toBeVisible();
+    page.getByRole("list", { name: "Unread updates" }),
+  ).toContainText(away.text);
+  expect(state.read.has(away.id)).toBe(false);
 });
 
-test("scrolling away and open dialogs preserve unread delivery", async ({
+test("new replies in the open chat are received while scrolled up or behind a dialog", async ({
   page,
   context,
 }) => {
@@ -644,23 +668,28 @@ test("scrolling away and open dialogs preserve unread delivery", async ({
     "You were reading earlier history when this arrived.",
   );
   await expect(page.getByText(reply.text, { exact: true })).toBeAttached();
-  await page.waitForTimeout(1500);
-  expect(state.read.has(reply.id)).toBe(false);
+  await expect.poll(() => state.read.has(reply.id)).toBe(true);
+  expect(
+    await page
+      .locator(".chat-history")
+      .evaluate((element) => element.scrollTop),
+  ).toBe(0);
   await page.locator(".chat-history").evaluate((element) => {
     element.scrollTop = element.scrollHeight;
   });
   await expect.poll(() => state.read.has(reply.id)).toBe(true);
   // A real workspace dialog obscures the conversation while polling continues underneath it.
+  await setConversationDetails(page, true);
   await page.getByRole("button", { name: "Edit Avery", exact: true }).click();
   const behindDialog = state.append(
-    "This should wait until the dialog closes.",
+    "The chat is still open while you edit this teammate.",
   );
   await expect(
     page.getByText(behindDialog.text, { exact: true }),
   ).toBeAttached();
-  await page.waitForTimeout(1500);
-  expect(state.read.has(behindDialog.id)).toBe(false);
+  await expect.poll(() => state.read.has(behindDialog.id)).toBe(true);
   await page.keyboard.press("Escape");
+  await setConversationDetails(page, false);
   await expect.poll(() => state.read.has(behindDialog.id)).toBe(true);
 });
 
@@ -759,13 +788,12 @@ test("an old update stays in view after reconnecting across more than one histor
   for (let index = 0; index < 110; index++)
     state.append(`Arrived while away ${index}`, "user");
   const unread = state.append(
-    "This new reply should remain unread while reviewing the old message.",
+    "This new reply is received while reviewing the old message.",
   );
   await attention(page, true, true);
   await expect(page.getByText(unread.text, { exact: true })).toBeAttached();
   await expect(page.locator(".update-target")).toBeInViewport();
-  await page.waitForTimeout(1500);
-  expect(state.read.has(unread.id)).toBe(false);
+  await expect.poll(() => state.read.has(unread.id)).toBe(true);
 });
 
 test("oversized update links open at the beginning and keep that alignment on reload", async ({
@@ -817,7 +845,7 @@ test("oversized update links open at the beginning and keep that alignment on re
   await expect.poll(() => state.read.has(target.id)).toBe(true);
 });
 
-test("a long reply is read once its end or beginning is seen, but not its middle alone", async ({
+test("live long replies are received immediately while older replies still require seeing their beginning or end", async ({
   page,
   context,
 }) => {
@@ -839,9 +867,16 @@ test("a long reply is read once its end or beginning is seen, but not its middle
   ).toBeInViewport();
   await expect.poll(() => state.read.has(followed.id)).toBe(true);
 
-  // A reply delivered while unfocused stays unread while only its middle is in view.
-  await attention(page, true, false);
+  // Replies delivered after leaving the chat keep the historical exposure policy.
+  await page.goto("/team");
   const reply = state.append(longReply("second report"));
+  await page.addInitScript(() => {
+    Object.defineProperty(document, "hasFocus", {
+      configurable: true,
+      value: () => false,
+    });
+  });
+  await page.goto("/team/avery");
   const article = page.locator(`[data-message-id="${reply.id}"]`);
   await expect(article).toBeAttached();
   await article.evaluate((element) =>
@@ -963,6 +998,9 @@ test("the Updates badge counts unread updates, refreshes after a receipt, and hi
   await expect(page.locator(".update-target")).toContainText(newest.text);
   await expect.poll(() => state.read.has(newest.id)).toBe(true);
   // The receipt refreshes the count instead of waiting for the next poll.
+  await page
+    .getByRole("link", { name: "Back to your team", exact: true })
+    .click();
   await expect(updates).toHaveAccessibleName("Updates, 2 unread", {
     timeout: 2_000,
   });

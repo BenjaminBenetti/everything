@@ -4,6 +4,7 @@ import {
   type BrowserContext,
   type Locator,
 } from "@playwright/test";
+import { setConversationDetails } from "../fixture/conversation-details.js";
 
 /** Isolate chat workspace feedback from provider inference and real workspace lifecycle actions. */
 async function prepare(context: BrowserContext) {
@@ -110,6 +111,7 @@ test("the card sits below model details, updates workspace states, and isolates 
 }, info) => {
   const state = await prepare(context);
   await page.goto("/team/avery");
+  await setConversationDetails(page, true);
   const card = page.getByRole("complementary", {
     name: "Workspaces",
     exact: true,
@@ -170,12 +172,17 @@ test("the card sits below model details, updates workspace states, and isolates 
   );
   expect(await row.boundingBox()).toEqual(rowBefore);
 
+  // All ten workspaces remain reachable in the expanded panel on a phone.
+  await card.getByRole("listitem").last().scrollIntoViewIfNeeded();
+  await expect(card.getByRole("listitem").last()).toBeInViewport();
+
   await page
     .getByRole("link", { name: "Back to your team", exact: true })
     .click();
   await page
     .getByRole("link", { name: "Chat with Blake", exact: true })
     .click();
+  await setConversationDetails(page, true);
   await expect(card.getByRole("listitem")).toHaveCount(1);
   await expect(card.getByRole("listitem").first()).toContainText(
     "shared-preview",
@@ -221,6 +228,7 @@ test("the 30-second indication expires despite a failed poll and a different bro
   const clock = new Date("2036-01-01T00:00:00.000Z");
   await page.clock.install({ time: clock });
   await page.goto("/team/avery");
+  await setConversationDetails(page, true);
   const card = page.getByRole("complementary", {
     name: "Workspaces",
     exact: true,
@@ -246,6 +254,7 @@ test("the avatar types on its laptop and keeps a still pose with reduced motion"
   state.avery = [state.avery[0]!];
   await page.emulateMedia({ reducedMotion: "no-preference" });
   await page.goto("/team/avery");
+  await setConversationDetails(page, true);
   const activity = page.getByRole("img", {
     name: "Avery is using this workspace",
   });

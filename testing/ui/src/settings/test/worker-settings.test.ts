@@ -1,3 +1,7 @@
+import {
+  openWorkspaceAction,
+  workspaceActionTrigger,
+} from "../../workspace/fixture/workspace-menu.js";
 import { test, expect, type BrowserContext } from "@playwright/test";
 
 /** Isolate settings checks from account data and from the workspace's real worker settings. */
@@ -49,9 +53,9 @@ test("Settings turns privileged workers on and off and shows the saved state", a
     await route.fulfill({ json: saved });
   });
   await page.goto("/");
-  const opener = page.getByRole("button", { name: "Settings", exact: true });
+  const opener = workspaceActionTrigger(page, "Settings");
   await expect(opener).toBeInViewport();
-  await opener.click();
+  await openWorkspaceAction(page, "Settings");
   const dialog = page.getByRole("dialog", { name: "Settings", exact: true });
   const privileged = dialog.getByRole("switch", {
     name: "Privileged workers",
@@ -88,7 +92,7 @@ test("Settings explains when workers are unavailable and loads them on retry", a
       : route.fulfill({ json: { privileged: true } }),
   );
   await page.goto("/");
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await openWorkspaceAction(page, "Settings");
   const dialog = page.getByRole("dialog", { name: "Settings", exact: true });
   await expect(dialog.getByRole("alert")).toContainText(
     "Worker settings aren’t available right now.",

@@ -1,3 +1,7 @@
+import {
+  openWorkspaceAction,
+  workspaceActionTrigger,
+} from "../fixture/workspace-menu.js";
 import { test, expect, type Page } from "@playwright/test";
 
 /** Sign in on the application page; development defaults are the committed local seed. */
@@ -103,7 +107,7 @@ test("real sign-in, all non-chat pages, themes, deep links, and sign-out", async
   await expect(
     page.getByRole("heading", { name: "Apps", exact: true }),
   ).toBeVisible();
-  await page.locator('button[aria-label="Open preferences"]:visible').click();
+  await openWorkspaceAction(page, "Preferences");
   await expect(
     page.getByRole("dialog", { name: "Preferences", exact: true }),
   ).toBeVisible();
@@ -143,23 +147,21 @@ test("real sign-in, all non-chat pages, themes, deep links, and sign-out", async
   });
   await page.screenshot({ path: info.outputPath("preferences.png") });
   await page.keyboard.press("Escape");
-  await expect(
-    page.locator('button[aria-label="Open preferences"]:visible'),
-  ).toBeFocused();
+  await expect(workspaceActionTrigger(page, "Preferences")).toBeFocused();
   await page.reload();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "sand");
   await expect(
     page.getByRole("heading", { name: "Apps", exact: true }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Notification settings" }).click();
+  await openWorkspaceAction(page, "Notification settings");
   await expect(page.getByRole("dialog")).toContainText(
     "Push notifications aren’t available yet",
   );
   await page.keyboard.press("Escape");
   await expect(
-    page.getByRole("button", { name: "Notification settings" }),
+    workspaceActionTrigger(page, "Notification settings"),
   ).toBeFocused();
-  await page.getByRole("button", { name: /Model providers/ }).click();
+  await openWorkspaceAction(page, /Model providers/);
   for (const name of ["ChatGPT", "Claude", "OpenAI-compatible API"])
     await expect(
       page
@@ -168,7 +170,7 @@ test("real sign-in, all non-chat pages, themes, deep links, and sign-out", async
     ).toBeVisible();
   await page.getByRole("button", { name: "Close dialog", exact: true }).click();
   await navigate(page, "Home");
-  await page.locator('button[aria-label="Open preferences"]:visible').click();
+  await openWorkspaceAction(page, "Preferences");
   await expect(
     page.getByRole("radio", { name: "Sand", exact: true }),
   ).toBeChecked();
@@ -179,15 +181,10 @@ test("real sign-in, all non-chat pages, themes, deep links, and sign-out", async
   ).toBeChecked();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "midnight");
   await page.getByRole("button", { name: "Done", exact: true }).click();
-  await expect(
-    page.locator('button[aria-label="Open preferences"]:visible'),
-  ).toBeFocused();
+  await expect(workspaceActionTrigger(page, "Preferences")).toBeFocused();
   await expect(page.locator(".route-content")).toHaveCSS("opacity", "1");
   await page.screenshot({ path: info.outputPath("home.png") });
-  await page
-    .getByRole("button", { name: "Sign out", exact: true })
-    .last()
-    .click();
+  await openWorkspaceAction(page, "Sign out");
   await expect(
     page.getByRole("button", { name: "Sign in", exact: true }),
   ).toBeVisible();
@@ -706,10 +703,7 @@ test("inline credential errors, private cookies, deep-link sign-in and revoked-c
   await expect(
     page.getByRole("heading", { name: "Your team", exact: true }),
   ).toBeVisible();
-  await page
-    .getByRole("button", { name: "Sign out", exact: true })
-    .last()
-    .click();
+  await openWorkspaceAction(page, "Sign out");
   await expect(
     page.getByRole("button", { name: "Sign in", exact: true }),
   ).toBeVisible();

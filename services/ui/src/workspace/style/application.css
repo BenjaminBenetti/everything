@@ -161,6 +161,15 @@
 .topbar-right {
   @apply flex items-center;
   gap: 4px;
+  flex-shrink: 0;
+}
+.desktop-workspace-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.mobile-workspace-actions {
+  display: none;
 }
 .topbar-caption {
   color: var(--text-secondary);
@@ -170,8 +179,28 @@
 .provider-button {
   color: var(--status-disconnected);
 }
+.teammate-shortcuts {
+  display: flex;
+  align-items: center;
+}
+.teammate-shortcut {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  border-radius: var(--radius-control);
+}
+.teammate-shortcut:hover,
+.teammate-shortcut[aria-current="page"] {
+  background: var(--surface-selected);
+}
+.teammate-shortcut .teammate-avatar {
+  width: 32px;
+  height: 32px;
+}
 .mobile-wordmark,
-.mobile-profile,
 .mobile-nav {
   display: none;
 }
@@ -858,8 +887,8 @@
   }
   .topbar {
     height: 67px;
-    padding: 0 16px 0 22px;
-    gap: 0;
+    padding: 0 12px 0 18px;
+    gap: 8px;
   }
   .breadcrumb {
     display: none;
@@ -876,12 +905,12 @@
   .topbar-right {
     gap: 0;
   }
-  .mobile-profile {
-    display: inline-flex;
-    margin-left: 3px;
+  .desktop-workspace-actions {
+    display: none;
   }
-  .topbar-right .icon-button {
-    width: 38px;
+  .mobile-workspace-actions {
+    display: flex;
+    align-items: center;
   }
   .content,
   .dashboard-content {
@@ -1143,4 +1172,18 @@
   font-size: 10px;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+@media (max-width: 380px) {
+  .topbar {
+    padding-inline: 10px;
+  }
+  .mobile-wordmark {
+    font-size: 15px;
+    gap: 6px;
+  }
+  .mobile-wordmark .logo {
+    width: 24px;
+    height: 24px;
+  }
 }

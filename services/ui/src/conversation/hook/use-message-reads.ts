@@ -7,11 +7,12 @@ import {
 import { updateQueryRoot } from "../../update/hook/use-updates.js";
 import { useConversationClient } from "../component/conversation-provider.js";
 
-/** Acknowledge messages only after sustained viewport exposure in the focused, visible conversation. */
+/** Receive new replies in the open chat; older history still requires sustained viewport exposure. */
 export function useMessageReads(
   agentId: string,
   viewport: RefObject<HTMLDivElement | null>,
   messages: readonly ChatMessage[],
+  latestMessages: readonly ChatMessage[] | undefined,
   enabled: boolean,
 ) {
   const client = useConversationClient();
@@ -19,11 +20,30 @@ export function useMessageReads(
   const acknowledged = useRef(new Set<string>());
   const inFlight = useRef(new Set<string>());
   const retryAt = useRef(0);
+  const previousLatest = useRef<Set<string> | undefined>(undefined);
+  const incoming = useRef(new Set<string>());
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
+    if (!latestMessages) return;
+    // Only live snapshots discover arrivals. Loading older pages must not acknowledge unseen history.
+    if (previousLatest.current) {
+      for (const message of latestMessages) {
+        if (
+          message.role === "assistant" &&
+          !previousLatest.current.has(message.id)
+        )
+          incoming.current.add(message.id);
+      }
+    }
+    previousLatest.current = new Set(
+      latestMessages.map((message) => message.id),
+    );
+  }, [latestMessages]);
+
+  useEffect(() => {
     const root = viewport.current;
-    if (!root || !enabled) return;
+    if (!root) return;
     let stopped = false;
     const candidates = new Set<HTMLElement>();
     const exposedSince = new Map<string, number>();
@@ -49,15 +69,16 @@ export function useMessageReads(
     window.addEventListener("blur", resetExposure);
     document.addEventListener("visibilitychange", resetExposure);
 
-    /** Recheck geometry at acknowledgement time; polling history itself never reaches this boundary. */
-    const timer = window.setInterval(() => {
+    /** Require attention and exposure only for messages that predate opening this chat. */
+    const exposedMessages = (): string[] => {
       if (
+        !enabled ||
         document.visibilityState !== "visible" ||
         !document.hasFocus() ||
         document.querySelector('[role="dialog"]')
       ) {
         resetExposure();
-        return;
+        return [];
       }
       const now = Date.now();
       const bounds = root.getBoundingClientRect();
@@ -86,15 +107,29 @@ export function useMessageReads(
         }
         const since = exposedSince.get(id);
         if (since === undefined) exposedSince.set(id, now);
-        else if (now - since >= 750 && now >= retryAt.current) ready.push(id);
+        else if (now - since >= 750) ready.push(id);
       }
-      const ids = ready.slice(0, readReceiptMaxSize);
+      return ready;
+    };
+
+    /** Persist exact receipts for live replies and exposed history, retrying failures without losing arrivals. */
+    function acknowledge(): void {
+      if (stopped || Date.now() < retryAt.current) return;
+      const ready = new Set([...incoming.current, ...exposedMessages()]);
+      const ids = [...ready]
+        .filter(
+          (id) => !acknowledged.current.has(id) && !inFlight.current.has(id),
+        )
+        .slice(0, readReceiptMaxSize);
       if (!ids.length) return;
       ids.forEach((id) => inFlight.current.add(id));
       void client
         .read(agentId, ids)
         .then(() => {
-          ids.forEach((id) => acknowledged.current.add(id));
+          ids.forEach((id) => {
+            acknowledged.current.add(id);
+            incoming.current.delete(id);
+          });
           if (!stopped) setFailed(false);
           // Refresh the feed and the navigation badge together.
           void cache.invalidateQueries({ queryKey: updateQueryRoot });
@@ -104,7 +139,9 @@ export function useMessageReads(
           if (!stopped) setFailed(true);
         })
         .finally(() => ids.forEach((id) => inFlight.current.delete(id)));
-    }, 250);
+    }
+    acknowledge();
+    const timer = window.setInterval(acknowledge, 250);
     return () => {
       stopped = true;
       window.clearInterval(timer);
@@ -112,6 +149,6 @@ export function useMessageReads(
       window.removeEventListener("blur", resetExposure);
       document.removeEventListener("visibilitychange", resetExposure);
     };
-  }, [agentId, cache, client, enabled, messages, viewport]);
+  }, [agentId, cache, client, enabled, messages, latestMessages, viewport]);
   return failed;
 }
