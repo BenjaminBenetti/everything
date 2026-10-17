@@ -3,10 +3,33 @@ import { test } from "node:test";
 import type { ForkableSession } from "../interface/session-forks.js";
 import { ForkingAgentSession } from "../service/forking-agent-session.js";
 import { AgentRuntime } from "../service/agent-runtime.js";
+import { ReplyingAgentSession } from "../service/replying-agent-session.js";
+import { outcomeDeliveryPrompt } from "../prompt/reply-delivery-prompt.js";
 
 /** Allow completion and routing microtasks to settle without relying on elapsed time. */
 async function settle(): Promise<void> {
   await new Promise<void>((resolve) => setImmediate(resolve));
+}
+
+/** Fail instead of hanging when an operation that must settle stays pending, as a deadlock would. */
+async function settlesPromptly<T>(
+  operation: Promise<T>,
+  label: string,
+): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`${label} never settled`)),
+          2_000,
+        );
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /** Controllable session that detects concurrent prompts and completes only when instructed. */
@@ -368,6 +391,59 @@ test("new user input preserves forks and queued private messages while Stop canc
     3,
     "cancelled work does not wake the main session",
   );
+  await runtime.close();
+});
+
+test("new user input cancels a delivery reminder queued behind a private message instead of waiting on it", async () => {
+  const f = fixture();
+  let delivered = 0;
+  const runtime = new AgentRuntime(
+    new ReplyingAgentSession(f.family, () => delivered),
+  );
+  runtime.start("Delegate the preview");
+  const helper = await f.tools.fork("Build the preview");
+  // The turn replied early but ended on another tool, so it will queue an outcome reminder.
+  delivered++;
+  f.main.used("send_fork_message");
+  f.family.operations(helper.id).send("parent", "Preview published");
+  f.main.finish("Delegated");
+  await settle();
+  assert.match(
+    f.main.prompts.at(-1)!,
+    /Private message from fork-1:\nPreview published/,
+  );
+  f.family.operations(helper.id).send("parent", "Screenshots attached");
+  // The reminder now waits behind the helper's message; a new user turn used to wait on it forever.
+  await settlesPromptly(runtime.stop("turn"), "Stopping the previous turn");
+  runtime.start("Next user message");
+  assert.equal(f.main.prompts.at(-1), "Next user message");
+  delivered++;
+  f.main.used("send_message");
+  f.main.finish();
+  await settle();
+  assert.match(
+    f.main.prompts.at(-1)!,
+    /Screenshots attached/,
+    "private messages outlast the interrupted turn",
+  );
+  assert.ok(
+    !f.main.prompts.includes(outcomeDeliveryPrompt),
+    "the interrupted turn's reminder never runs",
+  );
+  await runtime.close();
+});
+
+test("new user input cancels a previous user turn still queued behind a private message", async () => {
+  const f = fixture();
+  const runtime = new AgentRuntime(f.family);
+  const helper = await f.tools.fork("Background task");
+  f.family.operations(helper.id).send("parent", "Progress");
+  assert.match(f.main.prompts.at(-1)!, /Progress/);
+  runtime.start("Queued user input");
+  await settlesPromptly(runtime.stop("turn"), "Stopping the queued turn");
+  runtime.start("Replacement input");
+  assert.equal(f.main.prompts.at(-1), "Replacement input");
+  assert.ok(!f.main.prompts.includes("Queued user input"));
   await runtime.close();
 });
 

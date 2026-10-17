@@ -9,9 +9,16 @@ interface TurnOutcome {
   readonly lastToolName: string | undefined;
 }
 
+/**
+ * A user turn's own prompts, its input and delivery reminders, run before queued private messages and
+ * end with the turn; private messages from other sessions wait their turn and outlast an interrupted one.
+ */
+export type TurnKind = "user" | "private";
+
 /** One queued turn and the caller waiting for its outcome. */
 interface PendingTurn {
   readonly text: string;
+  readonly kind: TurnKind;
   readonly resolve: (outcome: TurnOutcome | undefined) => void;
   readonly reject: (error: unknown) => void;
 }
@@ -48,11 +55,14 @@ export class SessionMailbox {
   // Message delivery
   // ===========================================
 
-  /** Queue a turn; user input can take priority over pending private messages. */
-  submit(text: string, first = false): Promise<TurnOutcome | undefined> {
+  /** Queue a turn; a user turn's prompts take priority over pending private messages. */
+  submit(
+    text: string,
+    kind: TurnKind = "private",
+  ): Promise<TurnOutcome | undefined> {
     const result = new Promise<TurnOutcome | undefined>((resolve, reject) => {
-      const turn = { text, resolve, reject };
-      if (first) this.queue.unshift(turn);
+      const turn = { text, kind, resolve, reject };
+      if (kind === "user") this.queue.unshift(turn);
       else this.queue.push(turn);
     });
     this.start();
@@ -70,10 +80,15 @@ export class SessionMailbox {
     this.paused = true;
   }
 
-  /** Stop active generation, optionally retaining private messages for the next user turn. */
-  async stop(retainQueue = false): Promise<void> {
+  /**
+   * Stop active generation, optionally retaining private messages for the next user turn. Queued user
+   * prompts, such as a delivery reminder, are always cancelled: their caller is the turn being
+   * stopped, and would otherwise wait on a paused queue that only the next user turn resumes, while
+   * that turn waits for this one to settle.
+   */
+  async stop(retainPrivate = false): Promise<void> {
     this.paused = true;
-    if (!retainQueue) this.clear();
+    this.clear(retainPrivate ? "user" : undefined);
     await this.session.abort();
     await this.completion;
     this.phase = "stopped";
@@ -117,8 +132,11 @@ export class SessionMailbox {
     this.draining = false;
   }
 
-  /** Resolve cancelled queued turns without running them or leaving callers waiting forever. */
-  private clear(): void {
-    for (const turn of this.queue.splice(0)) turn.resolve(undefined);
+  /** Resolve cancelled queued turns, of one kind or all, without running them or leaving callers waiting forever. */
+  private clear(kind?: TurnKind): void {
+    const kept = this.queue.filter((turn) => kind && turn.kind !== kind);
+    for (const turn of this.queue.splice(0))
+      if (!kept.includes(turn)) turn.resolve(undefined);
+    this.queue.push(...kept);
   }
 }

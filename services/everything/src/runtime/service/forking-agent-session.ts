@@ -176,7 +176,7 @@ export class ForkingAgentSession implements AgentSession {
   async prompt(text: string): Promise<void> {
     if (this.disposed) throw new ForkUnavailableError();
     this.stopped = false;
-    const completion = this.root.submit(text, true);
+    const completion = this.root.submit(text, "user");
     this.root.resume();
     const outcome = await completion;
     this.lastPromptTool = outcome?.lastToolName;
