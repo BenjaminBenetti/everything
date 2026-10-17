@@ -36,6 +36,9 @@ RUN --mount=type=secret,id=proxy_ca \
     pnpm --filter @everything/upgrader deploy --prod /output
 
 FROM node:24.21.0-bookworm-slim
+# Helm uses the system CA store to verify HTTPS chart registries.
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 ENV NODE_ENV=production
 WORKDIR /app
 COPY --from=helm /usr/local/bin/helm /usr/local/bin/helm
