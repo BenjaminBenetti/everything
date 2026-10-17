@@ -471,14 +471,14 @@ ask_credentials() {
   done <<< "$(chart_credentials)"
 }
 
+# What a disk holds, in the terms people know the product by.
 disk_description() {
   case $1 in
-    postgres-data) echo "the PostgreSQL databases" ;;
-    everything-state) echo "Everything's state: provider logins and the model catalog" ;;
-    everything-agents) echo "teammates' files and their shared folder" ;;
-    everything-fleet) echo "Fleet's home: its state, logins, and repository checkouts" ;;
-    registry-data) echo "the registry's app and Fleet images" ;;
-    artifact-content) echo "apps' uploaded files and build sources" ;;
+    postgres-data) echo "the database: conversations, settings, and the data of apps your teammates make" ;;
+    everything-agents) echo "teammates' files and the folder they share" ;;
+    everything-fleet) echo "workspaces, where teammates work on complex, long-running tasks such as building apps" ;;
+    registry-data) echo "the app and workspace images your teammates build" ;;
+    artifact-content) echo "the apps your teammates make in Everything" ;;
     *) echo "the $1 volume" ;;
   esac
 }
@@ -504,6 +504,8 @@ ask_disk_sizes() {
   note="Use Kubernetes sizes such as 20Gi. Disks never shrink, and growing one later needs a storage class that allows volume expansion."
   while IFS=$'\t' read -r claim service size; do
     if [ -z "$claim" ]; then continue; fi
+    # Everything's own state, provider logins and caches, stays far below the chart's size.
+    if [ "$claim" = everything-state ]; then continue; fi
     if [ -n "$service" ]; then
       key="services $service volumes ${claim#"$service"-} persistentVolume size"
     else
@@ -518,7 +520,7 @@ ask_disk_sizes() {
     fi
     begin_section "Disk sizes" "$note"
     while true; do
-      ask answer "Size of the disk for $(disk_description "$claim")" "${current:-$size}"
+      ask answer "Size of the disk for $(disk_description "$claim") (PVC $claim)" "${current:-$size}"
       if [[ ! $answer =~ $size_pattern ]]; then
         say "Enter a size such as 20Gi."
         continue
