@@ -21,6 +21,19 @@ const micButton = (page: Page): Locator => page.locator(".voice-button");
 /** The dictation status line. */
 const status = (page: Page): Locator => page.locator("#voice-status");
 
+/** The top of the composer field, which a visible status line above it would push down. */
+async function fieldTop(page: Page): Promise<number> {
+  return (await composer(page).boundingBox())!.y;
+}
+
+/** The status is for screen readers only: it takes no visible space and the field stays put. */
+async function expectNoVisibleStatus(page: Page, top: number): Promise<void> {
+  const box = await status(page).boundingBox();
+  expect(box!.width).toBeLessThanOrEqual(1);
+  expect(box!.height).toBeLessThanOrEqual(1);
+  expect(await fieldTop(page)).toBe(top);
+}
+
 /** Fake formats that match the engine under test, so negotiation follows its real behavior. */
 function formatsFor(
   browserName: string,
@@ -166,15 +179,21 @@ test.describe("desktop Space hold", () => {
     const server = await open(page, browserName);
     await draft(page, "Say hello", 3);
     await composer(page).focus();
+    const top = await fieldTop(page);
     await holdSpace(page, 3_300);
     await expect(status(page)).toContainText("Recording");
     await expect(micButton(page)).toHaveAttribute("data-state", "recording");
+    await expect(micButton(page)).toHaveAccessibleName(/^Recording/);
+    await expectNoVisibleStatus(page, top);
     // The hold's own space is gone and no repeats were typed.
     expect(await field(page)).toEqual({ value: "Say hello", start: 3, end: 3 });
     await page.waitForTimeout(1_200);
     await page.keyboard.up(" ");
     await expect(composer(page)).toHaveValue("Say there hello");
+    // Screen readers hear the outcome; nothing appears above the field.
     await expect(status(page)).toContainText("Added your words");
+    await expectNoVisibleStatus(page, top);
+    await expect(micButton(page)).toHaveAttribute("data-state", "idle");
     expect(server.uploads).toHaveLength(1);
     expect(server.uploads[0]!.path).toBe(
       "/v1/agents/avery/voice/transcriptions",
@@ -288,8 +307,19 @@ test.describe("desktop Space hold", () => {
     const server = await open(page, browserName, "deny");
     await draft(page, "Draft", 5);
     await composer(page).focus();
+    const top = await fieldTop(page);
     await holdSpace(page, 3_300);
     await expect(status(page)).toContainText("Microphone access is blocked");
+    // On screen, the button is marked and its name and tooltip explain the problem.
+    await expect(micButton(page)).toHaveAttribute("data-problem", "true");
+    await expect(micButton(page)).toHaveAttribute(
+      "title",
+      /^Microphone access is blocked/,
+    );
+    await expect(micButton(page)).toHaveAccessibleName(
+      /^Microphone access is blocked/,
+    );
+    await expectNoVisibleStatus(page, top);
     await page.keyboard.up(" ");
     await expect(composer(page)).toHaveValue("Draft");
     expect(server.uploads).toHaveLength(0);
@@ -454,9 +484,11 @@ test.describe("phone microphone button", () => {
   }, info) => {
     const server = await open(page, browserName);
     await draft(page, "Hello", 5);
+    const top = await fieldTop(page);
     await touch(page, "pointerdown");
     await expect(status(page)).toContainText("Release to add your words");
     await expect(micButton(page)).toHaveAttribute("data-state", "recording");
+    await expectNoVisibleStatus(page, top);
     await page.screenshot({
       path: info.outputPath("phone-recording.png"),
       animations: "disabled",
@@ -467,6 +499,8 @@ test.describe("phone microphone button", () => {
     await page.waitForTimeout(1_200);
     await touch(page, "pointerup");
     await expect(composer(page)).toHaveValue("Hello there");
+    await expect(status(page)).toContainText("Added your words");
+    await expectNoVisibleStatus(page, top);
     expect(server.uploads[0]!.contentType).toBe(expectedType(browserName));
     expect(server.sends).toEqual([]);
     const fake = await microphone(page);

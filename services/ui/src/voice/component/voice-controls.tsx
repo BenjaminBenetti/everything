@@ -10,9 +10,20 @@ import {
 /** The id the composer's field and button use to reference the dictation status. */
 export const voiceStatusId = "voice-status";
 
+/** The problem the last dictation ended with, while nothing else is happening. */
+function idleProblem(voice: VoiceState): VoiceNotice | null {
+  return voice.phase === "idle" &&
+    voice.notice &&
+    voiceProblems.has(voice.notice)
+    ? voice.notice
+    : null;
+}
+
 /** The microphone button's name for each state, which also serves as its tooltip. */
 function buttonLabel(voice: VoiceState, blocker: VoiceNotice | null): string {
   if (blocker) return voiceNoticeText[blocker];
+  const problem = idleProblem(voice);
+  if (problem) return voiceNoticeText[problem];
   switch (voice.phase) {
     case "starting":
       return "Starting the microphone";
@@ -25,7 +36,10 @@ function buttonLabel(voice: VoiceState, blocker: VoiceNotice | null): string {
   }
 }
 
-/** Hold-to-record microphone button; it never listens unless held. */
+/**
+ * Hold-to-record microphone button; it never listens unless held. Its icon and state show what
+ * dictation is doing, and a problem is marked on it and named in its label and tooltip.
+ */
 export function VoiceButton({
   voice,
   blocker,
@@ -44,6 +58,7 @@ export function VoiceButton({
       label={buttonLabel(voice, blocker)}
       className="voice-button"
       data-state={voice.phase}
+      data-problem={idleProblem(voice) ? true : undefined}
       // A button-held recording keeps working; the button is only unavailable when it can't start.
       disabled={!ready && voice.phase === "idle"}
       aria-describedby={voiceStatusId}
@@ -78,14 +93,16 @@ function statusText(voice: VoiceState): string {
   }
 }
 
-/** A live status line for dictation; it stays in place so screen readers announce changes. */
+/**
+ * Dictation status for screen readers only; it stays in place so changes are announced. On screen,
+ * the microphone button carries it.
+ */
 export function VoiceStatus({ voice }: { voice: VoiceState }) {
-  const problem =
-    voice.phase === "idle" && !!voice.notice && voiceProblems.has(voice.notice);
+  const problem = !!idleProblem(voice);
   return (
     <p
       id={voiceStatusId}
-      className="voice-status"
+      className="sr-only"
       role="status"
       aria-live={problem ? "assertive" : "polite"}
       data-problem={problem || undefined}
