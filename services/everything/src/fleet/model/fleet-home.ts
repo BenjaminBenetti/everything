@@ -17,6 +17,11 @@ export interface FleetHome {
   readonly mcpPort: string;
   /** The bearer token fleetd's MCP server requires, readable only by Fleet's account. */
   readonly mcpToken: string;
+  /**
+   * fleetd's SSH agent relay, which it points its children's `SSH_AUTH_SOCK` at: the agent of the
+   * newest attached Fleet client that has one, otherwise the agent fleetd was started with.
+   */
+  readonly sshAgentRelay: string;
 }
 
 /** Fleet's files under its home directory, where Fleet's own client, `fleet`, finds them too. */
@@ -32,6 +37,7 @@ export function fleetHome(directory: string): FleetHome {
     dockerConfig: path.join(directory, ".docker", "config.json"),
     mcpPort: path.join(state, "mcp.port"),
     mcpToken: path.join(state, "mcp.token"),
+    sshAgentRelay: path.join(state, "ssh-agent", "agent.sock"),
   };
 }
 
