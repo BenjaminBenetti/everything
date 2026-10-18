@@ -1,4 +1,4 @@
-/** Outcomes of a dictation the composer reports in its status line. */
+/** Outcomes of a dictation, announced to screen readers; problems also show on the microphone button. */
 export type VoiceNotice =
   | "inserted"
   | "noSpeech"
