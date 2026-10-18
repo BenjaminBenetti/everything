@@ -2,6 +2,7 @@ import path from "node:path";
 import envSchema from "env-schema";
 import { Value } from "typebox/value";
 import type { FleetSettings } from "../../fleet/model/fleet-settings.js";
+import type { VoiceSettings } from "../../voice/model/voice-settings.js";
 import {
   environmentSchema,
   fleetChecksumsSchema,
@@ -49,6 +50,8 @@ export interface ApplicationConfig {
     readonly url: string;
     readonly tokenFile: string;
   };
+  /** The self-hosted speech recognition service and transcription limits; no service, no voice input. */
+  readonly voice: VoiceSettings;
 }
 
 /** Validate deployment settings with env-schema and normalize paths. */
@@ -90,6 +93,21 @@ export function loadApplicationConfig(
       url: settings.UPGRADER_URL,
       tokenFile: settings.UPGRADER_TOKEN_FILE,
     },
+    voice: {
+      service: settings.VOICE_ASR_URL
+        ? {
+            url: speechServiceUrl(settings.VOICE_ASR_URL),
+            token: settings.VOICE_ASR_TOKEN,
+            model: settings.VOICE_ASR_MODEL,
+            timeoutMs: settings.VOICE_ASR_TIMEOUT_MS,
+          }
+        : null,
+      admission: {
+        concurrency: settings.VOICE_CONCURRENCY,
+        queueLimit: settings.VOICE_QUEUE_LIMIT,
+        queueTimeoutMs: settings.VOICE_QUEUE_TIMEOUT_MS,
+      },
+    },
     fleet: {
       home: path.resolve(settings.FLEET_HOME),
       release: {
@@ -110,4 +128,28 @@ export function loadApplicationConfig(
       },
     },
   };
+}
+
+/**
+ * Accept an absolute HTTP(S) URL without credentials, a fragment, or whitespace. The message never
+ * repeats the value, which may be sensitive.
+ */
+function speechServiceUrl(value: string): string {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error("VOICE_ASR_URL must be an absolute HTTP URL");
+  }
+  if (
+    !["http:", "https:"].includes(url.protocol) ||
+    url.username ||
+    url.password ||
+    value.includes("#") ||
+    /\s/.test(value)
+  )
+    throw new Error(
+      "VOICE_ASR_URL must be an HTTP URL without credentials or a fragment",
+    );
+  return url.href;
 }

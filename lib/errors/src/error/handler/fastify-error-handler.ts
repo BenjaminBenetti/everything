@@ -14,6 +14,10 @@ const correctableFailures: Readonly<Record<number, PublicFailure>> = {
     message: "The request does not match the API schema.",
   },
   413: { code: "REQUEST_TOO_LARGE", message: "The request body is too large." },
+  415: {
+    code: "UNSUPPORTED_MEDIA_TYPE",
+    message: "The request's content type isn't supported.",
+  },
   429: { code: "RATE_LIMITED", message: "Too many requests." },
 };
 

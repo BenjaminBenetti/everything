@@ -55,6 +55,8 @@ import type {
   ApiDocumentationReader,
   ApiDocumentationPublisher,
 } from "../../api-documentation/interface/api-documentation.js";
+import type { VoiceOperations } from "../../voice/interface/voice-operations.js";
+import { voiceController } from "../../voice/controller/voice-controller.js";
 
 /** Use cases and transport settings supplied by the composition root. */
 export interface HttpDependencies {
@@ -79,6 +81,7 @@ export interface HttpDependencies {
   readonly generalSettings: GeneralSettingsOperations;
   readonly workspaces: WorkspaceInstances;
   readonly workspaceActivity: WorkspaceActivityReader;
+  readonly voice: VoiceOperations;
   readonly readiness: ReadinessCheck;
 }
 
@@ -171,5 +174,6 @@ function protectedApi(
     await generalSettingsController(scope, dependencies.generalSettings);
     await workspaceInstanceController(scope, dependencies.workspaces);
     await workspaceActivityController(scope, dependencies.workspaceActivity);
+    await voiceController(scope, dependencies.voice);
   };
 }

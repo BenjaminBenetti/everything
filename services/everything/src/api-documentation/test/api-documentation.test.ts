@@ -54,6 +54,7 @@ function dependencies(
     generalSettings: unusedOperations(),
     workspaces: unusedOperations(),
     workspaceActivity: unusedOperations(),
+    voice: unusedOperations(),
     readiness: async () => {},
   };
 }
