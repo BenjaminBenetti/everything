@@ -3,14 +3,23 @@ import { agentAvatarIds } from "@everything/agent-contracts/avatar";
 import { nonBlankText } from "../../http/schema/text-schema.js";
 import { agentLimits } from "../model/agent.js";
 import { providerIds, providerLimits } from "@everything/provider-contracts";
-import { inferenceEfforts } from "@everything/provider-contracts/inference";
+import {
+  inferenceEfforts,
+  inferenceSpeeds,
+} from "@everything/provider-contracts/inference";
 
-/** Require a complete selection so changing providers cannot retain an incompatible model. */
+/**
+ * Require a complete selection so changing providers cannot retain an incompatible model. Speed is
+ * optional so requests and selections from before speeds existed keep meaning standard.
+ */
 const inference = Type.Object(
   {
     provider: Type.Union(providerIds.map((id) => Type.Literal(id))),
     model: nonBlankText(providerLimits.modelLength),
     effort: Type.Union(inferenceEfforts.map((effort) => Type.Literal(effort))),
+    speed: Type.Optional(
+      Type.Union(inferenceSpeeds.map((speed) => Type.Literal(speed))),
+    ),
   },
   { additionalProperties: false },
 );

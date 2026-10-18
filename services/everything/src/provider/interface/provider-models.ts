@@ -9,7 +9,7 @@ import type { VerificationInput } from "./connection-verifier.js";
 export interface ProviderModels {
   /** Discover models using the authenticated owner's active connection. */
   list(ownerId: string, provider: ProviderId): Promise<ProviderModel[]>;
-  /** Reject models and efforts outside the owner's available catalog. */
+  /** Reject models, efforts, and speeds outside the owner's available catalog. */
   validate(ownerId: string, selection: InferenceSelection): Promise<void>;
   /** Validate a selection and return its model as discovered, with any limits its provider reports. */
   select(
@@ -43,6 +43,6 @@ export interface ProviderModelDiscovery {
 
 /** Runtime-specific supported settings projected to a safe public contract. */
 export interface ModelCapabilities {
-  /** Describe only effort settings the runtime can apply to this model. */
+  /** Describe only effort and speed settings the runtime can apply to this model. */
   describe(provider: ProviderId, model: DiscoveredModel): ProviderModel;
 }

@@ -1,6 +1,11 @@
 import type { AgentSession as PiSession } from "@earendil-works/pi-coding-agent";
 import type { ForkableSession } from "../interface/session-forks.js";
 import { sendMessageToolName } from "../model/message-delivery.js";
+import { speedReport } from "../model/speed-report.js";
+import {
+  FastModeLimitedError,
+  FastModeRejectedError,
+} from "../error/runtime-errors.js";
 
 /** An event a Pi session reports while it works. */
 type PiSessionEvent = Parameters<Parameters<PiSession["subscribe"]>[0]>[0];
@@ -58,7 +63,10 @@ export class PiAgentSession implements ForkableSession {
     return this.session.getLastAssistantText();
   }
 
-  /** Run through compaction/recovery and surface safe failures, including swallowed summary errors. */
+  /**
+   * Run through compaction/recovery and surface safe failures, including swallowed summary errors and
+   * refused Fast mode requests.
+   */
   async prompt(text: string): Promise<void> {
     const cancellation = new AbortController();
     this.cancellation = cancellation;
@@ -86,8 +94,13 @@ export class PiAgentSession implements ForkableSession {
       });
       if (compactionFailed) throw new Error("Pi context compaction failed");
       const last = this.session.messages.at(-1);
-      if (last?.role === "assistant" && last.stopReason === "error")
+      if (last?.role === "assistant" && last.stopReason === "error") {
+        // A refused Fast request ends the turn with its own recovery; it never retries at standard speed.
+        const failure = speedReport(last)?.failure;
+        if (failure === "rejected") throw new FastModeRejectedError();
+        if (failure === "limited") throw new FastModeLimitedError();
         throw new Error("Pi model request failed");
+      }
     } finally {
       unsubscribe();
       this.cancellation = undefined;

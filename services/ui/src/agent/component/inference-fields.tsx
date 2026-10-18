@@ -9,22 +9,26 @@ import {
 } from "@everything/provider-contracts/inference";
 import { Button } from "@everything/ui/button";
 import { Select } from "@everything/ui/select";
+import { Switch } from "@everything/ui/switch";
 import {
   useProviderConnections,
   useProviders,
 } from "../../provider/component/provider-connections-context.js";
 import { providerOptions } from "../../provider/model/provider-options.js";
 import { useSession } from "../../session/component/session-provider.js";
-import { effortLabels } from "../model/inference-options.js";
+import { effortLabels, fastModeLabels } from "../model/inference-options.js";
+import {
+  isSupportedDraft,
+  offersFast,
+  withModel,
+  withProvider,
+  type InferenceDraft,
+} from "../model/inference-draft.js";
 
-/** Keep dependent choices in the teammate draft so avatar selection and retries preserve them. */
-export interface InferenceDraft {
-  readonly provider: ProviderId | "";
-  readonly model: string;
-  readonly effort: InferenceEffort | "";
-}
-
-/** Keep model settings collapsed, explain required selections, and offer active providers and supported settings. */
+/**
+ * Keep model settings collapsed, explain required selections, and offer active providers and the
+ * settings the chosen model supports, including Fast mode only where it is offered.
+ */
 export function InferenceFields({
   value,
   saved,
@@ -71,29 +75,36 @@ export function InferenceFields({
       : value.effort
         ? effortLabels[value.effort]
         : "";
+  const fastName = value.speed === "fast" ? fastModeLabels.summary : "";
   const selectionSummary = value.provider
-    ? [providerName, modelName, effortName].filter(Boolean).join(" · ")
+    ? [providerName, modelName, effortName, fastName]
+        .filter(Boolean)
+        .join(" · ")
     : required
       ? "Choose a model (required)"
       : "Not set";
   const valid =
-    !!connection &&
-    !models.isError &&
-    !!model &&
-    !!value.effort &&
-    model.efforts.includes(value.effort);
+    !!connection && !models.isError && isSupportedDraft(value, model);
   useEffect(() => onValidityChange(valid), [valid, onValidityChange]);
   const unavailable = !!value.provider && !providers.isPending && !connection;
+  // A saved Fast choice the model no longer offers stays visible so it can be turned off.
+  const fastUnsupported =
+    !!model && value.speed === "fast" && !offersFast(model);
 
   /** Changing providers clears every dependent setting instead of silently retaining an invalid choice. */
   function changeProvider(provider: ProviderId | ""): void {
-    onChange({ provider, model: "", effort: "" });
+    onChange(withProvider(provider));
   }
 
-  /** Use this model's supported default effort when choosing a different model. */
+  /** Use this model's supported default effort, with Fast mode off, when choosing a different model. */
   function changeModel(id: string): void {
-    const next = models.data?.find((item) => item.id === id);
-    onChange({ ...value, model: id, effort: next?.defaultEffort ?? "" });
+    onChange(
+      withModel(
+        value,
+        id,
+        models.data?.find((item) => item.id === id),
+      ),
+    );
   }
 
   return (
@@ -112,6 +123,12 @@ export function InferenceFields({
                   <span className="teammate-inference-effort">
                     {effortName}
                   </span>
+                </>
+              )}
+              {fastName && (
+                <>
+                  <span aria-hidden="true">·</span>
+                  <span className="teammate-inference-effort">{fastName}</span>
                 </>
               )}
             </>
@@ -253,6 +270,23 @@ export function InferenceFields({
               : "Higher effort can improve complex work and take more time."}
           </small>
         </div>
+        {connection && (offersFast(model) || fastUnsupported) && (
+          <Switch
+            className="teammate-inference-speed"
+            label={fastModeLabels.switch}
+            description={fastModeLabels.warning}
+            checked={value.speed === "fast"}
+            disabled={disabled || models.isError}
+            onChange={(fast) =>
+              onChange({ ...value, speed: fast ? "fast" : "standard" })
+            }
+          />
+        )}
+        {fastUnsupported && (
+          <p role="status" className="form-error">
+            {fastModeLabels.unsupported}
+          </p>
+        )}
       </fieldset>
     </details>
   );

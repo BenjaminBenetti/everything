@@ -45,6 +45,7 @@ test("model discovery applies ownership, validates model-specific efforts, and e
         name: "Account model",
         efforts: ["low", "medium", "high"],
         defaultEffort: "medium",
+        speeds: ["standard"],
       },
     ],
   });
@@ -230,6 +231,7 @@ test("unknown models offer only the runtime default instead of guessed effort su
         name: "Custom",
         efforts: ["off"],
         defaultEffort: "off",
+        speeds: ["standard"],
       },
     );
 });
@@ -267,6 +269,7 @@ test("compatible local model names expose their supported effort levels without 
         name: id,
         efforts: ["off", "low", "medium", "xhigh"],
         defaultEffort: "medium",
+        speeds: ["standard"],
       },
     ],
   });
@@ -313,4 +316,71 @@ test("compatible model aliases preserve known reasoning and non-reasoning capabi
       capabilities.describe("openai-compatible", { id, name: id }).efforts,
       ["off"],
     );
+});
+
+test("Fast mode is offered and accepted only for exactly documented models, and selections without a speed stay standard", async () => {
+  const catalogs: Record<ProviderId, string[]> = {
+    chatgpt: [
+      "gpt-6.1-sol",
+      "gpt-5.6-terra",
+      "gpt-6.1-sol-2026-09-30",
+      "gpt-5.5",
+      "o3-mini",
+      "toString",
+    ],
+    anthropic: [
+      "claude-opus-5-5",
+      "claude-opus-5",
+      "claude-opus-4-8",
+      "claude-opus-4-6",
+      "claude-opus-5-5-20261001",
+      "Claude-Opus-5-5",
+    ],
+    "openai-compatible": ["claude-opus-5-5", "gpt-6.1-sol"],
+  };
+  const service = new ProviderModelService(
+    {
+      /** Every provider is connected; availability is covered by the ownership test. */
+      async access() {
+        return { credential: {}, baseUrl: "http://local.test/v1", model: null };
+      },
+    },
+    {
+      /** Each account lists documented models beside near-miss and unknown IDs. */
+      async discover(provider) {
+        return catalogs[provider].map((id) => ({ id, name: id }));
+      },
+    },
+    new PiModelCapabilities(await createModelRuntime()),
+  );
+  const fast: Record<ProviderId, string[]> = {
+    chatgpt: ["gpt-6.1-sol", "gpt-5.6-terra"],
+    anthropic: ["claude-opus-5-5", "claude-opus-5", "claude-opus-4-8"],
+    "openai-compatible": [],
+  };
+  for (const provider of Object.keys(catalogs) as ProviderId[]) {
+    const models = await service.list("owner", provider);
+    for (const model of models) {
+      const supported = fast[provider].includes(model.id);
+      assert.deepEqual(
+        model.speeds,
+        supported ? ["standard", "fast"] : ["standard"],
+        `${provider} ${model.id}`,
+      );
+      const selection = {
+        provider,
+        model: model.id,
+        effort: model.defaultEffort,
+      };
+      await service.validate("owner", selection);
+      await service.validate("owner", { ...selection, speed: "standard" });
+      if (supported)
+        await service.validate("owner", { ...selection, speed: "fast" });
+      else
+        await assert.rejects(
+          service.validate("owner", { ...selection, speed: "fast" }),
+          { code: "FAST_MODE_UNSUPPORTED" },
+        );
+    }
+  }
 });

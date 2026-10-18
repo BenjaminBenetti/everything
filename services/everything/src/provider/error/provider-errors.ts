@@ -24,6 +24,18 @@ export class InferenceSelectionError extends ApplicationError {
   }
 }
 
+/** Fast mode is offered only for models whose provider documents it. */
+export class FastModeUnsupportedError extends ApplicationError {
+  /** Explain how to save the teammate without a speed its model cannot use. */
+  constructor() {
+    super(
+      400,
+      "FAST_MODE_UNSUPPORTED",
+      "Fast mode isn’t available for this model. Turn off Fast mode or choose a model that supports it.",
+    );
+  }
+}
+
 /** Model discovery errors must not expose provider response bodies or credentials. */
 export class ProviderModelsError extends ApplicationError {
   /** Offer a retry without claiming a catalog failure disconnected the provider. */
