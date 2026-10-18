@@ -29,6 +29,7 @@ import { HttpUpdateClient } from "../../update/adapter/http-update-client.js";
 import { BrowserDesktopNotifications } from "../../notification/adapter/browser-desktop-notifications.js";
 import { HttpVoiceClient } from "../../voice/adapter/http-voice-client.js";
 import { browserMedia } from "../../voice/adapter/browser-media.js";
+import { browserPcmCapture } from "../../voice/adapter/browser-pcm-capture.js";
 import "../../voice/style/voice.css";
 
 initializeTheme();
@@ -78,6 +79,7 @@ async function bootstrap(): Promise<void> {
               notifications={new BrowserDesktopNotifications()}
               voice={new HttpVoiceClient(createAuthenticatedTransport())}
               media={browserMedia()}
+              capture={browserPcmCapture()}
               queryClient={new QueryClient()}
             />
           </AvatarAnimationProvider>

@@ -10,15 +10,15 @@ import {
   type PointerEvent,
   type RefObject,
 } from "react";
-import type { VoiceCapabilities } from "@everything/conversation-contracts/voice";
 import { useVoice, useVoiceCapabilities } from "../component/voice-provider.js";
+import type { Dictation, DictationEvents } from "../interface/dictation.js";
 import type { ComposerAction, VoiceState } from "../model/composer-state.js";
-import { recordingType, uploadType } from "../model/recording-format.js";
+import { recordingType } from "../model/recording-format.js";
 import { spaceHoldMs, spaceKeyDown, spaceKeyUp } from "../model/space-hold.js";
 import { noticeOf } from "../model/voice-input-error.js";
 import { voiceProblems, type VoiceNotice } from "../model/voice-notice.js";
-import { MicrophoneRecorder } from "../service/microphone-recorder.js";
-import { RecordingBuffer } from "../service/recording-buffer.js";
+import { BatchDictation } from "../service/batch-dictation.js";
+import { LiveDictation } from "../service/live-dictation.js";
 
 /** A button press shorter than this is treated as a tap, not a recording. */
 const minimumPressMs = 300;
@@ -26,18 +26,13 @@ const minimumPressMs = 300;
 /** Recording stops this long before the server's limit, leaving room for encoder padding. */
 const recordingMarginMs = 500;
 
-/** Extra time the browser allows a transcription request beyond the server's own limit. */
-const networkMarginMs = 15_000;
-
 /** Informational notices clear themselves after this long; problems stay until the next action. */
 const noticeLifetimeMs = 6_000;
 
-/** One dictation's microphone and request, matched to the reducer by generation. */
+/** One dictation, matched to the reducer by generation. */
 interface Session {
   readonly generation: number;
-  readonly buffer: RecordingBuffer;
-  readonly recorder: MicrophoneRecorder;
-  request: AbortController | null;
+  readonly dictation: Dictation;
   releasing: boolean;
 }
 
@@ -56,10 +51,14 @@ interface VoiceInputOptions {
   readonly disabled: boolean;
 }
 
+/** How dictations travel: streamed while held, uploaded once finished, or not at all. */
+type Lane = "stream" | "upload" | null;
+
 /**
  * Connect the composer's dictation state to the microphone and the transcription service. The
- * reducer decides every change to the draft; this hook only starts and stops the recorder and the
- * request for the current generation, and drops anything that arrives for an earlier one.
+ * reducer decides every change to the draft; this hook only starts and stops the dictation for the
+ * current generation, and drops anything that arrives for an earlier one. Streaming is preferred
+ * when the server offers it and the browser has an audio worklet; uploading needs MediaRecorder.
  */
 export function useVoiceInput({
   agentId,
@@ -68,20 +67,25 @@ export function useVoiceInput({
   dispatch,
   disabled,
 }: VoiceInputOptions) {
-  const { client, media } = useVoice();
+  const { client, media, capture } = useVoice();
   const capabilities = useVoiceCapabilities().data;
-  const offered = !!capabilities?.available;
+  const offered = !!capabilities?.available || !!capabilities?.streaming;
   const type =
-    offered && !media.blocker
+    capabilities?.available && !media.blocker
       ? recordingType(media.isTypeSupported, capabilities.mediaTypes)
       : null;
-  const blocker: VoiceNotice | null = !offered
-    ? null
-    : media.blocker === "insecure"
-      ? "needsSecureConnection"
-      : !type
-        ? "unsupported"
+  const lane: Lane =
+    capabilities?.streaming && !capture.blocker
+      ? "stream"
+      : type
+        ? "upload"
         : null;
+  const blocker: VoiceNotice | null =
+    !offered || lane
+      ? null
+      : capture.blocker === "insecure" || media.blocker === "insecure"
+        ? "needsSecureConnection"
+        : "unsupported";
   const ready = offered && !blocker && !disabled;
   const holdEnabled = ready && hasFinePointer();
   const session = useRef<Session | null>(null);
@@ -93,14 +97,13 @@ export function useVoiceInput({
   // Session control
   // ===========================================
 
-  /** Stop the current dictation's microphone and request and drop its result. */
+  /** Stop the current dictation and drop its result. */
   const cancel = useCallback(
     (notice?: VoiceNotice) => {
       const current = session.current;
       session.current = null;
       press.current = null;
-      current?.recorder.cancel();
-      current?.request?.abort();
+      current?.dictation.cancel();
       dispatch({ type: "cancel", ...(notice ? { notice } : {}) });
     },
     [dispatch],
@@ -111,52 +114,30 @@ export function useVoiceInput({
     (current: Session, notice: VoiceNotice) => {
       if (session.current !== current) return;
       session.current = null;
-      current.recorder.cancel();
+      current.dictation.cancel();
       dispatch({ type: "failed", generation: current.generation, notice });
     },
     [dispatch],
   );
 
-  /** Finish recording and send the recording once for its final transcript. */
+  /** Finish the dictation and wait for its final transcript. */
   const release = useCallback(
     (current: Session, notice?: VoiceNotice) => {
       if (session.current !== current || current.releasing) return;
       current.releasing = true;
       const { generation } = current;
       dispatch({ type: "released", generation, ...(notice ? { notice } : {}) });
-      void current.recorder.finish().then(
-        async (end) => {
+      current.dictation.finish().then(
+        (text) => {
           if (session.current !== current) return;
-          const contentType =
-            end && capabilities && type
-              ? uploadType(end.type, type, capabilities.mediaTypes)
-              : null;
-          const audio = end && contentType && current.buffer.take(contentType);
-          current.buffer.discard();
-          if (!audio)
-            return fail(
-              current,
-              end && !contentType ? "unsupported" : "tooShort",
-            );
-          const request = new AbortController();
-          current.request = request;
-          try {
-            const text = await client.transcribe(
-              agentId,
-              audio,
-              withTimeout(request.signal, responseTimeout(capabilities)),
-            );
-            if (session.current !== current) return;
-            session.current = null;
-            dispatch({ type: "transcribed", generation, text });
-          } catch (error) {
-            fail(current, noticeOf(error));
-          }
+          if (text === null) return fail(current, "tooShort");
+          session.current = null;
+          dispatch({ type: "transcribed", generation, text });
         },
         (error: unknown) => fail(current, noticeOf(error)),
       );
     },
-    [agentId, capabilities, client, dispatch, fail, type],
+    [dispatch, fail],
   );
 
   // ===========================================
@@ -182,12 +163,12 @@ export function useVoiceInput({
     return () => clearTimeout(timer);
   }, [voice.phase, voice.generation, voice.armedAt, dispatch]);
 
-  // Each dictation that reaches `starting` gets exactly one recorder.
+  // Each dictation that reaches `starting` gets exactly one session.
   useEffect(() => {
     if (voice.phase !== "starting") return;
     if (session.current?.generation === voice.generation) return;
     const { generation } = voice;
-    if (!capabilities || !type) {
+    if (!capabilities || !lane) {
       dispatch({
         type: "failed",
         generation,
@@ -195,35 +176,52 @@ export function useVoiceInput({
       });
       return;
     }
-    const buffer = new RecordingBuffer();
-    const current: Session = {
+    let current: Session | null = null;
+    const events: DictationEvents & { maxDurationMs: number } = {
+      maxDurationMs: capabilities.maxDurationMs - recordingMarginMs,
+      onLimit: () => current && release(current, "limitReached"),
+      onFailure: (error) => current && fail(current, error.notice),
+    };
+    current = {
       generation,
-      buffer,
-      recorder: new MicrophoneRecorder(media, buffer, {
-        type,
-        maxBytes: capabilities.maxBytes,
-        maxDurationMs: capabilities.maxDurationMs - recordingMarginMs,
-        onLimit: () => release(current, "limitReached"),
-        onFailure: (error) => fail(current, error.notice),
-      }),
-      request: null,
+      dictation:
+        lane === "stream"
+          ? new LiveDictation(
+              capture,
+              streamUrl(agentId),
+              capabilities.streamFinalTimeoutMs,
+              events,
+            )
+          : new BatchDictation(
+              media,
+              client,
+              agentId,
+              capabilities,
+              type!,
+              events,
+            ),
       releasing: false,
     };
-    session.current = current;
-    current.recorder.start().then(
+    const started = current;
+    session.current = started;
+    started.dictation.start().then(
       (recording) => {
-        if (recording && session.current === current)
+        if (recording && session.current === started)
           dispatch({ type: "recordingStarted", generation });
       },
-      (error: unknown) => fail(current, noticeOf(error)),
+      (error: unknown) => fail(started, noticeOf(error)),
     );
   }, [
     voice.phase,
     voice.generation,
     capabilities,
+    lane,
     type,
     blocker,
     media,
+    capture,
+    client,
+    agentId,
     dispatch,
     release,
     fail,
@@ -268,8 +266,7 @@ export function useVoiceInput({
     () => () => {
       const current = session.current;
       session.current = null;
-      current?.recorder.cancel();
-      current?.request?.abort();
+      current?.dictation.cancel();
     },
     [],
   );
@@ -485,21 +482,10 @@ export function useVoiceInput({
   };
 }
 
-/** The longest a transcription request may take, per the server's own limits. */
-function responseTimeout(capabilities: VoiceCapabilities | undefined): number {
-  return (capabilities?.responseTimeoutMs ?? 0) + networkMarginMs;
-}
-
-/** A signal that aborts with the given one or after a delay, also where `AbortSignal.any` is missing. */
-function withTimeout(signal: AbortSignal, timeoutMs: number): AbortSignal {
-  const timeout = AbortSignal.timeout(timeoutMs);
-  if (typeof AbortSignal.any === "function")
-    return AbortSignal.any([signal, timeout]);
-  const combined = new AbortController();
-  const abort = (): void => combined.abort();
-  signal.addEventListener("abort", abort, { once: true });
-  timeout.addEventListener("abort", abort, { once: true });
-  return combined.signal;
+/** The same-origin WebSocket URL of a teammate's voice stream. */
+function streamUrl(agentId: string): string {
+  const scheme = location.protocol === "https:" ? "wss:" : "ws:";
+  return `${scheme}//${location.host}/v1/agents/${encodeURIComponent(agentId)}/voice/stream`;
 }
 
 /** Whether the main pointer can hover precisely, as with a mouse or trackpad beside a keyboard. */

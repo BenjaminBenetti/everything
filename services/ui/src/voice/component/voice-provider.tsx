@@ -2,12 +2,16 @@ import { createContext, useContext, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useSession } from "../../session/component/session-provider.js";
 import type { MediaEnvironment } from "../interface/media-environment.js";
+import type { PcmCaptureEnvironment } from "../interface/pcm-capture.js";
 import type { VoiceClient } from "../interface/voice-client.js";
 
 /** Voice input capabilities supplied at the application boundary. */
 interface VoiceContextValue {
   readonly client: VoiceClient;
+  /** MediaRecorder recording, for the upload lane. */
   readonly media: MediaEnvironment;
+  /** Audio worklet capture, for the streaming lane. */
+  readonly capture: PcmCaptureEnvironment;
 }
 
 const VoiceContext = createContext<VoiceContextValue | null>(null);
@@ -16,10 +20,11 @@ const VoiceContext = createContext<VoiceContextValue | null>(null);
 export function VoiceProvider({
   client,
   media,
+  capture,
   children,
 }: VoiceContextValue & { children: ReactNode }) {
   return (
-    <VoiceContext.Provider value={{ client, media }}>
+    <VoiceContext.Provider value={{ client, media, capture }}>
       {children}
     </VoiceContext.Provider>
   );

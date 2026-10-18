@@ -201,7 +201,7 @@ function stopTracks(stream: MediaStreamLike): void {
 }
 
 /** The outcome for a microphone request failure, by its DOMException name. */
-function microphoneNotice(error: unknown): VoiceNotice {
+export function microphoneNotice(error: unknown): VoiceNotice {
   switch ((error as { name?: string } | null)?.name) {
     case "NotAllowedError":
     case "SecurityError":

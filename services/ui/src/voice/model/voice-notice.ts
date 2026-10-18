@@ -7,6 +7,7 @@ export type VoiceNotice =
   | "cancelled"
   | "limitReached"
   | "tooLarge"
+  | "fellBehind"
   | "permissionDenied"
   | "noMicrophone"
   | "microphoneFailed"
@@ -30,6 +31,8 @@ export const voiceNoticeText: Readonly<Record<VoiceNotice, string>> = {
   limitReached:
     "Recording stopped at the 1-minute limit. Transcribing what you said…",
   tooLarge: "That recording is too large to send. Try a shorter one.",
+  fellBehind:
+    "Voice input fell behind and stopped, so nothing was added. Try again.",
   permissionDenied:
     "Microphone access is blocked. Allow it in your browser's site settings to record.",
   noMicrophone: "No microphone was found. Connect one and try again.",
@@ -49,6 +52,7 @@ export const voiceNoticeText: Readonly<Record<VoiceNotice, string>> = {
 export const voiceProblems: ReadonlySet<VoiceNotice> = new Set([
   "doesNotFit",
   "tooLarge",
+  "fellBehind",
   "permissionDenied",
   "noMicrophone",
   "microphoneFailed",
