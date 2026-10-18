@@ -26,6 +26,7 @@ import "../../conversation/style/message-markdown.css";
 import "../../update/style/updates.css";
 import { HttpConversationClient } from "../../conversation/adapter/http-conversation-client.js";
 import { HttpUpdateClient } from "../../update/adapter/http-update-client.js";
+import { BrowserDesktopNotifications } from "../../notification/adapter/browser-desktop-notifications.js";
 
 initializeTheme();
 const element = document.getElementById("root");
@@ -71,6 +72,7 @@ async function bootstrap(): Promise<void> {
                 new HttpWorkspaceDirectory(createAuthenticatedTransport())
               }
               keys={new HttpKeyDirectory(createAuthenticatedTransport())}
+              notifications={new BrowserDesktopNotifications()}
               queryClient={new QueryClient()}
             />
           </AvatarAnimationProvider>
