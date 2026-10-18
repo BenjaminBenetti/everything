@@ -1,11 +1,52 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { readdirSync, readFileSync } from "node:fs";
 import { createServer, type IncomingMessage } from "node:http";
 import type { AddressInfo } from "node:net";
 import type {
   MonitorInput,
   MonitorResult,
 } from "@everything/workspace-contracts/monitor";
+
+/** The kernel's flag for a process that has begun exiting, in `/proc/<pid>/stat`. */
+const exitingFlag = 0x4;
+
+/**
+ * Report whether a process group has a member that is neither a zombie nor already exiting. A killed
+ * command's forked children can outlive its reaped leader as zombies until PID 1 reaps them, and
+ * `kill(-pgid, 0)` still finds those. Without `/proc`, any member counts.
+ */
+function liveGroup(pgid: number): boolean {
+  try {
+    process.kill(-pgid, 0);
+  } catch {
+    return false;
+  }
+  let pids: string[];
+  try {
+    pids = readdirSync("/proc").filter((entry) => /^\d+$/.test(entry));
+  } catch {
+    return true;
+  }
+  return pids.some((pid) => {
+    let stat: string;
+    try {
+      stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+    } catch {
+      return false;
+    }
+    // Fields after the parenthesised command name: state, ppid, pgrp, session, tty, tpgid, flags.
+    const [state, , pgrp, , , , flags] = stat
+      .slice(stat.lastIndexOf(")") + 2)
+      .split(" ");
+    return (
+      Number(pgrp) === pgid &&
+      state !== "Z" &&
+      state !== "X" &&
+      (Number(flags) & exitingFlag) === 0
+    );
+  });
+}
 
 /** A real background process tracked by the fixture pod. */
 interface FixtureMonitor {
@@ -141,18 +182,12 @@ export async function monitorPodFixture(directory: string) {
         String(url).replace(/^http:\/\/[^/]+/, base),
         init,
       )) as typeof fetch,
-    /** Report whether a monitor's process group is still alive. */
+    /** Report whether a monitor's process group still has a live process. */
     running(id: string): boolean {
       const pid = monitors.get(id)?.child.pid;
-      if (!pid) return false;
-      try {
-        process.kill(-pid, 0);
-        return true;
-      } catch {
-        return false;
-      }
+      return pid ? liveGroup(pid) : false;
     },
-    /** Report whether any started process group is still alive. */
+    /** Report whether any started process group still has a live process. */
     anyRunning(): boolean {
       return [...monitors.keys()].some((id) => this.running(id));
     },
