@@ -7,7 +7,9 @@ const shortestSecret = 16;
 /**
  * Replace every occurrence of known secrets in one output stream, including an occurrence split
  * across chunks: the end of a chunk that could begin a secret is held back until the next chunk or
- * the end of the stream decides it.
+ * the end of the stream decides it. This keeps secrets out of tool output by accident, not from a
+ * command set on revealing them: an encoded or transformed secret is not recognized, and secrets are
+ * those known when the redactor is made.
  */
 export class SecretRedactor {
   // ===========================================

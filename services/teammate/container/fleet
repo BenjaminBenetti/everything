@@ -2,7 +2,8 @@
 # Fleet's command-line client, connected to the fleetd Everything runs: through Everything's internal
 # gateway, at the address Everything publishes in the read-only Fleet client folder, with the token
 # from the chart's Secret. FLEET_GATEWAY and FLEET_TOKEN, when set, override them. Without an
-# address the client would start a daemon of its own in this pod, so it refuses to run instead.
+# address, commands would reach for a daemon of their own in this pod, so it refuses to run instead.
+# The TUI (no arguments) and `fleet code` always use a local daemon, so they are refused too.
 set -eu
 address_file=/run/fleet-client/gateway-url
 token_file=/run/secrets/fleet/token
@@ -15,6 +16,10 @@ fi
 if [ -z "${FLEET_GATEWAY:-}" ] || [ -z "${FLEET_TOKEN:-}" ]; then
   echo "fleet: Everything's Fleet isn't connected to this workspace yet. Try again in a minute; if it stays unavailable, Fleet may still be starting in Everything." >&2
   exit 69
+fi
+if [ "$#" -eq 0 ] || [ "$1" = code ]; then
+  echo "fleet: the interactive TUI and fleet code need a local Fleet daemon, which this workspace doesn't run. Use Fleet's other commands, such as fleet ls and fleet shell." >&2
+  exit 64
 fi
 export FLEET_GATEWAY FLEET_TOKEN
 exec /usr/local/libexec/fleet/fleet "$@"

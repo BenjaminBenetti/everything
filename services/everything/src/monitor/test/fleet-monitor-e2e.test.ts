@@ -316,6 +316,11 @@ test(
       assert.notEqual(mismatch.code, 0);
       assert.match(mismatch.output, /server is v3\.2\.0-beta but client is v/);
     }
+    // The TUI and `fleet code` would start a local daemon, so the wrapper refuses them.
+    for (const local of ["fleet", `fleet code ${worker}`]) {
+      const refused = await stack.exec(local);
+      assert.equal(refused.code, 64, refused.output);
+    }
     // `fleet exec` resolves the worker's command but runs it on the caller, which cannot.
     const local = await stack.exec(`fleet exec ${worker} -- hostname`);
     assert.notEqual(local.code, 0);
@@ -460,8 +465,9 @@ test(
     assert.match(timeoutTask, /Ignoring an unfinished or stale receipt/);
     await sleep(1_500);
     assert.equal(wakeups.filter(({ id }) => id === timedOut).length, 1);
+    // Neither the script, its sleeps, nor a probe outlives the deadline.
     const leftovers = await stack.exec(
-      "pgrep -fa '[f]leet shell|[l]ibexec/fleet' || true",
+      `pgrep -fa '[f]leet shell|[l]ibexec/fleet|[${timeout[0]}]${timeout.slice(1)}' || true`,
     );
     assert.equal(leftovers.output.trim(), "");
 

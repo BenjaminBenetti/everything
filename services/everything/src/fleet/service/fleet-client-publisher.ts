@@ -1,4 +1,4 @@
-import { chmod, mkdir } from "node:fs/promises";
+import { chmod, mkdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { readOptional, replaceFile } from "../adapter/private-files.js";
@@ -87,20 +87,29 @@ export class FleetClientPublisher {
     }
   }
 
-  /** Write the session's address when fleetd has one for this gateway and it is not yet published. */
+  /**
+   * Write the session's address when fleetd has one for this gateway and it is not yet published, and
+   * withdraw it when fleetd's session is for another gateway or gone, so commands report that Fleet
+   * isn't connected instead of dialing a stale address.
+   */
   private async publish(): Promise<void> {
+    const file = path.join(this.folder, this.fileName);
     const content = await readOptional(this.home.gatewaySession);
-    if (content === undefined) return;
     let session: unknown;
     try {
-      session = JSON.parse(content);
+      session = content === undefined ? undefined : JSON.parse(content);
     } catch {
       // fleetd replaces the file atomically; an unreadable one waits for its next registration.
       return;
     }
     const address = publishedGatewayAddress(session, this.gatewayUrl);
-    if (!address || address === this.published) return;
-    await replaceFile(path.join(this.folder, this.fileName), `${address}\n`, {
+    if (!address) {
+      await rm(file, { force: true });
+      this.published = undefined;
+      return;
+    }
+    if (address === this.published) return;
+    await replaceFile(file, `${address}\n`, {
       directory: 0o755,
       file: 0o644,
     });

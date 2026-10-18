@@ -148,14 +148,21 @@ test("leaves fleetd's token and settings alone without a configured gateway", as
   await assert.rejects(stat(fleet.config), { code: "ENOENT" });
 });
 
-test("refuses to overwrite settings fleetd cannot read, rather than replacing them", async (context) => {
+test("keeps settings fleetd cannot read beside the new ones instead of failing to start Fleet", async (context) => {
   const { home: fleet } = await home(context);
   await writeFile(fleet.config, "{ not json");
-  await assert.rejects(
-    new FleetRemoteSetup(fleet, { gatewayUrl, token }).apply(),
-    SyntaxError,
+  await new FleetRemoteSetup(fleet, { gatewayUrl, token }).apply();
+  assert.equal(
+    await readFile(`${fleet.config}.unreadable`, "utf8"),
+    "{ not json",
   );
-  assert.equal(await readFile(fleet.config, "utf8"), "{ not json");
+  assert.deepEqual(JSON.parse(await readFile(fleet.config, "utf8")), {
+    remote_mcp_settings: {
+      gateway_url: gatewayUrl,
+      fleet_enabled: true,
+      fleet_mode: "gateway",
+    },
+  });
 });
 
 test("publishes the session's client address, and only the address, for teammates and follows a change", async (context) => {
@@ -200,6 +207,17 @@ test("publishes the session's client address, and only the address, for teammate
   await writeFile(fleet.gatewaySession, session({ public_grpc_url: changed }));
   await until(
     async () => (await readFile(published, "utf8")) === `${changed}\n`,
+  );
+  // A session for another gateway withdraws the address rather than leaving a stale one.
+  await writeFile(
+    fleet.gatewaySession,
+    session({ gateway_url: "https://other.example.com" }),
+  );
+  await until(async () =>
+    stat(published).then(
+      () => false,
+      () => true,
+    ),
   );
   await publisher.close();
   assert.deepEqual(failures, []);

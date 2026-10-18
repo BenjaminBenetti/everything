@@ -208,6 +208,8 @@ export async function fleetStack(settings: FleetStackSettings) {
       report,
     );
   let daemon = supervisor();
+  /** The home's files Everything's setup rewrites, as they were before the stack started. */
+  const saved = new Map<string, Buffer | undefined>();
   const folder = path.join(directory, "agents", ".fleet-client");
   const publisher = new FleetClientPublisher(
     home,
@@ -305,8 +307,16 @@ export async function fleetStack(settings: FleetStackSettings) {
     client,
     startGateway,
     stopGateway,
-    /** Start the gateway and fleetd as Everything does, and the teammate before any address exists. */
+    /**
+     * Start the gateway and fleetd as Everything does, and the teammate before any address exists.
+     * The Fleet home's token and settings are saved first and restored by close, and a home whose
+     * fleetd is already running is refused rather than shared.
+     */
     async start(): Promise<void> {
+      if (await accepts(home.socket))
+        throw new Error("Stop the fleetd that uses FLEET_E2E_HOME first.");
+      for (const file of [home.mcpToken, home.config])
+        saved.set(file, await readFile(file).catch(() => undefined));
       await startGateway();
       await new FleetRemoteSetup(home, { gatewayUrl, token }).apply();
       await daemon.start();
@@ -343,6 +353,9 @@ export async function fleetStack(settings: FleetStackSettings) {
       await command("docker", ["rm", "-f", teammateName]);
       await command("docker", ["rm", "-f", gatewayName]);
       await daemon.close();
+      for (const [file, content] of saved)
+        if (content === undefined) await rm(file, { force: true });
+        else await writeFile(file, content, { mode: 0o600 });
       await rm(directory, { recursive: true, force: true });
     },
   };
