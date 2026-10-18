@@ -26,4 +26,5 @@ A summary of terms relevant to deployment follows. It is not legal advice and no
 1. Download explicitly; the service never downloads anything itself:
    `python3 scripts/fetch_model.py --dest /models/nemotron-speech-streaming-en-0.6b.q8_0.gguf --accept-nvidia-open-model-license`
    The helper fetches only the pinned file. It verifies size and SHA-256 before installing it read-only, and writes the NOTICE file next to it.
+   The helper does **not** copy the Agreement itself. Anyone who redistributes the weights (for example, shipping the GGUF in an image, volume or archive to others) must also supply recipients with a full copy of the NVIDIA Open Model License Agreement from the link above, alongside that NOTICE.
 2. Mount the directory read-only into the container and set `VOICE_ASR_MODEL_PATH` to the file.

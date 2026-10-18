@@ -63,7 +63,7 @@ gateway ──WebSocket /v1/stream──▶ python -m voice_asr (asyncio, websoc
 | `INVALID_SEQUENCE` | gap / duplicate / out-of-order audio, end counters mismatch | 1008 |
 | `INVALID_AUDIO` | binary < 6 bytes, odd payload length, > 3200 samples | 1008 |
 | `TOO_LONG` | > 960,000 samples, > 6000 audio messages, transcript over the caps | 1008 |
-| `BACKPRESSURE` | unacknowledged samples would exceed 16,000 | 1008 |
+| `BACKPRESSURE` | the peer sends beyond 16,000 unacknowledged samples (a full window is not an error) | 1008 |
 | `BUSY` | another stream holds the single native lease | 1013 |
 | `UNAVAILABLE` | not ready (CPU/model/warmup/restart), worker failure, any internal error | 1013 |
 | `TIMEOUT` | start, idle, recording, finalization, whole-session or native-call deadline | 1011 |
@@ -180,10 +180,16 @@ Resources and timing:
 
 ## Limitations
 
-- **Measured latency scope.** Latency is measured from the scheduled arrival of the last real sample to receipt of the final at a local WebSocket client. It excludes browser capture, AudioWorklet, network and gateway time. There is **no browser or last-phoneme SLO claim**.
+- **Measured latency scope.** Latency is measured from the scheduled arrival of the last real sample to receipt of the final at a local WebSocket client on the same host. It **includes** the loopback WebSocket, the parent↔worker IPC and the service overhead. It **excludes** real browser capture/AudioWorklet, the Everything gateway and any external network. There is **no browser or last-phoneme SLO claim**.
 - **Outlier.** The earlier benchmark of this runtime recorded one 3.247 s release tail outlier (a 2.02 s single native call, cause undetermined) among otherwise ~0.2 s tails. It can recur. The 10 s native-call watchdog is set above it.
-- **Trailing quiet.** The public LibriSpeech clips end with trailing quiet, so their last words were already decoded before release. Speech ending abruptly at release depends more on the native flush and is not validated here.
+- **Trailing quiet.** The public LibriSpeech clips end with short trailing quiet, which may let their last words settle before release. It does not guarantee that.
+  - In the earlier benchmark's 3.247 s outlier, the last word ("Ithaca") was still missing at release and appeared only in the final.
+  - v1 exposes no partials, so the service makes no claim about what was decoded before release.
+  - Speech ending abruptly at release depends more on the native flush and is not validated here.
 - **Narrow data.** English only; one LibriSpeech reader; no accents, noise, spontaneous speech, concurrency > 1 or audio over 60 s validated. Word-edit counts on 4 clips are not a WER claim.
-- **Credit window.** On a shared host, stalls can exhaust the 1 s window. The service then fails the whole stream with `BACKPRESSURE` rather than buffering.
+- **Credit window.** Filling the 16,000-sample window is **not** an error. A compliant pipelined sender pauses enqueueing when its credit is used up and holds audio in its own bounded capture buffer.
+  - The service answers `BACKPRESSURE` only if the peer **exceeds** 16,000 unacknowledged samples, or another stated bound.
+  - On a shared host a long native stall can hold the window full long enough that the stream later fails with `TIMEOUT` (idle, recording, finalization or native-call deadline). This is the known risk behind the earlier 3.247 s spike, which can recur.
+  - The service never buffers beyond the window and never drops audio.
 - **Thread count.** Threads are the C ABI default min(8, hardware). The optional `OMP_THREAD_LIMIT` is a standard OpenMP cap, not ABI control. 8 compute threads plus 2 unattributed auxiliary threads were observed earlier.
 - **Integration ownership.** Gateway, frontend, Helm and CI integration are owned by the voice integration owner and are not part of this component.
