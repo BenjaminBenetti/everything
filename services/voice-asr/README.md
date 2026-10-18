@@ -24,7 +24,8 @@ gateway ──WebSocket /v1/stream──▶ python -m voice_asr (asyncio, websoc
   So every native call runs on the worker's single thread. The parent bounds each call with a deadline. A hung call is ended by killing and **reaping this service's own worker** (never anything else), which is then restarted and rewarmed before readiness returns.
 - **Why Python.** Python stdlib asyncio plus exactly one pinned dependency (`websockets`) keeps the sidecar self-contained. It writes no monorepo package locks, and the native side stays a ~300-line C program over the public ABI. It is not a custom ASR engine.
 - **Isolation.**
-  - The worker starts with stdin/stdout/stderr on `/dev/null`, so native logging can't reach IPC or logs. It gets a clean environment (no token) and uses `PR_SET_PDEATHSIG` (it dies if the parent dies).
+  - The worker starts with stdin/stdout/stderr on `/dev/null`, so native logging can't reach IPC or logs. It gets a clean environment (no token) and uses `PR_SET_PDEATHSIG` plus a parent-PID race check (it dies if the parent dies).
+  - **No core dumps.** Both processes set `RLIMIT_CORE` to 0/0 and `PR_SET_DUMPABLE=0` (which also defeats piped system core handlers and ptrace/procfs memory reads), and verify both. The Python parent does this first in `main()`, before the token, model or any audio is read; on failure it logs `process_hardening_failed` and exits 3. The C worker does it right after exec, before the model or audio; on failure it exits 5, so the parent never becomes ready. Only these two processes are changed; no host or kernel setting (`core_pattern`, limits of other processes) is touched.
   - IPC frames are bounded in both directions.
 
 ## Wire protocol (v1, frozen; see the canonical STREAMING_PROTOCOL agreed with the gateway owner)
@@ -76,6 +77,9 @@ gateway ──WebSocket /v1/stream──▶ python -m voice_asr (asyncio, websoc
 
 There is exactly one native stream globally, with no wait queue. The lease is held until native work is quiescent, even after an error message, a transport close or a cancel. A busy service therefore says `BUSY`/`UNAVAILABLE` rather than queueing.
 
+- **Interrupted START.** The lease records the stream as open *before* native `START` is sent. If the caller is interrupted while `START` is in flight (session deadline, disconnect, shutdown), cleanup waits for `START` to settle. It waits within the cancel grace and otherwise kills and reaps the worker, then sends `CLOSE` before releasing. A `CLOSE` without a stream is a no-op in the worker, so no native stream can outlive its lease.
+- **Second connections.** A rejected (`BUSY`), unauthenticated (401), malformed or dropped second connection never holds or releases the first stream's lease. That stream continues and finishes normally.
+
 ## Deadlines (seconds; env name, default, allowed range)
 
 | | env | default | range |
@@ -84,7 +88,7 @@ There is exactly one native stream globally, with no wait queue. The lease is he
 | idle between valid inputs while recording | `VOICE_ASR_IDLE_TIMEOUT_S` | 5 | 1-30 |
 | recording wall clock (ready → end) | `VOICE_ASR_RECORDING_TIMEOUT_S` | 75 | 60-120 |
 | finalization (end → final) | `VOICE_ASR_FINAL_TIMEOUT_S` | 30 | 5-120 |
-| any single native call (watchdog; the known benchmark stall was 3.247 s, with a 2.02 s single call) | `VOICE_ASR_NATIVE_CALL_TIMEOUT_S` | 10 | 5-60 |
+| any single native command, measured over the **whole** exchange: queueing the write, draining it into the pipe, and the reply (watchdog; the known benchmark stall was 3.247 s, with a 2.02 s single call) | `VOICE_ASR_NATIVE_CALL_TIMEOUT_S` | 10 | 5-60 |
 | cancel grace: wait for an in-flight call before killing the worker | `VOICE_ASR_CANCEL_GRACE_S` | 2 | 0.1-10 |
 | worker startup + warm | `VOICE_ASR_STARTUP_TIMEOUT_S` | 120 | 10-600 |
 | graceful shutdown | `VOICE_ASR_SHUTDOWN_TIMEOUT_S` | 15 | 1-60 |
@@ -97,7 +101,7 @@ The whole stream lifetime is bounded by start + recording + finalization (110 s 
 |---|---|
 | `VOICE_ASR_MODEL_PATH` | **required**; read-only path of the pinned GGUF (see [MODEL_LICENSE.md](MODEL_LICENSE.md)) |
 | `PORT` (8080), `VOICE_ASR_HOST` (0.0.0.0) | listen address |
-| `VOICE_ASR_TOKEN` or `VOICE_ASR_TOKEN_FILE` | optional bearer token, 16-512 printable characters without spaces. An empty or unreadable token file fails closed (startup error). Without a token the service logs `auth_disabled private_network_only=true` |
+| `VOICE_ASR_TOKEN` or `VOICE_ASR_TOKEN_FILE` | optional bearer token, 16-512 printable characters without spaces. Auth is disabled **only when both variables are unset**; the service then logs `auth_disabled private_network_only=true`. All of these stop startup (fail closed) without printing values: a variable that is present but empty or whitespace, both variables set, or a token file that is empty or unreadable |
 | `VOICE_ASR_MAX_CONNECTIONS` (4, 1-32) | concurrent WebSocket connections (only one can hold the native lease) |
 | `VOICE_ASR_OMP_THREAD_LIMIT` (unset, 1-8) | optional standard OpenMP thread cap for the worker. The C ABI itself always uses min(8, hardware threads) |
 | `VOICE_ASR_WORKER_PATH` | worker binary; the image sets `/opt/voice-asr/bin/voice-asr-worker` |
@@ -140,6 +144,13 @@ VOICE_ASR_AUDIO_DIR=... VOICE_ASR_TEST_URL=ws://127.0.0.1:<port>/v1/stream PYTHO
   - hung-call timeout with kill and reap, crash and restart, and cancel while idle, in flight and hung;
   - stale-text isolation, cleanup that can't release the lease early, shutdown during a hung warmup;
   - and log hygiene with token, header, audio and transcript sentinels.
+  - `tests/test_followup.py` adds the safety fixes:
+    - START interrupted by disconnect, session deadline, hang or shutdown;
+    - explicit-blank auth configuration;
+    - core-dump and dumpability hardening of the parent (via procfs) and of the C worker (probed with a FIFO model path, so no model is loaded), plus refusal to start when hardening fails;
+    - a full 16,000-sample window while the worker stops reading its (test-shrunk) pipe: the parent stays responsive, cancel kills and reaps before `cancelled`, and the watchdog fires while `drain()` is blocked;
+    - a full-window pipelined stream that keeps every sample;
+    - second-connection failures that leave the first lease intact.
 - **Real-native suite.** It covers:
   - 9.9 s and 29.4 s public clips replayed on a real-time arrival schedule, with tail words checked;
   - silence, a short last frame, odd bytes, immediate end, cancel then reconnect;
@@ -147,6 +158,8 @@ VOICE_ASR_AUDIO_DIR=... VOICE_ASR_TEST_URL=ws://127.0.0.1:<port>/v1/stream PYTHO
   - the process lifecycle: SIGTERM reaps the worker, and parent SIGKILL takes the worker with it.
 
 ## Validation results (2026-10-18, this repository's worker host: Threadripper 2970WX, 7.75 GiB worker memory limit, shared CPU, no quota)
+
+The latency and behaviour results below were measured with the **original** component (commit f228af98, image sha256:33d78be6…). Results for the safety follow-up are listed separately under "Follow-up validation" and are not relabelled as new-image latency.
 
 Two independent runs of `tests/test_native.py`: the in-process server with the portable native worker (`host`), and the packaged image `voice-asr-local:feature3-dev` (sha256:33d78be6…, 191 MB, uid 10001, no compilers) run with the model mounted read-only and a 3 GiB container memory cap (`image`). Both used the pinned model and the public LibriSpeech dev-clean clips (speaker 1272).
 
@@ -176,7 +189,24 @@ Resources and timing:
 - **Image usage:** container memory peak ≈ 950 MiB of 3 GiB, 13 PIDs. CPU ≈ 7.5 cores busy while feeding the 60 s input as fast as possible.
 - **Earlier benchmark (same runtime):** process RSS ≈ 0.92 GiB with 10 OS threads at the default.
 - **Log hygiene:** container logs contained no token, transcript or audio text.
-- **Fake-worker suites:** `tests.test_units` + `tests.test_contract`: 34/34 OK.
+- **Fake-worker suites (original component):** `tests.test_units` + `tests.test_contract`: 34/34 OK.
+
+### Follow-up validation (safety fixes)
+
+These results come from fake-worker failure injection, the host-built native worker (probed without a model), and the follow-up image. None of them are latency measurements; the new image's real native smoke is recorded only after a coordinated cutover of the live test container.
+
+- **Fake-worker suites:** `tests.test_units` + `tests.test_contract` + `tests.test_followup`: **47/47 OK**. The run included the C-worker FIFO hardening probe and took 21 s.
+- **Mutation checks:** each fixed bug was put back in memory (no source change), and its targeted test then failed:
+  - setting the START intent only after the reply fails the session-deadline-during-START test;
+  - a reply-only deadline fails the blocked-`drain()` watchdog test.
+- **Native worker hardening** (host build of the same `native/` sources, FIFO model path, no model loaded): after exec it reports `Max core file size 0 0`, and its `/proc` entries are root-owned (non-dumpable).
+- **Follow-up image** `voice-asr-local:feature3-followup` = `sha256:e39405516ffd480b35be0a26d5b14619bc40804e7091dc6f68d36cf3ccc0a3c6` (191 MB, uid 10001):
+  - same pinned sources and portable flags; no `-march=native`; ISA guard passed;
+  - built 03:18:22–03:19:44Z, while the original-image E2E test container kept serving;
+  - the image's 10 Python files are byte-identical to this commit;
+  - in a throwaway container with no model, the parent reports core limit `0 0` and root-owned `/proc` entries (process uid 10001);
+  - `VOICE_ASR_TOKEN=` (present but empty) exits 2 with `config_error VOICE_ASR_TOKEN is set but empty`.
+- **Real native smoke:** pending the coordinated cutover. Plan: one public 10 s real-time stream plus worker hardening and lifecycle checks; not a re-run of the 10/30/60 s matrix.
 
 ## Limitations
 

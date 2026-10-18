@@ -48,18 +48,25 @@ class Settings:
         model_path = env.get("VOICE_ASR_MODEL_PATH", "")
         if not model_path:
             raise ConfigError("VOICE_ASR_MODEL_PATH is required")
-        token = env.get("VOICE_ASR_TOKEN") or None
-        token_file = env.get("VOICE_ASR_TOKEN_FILE")
-        if token_file:
-            if token:
-                raise ConfigError("set VOICE_ASR_TOKEN or VOICE_ASR_TOKEN_FILE, not both")
+        # Auth is optional only when BOTH variables are absent. A present-but-blank value fails closed.
+        token = None
+        if "VOICE_ASR_TOKEN" in env and "VOICE_ASR_TOKEN_FILE" in env:
+            raise ConfigError("set VOICE_ASR_TOKEN or VOICE_ASR_TOKEN_FILE, not both")
+        if "VOICE_ASR_TOKEN" in env:
+            token = env["VOICE_ASR_TOKEN"]
+            if not token.strip():
+                raise ConfigError("VOICE_ASR_TOKEN is set but empty")
+        if "VOICE_ASR_TOKEN_FILE" in env:
+            token_file = env["VOICE_ASR_TOKEN_FILE"]
+            if not token_file.strip():
+                raise ConfigError("VOICE_ASR_TOKEN_FILE is set but empty")
             try:
                 with open(token_file, encoding="utf-8") as f:
                     token = f.read().strip()
             except (OSError, UnicodeDecodeError):
                 raise ConfigError("VOICE_ASR_TOKEN_FILE is not readable") from None
             if not token:
-                raise ConfigError("VOICE_ASR_TOKEN_FILE is empty")  # fail closed, never silently disable auth
+                raise ConfigError("VOICE_ASR_TOKEN_FILE is empty")
         if token is not None and (len(token) < 16 or len(token) > 512 or not token.isprintable() or " " in token):
             raise ConfigError("the bearer token must be 16-512 printable characters without spaces")
         threads = env.get("VOICE_ASR_OMP_THREAD_LIMIT")

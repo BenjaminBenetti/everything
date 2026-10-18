@@ -98,6 +98,10 @@ class NativeWorker:
     def pid(self) -> int | None:
         return self._process.pid if self._process else None
 
+    @property
+    def returncode(self) -> int | None:
+        return self._process.returncode if self._process else None
+
     async def wait_exit(self) -> None:
         await self._reaped.wait()
 
@@ -142,11 +146,15 @@ class NativeWorker:
             raise WorkerError("oversized reply")
         return header[4:5], await self._reader.readexactly(length)
 
+    async def _exchange(self, kind: bytes, payload: bytes) -> tuple[bytes, bytes]:
+        self._write(kind, payload)
+        await self._writer.drain()
+        return await self._read_reply()
+
     async def _roundtrip(self, kind: bytes, payload: bytes, timeout: float) -> tuple[bytes, bytes]:
+        # One deadline covers the whole command: queueing the write, draining it into the pipe, and the reply.
         try:
-            self._write(kind, payload)
-            await self._writer.drain()
-            return await asyncio.wait_for(self._read_reply(), timeout)
+            return await asyncio.wait_for(self._exchange(kind, payload), timeout)
         except asyncio.TimeoutError:
             await self.kill()
             raise WorkerTimeout() from None

@@ -1,9 +1,11 @@
 """Test-only stand-in for voice-asr-worker speaking the same pipe protocol. Never used by the service itself.
 
 usage: fake_worker.py MODE COMMAND_FD REPLY_FD MODEL_PATH
-Modes: ok, never_ready, hang_push, crash_push, slow_push, hang_finish, long_text, astral_text, native_error_start.
-Each process appends its pid to MODEL_PATH + ".pids" so tests can check it was reaped.
+Modes: ok, never_ready, hang_push, crash_push, slow_push, hang_finish, long_text, astral_text, native_error_start,
+slow_start, hang_first_start, block_first_ipc ("first" = only the first worker process misbehaves).
+Each process appends its pid to MODEL_PATH + ".pids" and every received command to MODEL_PATH + ".log".
 """
+import fcntl
 import os
 import struct
 import sys
@@ -12,6 +14,15 @@ import time
 mode, command_fd, reply_fd, model_path = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), sys.argv[4]
 with open(model_path + ".pids", "a") as f:
     f.write(f"{os.getpid()}\n")
+first = not os.path.exists(model_path + ".first")
+open(model_path + ".first", "a").close()
+if mode == "block_first_ipc" and first:
+    fcntl.fcntl(command_fd, fcntl.F_SETPIPE_SZ, 4096)  # a small pipe so the parent's writes back up quickly
+
+
+def note(kind):
+    with open(model_path + ".log", "a") as f:
+        f.write(f"{os.getpid()}:{kind.decode()}\n")
 
 
 def read_exact(n):
@@ -37,12 +48,22 @@ while True:
     length, kind = struct.unpack("<IB", read_exact(5))
     payload = read_exact(length)
     kind = bytes([kind])
+    note(kind)
     if kind == b"S":
+        if mode == "slow_start":
+            time.sleep(1.0)
+        if mode == "hang_first_start" and first:
+            time.sleep(3600)
         if mode == "native_error_start":
             reply(b"E", bytes([3]))
             continue
+        if stream:  # like the C worker: a second START while a stream is open is a state error
+            reply(b"E", bytes([2]))
+            continue
         stream, samples, streams = True, 0, streams + 1
         reply(b"O")
+        if mode == "block_first_ipc" and first:
+            time.sleep(3600)  # never read the command pipe again
     elif kind == b"P":
         if mode == "hang_push":
             time.sleep(3600)

@@ -18,6 +18,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/prctl.h>
+#include <sys/resource.h>
 #include <unistd.h>
 
 /* ------------------------------------------------------------------------- */
@@ -262,6 +263,12 @@ int main(int argc, char ** argv) {
     const char * parent = getenv("VOICE_ASR_PARENT_PID");
     if (prctl(PR_SET_PDEATHSIG, SIGKILL) != 0 || !parent || getppid() != (pid_t) atol(parent)) {
         return 3;
+    }
+    /* No core dumps and no ptrace/procfs memory access, before the model or any audio is touched. */
+    const struct rlimit no_core = { 0, 0 };
+    if (setrlimit(RLIMIT_CORE, &no_core) != 0 || prctl(PR_SET_DUMPABLE, 0, 0, 0, 0) != 0 ||
+        prctl(PR_GET_DUMPABLE, 0, 0, 0, 0) != 0) {
+        return 5;
     }
     signal(SIGPIPE, SIG_IGN);
     g_command_fd = atoi(argv[1]);

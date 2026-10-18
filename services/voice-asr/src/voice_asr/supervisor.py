@@ -19,8 +19,10 @@ class Lease:
         self._cleanup: asyncio.Future | None = None
 
     async def open_stream(self, timeout: float) -> None:
-        await self.worker.call(CMD_START, b"", timeout)
+        # Intent first: if the caller is interrupted while START is in flight, the native stream may still be
+        # created, so cleanup must settle the call and CLOSE (a CLOSE without a stream is a no-op in the worker).
         self.stream_open = True
+        await self.worker.call(CMD_START, b"", timeout)
 
     async def cleanup(self, grace: float, native_timeout: float) -> None:
         """Make native work quiescent, then release the lease. Idempotent.
@@ -122,6 +124,7 @@ class Supervisor:
                 await worker.start(self._settings.startup_timeout)
             except (WorkerError, OSError):
                 await worker.kill()
+                log.info("worker_exit code=%s", worker.returncode)
                 self._set_state("worker_failed")
                 await self._sleep(backoff)
                 backoff = min(backoff * 2, 60.0)

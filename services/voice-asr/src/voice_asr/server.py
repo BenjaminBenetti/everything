@@ -10,6 +10,7 @@ from websockets.asyncio.server import serve
 
 from . import protocol as p
 from .config import ConfigError, Settings
+from .hardening import HardeningError, harden_process
 from .session import StreamSession
 from .supervisor import Supervisor
 
@@ -119,6 +120,11 @@ async def serve_forever(settings: Settings) -> None:
 
 def main() -> None:
     configure_logging()
+    try:
+        harden_process()  # before the token, model or any audio is read
+    except HardeningError:
+        log.error("process_hardening_failed")
+        raise SystemExit(3) from None
     try:
         settings = Settings.from_env()
     except ConfigError as error:
