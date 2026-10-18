@@ -1,0 +1,6 @@
+# Runtime dependencies for voice-asr (install with: pip install --no-deps --require-hashes -r requirements.lock).
+# websockets has no dependencies. Both hashes are the official PyPI artifacts for 17.2 (pure-Python wheel and
+# the CPython 3.14 manylinux x86_64 wheel).
+websockets==17.2 \
+    --hash=sha256:6aa59f0ef92e796b2db6f5f26550c4713c0e4036899fadf02f55e2ed4db0b7ae \
+    --hash=sha256:42cbca10f82a8b2fb1536e8a0830ca6ceeb6bb3d8d64b766e0795369135654a8
