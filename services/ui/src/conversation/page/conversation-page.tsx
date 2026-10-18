@@ -8,6 +8,7 @@ import { MessageComposer } from "../component/message-composer.js";
 import { MessageHistory } from "../component/message-history.js";
 import { ConversationDetails } from "../component/conversation-details.js";
 import { CompactionIndicator } from "../component/compaction-indicator.js";
+import { useReplyNotifications } from "../../notification/hook/use-reply-notifications.js";
 
 /** Resolve the teammate's sole conversation from the directory, including direct links. */
 export function ConversationPage() {
@@ -47,6 +48,11 @@ function TeammateConversation({ agent }: { agent: Agent }) {
   const targetMessageId = search.get("message") || undefined;
   const { history, snapshot, send, older, targetFound, retryTarget } =
     useConversation(agent.id, targetMessageId);
+  useReplyNotifications(
+    agent,
+    snapshot.data?.page.messages,
+    snapshot.dataUpdatedAt,
+  );
   const runtime = snapshot.data?.runtime;
   // The typing indicator tracks only messages; background activity appears in the teammate card.
   const typing = runtime?.status === "running" && runtime.typing;

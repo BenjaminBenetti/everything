@@ -1,3 +1,5 @@
+import type { ArtifactFailure } from "@everything/artifact-contracts";
+
 /** Escape text for HTML element content. */
 function escape(text: string): string {
   return text
@@ -67,3 +69,10 @@ export const hostMessages = {
       "Teammate links work for a few minutes. Get a new link to keep viewing this app.",
   },
 } as const;
+
+/** JSON answer to a request whose API key opens nothing; every reason looks the same. */
+export const apiKeyRejection: ArtifactFailure = {
+  code: "INVALID_API_KEY",
+  message:
+    "This app didn't accept the API key. Send the app's current key in a single X-Api-Key header.",
+};

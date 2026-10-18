@@ -12,7 +12,7 @@ export interface CapabilityProvider {
   /** Provision the capability and return the variables kept in its Kubernetes Secret. */
   ensure(owner: CapabilityOwner): Promise<Readonly<Record<string, string>>>;
   /** Remove the capability's external resources. */
-  remove(appId: string): Promise<void>;
+  remove(owner: CapabilityOwner): Promise<void>;
 }
 
 /** Credentials are written only to app-owned Kubernetes Secrets. */
@@ -41,5 +41,5 @@ export interface ArtifactCapabilities {
     enabled: readonly ArtifactCapability[],
   ): Promise<CapabilityEnvironment>;
   /** Remove every capability belonging to a deleted app. */
-  remove(appId: string): Promise<void>;
+  remove(owner: CapabilityOwner): Promise<void>;
 }

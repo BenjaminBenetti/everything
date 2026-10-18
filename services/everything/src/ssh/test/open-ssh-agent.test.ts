@@ -1,36 +1,20 @@
 import assert from "node:assert/strict";
-import { execFile } from "node:child_process";
-import { mkdtemp, readFile, rm, lstat } from "node:fs/promises";
+import { lstat, mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { promisify } from "node:util";
 import { test } from "node:test";
+import pRetry from "p-retry";
 import { OpenSshAgent } from "../adapter/open-ssh-agent.js";
+import { sshPublicKey } from "../adapter/ssh-public-key.js";
+import {
+  corruptPrivateKey,
+  createKey,
+  killAgent,
+  lockAgent,
+  sshAdd,
+} from "./ssh-key-fixtures.js";
 
-const execute = promisify(execFile);
-
-/** Generate disposable OpenSSH fixtures that are never used against an external service. */
-async function createKey(directory: string, name: string, passphrase = "") {
-  const file = path.join(directory, name);
-  await execute("ssh-keygen", [
-    "-q",
-    "-t",
-    "ed25519",
-    "-N",
-    passphrase,
-    "-C",
-    name,
-    "-f",
-    file,
-  ]);
-  return {
-    file,
-    material: await readFile(file, "utf8"),
-    publicKey: await readFile(`${file}.pub`, "utf8"),
-  };
-}
-
-test("OpenSSH loads keys through stdin, signs, removes deleted keys, and skips unusable entries", async (context) => {
+test("OpenSSH adds and removes single keys through stdin while other identities stay loaded", async (context) => {
   const root = await mkdtemp(path.join(tmpdir(), "keys-ssh-"));
   const agent = new OpenSshAgent(path.join(root, "managed", "agent.sock"));
   context.after(async () => {
@@ -39,49 +23,96 @@ test("OpenSSH loads keys through stdin, signs, removes deleted keys, and skips u
   });
   const first = await createKey(root, "first");
   const second = await createKey(root, "second");
-  const locked = await createKey(root, "locked", "disposable-test-passphrase");
+  const unrelated = await createKey(root, "unrelated");
+  const locked = await createKey(root, "locked", {
+    passphrase: "disposable-test-passphrase",
+  });
   await Promise.all([agent.start(), agent.start()]);
-  const empty = await agent.inventory();
+  assert.deepEqual([...(await agent.identities())], []);
   assert.equal((await lstat(agent.socketPath)).mode & 0o777, 0o600);
   assert.equal(
     (await lstat(path.dirname(agent.socketPath))).mode & 0o777,
     0o700,
   );
+  assert.equal(await agent.add(first.material.trim()), first.blob);
+  assert.equal(await agent.add(second.material), second.blob);
+  assert.equal(await sshAdd(agent.socketPath, [unrelated.file]), 0);
+  assert.equal(await agent.add(first.publicKey), undefined);
+  assert.equal(await agent.add(locked.material), undefined);
+  assert.equal(await agent.add("invalid private key"), undefined);
   assert.deepEqual(
-    await agent.replace([
-      { id: "first", material: first.material.trim() },
-      { id: "public", material: first.publicKey },
-      { id: "locked", material: locked.material },
-      { id: "broken", material: "invalid private key" },
-    ]),
-    [
-      { id: "first", loaded: true },
-      { id: "public", loaded: false },
-      { id: "locked", loaded: false },
-      { id: "broken", loaded: false },
-    ],
+    await agent.identities(),
+    new Set([first.blob, second.blob, unrelated.blob]),
   );
-  const environment = {
-    PATH: "/usr/bin:/bin",
-    SSH_AUTH_SOCK: agent.socketPath,
-  };
-  await execute("ssh-add", ["-T", `${first.file}.pub`], { env: environment });
-  assert.notEqual(await agent.inventory(), empty);
+  await agent.remove(first.blob);
   assert.deepEqual(
-    await agent.replace([{ id: "second", material: second.material }]),
-    [{ id: "second", loaded: true }],
+    await agent.identities(),
+    new Set([second.blob, unrelated.blob]),
   );
-  await assert.rejects(
-    execute("ssh-add", ["-T", `${first.file}.pub`], { env: environment }),
+  assert.notEqual(
+    await sshAdd(agent.socketPath, ["-T", `${first.file}.pub`]),
+    0,
   );
-  await execute("ssh-add", ["-T", `${second.file}.pub`], { env: environment });
-  await agent.replace([]);
-  assert.equal(await agent.inventory(), empty);
+  assert.equal(await sshAdd(agent.socketPath, ["-T", `${second.file}.pub`]), 0);
+  await assert.rejects(agent.remove(first.blob));
+  assert.deepEqual(await readdir(path.dirname(agent.socketPath)), [
+    "agent.sock",
+  ]);
   await agent.close();
   await assert.rejects(lstat(agent.socketPath), { code: "ENOENT" });
 });
 
-test("an agent can restart at the same path without retaining identities or private key files", async (context) => {
+test("a locked or exited agent is replaced at the same path without its identities", async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), "keys-ssh-"));
+  const agent = new OpenSshAgent(path.join(root, "managed", "agent.sock"));
+  context.after(async () => {
+    await agent.close();
+    await rm(root, { recursive: true, force: true });
+  });
+  const key = await createKey(root, "fixture");
+  await agent.start();
+  assert.equal(await agent.add(key.material), key.blob);
+  assert.equal(await lockAgent(agent.socketPath), 6);
+  assert.deepEqual([...(await agent.identities())], []);
+  await assert.rejects(agent.add(key.material), /refuses new identities/);
+  await assert.rejects(agent.remove(key.blob));
+  await agent.restart();
+  assert.deepEqual([...(await agent.identities())], []);
+  assert.equal(await agent.add(key.material), key.blob);
+  await killAgent(agent.socketPath);
+  await assert.rejects(agent.identities());
+  // start() relaunches once Node has reaped the killed child.
+  await pRetry(
+    async () => {
+      await agent.start();
+      assert.deepEqual([...(await agent.identities())], []);
+    },
+    { retries: 20, minTimeout: 25, maxTimeout: 100 },
+  );
+  assert.equal(await agent.add(key.material), key.blob);
+});
+
+test("a locked agent's refusal throws, while damaged material on a working agent is merely unusable", async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), "keys-ssh-"));
+  const agent = new OpenSshAgent(path.join(root, "managed", "agent.sock"));
+  context.after(async () => {
+    await agent.close();
+    await rm(root, { recursive: true, force: true });
+  });
+  const key = await createKey(root, "fixture");
+  const damaged = corruptPrivateKey(key.material);
+  assert.equal(sshPublicKey(damaged), key.blob);
+  await agent.start();
+  assert.equal(await lockAgent(agent.socketPath), 6);
+  await assert.rejects(agent.add(key.material), /refuses new identities/);
+  await agent.restart();
+  assert.equal(await agent.add(damaged), undefined);
+  assert.deepEqual([...(await agent.identities())], []);
+  assert.equal(await agent.add(key.material), key.blob);
+  assert.deepEqual(await agent.identities(), new Set([key.blob]));
+});
+
+test("a new agent at a closed agent's path starts empty", async (context) => {
   const root = await mkdtemp(path.join(tmpdir(), "keys-ssh-"));
   context.after(() => rm(root, { recursive: true, force: true }));
   const first = new OpenSshAgent(path.join(root, "managed", "agent.sock"));
@@ -92,11 +123,8 @@ test("an agent can restart at the same path without retaining identities or priv
   });
   const key = await createKey(root, "fixture");
   await first.start();
-  const empty = await first.inventory();
-  await first.replace([{ id: "key", material: key.material }]);
+  await first.add(key.material);
   await first.close();
   await second.start();
-  assert.equal(await second.inventory(), empty);
-  await second.replace([{ id: "key", material: key.material }]);
-  assert.notEqual(await second.inventory(), empty);
+  assert.deepEqual([...(await second.identities())], []);
 });

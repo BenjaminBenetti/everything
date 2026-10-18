@@ -1,4 +1,5 @@
 import type {
+  ArtifactApiKey,
   ArtifactSummary,
   ArtifactView,
   ArtifactViewInput,
@@ -16,4 +17,6 @@ export interface ArtifactLibrary {
   stop(ownerId: string, id: string): Promise<void>;
   /** Delete a stopped or unpublished app and its data. */
   delete(ownerId: string, id: string): Promise<void>;
+  /** Show the current API key of the owner's app. */
+  apiKey(ownerId: string, id: string): Promise<ArtifactApiKey>;
 }

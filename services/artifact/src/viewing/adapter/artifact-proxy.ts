@@ -4,6 +4,7 @@ import type { FastifyReply, FastifyRequest } from "fastify";
 import type { Artifact } from "../../artifact/model/artifact.js";
 import { artifactResourceName } from "../../cluster/model/cluster-names.js";
 import { servicePort } from "../../deployment/adapter/workload-manifests.js";
+import { apiKeyHeader } from "../handler/api-key-credentials.js";
 import { viewPassBearer } from "../handler/view-pass-credentials.js";
 import { hostMessages, hostPage } from "../presenter/host-pages.js";
 import type { ArtifactResponseSecrets } from "../interface/artifact-response-secrets.js";
@@ -22,12 +23,16 @@ export function withoutCookies(
   return kept.length ? kept.join("; ") : undefined;
 }
 
-/** Headers for an artifact's app, without the host's login cookies or a teammate pass in Authorization. */
+/**
+ * Headers for an artifact's app, without the host's login cookies, a teammate pass in
+ * Authorization, or an API key, which the host has already checked and the app already has.
+ */
 export function withoutHostCredentials(
   headers: IncomingHttpHeaders,
   privateCookies: readonly string[],
 ): IncomingHttpHeaders {
   const { cookie, authorization, ...rest } = headers;
+  delete rest[apiKeyHeader];
   const kept = withoutCookies(
     Array.isArray(cookie) ? cookie.join("; ") : cookie,
     privateCookies,

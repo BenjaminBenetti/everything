@@ -1,6 +1,7 @@
 import type { Readable } from "node:stream";
 import type {
   ActivateRevisionInput,
+  ArtifactApiKey,
   ArtifactAuthor,
   ArtifactBuild,
   ArtifactBuildDetails,
@@ -128,6 +129,8 @@ export interface ArtifactGateway {
   ): Promise<ArtifactLogs>;
   /** Issue a link that signs the owner in to the artifact host and opens the artifact. */
   view(ownerId: string, input: ArtifactViewInput): Promise<ArtifactView>;
+  /** Read the current API key of the owner's dynamic app. */
+  apiKey(ownerId: string, reference: string): Promise<ArtifactApiKey>;
   /** Issue a short-lived pass with which a teammate views one artifact from its pod. */
   viewPass(
     ownerId: string,

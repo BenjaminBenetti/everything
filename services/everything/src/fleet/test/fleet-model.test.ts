@@ -28,6 +28,7 @@ test("gives Fleet its own home and keeps Everything's secrets out of its environ
   const home = fleetHome("/fleet");
   assert.equal(home.executable, "/fleet/.fleet/bin/fleet");
   assert.equal(home.socket, "/fleet/.fleet/fleet.sock");
+  assert.equal(home.sshAgentRelay, "/fleet/.fleet/ssh-agent/agent.sock");
   assert.deepEqual(
     fleetEnvironment(home, {
       HOME: "/state/home",

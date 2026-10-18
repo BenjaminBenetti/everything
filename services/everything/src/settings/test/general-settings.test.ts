@@ -19,6 +19,8 @@ async function fixture() {
         id: ownerId,
         ownerId,
         createdAt: new Date().toISOString(),
+        summarizeUpdates: false,
+        teammateIds: [],
         ...settings,
       });
     },

@@ -14,13 +14,13 @@ import {
 } from "lucide-react";
 import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import { Brand } from "@everything/ui/brand";
-import { TeammateAvatar } from "../../agent/component/teammate-avatar.js";
 import { IconButton } from "@everything/ui/button";
 import { AvatarButton } from "@everything/ui/avatar";
 import { useAgents } from "../../agent/component/agent-directory-provider.js";
 import { useSession } from "../../session/component/session-provider.js";
 import { useWorkspaceDialogs } from "./workspace-dialogs.js";
 import { RecentTeammateShortcuts } from "../../agent/component/recent-teammate-shortcuts.js";
+import { TeammateNavigation } from "../../agent/component/teammate-navigation.js";
 import { WorkspaceMenu } from "./workspace-menu.js";
 import { DesktopWorkspaceActions } from "./desktop-workspace-actions.js";
 import { useUpdateCount } from "../../update/hook/use-updates.js";
@@ -135,33 +135,7 @@ export function WorkspaceShell() {
             <Plus aria-hidden="true" />
           </IconButton>
         </div>
-        <div className="sidebar-agents">
-          {agents.data?.map((agent) => {
-            const unread = updateCounts?.byAgent?.[agent.id] ?? 0;
-            return (
-              <NavLink
-                key={agent.id}
-                className={({ isActive }) =>
-                  `side-agent ${isActive ? "active" : ""}`
-                }
-                to={`/team/${encodeURIComponent(agent.id)}`}
-                aria-label={unreadLinkLabel(agent.name, unread)}
-              >
-                <TeammateAvatar avatarId={agent.avatarId} small />
-                <span className="side-agent-name">{agent.name}</span>
-                <UpdateCountBadge count={unread} />
-              </NavLink>
-            );
-          })}
-          {agents.data?.length === 0 && (
-            <p className="sidebar-empty">No teammates yet.</p>
-          )}
-          {agents.isError && (
-            <p className="sidebar-empty">
-              Your team couldn’t load. <NavLink to="/team">Try again</NavLink>
-            </p>
-          )}
-        </div>
+        <TeammateNavigation />
         <div className="sidebar-bottom">
           <div className="space-card">
             <span className="dot" />

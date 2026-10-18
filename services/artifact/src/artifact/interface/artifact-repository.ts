@@ -24,8 +24,8 @@ export interface ArtifactRepository extends Repository<
 > {
   /** List artifacts in scope, most recently updated first. */
   list(scope: ArtifactScope): Promise<Artifact[]>;
-  /** Find an owner's artifact by its slug. */
-  findBySlug(scope: OwnerScope, slug: string): Promise<Artifact | undefined>;
+  /** Find an artifact in scope by its slug, which is unique across owners. */
+  findBySlug(scope: ArtifactScope, slug: string): Promise<Artifact | undefined>;
   /** Persist a new, unpublished artifact; a slug in use by any artifact is refused. */
   create(
     scope: OwnerScope,

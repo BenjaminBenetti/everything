@@ -6,7 +6,9 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import type { FastifyInstance } from "fastify";
+import { ArtifactNotFoundError } from "../../artifact/error/artifact-errors.js";
 import { ArtifactLock } from "../../artifact/service/artifact-lock.js";
+import { AppApiKeyUnavailableError } from "../../capability/error/app-api-key-errors.js";
 import { ArtifactLookup } from "../../artifact/service/artifact-lookup.js";
 import { ArtifactService } from "../../artifact/service/artifact-service.js";
 import {
@@ -29,6 +31,7 @@ const actor = {
   "x-everything-actor-name": "Ada%20Lovelace",
 };
 const bearer = { authorization: "Bearer valid" };
+const fixtureKey = `everything_app_key_${"k".repeat(43)}`;
 
 /** The internal API over in-memory storage and a temporary content store. */
 async function application(context: {
@@ -72,6 +75,14 @@ async function application(context: {
       grant: async (_owner, input) => ({ url: `view:${input.slug}` }),
     } as ViewAccess,
     passes: new ViewPasses(lookup, memoryCredentials().passes),
+    apiKeys: {
+      /** Reveal one fixture key; anything else is unavailable, as for a disabled app. */
+      reveal: async (ownerId, reference) => {
+        if (ownerId !== "owner") throw new ArtifactNotFoundError();
+        if (reference !== "hooks") throw new AppApiKeyUnavailableError();
+        return { apiKey: fixtureKey };
+      },
+    },
     readiness: async () => {},
   });
   context.after(async () => {
@@ -294,4 +305,31 @@ test("uploading, publishing, checking out, and opening a static artifact", async
     headers: { ...bearer, ...actor },
   });
   assert.equal(removed.statusCode, 204);
+});
+
+test("the owner's API key is revealed only with a service token, never cached, and only for an enabled app", async (context) => {
+  const app = await application(context);
+  const url = "/internal/v1/owners/owner/artifacts/hooks/api-key";
+  assert.equal((await app.inject({ url })).statusCode, 401);
+  const revealed = await app.inject({ url, headers: bearer });
+  assert.equal(revealed.statusCode, 200);
+  assert.equal(revealed.headers["cache-control"], "no-store");
+  assert.deepEqual(revealed.json(), { apiKey: fixtureKey });
+  const foreign = await app.inject({
+    url: "/internal/v1/owners/other/artifacts/hooks/api-key",
+    headers: bearer,
+  });
+  assert.deepEqual(
+    [foreign.statusCode, foreign.json().code],
+    [404, "ARTIFACT_NOT_FOUND"],
+  );
+  const disabled = await app.inject({
+    url: "/internal/v1/owners/owner/artifacts/plain/api-key",
+    headers: bearer,
+  });
+  assert.deepEqual(
+    [disabled.statusCode, disabled.json().code],
+    [409, "APP_API_KEY_UNAVAILABLE"],
+  );
+  assert.doesNotMatch(disabled.body, /everything_app_key_/);
 });

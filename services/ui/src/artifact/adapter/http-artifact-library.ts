@@ -1,4 +1,5 @@
 import type {
+  ArtifactApiKey,
   ArtifactList,
   ArtifactSummary,
   ArtifactView,
@@ -58,6 +59,15 @@ export class HttpArtifactLibrary implements ArtifactLibrary {
         method: "POST",
       },
     );
+  }
+
+  /** Read the app's API key from the uncached endpoint; it is never stored in the browser. */
+  async apiKey(id: string, signal?: AbortSignal): Promise<string> {
+    const result = await this.transport.request<ArtifactApiKey>(
+      `/v1/artifacts/${encodeURIComponent(id)}/api-key`,
+      signal ? { signal } : {},
+    );
+    return result.apiKey;
   }
 
   /** Permanently remove a stopped or unpublished app. */

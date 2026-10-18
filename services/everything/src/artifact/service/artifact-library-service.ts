@@ -1,9 +1,11 @@
 import type {
+  ArtifactApiKey,
   ArtifactSummary,
   ArtifactView,
   ArtifactViewInput,
 } from "@everything/artifact-contracts";
 import {
+  AppApiKeyUnavailableError,
   ArtifactNotFoundError,
   ArtifactRequestFailure,
   ArtifactServiceUnavailableError,
@@ -31,7 +33,7 @@ export class ArtifactLibraryService implements ArtifactLibrary {
   constructor(
     private readonly gateway: Pick<
       ArtifactGateway,
-      "list" | "view" | "start" | "stop" | "delete"
+      "list" | "view" | "start" | "stop" | "delete" | "apiKey"
     >,
   ) {}
 
@@ -70,6 +72,17 @@ export class ArtifactLibraryService implements ArtifactLibrary {
   /** Remove the owner's app only while it remains stopped or unpublished. */
   delete(ownerId: string, id: string): Promise<void> {
     return this.change(ownerId, id, "delete");
+  }
+
+  /** Show the app's API key; a conflict means the app has no key to show. */
+  async apiKey(ownerId: string, id: string): Promise<ArtifactApiKey> {
+    try {
+      return await this.gateway.apiKey(ownerId, id);
+    } catch (error) {
+      if (error instanceof ArtifactRequestFailure && error.status === 409)
+        throw new AppApiKeyUnavailableError();
+      throw translate(error);
+    }
   }
 
   // ===========================================

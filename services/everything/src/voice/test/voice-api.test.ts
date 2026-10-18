@@ -147,6 +147,7 @@ async function application(
     artifacts: unusedOperations(),
     workers: unusedOperations(),
     generalSettings: unusedOperations(),
+    teammateOrder: unusedOperations(),
     workspaces: unusedOperations(),
     workspaceActivity: unusedOperations(),
     voice,

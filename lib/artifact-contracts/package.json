@@ -11,6 +11,10 @@
       "types": "./build/capability/model/everything-api.d.ts",
       "default": "./build/capability/model/everything-api.js"
     },
+    "./api-key": {
+      "types": "./build/capability/model/api-key.d.ts",
+      "default": "./build/capability/model/api-key.js"
+    },
     ".": {
       "types": "./build/artifact/model/artifact.d.ts",
       "default": "./build/artifact/model/artifact.js"

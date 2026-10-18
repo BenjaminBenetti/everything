@@ -38,3 +38,6 @@ export const artifactListResponse = Type.Object({
 
 /** A link that signs the viewer into the separate app origin. */
 export const artifactViewResponse = Type.Object({ url: Type.String() });
+
+/** A dynamic app's API key, which external callers send in the X-Api-Key header. */
+export const artifactApiKeyResponse = Type.Object({ apiKey: Type.String() });

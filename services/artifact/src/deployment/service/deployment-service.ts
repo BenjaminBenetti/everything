@@ -12,6 +12,7 @@ import {
   requireLatestRelease,
   type ArtifactLookup,
 } from "../../artifact/service/artifact-lookup.js";
+import type { AppApiKeyStore } from "../../capability/interface/app-api-key-store.js";
 import { BuildNotReadyError } from "../../image/error/build-errors.js";
 import type { BuildRepository } from "../../image/interface/build-repository.js";
 import {
@@ -23,7 +24,7 @@ import type {
   LogOptions,
   WorkloadOrchestrator,
 } from "../interface/workload-orchestrator.js";
-import { deploymentRetention } from "../model/deployment.js";
+import { deploymentRetention, type Deployment } from "../model/deployment.js";
 import type { WorkloadReconciler } from "./workload-reconciler.js";
 
 /** Names the artifact service sets in every artifact's environment. */
@@ -35,7 +36,7 @@ export class DeploymentService {
   // Construction
   // ===========================================
 
-  /** Inject storage, the reconciler, the orchestrator for logs, and the per-artifact lock. */
+  /** Inject storage, the reconciler, the orchestrator for logs, the per-artifact lock, and API keys. */
   constructor(
     private readonly artifacts: Pick<ArtifactRepository, "update">,
     private readonly deployments: DeploymentRepository,
@@ -47,6 +48,7 @@ export class DeploymentService {
     private readonly orchestrator: Pick<WorkloadOrchestrator, "logs">,
     private readonly lookup: ArtifactLookup,
     private readonly lock: ArtifactLock,
+    private readonly apiKeys: Pick<AppApiKeyStore, "revoke">,
   ) {}
 
   // ===========================================
@@ -73,7 +75,8 @@ export class DeploymentService {
           : await this.builds.findByNumber(scope, input.build);
       if (build?.status !== "succeeded" || !build.imageDigest)
         throw new BuildNotReadyError(input.build);
-      const settings = await this.settings(artifact, input);
+      const live = await this.live(artifact);
+      const settings = mergeSettings(live ?? defaultDeploymentSettings, input);
       if (
         settings.diskGi !== null &&
         artifact.diskGi !== null &&
@@ -81,6 +84,12 @@ export class DeploymentService {
       )
         throw new DiskSizeFixedError(artifact.diskGi);
       const release = artifact.release + 1;
+      // Revoke before recording the change: a failure leaves the key working instead of revivable.
+      if (
+        live?.capabilities.includes("api-key") &&
+        !settings.capabilities.includes("api-key")
+      )
+        await this.apiKeys.revoke(scope);
       await this.deployments.create(scope, {
         ...settings,
         release,
@@ -121,27 +130,29 @@ export class DeploymentService {
   // Settings
   // ===========================================
 
-  /** Fill omitted settings from the live deployment, or from the first-deployment defaults. */
-  private async settings(
-    artifact: Artifact,
-    input: DeployInput,
-  ): Promise<ArtifactDeploymentSettings> {
-    const live =
-      artifact.liveDeployment === null
-        ? undefined
-        : await this.deployments.findByRelease(
-            { ownerId: artifact.ownerId, artifactId: artifact.id },
-            artifact.liveDeployment,
-          );
-    const base = live ?? defaultDeploymentSettings;
-    return {
-      port: input.port ?? base.port,
-      env: input.env ?? base.env,
-      database: input.database ?? base.database,
-      capabilities: input.capabilities ?? base.capabilities,
-      diskGi: input.diskGi === undefined ? base.diskGi : input.diskGi,
-      healthPath:
-        input.healthPath === undefined ? base.healthPath : input.healthPath,
-    };
+  /** The live deployment, whose settings fill those a request omits. */
+  private async live(artifact: Artifact): Promise<Deployment | undefined> {
+    return artifact.liveDeployment === null
+      ? undefined
+      : this.deployments.findByRelease(
+          { ownerId: artifact.ownerId, artifactId: artifact.id },
+          artifact.liveDeployment,
+        );
   }
+}
+
+/** Fill omitted settings from the live deployment, or from the first-deployment defaults. */
+function mergeSettings(
+  base: ArtifactDeploymentSettings,
+  input: DeployInput,
+): ArtifactDeploymentSettings {
+  return {
+    port: input.port ?? base.port,
+    env: input.env ?? base.env,
+    database: input.database ?? base.database,
+    capabilities: input.capabilities ?? base.capabilities,
+    diskGi: input.diskGi === undefined ? base.diskGi : input.diskGi,
+    healthPath:
+      input.healthPath === undefined ? base.healthPath : input.healthPath,
+  };
 }

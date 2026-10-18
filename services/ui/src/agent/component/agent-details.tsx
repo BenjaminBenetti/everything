@@ -4,7 +4,7 @@ import { TeammateAvatar } from "./teammate-avatar.js";
 import { Button } from "@everything/ui/button";
 import { Dialog } from "@everything/ui/dialog";
 import { providerOptions } from "../../provider/model/provider-options.js";
-import { effortLabels } from "../model/inference-options.js";
+import { effortLabels, fastModeLabels } from "../model/inference-options.js";
 import { Link } from "react-router-dom";
 
 /** Inspect a saved profile with separated editing and deletion actions. */
@@ -56,6 +56,12 @@ export function AgentDetails({
           <dd>{agent.inference.model}</dd>
           <dt>Effort level</dt>
           <dd>{effortLabels[agent.inference.effort]}</dd>
+          {agent.inference.speed === "fast" && (
+            <>
+              <dt>Speed</dt>
+              <dd>{fastModeLabels.details}</dd>
+            </>
+          )}
         </dl>
       ) : (
         <p className="muted">No model selected.</p>

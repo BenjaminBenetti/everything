@@ -149,3 +149,54 @@ test("a tool named in a later part still counts, and a later call or failure end
   await failed.session.prompt("Hello");
   assert.deepEqual(failed.seen, [true, false]);
 });
+
+test("a refused Fast request ends the turn with its own recovery, and other provider failures stay generic", async () => {
+  /** A Pi session whose last response failed with the given speed details, or none. */
+  function failed(details?: Record<string, unknown>) {
+    const pi = {
+      sessionId: "session",
+      isCompacting: false,
+      messages: [
+        {
+          role: "assistant",
+          stopReason: "error",
+          errorMessage: "provider detail",
+          ...(details
+            ? {
+                diagnostics: [
+                  { type: "inference-speed", timestamp: 1, details },
+                ],
+              }
+            : {}),
+        },
+      ],
+      subscribe: () => () => undefined,
+      async prompt() {},
+    };
+    return new PiAgentSession(pi as unknown as PiSession);
+  }
+  await assert.rejects(
+    failed({
+      requested: "fast",
+      effective: "unknown",
+      failure: "rejected",
+    }).prompt("Hi"),
+    { code: "FAST_MODE_REJECTED" },
+  );
+  await assert.rejects(
+    failed({
+      requested: "fast",
+      effective: "unknown",
+      failure: "limited",
+    }).prompt("Hi"),
+    { code: "FAST_MODE_LIMITED" },
+  );
+  for (const details of [
+    { requested: "fast", effective: "unknown" },
+    { requested: "standard", effective: "unknown" },
+    undefined,
+  ])
+    await assert.rejects(failed(details).prompt("Hi"), {
+      message: "Pi model request failed",
+    });
+});

@@ -61,7 +61,7 @@ The unread feed refreshes every five seconds while visible, on return or reconne
 ## Limits
 
 - Seen updates remain available in history and link to their original messages, just like unread updates.
-- Updates are in-app only. Push delivery, OS notifications, and summaries that combine several updates are separate work.
+- Push delivery and summaries that combine several updates are separate work. Desktop browsers can show notifications for new message updates while an Everything tab is open; see [Desktop notifications](../../ui/documentation/desktop-notifications.md).
 - Messages delivered before the migration have no updates.
 - Opening an old message link may load several history pages, using the existing conversation API.
 

@@ -11,6 +11,7 @@ import type {
   ProviderModels,
 } from "../interface/provider-models.js";
 import {
+  FastModeUnsupportedError,
   InferenceSelectionError,
   ProviderModelsError,
 } from "../error/provider-errors.js";
@@ -47,7 +48,10 @@ export class ProviderModelService implements ProviderModels {
     await this.select(ownerId, selection);
   }
 
-  /** Validate a selection against a fresh catalog, returning the model with the limits it reports. */
+  /**
+   * Validate a selection against a fresh catalog, returning the model with the limits it reports.
+   * Selections saved before speeds existed mean standard.
+   */
   async select(
     ownerId: string,
     selection: InferenceSelection,
@@ -55,13 +59,15 @@ export class ProviderModelService implements ProviderModels {
     const model = (await this.discover(ownerId, selection.provider)).find(
       (item) => item.id === selection.model,
     );
-    if (
-      !model ||
-      !this.capabilities
-        .describe(selection.provider, model)
-        .efforts.includes(selection.effort)
-    )
+    if (!model) throw new InferenceSelectionError();
+    const { efforts, speeds } = this.capabilities.describe(
+      selection.provider,
+      model,
+    );
+    if (!efforts.includes(selection.effort))
       throw new InferenceSelectionError();
+    if (!speeds.includes(selection.speed ?? "standard"))
+      throw new FastModeUnsupportedError();
     return model;
   }
 

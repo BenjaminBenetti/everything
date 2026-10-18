@@ -99,6 +99,42 @@
   left: 0;
   right: auto;
 }
+.artifact-api-key-trigger {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.artifact-api-key-trigger[aria-expanded="true"] {
+  color: var(--text-primary);
+}
+/* Opens downward into the card, so the sticky top bar never covers the key. */
+.artifact-api-key-panel {
+  top: calc(100% + 4px);
+  bottom: auto;
+  display: grid;
+  gap: 6px;
+  width: min(300px, calc(100vw - 64px));
+  max-width: none;
+}
+.artifact-api-key-title {
+  font-weight: 600;
+}
+.artifact-api-key-value {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.artifact-api-key-value code {
+  flex: 1;
+  min-width: 0;
+  font-family:
+    ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
 .artifact-card h2 {
   font-size: 17px;
   font-weight: 550;
