@@ -4,12 +4,12 @@ These are UI previews of the composer's voice control. Each image is a real rend
 
 The images don't measure speech recognition or latency. They don't show a physical device, a real microphone or production data.
 
-No status line appears above the field. The microphone button shows each state:
+No status line appears above the field, and the keyboard help shows only Enter and Shift+Enter. The microphone button shows each state:
 - **Recording:** the button is highlighted.
 - **Transcribing:** the button shows a spinner.
 - **Failed dictation:** the button turns the danger colour, and its name and tooltip say what happened.
 
-Screen readers still hear each change through a visually hidden live region.
+Screen readers still hear each change through a visually hidden live region, and the field's description still tells them to hold Space for 3 seconds to record.
 
 | Image | Viewport | State |
 | --- | --- | --- |
@@ -20,7 +20,7 @@ Screen readers still hear each change through a visually hidden live region.
 
 ## How they were made
 
-- **Source:** the UI at commit `a969309d6a09ef4694303559d4807f7a0fe3cf0a` (`services/ui` tree `e67699f7`), served by its Vite dev server on loopback.
+- **Source:** the UI at commit `4856a7d` (`services/ui` tree `159f7004`), served by its Vite dev server on loopback.
 - **Browser:** Chromium headless shell 156.0.8078.4, as installed for Playwright 1.64.0.
 - **Fixture:** `testing/ui/src/voice/fixture/voice-workspace.ts`.
   - Every `/v1` route is mocked, including the teammate Avery and voice capabilities.
