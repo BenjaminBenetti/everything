@@ -158,12 +158,93 @@
   --shadow-color: #422d1812;
 }
 
+/* Solarized uses its canonical base tones for the page, code, and welcome surfaces, primary text,
+   and field borders. Other surfaces blend neighboring base tones; accent text, actions, and
+   statuses mix a canonical hue toward a base tone only where WCAG AA contrast needs it. */
+[data-theme="solarized-light"] {
+  color-scheme: light;
+  --surface-page: #fdf6e3;
+  --surface-panel: #fefbf1;
+  --surface-subtle: #f6efdc;
+  --surface-review: #eee8d5;
+  --text-primary: #073642;
+  --text-secondary: #48636b;
+  --text-placeholder: #586e75;
+  --border-default: #d9d8c9;
+  --border-field: #93a1a1;
+  --border-active: #268bd2;
+  --text-accent: #1b6da0;
+  --surface-selected: #e3e9e1;
+  --text-selected: #186591;
+  --surface-hero: #eee8d5;
+  --text-on-hero: #073642;
+  --text-hero-accent: #cb4b16;
+  --text-hero-muted: #48636b;
+  --surface-action: #1b6da0;
+  --text-on-action: #fdf6e3;
+  --surface-action-hover: #17618a;
+  --status-ready: #a48107;
+  --surface-avatar: #eee8d5;
+  --text-avatar: #1b6da0;
+  --overlay: #002b3655;
+  --shadow-color: #002b3614;
+  --status-connected: #53711a;
+  --status-disconnected: #bc3332;
+  --text-danger: #bc3332;
+  --surface-danger: #bc3332;
+  --surface-danger-hover: #a03334;
+  --surface-danger-subtle: #fae2d1;
+  --text-on-danger: #fdf6e3;
+}
+
+[data-theme="solarized-dark"] {
+  color-scheme: dark;
+  --surface-page: #002b36;
+  --surface-panel: #073642;
+  --surface-subtle: #04313c;
+  --surface-review: #073642;
+  --text-primary: #eee8d5;
+  --text-secondary: #a1aca9;
+  --text-placeholder: #93a1a1;
+  --border-default: #274c56;
+  --border-field: #586e75;
+  --border-active: #268bd2;
+  --text-accent: #71b0d8;
+  --surface-selected: #0b4053;
+  --text-selected: #9cc6db;
+  --surface-hero: #073642;
+  --text-on-hero: #eee8d5;
+  --text-hero-accent: #b58900;
+  --text-hero-muted: #93a1a1;
+  --surface-action: #5ca6d6;
+  --text-on-action: #002b36;
+  --surface-action-hover: #7cb6d9;
+  --status-ready: #b58900;
+  --surface-avatar: #0d475f;
+  --text-avatar: #9cc6db;
+  --overlay: #00151b99;
+  --shadow-color: #00000033;
+  --status-connected: #95a520;
+  --status-disconnected: #eb8a80;
+  --text-danger: #eb8a80;
+  --surface-danger: #bc3332;
+  --surface-danger-hover: #a03334;
+  --surface-danger-subtle: #372d34;
+  --text-on-danger: #fdf6e3;
+}
+
 [data-theme="daylight"],
 [data-theme="sand"] {
   --status-connected: #247247;
   --status-disconnected: #ad3939;
   --text-danger: #aa3332;
   --surface-danger-subtle: #fae8e5;
+}
+
+/* Light themes show the black ChatGPT mark on a white brand surface. */
+[data-theme="daylight"],
+[data-theme="sand"],
+[data-theme="solarized-light"] {
   --brand-chatgpt-background: #ffffff;
   --brand-chatgpt-foreground: #000000;
   --brand-chatgpt-logo: url("/brand/chatgpt-logo-black.svg");
