@@ -1,5 +1,8 @@
 import { expect, test, type BrowserContext } from "@playwright/test";
 
+/** A synthetic API key; no real app or key is involved. */
+const apiKey = `everything_app_key_${"T".repeat(21)}-${"e".repeat(21)}`;
+
 /** Create a complete summary without touching real app data. */
 function app(
   index: number,
@@ -16,7 +19,10 @@ function app(
     kind,
     description: title === "Planner" ? "Weekend itinerary" : "Shared app",
     database: [1, 2, 6].includes(index),
-    capabilities: [1, 2, 3].includes(index) ? ["everything-api"] : [],
+    capabilities: [
+      ...([1, 2, 3].includes(index) ? ["everything-api"] : []),
+      ...(index === 3 ? ["api-key"] : []),
+    ],
     url: `http://localhost:8081/app-${index}/`,
     release: status === "unpublished" ? 0 : 1,
     createdAt: new Date(Date.now() - 30 * 86_400_000).toISOString(),
@@ -44,6 +50,8 @@ async function prepareApps(context: BrowserContext) {
       app(7, "Broken", "failing", 1),
     ],
     actions: [] as { id: string; action: string }[],
+    keyReads: [] as string[],
+    failKey: false,
     failAction: false,
     failList: false,
     holdAction: false,
@@ -92,6 +100,18 @@ async function prepareApps(context: BrowserContext) {
     route.fulfill({ contentType: "text/html", body: "<h1>App preview</h1>" }),
   );
   await context.route("**/v1/artifacts**", async (route) => {
+    const keyPath = new URL(route.request().url()).pathname.match(
+      /^\/v1\/artifacts\/([^/]+)\/api-key$/,
+    );
+    if (keyPath && route.request().method() === "GET") {
+      state.keyReads.push(keyPath[1]!);
+      await route.fulfill(
+        state.failKey
+          ? { status: 409, json: { code: "APP_API_KEY_UNAVAILABLE" } }
+          : { headers: { "cache-control": "no-store" }, json: { apiKey } },
+      );
+      return;
+    }
     if (route.request().method() === "GET") {
       await route.fulfill(
         state.failList
@@ -250,6 +270,124 @@ test("creator and capability icons explain apps without opening them", async ({
   await expect(
     report.getByRole("img", { name: "Everything API", exact: true }),
   ).toHaveCount(0);
+});
+
+test("only apps with an API key show the key icon, which reveals the key on request and forgets it on close", async ({
+  page,
+  context,
+}, info) => {
+  const state = await prepareApps(context);
+  const phone = info.project.name === "phone";
+  await page.goto("/apps");
+  await expect(page.getByRole("article")).toHaveCount(7);
+  await expect(page.getByRole("button", { name: /^API Key for / })).toHaveCount(
+    1,
+  );
+  const card = page.getByRole("article", { name: "Dashboard", exact: true });
+  const trigger = card.getByRole("button", {
+    name: "API Key for Dashboard",
+    exact: true,
+  });
+  const key = card.getByText(apiKey, { exact: true });
+  await expect(trigger).toHaveAttribute("aria-expanded", "false");
+  await expect(key).toHaveCount(0);
+  expect(state.keyReads, "listing apps never reads a key").toEqual([]);
+  let popups = 0;
+  page.on("popup", () => popups++);
+
+  if (phone) await trigger.tap();
+  else await trigger.hover();
+  await expect(key).toBeVisible();
+  await expect(trigger).toHaveAttribute("aria-expanded", "true");
+  await expect(card.getByText(/X-Api-Key header/)).toBeVisible();
+  if (!phone) {
+    await page.mouse.move(0, 0);
+    await expect(key).toHaveCount(0);
+  }
+  await trigger.focus();
+  await expect(key).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(key).toHaveCount(0);
+  await expect(trigger).toBeFocused();
+  await expect(trigger).toHaveAttribute("aria-expanded", "false");
+
+  if (phone) await trigger.tap();
+  else await trigger.click();
+  await expect(key).toBeVisible();
+  if (!phone) {
+    await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+    await card.getByRole("button", { name: "Copy API key" }).click();
+    await expect(card.getByRole("button", { name: "Copied" })).toBeVisible();
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
+      apiKey,
+    );
+  }
+  await page.screenshot({
+    path: info.outputPath("api-key.png"),
+    animations: "disabled",
+  });
+  await page.getByRole("heading", { name: "Apps", exact: true }).click();
+  await expect(key).toHaveCount(0);
+  expect(popups, "revealing a key never opens the app").toBe(0);
+  expect(new Set(state.keyReads)).toEqual(new Set([state.apps[2]!.id]));
+  expect(page.url()).not.toContain(apiKey);
+  expect(
+    await page.evaluate(() =>
+      JSON.stringify([{ ...localStorage }, { ...sessionStorage }]),
+    ),
+  ).not.toContain(apiKey);
+  expect(await page.content()).not.toContain(apiKey);
+
+  state.failKey = true;
+  await trigger.focus();
+  await expect(
+    card.getByText(
+      "The API key isn’t available right now. Try again in a moment.",
+    ),
+  ).toBeVisible();
+  await expect(key).toHaveCount(0);
+  await page.keyboard.press("Escape");
+});
+
+test("Escape from the copy button closes the key and returns focus without reopening it", async ({
+  page,
+  context,
+}, info) => {
+  const state = await prepareApps(context);
+  const phone = info.project.name === "phone";
+  await page.goto("/apps");
+  const card = page.getByRole("article", { name: "Dashboard", exact: true });
+  const trigger = card.getByRole("button", {
+    name: "API Key for Dashboard",
+    exact: true,
+  });
+  const key = card.getByText(apiKey, { exact: true });
+  if (phone) await trigger.tap();
+  else await trigger.click();
+  await expect(key).toBeVisible();
+  const reads = state.keyReads.length;
+  const copy = card.getByRole("button", { name: "Copy API key" });
+  await copy.focus();
+  await expect(copy).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(trigger).toBeFocused();
+  await expect(trigger).toHaveAttribute("aria-expanded", "false");
+  await expect(key).toHaveCount(0);
+  await expect(card.getByText(/X-Api-Key header/)).toHaveCount(0);
+  // A reopened panel would request the key again; give a late reopen time to show.
+  await page.waitForTimeout(300);
+  await expect(key).toHaveCount(0);
+  expect(state.keyReads.length).toBe(reads);
+
+  // Clicking or tapping outside still dismisses a panel opened by a tap or click.
+  if (phone) await trigger.tap();
+  else await trigger.click();
+  await expect(key).toBeVisible();
+  const heading = page.getByRole("heading", { name: "Apps", exact: true });
+  if (phone) await heading.tap();
+  else await heading.click();
+  await expect(key).toHaveCount(0);
+  await expect(trigger).toHaveAttribute("aria-expanded", "false");
 });
 
 test("teammate, type, DB, API, and search filters combine and reset to all apps", async ({

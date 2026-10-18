@@ -15,7 +15,8 @@ test("capabilities inject exactly the requested app credentials, detect changes,
         calls.push("ensure-client");
         return { clientId: "app-client", clientSecret };
       },
-      remove: async () => {
+      remove: async (app) => {
+        assert.equal(app, "app");
         calls.push("remove-client");
       },
     },
@@ -58,7 +59,7 @@ test("capabilities inject exactly the requested app credentials, detect changes,
     (await capabilities.reconcile(owner, ["everything-api"])).fingerprint,
     enabled.fingerprint,
   );
-  await capabilities.remove(owner.id);
+  await capabilities.remove(owner);
   assert.deepEqual(calls.slice(-2), ["remove-client", "remove-secret"]);
 });
 
@@ -82,5 +83,8 @@ test("failed external revocation keeps credentials available for retry", async (
     capabilities.reconcile({ id: "app", ownerId: "owner" }, []),
     /unavailable/,
   );
-  await assert.rejects(capabilities.remove("app"), /unavailable/);
+  await assert.rejects(
+    capabilities.remove({ id: "app", ownerId: "owner" }),
+    /unavailable/,
+  );
 });

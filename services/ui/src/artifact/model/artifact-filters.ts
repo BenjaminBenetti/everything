@@ -10,6 +10,7 @@ export interface AppFilters {
   readonly kind: ArtifactKind | "";
   readonly database: boolean;
   readonly api: boolean;
+  readonly apiKey: boolean;
 }
 
 /** Show every app until a filter is selected. */
@@ -18,6 +19,7 @@ export const allApps: AppFilters = {
   kind: "",
   database: false,
   api: false,
+  apiKey: false,
 };
 
 /** Creator identity uses the current profile where available, or the saved author after deletion. */
@@ -49,6 +51,7 @@ export function matchesAppFilters(
     (!filters.creatorId || app.createdBy.id === filters.creatorId) &&
     (!filters.kind || app.kind === filters.kind) &&
     (!filters.database || app.database) &&
-    (!filters.api || app.capabilities.includes("everything-api"))
+    (!filters.api || app.capabilities.includes("everything-api")) &&
+    (!filters.apiKey || app.capabilities.includes("api-key"))
   );
 }

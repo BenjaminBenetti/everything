@@ -33,6 +33,18 @@ export class ArtifactServiceUnavailableError extends ApplicationError {
   }
 }
 
+/** The app has no API key to show: the capability is off, or its key is still being set up. */
+export class AppApiKeyUnavailableError extends ApplicationError {
+  /** Explain how an app gets a key. */
+  constructor() {
+    super(
+      409,
+      "APP_API_KEY_UNAVAILABLE",
+      "This app doesn’t have an API key right now. A teammate can turn on its API Key capability when deploying it. If it’s on, try again in a moment.",
+    );
+  }
+}
+
 /** The app's current state does not allow the requested manual action. */
 export class AppActionConflictError extends ApplicationError {
   /** Ask the user to refresh before retrying a lifecycle action. */

@@ -1,5 +1,6 @@
 import { DataSource } from "typeorm";
 import { ArtifactEntity } from "../../artifact/schema/artifact-entity.js";
+import { AppApiKeyEntity } from "../../capability/schema/app-api-key-entity.js";
 import { BuildEntity } from "../../image/schema/build-entity.js";
 import { DeploymentEntity } from "../../deployment/schema/deployment-entity.js";
 import { RevisionEntity } from "../../revision/schema/revision-entity.js";
@@ -13,6 +14,7 @@ import { ViewPasses1792108800000 } from "../migration/1792108800000-view-passes.
 
 import { StaticAppRunning1792195200000 } from "../migration/1792195200000-static-app-running.js";
 import { AppCapabilities1792281600000 } from "../migration/1792281600000-app-capabilities.js";
+import { AppApiKeys1792368000000 } from "../migration/1792368000000-app-api-keys.js";
 
 /** Connection settings for one PostgreSQL database. */
 export interface DatabaseConnectionSettings {
@@ -50,12 +52,14 @@ export function createArtifactDatabase(
       ViewGrantEntity,
       ViewSessionEntity,
       ViewPassEntity,
+      AppApiKeyEntity,
     ],
     migrations: [
       Artifacts1792022400000,
       ViewPasses1792108800000,
       StaticAppRunning1792195200000,
       AppCapabilities1792281600000,
+      AppApiKeys1792368000000,
     ],
     migrationsTableName: "artifact_migrations",
     migrationsTransactionMode: "all",

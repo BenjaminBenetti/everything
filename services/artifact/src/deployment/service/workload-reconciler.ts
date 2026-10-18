@@ -98,10 +98,10 @@ export class WorkloadReconciler {
         );
   }
 
-  /** Revoke API clients, then delete the artifact's Kubernetes objects, disk, role, and schema. */
+  /** Revoke API clients and keys, then delete the artifact's Kubernetes objects, disk, role, and schema. */
   async remove(artifact: Artifact): Promise<void> {
     if (artifact.kind !== "dynamic") return;
-    await this.capabilities.remove(artifact.id);
+    await this.capabilities.remove(artifact);
     await this.orchestrator.remove(artifact.id);
     await this.databases.remove(artifact.id);
   }
