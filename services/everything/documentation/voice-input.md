@@ -153,9 +153,19 @@ Verified for the streaming lane against `services/voice-asr` (CPU, a public Libr
 
 These are runs on a shared host over a real local test network, not a production WAN or mobile network, and not service-level objectives. The clips end in natural quiet, so they don't measure last-phoneme latency.
 
+Verified for the default deployment on 2026-10-18 (`pnpm cluster:up`, the chart's default values, a local one-node amd64 Minikube):
+
+- **Provisioning.** The init container downloaded the pinned model into `voice-asr-models` and installed it read-only with its NOTICE. The restarted pod checked and reused it (SHA-256 in 6.9 s).
+- **Readiness.** The service was ready about 6 s after starting and used about 950 MiB. It could write neither its model volume nor its root filesystem.
+- **Connection.** Everything's `VOICE_STREAM_URL` pointed at the Service without configuration.
+- **A full stream.** A client signed in through the ingress streamed a public-domain 11 s clip (`tests/jfk.flac` from openai/whisper) in real time to a new teammate:
+  - every frame was acknowledged while streaming;
+  - the final arrived 0.25 s after `end` and matched the reference text;
+  - neither service logged the transcript.
+
 Not yet verified:
 
 - The upload lane against a real speech recognition model and runtime, and their latency, resource use, cancellation, and logging.
 - Safari on iOS and macOS. Playwright's Linux WebKit build has audio worklets, which the streaming tests used for real, but no `MediaRecorder`; upload-lane tests there used a stand-in recorder that negotiates formats as Safari does. Real upload recording was tested in Chromium (WebM and MP4), and both decoded through the production decoder path.
 - Streaming against a physical microphone, real network conditions, or GPU or other hardware.
-- A deployed stack with an ingress configured for 8 MiB uploads.
+- A remote cluster: a production ingress (WebSocket upgrades held for a whole stream, 8 MiB uploads), arm64 or mixed-architecture nodes, outbound download through a proxy, and storage classes other than Minikube's host path.
