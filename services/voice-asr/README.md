@@ -206,7 +206,12 @@ These results come from fake-worker failure injection, the host-built native wor
   - the image's 10 Python files are byte-identical to this commit;
   - in a throwaway container with no model, the parent reports core limit `0 0` and root-owned `/proc` entries (process uid 10001);
   - `VOICE_ASR_TOKEN=` (present but empty) exits 2 with `config_error VOICE_ASR_TOKEN is set but empty`.
-- **Real native smoke:** pending the coordinated cutover. Plan: one public 10 s real-time stream plus worker hardening and lifecycle checks; not a re-run of the 10/30/60 s matrix.
+- **Real native smoke of the follow-up image** (2026-10-18 03:39Z, after the coordinated cutover of the live test container; public fixtures only):
+  - A real-time 6.0 s prefix of the 29.4 s clip (96,000 samples), then cancel, returned `cancelled`.
+  - The next stream, the 9.9 s clip on a fixed real-time release clock, returned the complete final ending "…little of rocky Ithaca", with no words from the cancelled stream.
+  - Scheduled last sample → final was **0.205 s** (end message → final 0.204 s; max send lateness 0.002 s).
+  - Procfs metadata of the running container: the Python parent and the C worker each report core limit `0 0` and root-owned `/proc` entries (non-dumpable), process uid 10001.
+  - This is a **single service-only observation** with a local WebSocket client. It is not a new latency matrix and **not a browser or end-to-end SLO**. The original image's 10/30/60 s results above are unchanged.
 
 ## Limitations
 
