@@ -16,12 +16,23 @@ const defaultPublishing: FleetClientPublishing = {
   publishedMs: 30_000,
 };
 
+/** Names of the files the publisher writes in its folder. */
+export interface FleetClientFiles {
+  /** The gateway session's client address, `FLEET_GATEWAY`. */
+  readonly address: string;
+  /** fleetd's bearer token, `FLEET_TOKEN`. */
+  readonly token: string;
+}
+
 /**
- * Publish the address teammates' `fleet` commands dial: the gateway session fleetd registered, read
- * from its session file, written alone to a folder that teammate pods mount read-only. The session
- * file's secrets never leave Fleet's home. With a stable gateway signing key and fleetd's persisted
- * session, the address survives gateway and Everything restarts; if the gateway ever hands out a
- * new one, the next read publishes it, and each new command uses it.
+ * Publish what teammates' `fleet` commands need to reach fleetd, to a folder that teammate pods
+ * mount read-only: the address of the gateway session fleetd registered, read from its session file,
+ * and fleetd's own bearer token, read from its home. The token is the one fleetd already had, which
+ * its existing clients keep using, or the one it minted in a fresh home; it is readable only by the
+ * account Everything and teammate pods share. The session file's secrets never leave Fleet's home.
+ * With a stable gateway signing key and fleetd's persisted session, the address survives gateway and
+ * Everything restarts; if the gateway ever hands out a new address, or fleetd a new token, the next
+ * read publishes it, and each new command uses it.
  */
 export class FleetClientPublisher {
   // ===========================================
@@ -31,13 +42,14 @@ export class FleetClientPublisher {
   private readonly stopping = new AbortController();
   private publishing: Promise<void> | undefined;
   private published: string | undefined;
+  private publishedToken: string | undefined;
 
-  /** Publish into `folder` the session fleetd registered with `gatewayUrl`, as `fileName`. */
+  /** Publish into `folder`, as `files`, fleetd's token and the session it registered with `gatewayUrl`. */
   constructor(
-    private readonly home: Pick<FleetHome, "gatewaySession">,
+    private readonly home: Pick<FleetHome, "gatewaySession" | "mcpToken">,
     private readonly gatewayUrl: string,
     private readonly folder: string,
-    private readonly fileName: string,
+    private readonly files: FleetClientFiles,
     private readonly reportFailure: (error: unknown) => void,
     private readonly timing: FleetClientPublishing = defaultPublishing,
   ) {}
@@ -60,7 +72,7 @@ export class FleetClientPublisher {
     this.publishing ??= this.run();
   }
 
-  /** Stop reading the session file; the last published address stays for the next start. */
+  /** Stop reading fleetd's files; what was last published stays for the next start. */
   async close(): Promise<void> {
     this.stopping.abort();
     await this.publishing;
@@ -70,11 +82,12 @@ export class FleetClientPublisher {
   // Publishing
   // ===========================================
 
-  /** Publish whenever the session's address changes, reporting failures and trying again later. */
+  /** Publish whenever the token or the session's address changes, reporting failures and trying again later. */
   private async run(): Promise<void> {
     const { signal } = this.stopping;
     while (!signal.aborted) {
       try {
+        await this.publishToken();
         await this.publish();
       } catch (error) {
         this.reportFailure(error);
@@ -93,7 +106,7 @@ export class FleetClientPublisher {
    * isn't connected instead of dialing a stale address.
    */
   private async publish(): Promise<void> {
-    const file = path.join(this.folder, this.fileName);
+    const file = path.join(this.folder, this.files.address);
     const content = await readOptional(this.home.gatewaySession);
     let session: unknown;
     try {
@@ -114,5 +127,23 @@ export class FleetClientPublisher {
       file: 0o644,
     });
     this.published = address;
+  }
+
+  /**
+   * Publish fleetd's token before any address, so a published address always has its token beside
+   * it. fleetd writes the token before it registers and keeps it across restarts; without one yet,
+   * nothing is published.
+   */
+  private async publishToken(): Promise<void> {
+    const file = path.join(this.folder, this.files.token);
+    const token = (await readOptional(this.home.mcpToken))?.trim();
+    if (!token) {
+      await rm(file, { force: true });
+      this.publishedToken = undefined;
+      return;
+    }
+    if (token === this.publishedToken) return;
+    await replaceFile(file, token, { directory: 0o755, file: 0o600 });
+    this.publishedToken = token;
   }
 }

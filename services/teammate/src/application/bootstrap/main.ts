@@ -1,4 +1,3 @@
-import { readFile } from "node:fs/promises";
 import envSchema from "env-schema";
 import { Type, type Static } from "typebox";
 import {
@@ -10,6 +9,7 @@ import { WorkspaceFiles } from "../../workspace/service/workspace-files.js";
 import { BashRunner } from "../../shell/service/bash-runner.js";
 import { MonitorRunner } from "../../shell/service/monitor-runner.js";
 import { LinuxCommandProcessFactory } from "../../shell/adapter/linux-command-process-factory.js";
+import { FileOutputSecrets } from "../../shell/adapter/file-output-secrets.js";
 import { commandEnvironment } from "../../shell/model/command-environment.js";
 import { defaultMonitorPolicy } from "../../shell/model/monitor-policy.js";
 import { createHttpApplication } from "../factory/http-application.js";
@@ -22,15 +22,6 @@ const settingsSchema = Type.Object({
   }),
   WORKSPACE_TOKEN: Type.String({ pattern: "^[a-f0-9]{64}$" }),
 });
-
-/**
- * Secrets commands can read but their output must never return: the Fleet client token, which grants
- * full control of Fleet. Pods without the token mount have none.
- */
-async function outputSecrets(): Promise<string[]> {
-  const token = await readFile(fleetTokenWorkspaceFile, "utf8").catch(() => "");
-  return token.trim() ? [token.trim()] : [];
-}
 
 /** Start directly under the container init, which reaps orphaned commands after cleanup. */
 async function main(): Promise<void> {
@@ -47,7 +38,9 @@ async function main(): Promise<void> {
     sharedWorkspacePath,
   );
   const processes = new LinuxCommandProcessFactory();
-  const secrets = await outputSecrets();
+  // Commands can read the Fleet token, which grants full control of Fleet, but their output must
+  // never return it. Everything may publish it, or a new one, after the workspace starts.
+  const secrets = new FileOutputSecrets([fleetTokenWorkspaceFile]);
   const environment = commandEnvironment(process.env, files.home);
   const bash = new BashRunner(files, processes, environment, secrets);
   const monitors = new MonitorRunner(

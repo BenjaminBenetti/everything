@@ -60,11 +60,6 @@ export const environmentSchema = Type.Object({
     pattern: "^(https?://[^/?#@]+)?$",
     default: "",
   }),
-  /** Bearer token fleetd requires of remote clients, from the chart's Secret; set with the gateway. */
-  FLEET_CLIENT_TOKEN: Type.String({
-    pattern: "^([A-Za-z0-9._~+/=-]{32,})?$",
-    default: "",
-  }),
   /** The upgrader, reachable inside the cluster; empty leaves upgrades unavailable. */
   UPGRADER_URL: Type.String({ pattern: "^(https?://[^/]+)?$", default: "" }),
   /** Everything's service account token for the upgrader's audience, renewed by the kubelet. */

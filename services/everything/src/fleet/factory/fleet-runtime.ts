@@ -20,11 +20,12 @@ import type { WorkspaceStates } from "../../workspace/interface/workspace-activi
 import {
   fleetClientFolder,
   fleetGatewayFileName,
+  fleetTokenFileName,
 } from "@everything/workspace-contracts/mount";
 
 /**
  * Fleet inside this container, the worker settings it keeps on its cluster connection, and, with
- * remote control configured, the publisher of the address teammates' `fleet` commands dial.
+ * remote control configured, the publisher of the address and token teammates' `fleet` commands use.
  */
 export interface FleetRuntime {
   readonly host: FleetHost;
@@ -65,7 +66,7 @@ export function createFleetRuntime(
         home,
         settings.remote.gatewayUrl,
         path.join(agentsDirectory, fleetClientFolder),
-        fleetGatewayFileName,
+        { address: fleetGatewayFileName, token: fleetTokenFileName },
         reportFailure,
       ),
     workers: new FleetWorkerSettings(host, commands),

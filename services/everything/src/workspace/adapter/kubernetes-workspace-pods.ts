@@ -53,7 +53,7 @@ export function createWorkspacePodClients() {
  * Build a singleton StatefulSet from the chart's zero-replica tools template. The pod mounts the
  * teammate's folder of the workspace volume at `/workspace/<agent id>`, where Everything's container
  * sees it too, and the shared folder at `/workspace/shared`; it never sees other teammates' folders.
- * These folders, the read-only SSH socket, and the read-only Fleet gateway address are subpaths of one
+ * These folders, the read-only SSH socket, and the read-only Fleet client folder are subpaths of one
  * volume: a second volume naming the same claim leaves the pod waiting for a mount that some storage
  * drivers never report.
  */

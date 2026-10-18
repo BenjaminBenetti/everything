@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   mkdir,
   mkdtemp,
+  readdir,
   readFile,
   rm,
   stat,
@@ -22,6 +23,7 @@ const gatewayUrl = "http://fleet-gateway.everything.svc.cluster.local:50051";
 const sessionId = "a".repeat(64);
 const address = `${gatewayUrl}/grpc/${sessionId}`;
 const token = "0123456789abcdef".repeat(4);
+const files = { address: "gateway-url", token: "token" };
 
 /** A Fleet home in a temporary folder, removed after the test. */
 async function home(context: TestContext) {
@@ -109,17 +111,23 @@ test("publishes only a client address the configured gateway assigned to fleetd'
     assert.equal(publishedGatewayAddress(stale, gatewayUrl), undefined);
 });
 
-test("gives fleetd the chart's token and gateway registration before it starts, rewriting nothing that already matches", async (context) => {
+test("registers fleetd with the gateway before it starts, keeping its existing token and rewriting nothing that already matches", async (context) => {
   const { home: fleet } = await home(context);
-  await writeFile(fleet.mcpToken, "fleetd-generated-token-that-is-replaced");
+  // The token fleetd generated long ago, which its MCP and remote clients already hold.
+  await writeFile(fleet.mcpToken, `${token}\n`, { mode: 0o600 });
   await writeFile(
     fleet.config,
     JSON.stringify({ default_backend: "kubernetes" }),
   );
-  const setup = new FleetRemoteSetup(fleet, { gatewayUrl, token });
+  const tokenBefore = await stat(fleet.mcpToken);
+  const setup = new FleetRemoteSetup(fleet, { gatewayUrl });
   await setup.apply();
-  assert.equal(await readFile(fleet.mcpToken, "utf8"), token);
-  assert.equal((await stat(fleet.mcpToken)).mode & 0o777, 0o600);
+  assert.equal(await readFile(fleet.mcpToken, "utf8"), `${token}\n`);
+  const tokenAfter = await stat(fleet.mcpToken);
+  assert.deepEqual(
+    [tokenAfter.mtimeMs, tokenAfter.ino],
+    [tokenBefore.mtimeMs, tokenBefore.ino],
+  );
   const config = JSON.parse(await readFile(fleet.config, "utf8"));
   assert.deepEqual(config, {
     default_backend: "kubernetes",
@@ -130,14 +138,17 @@ test("gives fleetd the chart's token and gateway registration before it starts, 
     },
   });
   // A retry while fleetd runs must not touch files fleetd owns.
-  const before = await Promise.all([stat(fleet.mcpToken), stat(fleet.config)]);
+  const before = await stat(fleet.config);
   await new Promise((resolve) => setTimeout(resolve, 20));
   await setup.apply();
-  const after = await Promise.all([stat(fleet.mcpToken), stat(fleet.config)]);
-  assert.deepEqual(
-    after.map(({ mtimeMs, ino }) => [mtimeMs, ino]),
-    before.map(({ mtimeMs, ino }) => [mtimeMs, ino]),
-  );
+  const after = await stat(fleet.config);
+  assert.deepEqual([after.mtimeMs, after.ino], [before.mtimeMs, before.ino]);
+});
+
+test("leaves a fresh home's token to fleetd, which mints its own", async (context) => {
+  const { home: fleet } = await home(context);
+  await new FleetRemoteSetup(fleet, { gatewayUrl }).apply();
+  await assert.rejects(stat(fleet.mcpToken), { code: "ENOENT" });
 });
 
 test("leaves fleetd's token and settings alone without a configured gateway", async (context) => {
@@ -148,14 +159,15 @@ test("leaves fleetd's token and settings alone without a configured gateway", as
   await assert.rejects(stat(fleet.config), { code: "ENOENT" });
 });
 
-test("keeps settings fleetd cannot read beside the new ones instead of failing to start Fleet", async (context) => {
+test("keeps every copy of settings fleetd cannot read in a recovery file of its own instead of failing to start Fleet", async (context) => {
   const { home: fleet } = await home(context);
-  await writeFile(fleet.config, "{ not json");
-  await new FleetRemoteSetup(fleet, { gatewayUrl, token }).apply();
-  assert.equal(
-    await readFile(`${fleet.config}.unreadable`, "utf8"),
-    "{ not json",
-  );
+  const setup = new FleetRemoteSetup(fleet, { gatewayUrl });
+  const recoveries = async () =>
+    (await readdir(path.dirname(fleet.config)))
+      .filter((name) => name.startsWith("config.json.unreadable-"))
+      .sort();
+  await writeFile(fleet.config, "{ not json", { mode: 0o600 });
+  await setup.apply();
   assert.deepEqual(JSON.parse(await readFile(fleet.config, "utf8")), {
     remote_mcp_settings: {
       gateway_url: gatewayUrl,
@@ -163,6 +175,22 @@ test("keeps settings fleetd cannot read beside the new ones instead of failing t
       fleet_mode: "gateway",
     },
   });
+  // A second broken edit gets a recovery file of its own; the first one keeps its bytes.
+  await writeFile(fleet.config, '{ "second": broken', { mode: 0o600 });
+  await setup.apply();
+  const kept = await recoveries();
+  assert.equal(kept.length, 2);
+  const contents = await Promise.all(
+    kept.map((name) =>
+      readFile(path.join(path.dirname(fleet.config), name), "utf8"),
+    ),
+  );
+  assert.deepEqual(contents.sort(), ['{ "second": broken', "{ not json"]);
+  for (const name of kept)
+    assert.equal(
+      (await stat(path.join(path.dirname(fleet.config), name))).mode & 0o777,
+      0o600,
+    );
 });
 
 test("publishes the session's client address, and only the address, for teammates and follows a change", async (context) => {
@@ -174,7 +202,7 @@ test("publishes the session's client address, and only the address, for teammate
     fleet,
     gatewayUrl,
     folder,
-    "gateway-url",
+    files,
     (error) => failures.push(error),
     { pendingMs: 5, publishedMs: 5 },
   );
@@ -232,4 +260,44 @@ test("keeps the client token and gateway address out of fleetd's environment", (
     FLEET_TOKEN: token,
   });
   assert.deepEqual(environment, { PATH: "/usr/bin", HOME: "/fleet" });
+});
+
+test("publishes fleetd's own token for teammates, private to their shared account, and follows a new one", async (context) => {
+  const { directory, home: fleet } = await home(context);
+  const folder = path.join(directory, "agents", ".fleet-client");
+  const published = path.join(folder, "token");
+  const failures: unknown[] = [];
+  const publisher = new FleetClientPublisher(
+    fleet,
+    gatewayUrl,
+    folder,
+    files,
+    (error) => failures.push(error),
+    { pendingMs: 5, publishedMs: 5 },
+  );
+  await publisher.prepare();
+  publisher.start();
+  context.after(() => publisher.close());
+  // Before fleetd has a token, nothing is published.
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  await assert.rejects(stat(published), { code: "ENOENT" });
+  await writeFile(fleet.mcpToken, `${token}\n`, { mode: 0o600 });
+  await until(
+    async () => (await readFile(published, "utf8").catch(() => "")) === token,
+  );
+  assert.equal((await stat(published)).mode & 0o777, 0o600);
+  // The token stays fleetd's: publishing never writes to Fleet's home.
+  assert.equal(await readFile(fleet.mcpToken, "utf8"), `${token}\n`);
+  const replaced = "fedcba9876543210".repeat(4);
+  await writeFile(fleet.mcpToken, replaced);
+  await until(async () => (await readFile(published, "utf8")) === replaced);
+  await rm(fleet.mcpToken);
+  await until(async () =>
+    stat(published).then(
+      () => false,
+      () => true,
+    ),
+  );
+  await publisher.close();
+  assert.deepEqual(failures, []);
 });

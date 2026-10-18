@@ -6,6 +6,7 @@ import {
   mkdtemp,
   readFile,
   rm,
+  stat,
   writeFile,
 } from "node:fs/promises";
 import { createServer } from "node:net";
@@ -16,7 +17,7 @@ import { promisify } from "node:util";
 import {
   fleetClientWorkspaceMount,
   fleetGatewayFileName,
-  fleetTokenWorkspaceFile,
+  fleetTokenFileName,
   sharedWorkspacePath,
   workspacePath,
 } from "@everything/workspace-contracts/mount";
@@ -68,6 +69,50 @@ export function fleetStackSettings(
     path: environment.FLEET_E2E_PATH ?? environment.PATH ?? "/usr/bin:/bin",
     otherClient: environment.FLEET_E2E_OTHER_CLIENT || undefined,
   };
+}
+
+/** A file's bytes and permission bits, or undefined when it does not exist. */
+async function fileState(
+  file: string,
+): Promise<{ content: Buffer; mode: number } | undefined> {
+  try {
+    const [content, { mode }] = await Promise.all([readFile(file), stat(file)]);
+    return { content, mode: mode & 0o7777 };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw error;
+  }
+}
+
+/**
+ * Files saved byte for byte with their permissions, and put back as they were: a file that did not
+ * exist is removed again. Only a missing file counts as absent; any other failure to read one saves
+ * nothing, so restoring then changes nothing either.
+ */
+export class FileSnapshot {
+  private saved:
+    Map<string, { content: Buffer; mode: number } | undefined> | undefined;
+
+  /** Save `files`, failing without saving any when one exists but cannot be read. */
+  async take(files: readonly string[]): Promise<void> {
+    const saved = new Map<
+      string,
+      { content: Buffer; mode: number } | undefined
+    >();
+    for (const file of files) saved.set(file, await fileState(file));
+    this.saved = saved;
+  }
+
+  /** Put the saved files back, if any were saved. */
+  async restore(): Promise<void> {
+    if (!this.saved) return;
+    for (const [file, state] of this.saved)
+      if (state === undefined) await rm(file, { force: true });
+      else {
+        await writeFile(file, state.content);
+        await chmod(file, state.mode);
+      }
+  }
 }
 
 /** A free TCP port on the loopback interface. */
@@ -122,8 +167,8 @@ export async function eventually(
  * Bring up the real chain a teammate's `fleet` command takes, with nothing between the processes
  * replaced: the chart's gateway image, run as the chart runs it; fleetd from the pinned binary,
  * configured and supervised by Everything's own Fleet code; Everything's publisher of the client
- * address; and the teammate image, running its workspace API with the read-only Fleet client
- * folder and token file mounted as reconciliation mounts them. All of it is local: containers use
+ * address and fleetd's token; and the teammate image, running its workspace API with the read-only
+ * Fleet client folder mounted as reconciliation mounts it. All of it is local: containers use
  * the host's network, and nothing is deployed to a cluster.
  */
 export async function fleetStack(settings: FleetStackSettings) {
@@ -135,7 +180,8 @@ export async function fleetStack(settings: FleetStackSettings) {
     freePort(),
   ]);
   const gatewayUrl = `http://127.0.0.1:${grpcPort}`;
-  const token = randomBytes(32).toString("hex");
+  /** fleetd's token, as Everything published it to the teammate, once the stack has started. */
+  let token = "";
   const sessionKey = randomBytes(32).toString("hex");
   const key = randomBytes(32).toString("base64");
   const agentId = randomUUID();
@@ -208,14 +254,18 @@ export async function fleetStack(settings: FleetStackSettings) {
       report,
     );
   let daemon = supervisor();
-  /** The home's files Everything's setup rewrites, as they were before the stack started. */
-  const saved = new Map<string, Buffer | undefined>();
+  /**
+   * The home's files the stack changes, as they were before it started: fleetd's token, which it
+   * should keep, its settings, which Everything's setup changes, and its gateway session, which
+   * registering with the stack's gateway replaces.
+   */
+  const saved = new FileSnapshot();
   const folder = path.join(directory, "agents", ".fleet-client");
   const publisher = new FleetClientPublisher(
     home,
     gatewayUrl,
     folder,
-    fleetGatewayFileName,
+    { address: fleetGatewayFileName, token: fleetTokenFileName },
     report,
     { pendingMs: 100, publishedMs: 200 },
   );
@@ -231,11 +281,8 @@ export async function fleetStack(settings: FleetStackSettings) {
   const teammateName = `fleet-e2e-teammate-${suffix}`;
   const workspace = path.join(directory, "agents", agentId);
   const shared = path.join(directory, "agents", "shared");
-  const tokenFile = path.join(directory, "token");
   await mkdir(workspace, { recursive: true });
   await mkdir(shared, { recursive: true });
-  await writeFile(tokenFile, token);
-  await chmod(tokenFile, 0o440);
   /** Start the teammate container and wait for its health endpoint. */
   async function startTeammate(): Promise<void> {
     const started = await command("docker", [
@@ -263,8 +310,6 @@ export async function fleetStack(settings: FleetStackSettings) {
       `${shared}:${sharedWorkspacePath}`,
       "-v",
       `${folder}:${fleetClientWorkspaceMount}:ro`,
-      "-v",
-      `${tokenFile}:${fleetTokenWorkspaceFile}:ro`,
       settings.teammateImage,
     ]);
     if (started.code !== 0)
@@ -298,7 +343,10 @@ export async function fleetStack(settings: FleetStackSettings) {
   return {
     agentId,
     key,
-    token,
+    /** fleetd's token as Everything published it, once the stack has started. */
+    get token() {
+      return token;
+    },
     gatewayUrl,
     workspace,
     folder,
@@ -308,31 +356,42 @@ export async function fleetStack(settings: FleetStackSettings) {
     startGateway,
     stopGateway,
     /**
-     * Start the gateway and fleetd as Everything does, and the teammate before any address exists.
-     * The Fleet home's token and settings are saved first and restored by close, and a home whose
-     * fleetd is already running is refused rather than shared.
+     * Start the gateway and fleetd as Everything does, and the teammate before any address exists,
+     * resolving with the token fleetd had before, if any. The Fleet home's token, settings, and
+     * gateway session are saved first and restored by close; a home whose fleetd is already running,
+     * or one of whose files can't be read, is refused rather than changed.
      */
-    async start(): Promise<void> {
+    async start(): Promise<string | undefined> {
       if (await accepts(home.socket))
         throw new Error("Stop the fleetd that uses FLEET_E2E_HOME first.");
-      for (const file of [home.mcpToken, home.config])
-        saved.set(file, await readFile(file).catch(() => undefined));
+      await saved.take([home.mcpToken, home.config, home.gatewaySession]);
+      const existing = (await fileState(home.mcpToken))?.content
+        .toString("utf8")
+        .trim();
       await startGateway();
-      await new FleetRemoteSetup(home, { gatewayUrl, token }).apply();
+      await new FleetRemoteSetup(home, { gatewayUrl }).apply();
       await daemon.start();
       await publisher.prepare();
       await startTeammate();
+      return existing || undefined;
     },
     /** Stop fleetd and start it again, as replacing Everything's pod does. */
     async restartFleetd(): Promise<void> {
       await daemon.close();
       daemon = supervisor();
-      await new FleetRemoteSetup(home, { gatewayUrl, token }).apply();
+      await new FleetRemoteSetup(home, { gatewayUrl }).apply();
       await daemon.start();
     },
-    /** Begin publishing the client address. */
-    publish(): void {
+    /** Begin publishing the client address and token, resolving with the token once it is out. */
+    async publish(): Promise<string> {
       publisher.start();
+      const file = path.join(folder, fleetTokenFileName);
+      await eventually(
+        async () => (await readFile(file, "utf8").catch(() => "")) !== "",
+        "fleetd's token is published",
+      );
+      token = await readFile(file, "utf8");
+      return token;
     },
     /** Run a command in the teammate container, with its environment rather than a command's. */
     exec(script: string) {
@@ -347,15 +406,16 @@ export async function fleetStack(settings: FleetStackSettings) {
         ),
         init,
       )) as typeof fetch,
-    /** Stop every process and container and remove the temporary files. */
+    /**
+     * Stop every process and container, put back the Fleet home's files once fleetd has stopped, and
+     * remove the temporary files.
+     */
     async close(): Promise<void> {
       await publisher.close();
       await command("docker", ["rm", "-f", teammateName]);
       await command("docker", ["rm", "-f", gatewayName]);
       await daemon.close();
-      for (const [file, content] of saved)
-        if (content === undefined) await rm(file, { force: true });
-        else await writeFile(file, content, { mode: 0o600 });
+      await saved.restore();
       await rm(directory, { recursive: true, force: true });
     },
   };

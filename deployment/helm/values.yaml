@@ -124,8 +124,8 @@ fleet:
     fleet-tmux-linux-arm64.tar.gz: 30e19752c4d987bbdf942e147e8dcfa425c3446cff01a76b72df7129b283c39f
   # The internal gateway (services.fleet-gateway) through which teammates' `fleet` commands control
   # this fleetd: fleetd registers here, and the gateway gives clients this address with its session.
-  # It is a ClusterIP Service with no Ingress; the token in templates/fleet-remote-credentials.yaml
-  # authorizes each request. Plain h2c, like the rest of in-cluster traffic.
+  # It is a ClusterIP Service with no Ingress; fleetd's own token, which Everything publishes to
+  # teammate pods, authorizes each request. Plain h2c, like the rest of in-cluster traffic.
   gatewayUrl: "http://fleet-gateway.{{ .Release.Namespace }}.svc.cluster.local:50051"
 
 # Upgrades from Everything: the upgrader service installs a newer released version of this chart when
@@ -421,12 +421,9 @@ services:
         key: password
       # Fleet builds devcontainer images with the docker sidecar's engine.
       DOCKER_HOST: unix:///run/docker-socket/docker.sock
-      # Teammates' `fleet` commands reach fleetd through the internal gateway with this token, which
-      # Everything gives fleetd; Everything publishes the address the gateway assigns to them.
+      # Teammates' `fleet` commands reach fleetd through the internal gateway; Everything publishes
+      # the address the gateway assigns and fleetd's own token to them.
       FLEET_GATEWAY_URL: "{{ tpl .Values.fleet.gatewayUrl . }}"
-      FLEET_CLIENT_TOKEN:
-        secretName: fleet-client-token
-        key: token
       # The upgrader, which accepts the token on the upgrader-token volume.
       UPGRADER_URL: http://upgrader:8080
       UPGRADER_TOKEN_FILE: /var/run/secrets/upgrader/token
@@ -630,11 +627,10 @@ services:
       ssh-hosts:
         mountPath: /etc/ssh/ssh_config.d
         files: ssh
-      # The image's `fleet` command dials the gateway address Everything publishes in this folder,
-      # which reconciliation mounts read-only like the SSH relay, with the token mounted below.
+      # The image's `fleet` command dials the gateway address with fleetd's token, both of which
+      # Everything publishes in this folder, which reconciliation mounts read-only like the SSH relay.
       fleet-client:
         { mountPath: /run/fleet-client, emptyDir: {}, readOnly: true }
-      fleet-token: { mountPath: /run/secrets/fleet, secret: fleet-client-token }
       # Hide Pi's configuration and conversation files behind a read-only empty mount, which
       # reconciliation moves to /workspace/<agent id>/.pi.
       private: { mountPath: /workspace/.pi, emptyDir: {}, readOnly: true }

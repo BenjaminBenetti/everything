@@ -18,12 +18,13 @@ export interface FleetRegistry {
   readonly password: string;
 }
 
-/** How teammates' `fleet` commands reach fleetd: through the internal gateway, with this token. */
+/**
+ * How teammates' `fleet` commands reach fleetd: through the internal gateway, with the bearer token
+ * fleetd keeps in its home, which grants full control of Fleet.
+ */
 export interface FleetRemote {
   /** The gateway's gRPC endpoint fleetd registers with, such as `http://fleet-gateway:50051`. */
   readonly gatewayUrl: string;
-  /** The bearer token fleetd requires of remote clients, which grants full control of Fleet. */
-  readonly token: string;
 }
 
 /** Where fleetd runs inside Everything's container and the cluster connection it is given. */

@@ -70,6 +70,11 @@ function receiptScript(worker: string, task: string): string {
     .replace("interval=30", "interval=0.5");
 }
 
+/** The command output a wakeup task reports, without the command itself, which names the same messages. */
+function outputOf(task: string): string {
+  return task.slice(task.lastIndexOf("Output:"));
+}
+
 /** A shell command that writes `content` as a task's receipt, atomically unless `partial`. */
 function writeReceipt(task: string, content: string, partial = false): string {
   const folder = `${taskReceiptDirectory}/${task}`;
@@ -272,11 +277,14 @@ test(
     // Connection: refused until published, then automatic, authenticated, and local-daemon-free
     // ===========================================
 
-    await stack.start();
+    const existing = await stack.start();
     const unpublished = await stack.exec("fleet ls");
     assert.equal(unpublished.code, 69);
     assert.match(unpublished.output, /isn't connected to this workspace yet/);
-    stack.publish();
+    // Teammates receive fleetd's own token: the one the home already had, which its clients keep.
+    const token = await stack.publish();
+    if (existing) assert.equal(token, existing);
+    else assert.match(token, /^[0-9a-f]{64}$/);
     await eventually(
       async () => (await stack.address()) !== "",
       "the address is published",
@@ -371,7 +379,10 @@ test(
     const successTask = await wakeupTask(succeeded);
     assert.match(successTask, /Succeeded with exit code 0/);
     assert.match(successTask, /SUMMARY_SUCCESS/);
-    assert.match(successTask, /Ignoring an unfinished or stale receipt/);
+    assert.match(
+      outputOf(successTask),
+      /Ignoring an unfinished or stale receipt/,
+    );
     assert.match(successTask, /Tell the user the worker's summary/);
 
     // ===========================================
@@ -402,8 +413,13 @@ test(
     // ===========================================
 
     const restart = `restart-${randomUUID()}`;
+    // fleetd's reconnection backoff can leave probes failing for several seconds, which ten failed
+    // probes must outlast, as they do at the prompt's 30-second interval.
     const restarted = await startMonitor({
-      command: receiptScript(worker, restart),
+      command: receiptScript(worker, restart).replace(
+        "interval=0.5",
+        "interval=2",
+      ),
     });
     await sleep(1_500);
     await stack.stopGateway();
@@ -428,6 +444,12 @@ test(
       await stack.address(),
       address,
       "the client address is stable",
+    );
+    // The client above authenticated with the token from before the restarts, which teammates still see.
+    assert.equal(
+      (await stack.exec(`cat ${fleetTokenWorkspaceFile}`)).output,
+      token,
+      "fleetd kept its token",
     );
     await inWorker(
       writeReceipt(
@@ -462,7 +484,10 @@ test(
     const timeoutTask = await wakeupTask(timedOut);
     assert.match(timeoutTask, /Timed out and was stopped/);
     assert.match(timeoutTask, /4-second timeout/);
-    assert.match(timeoutTask, /Ignoring an unfinished or stale receipt/);
+    assert.match(
+      outputOf(timeoutTask),
+      /Ignoring an unfinished or stale receipt/,
+    );
     await sleep(1_500);
     assert.equal(wakeups.filter(({ id }) => id === timedOut).length, 1);
     // Neither the script, its sleeps, nor a probe outlives the deadline.
@@ -485,8 +510,64 @@ test(
     });
     const unreachableTask = await wakeupTask(lost);
     assert.match(unreachableTask, /Failed with exit code 2/);
-    assert.match(unreachableTask, /Fleet could not reach/);
+    assert.match(outputOf(unreachableTask), /Could not check/);
     await stack.startGateway();
+    await eventually(
+      async () => (await stack.client(["ls"])).code === 0,
+      "fleetd reconnects to the gateway",
+    );
+
+    // ===========================================
+    // Unreadable: a receipt that exists but can't be read fails like an unreachable worker, never as missing
+    // ===========================================
+
+    const probeUser = (
+      await stack.client(["shell", worker, "--", "id", "-u"])
+    ).output.trim();
+    const unreadable = [
+      {
+        name: "a folder at the receipt's path",
+        prepare: (task: string) =>
+          `mkdir -p ${taskReceiptDirectory}/${task}/done.json`,
+        reason: /Is a directory/,
+      },
+      {
+        name: "a file where the task's folder belongs",
+        prepare: (task: string) =>
+          `mkdir -p ${taskReceiptDirectory} && : > ${taskReceiptDirectory}/${task}`,
+        reason: /cannot search/,
+      },
+      // Root reads whatever the permissions say, so this holds only when probes run as another account.
+      ...(probeUser === "0"
+        ? []
+        : [
+            {
+              name: "a receipt without read permission",
+              prepare: (task: string) =>
+                `${writeReceipt(task, JSON.stringify({ task, status: "succeeded" }))} && chmod 000 ${taskReceiptDirectory}/${task}/done.json`,
+              reason: /Permission denied/,
+            },
+          ]),
+    ];
+    for (const { name, prepare, reason } of unreadable) {
+      const task = `unreadable-${randomUUID()}`;
+      await inWorker(prepare(task));
+      const monitor = await startMonitor({
+        command: receiptScript(worker, task).replace(
+          "interval=0.5",
+          "interval=0.1",
+        ),
+      });
+      const unreadableTask = await wakeupTask(monitor);
+      assert.match(unreadableTask, /Failed with exit code 2/, name);
+      assert.match(outputOf(unreadableTask), /Could not check/, name);
+      assert.match(outputOf(unreadableTask), reason, name);
+      assert.doesNotMatch(
+        outputOf(unreadableTask),
+        /Ignoring an unfinished/,
+        name,
+      );
+    }
 
     // ===========================================
     // Redaction: a monitor that prints the token reports it redacted

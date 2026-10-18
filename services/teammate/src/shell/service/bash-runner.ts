@@ -6,6 +6,10 @@ import {
 import type { WorkspaceDirectories } from "../../workspace/interface/workspace-files.js";
 import type { CommandRunner } from "../interface/command-runner.js";
 import type { CommandProcessFactory } from "../interface/command-process-factory.js";
+import {
+  noOutputSecrets,
+  type OutputSecrets,
+} from "../interface/output-secrets.js";
 import { commandEnvironment } from "../model/command-environment.js";
 import { SecretRedactor } from "../model/secret-redactor.js";
 
@@ -27,7 +31,7 @@ export class BashRunner implements CommandRunner {
     private readonly files: WorkspaceDirectories,
     private readonly processes: CommandProcessFactory,
     private readonly environment = commandEnvironment(process.env, files.home),
-    private readonly secrets: readonly string[] = [],
+    private readonly secrets: OutputSecrets = noOutputSecrets,
   ) {}
 
   // ===========================================
@@ -47,6 +51,7 @@ export class BashRunner implements CommandRunner {
     try {
       const home = await this.files.directory();
       const cwd = await this.files.directory(input.cwd);
+      const secrets = await this.secrets.current();
       signal?.throwIfAborted();
       if (cancellation.signal.aborted) throw new Error("Command interrupted.");
       return await new Promise<BashResult>((resolve, reject) => {
@@ -79,18 +84,18 @@ export class BashRunner implements CommandRunner {
             workspaceLimits.timeoutSeconds,
           ) * 1000,
         );
-        const stdout = new SecretRedactor(this.secrets);
-        const stderr = new SecretRedactor(this.secrets);
-        child.stdout.on("data", (chunk: Buffer) => collect(stdout.push(chunk)));
-        child.stderr.on("data", (chunk: Buffer) => collect(stderr.push(chunk)));
+        const redactor = new SecretRedactor(secrets);
+        const stdout = redactor.stream();
+        const stderr = redactor.stream();
+        child.stdout.on("data", (chunk: Buffer) => collect(stdout(chunk)));
+        child.stderr.on("data", (chunk: Buffer) => collect(stderr(chunk)));
         signal?.addEventListener("abort", kill, { once: true });
         cancellation.signal.addEventListener("abort", kill, { once: true });
         // The supervisor exits only after descendants have released their inherited pipes.
         child.once("error", reject);
         child.once("close", (exitCode, exitSignal) => {
           clearTimeout(timer);
-          collect(stdout.end());
-          collect(stderr.end());
+          collect(redactor.end());
           signal?.removeEventListener("abort", kill);
           cancellation.signal.removeEventListener("abort", kill);
           if (signal?.aborted || cancellation.signal.aborted)
