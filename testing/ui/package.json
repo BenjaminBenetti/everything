@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "check": "tsc -p tsconfig.json",
-    "test:browser": "playwright test --config src/application/config/playwright.config.ts"
+    "test:browser": "playwright test --config src/application/config/playwright.config.ts",
+    "test:voice": "playwright test --config src/application/config/playwright.voice.config.ts"
   },
   "devDependencies": {
     "@playwright/test": "1.64.0",
