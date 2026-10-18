@@ -24,7 +24,7 @@ import { TeammateNavigation } from "../../agent/component/teammate-navigation.js
 import { WorkspaceMenu } from "./workspace-menu.js";
 import { DesktopWorkspaceActions } from "./desktop-workspace-actions.js";
 import { useUpdateCount } from "../../update/hook/use-updates.js";
-import { useVisualViewportHeight } from "../hook/use-visual-viewport-height.js";
+import { useChatViewport } from "../hook/use-chat-viewport.js";
 import {
   UpdateCountBadge,
   unreadLinkLabel,
@@ -58,7 +58,7 @@ export function WorkspaceShell() {
     (agent) => pathname === `/team/${agent.id}`,
   );
   const isChat = pathname.startsWith("/team/");
-  const viewportHeight = useVisualViewportHeight(isChat);
+  const viewport = useChatViewport(isChat);
   const label =
     activeAgent?.name ??
     (isChat ? "Teammate" : undefined) ??
@@ -97,9 +97,10 @@ export function WorkspaceShell() {
     <div
       className={`shell${isChat ? " chat-shell" : ""}`}
       style={
-        viewportHeight
+        viewport
           ? ({
-              "--chat-viewport-height": `${viewportHeight}px`,
+              "--chat-viewport-height": `${viewport.height}px`,
+              "--chat-viewport-offset-top": `${viewport.offsetTop}px`,
             } as CSSProperties)
           : undefined
       }

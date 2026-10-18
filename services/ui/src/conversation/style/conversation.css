@@ -550,6 +550,13 @@
 }
 @media (max-width: 650px) {
   .chat-shell {
+    /* Pin the shell to the visible screen, not the document top: iOS pans the
+       page up when the keyboard covers the composer, and the shell follows by
+       that same offset so the composer stays attached to the keyboard. */
+    position: fixed;
+    top: var(--chat-viewport-offset-top, 0px);
+    right: 0;
+    left: 0;
     height: var(--chat-viewport-height, 100dvh);
     min-height: 0;
   }
