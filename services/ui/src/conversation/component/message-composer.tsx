@@ -112,7 +112,13 @@ export function MessageComposer({
       <div className="chat-composer-actions">
         <p id="composer-help">
           Enter to send · Shift+Enter for a new line
-          {dictation.holdEnabled && " · Hold Space for 3 seconds to record"}
+          {dictation.holdEnabled && (
+            // The microphone button is the only visible voice control.
+            <span className="sr-only">
+              {" "}
+              · Hold Space for 3 seconds to record
+            </span>
+          )}
         </p>
         {dictation.offered && (
           <VoiceButton

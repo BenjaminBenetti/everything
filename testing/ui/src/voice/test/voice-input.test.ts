@@ -132,8 +132,17 @@ test.describe("desktop Space hold", () => {
     browserName,
   }) => {
     await open(page, browserName);
+    // Screen readers hear how to record; on screen only the microphone button shows voice input.
     await expect(page.locator("#composer-help")).toContainText(
       "Hold Space for 3 seconds to record",
+    );
+    const hint = await page
+      .getByText("Hold Space for 3 seconds to record")
+      .boundingBox();
+    expect(hint!.width).toBeLessThanOrEqual(1);
+    expect(hint!.height).toBeLessThanOrEqual(1);
+    await expect(page.locator("#composer-help")).toContainText(
+      "Enter to send · Shift+Enter for a new line",
     );
     await composer(page).click();
     await page.keyboard.type("a b c");
