@@ -25,6 +25,7 @@ export async function monitorPodFixture(directory: string) {
   let cancelFailures = 0;
   let terminalWaits = 0;
   let heldCancel: Promise<boolean> | undefined;
+  let heldStart: Promise<void> | undefined;
 
   /** Parse a JSON request body. */
   async function body(request: IncomingMessage): Promise<unknown> {
@@ -88,8 +89,13 @@ export async function monitorPodFixture(directory: string) {
         response.end(JSON.stringify(value));
       };
       const input = await body(request);
-      if (route === "/monitors")
+      if (route === "/monitors") {
+        if (heldStart) {
+          await heldStart;
+          heldStart = undefined;
+        }
         return reply(200, start(input as MonitorInput));
+      }
       const [, , id, action] = route.split("/");
       const monitor = monitors.get(id ?? "");
       if (action === "wait" && unavailable > 0) {
@@ -158,6 +164,12 @@ export async function monitorPodFixture(directory: string) {
     holdCancel(): (fail: boolean) => void {
       let release!: (fail: boolean) => void;
       heldCancel = new Promise((resolve) => (release = resolve));
+      return release;
+    },
+    /** Hold the next start request until released, then start the command as usual. */
+    holdStart(): () => void {
+      let release!: () => void;
+      heldStart = new Promise((resolve) => (release = resolve));
       return release;
     },
     /** Count wait requests answered with a finished command. */

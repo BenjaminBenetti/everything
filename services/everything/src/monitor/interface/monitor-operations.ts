@@ -42,8 +42,11 @@ export interface MonitorOperations {
 
 /** Lifecycle hooks for the conversation coordinator and process shutdown. */
 export interface MonitorLifecycle {
-  /** Stop a teammate's monitors without completion events, for Stop and deletion. */
-  stopAgent(agentId: string): Promise<void>;
+  /**
+   * Stop a teammate's monitors without completion events, for Stop and deletion, refusing new ones
+   * until `stopWork`, which stops the teammate's runtime, has settled.
+   */
+  stopAgent(agentId: string, stopWork?: () => Promise<void>): Promise<void>;
   /** Stop every monitor and refuse new ones. */
   close(): Promise<void>;
 }

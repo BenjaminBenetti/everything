@@ -5,7 +5,9 @@ import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { test, type TestContext } from "node:test";
 import { AgentNotFoundError } from "../../agent/error/agent-errors.js";
+import type { AgentDefinition } from "../../agent/model/agent.js";
 import { ServiceShuttingDownError } from "../../conversation/error/conversation-errors.js";
+import { ConversationService } from "../../conversation/service/conversation-service.js";
 import { ForkLimitError } from "../../runtime/error/fork-errors.js";
 import { ProviderUnavailableError } from "../../runtime/error/runtime-errors.js";
 import { HttpWorkspaceMonitors } from "../../workspace/adapter/http-workspace-monitors.js";
@@ -319,4 +321,191 @@ test("a stop request that succeeds after the command finished returns the outcom
   await delay(200);
   assert.equal(accepted.length, 0);
   assert.deepEqual(monitors.list(scope), []);
+});
+
+test("a monitor started while the teammate's Stop is still cancelling another is refused without reaching the pod", async (context) => {
+  const { directory, pod, monitors, accepted } = await fixture(context);
+  const first = await monitors.start(scope, "main", {
+    command: "touch first; sleep 20",
+  });
+  await until(() => exists(path.join(directory, "first")));
+  const release = pod.holdCancel();
+  const stopping = monitors.stopAgent(scope.agentId);
+  await until(() => pod.requests.includes(`/monitors/${first.id}/cancel`));
+  const starts = pod.requests.filter((route) => route === "/monitors").length;
+  await assert.rejects(
+    monitors.start(scope, "main", { command: "touch second; sleep 20" }),
+    { code: "MONITOR_STOPPED" },
+  );
+  assert.equal(
+    pod.requests.filter((route) => route === "/monitors").length,
+    starts,
+  );
+  // Another teammate's monitors are unaffected by this teammate's Stop.
+  const other = await monitors.start(
+    { ...scope, agentId: "00000000-0000-4000-8000-000000000002" },
+    "main",
+    { command: "sleep 20" },
+  );
+  release(false);
+  await stopping;
+  assert.equal(pod.running(first.id), false);
+  assert.equal(pod.running(other.id), true);
+  assert.equal(await exists(path.join(directory, "second")), false);
+  assert.deepEqual(monitors.list(scope), []);
+  await delay(300);
+  assert.equal(accepted.length, 0);
+
+  // Once Stop has finished, the teammate can start monitors again.
+  await monitors.start(scope, "main", { command: "echo AFTER" });
+  await until(() => accepted.length === 1);
+  assert.match(accepted[0]!.task, /AFTER/);
+});
+
+test("starts are refused until Stop's runtime work settles, and a start in flight before Stop is stopped when it returns", async (context) => {
+  const { directory, pod, monitors, accepted } = await fixture(context);
+  const releaseStart = pod.holdStart();
+  const inFlight = monitors.start(scope, "main", {
+    command: "touch in-flight; sleep 20",
+  });
+  await until(() => pod.requests.includes("/monitors"));
+  let finishRuntime!: () => void;
+  const runtimeStopped = new Promise<void>(
+    (resolve) => (finishRuntime = resolve),
+  );
+  let settled = false;
+  const stopping = monitors
+    .stopAgent(scope.agentId, () => runtimeStopped)
+    .then(() => (settled = true));
+  // Every monitor is already cancelled, but the runtime is still stopping its tools.
+  await delay(50);
+  assert.equal(settled, false);
+  await assert.rejects(
+    monitors.start(scope, "main", { command: "touch during; sleep 20" }),
+    { code: "MONITOR_STOPPED" },
+  );
+  finishRuntime();
+  await stopping;
+  // The pod starts the earlier command only after Stop has finished.
+  releaseStart();
+  await assert.rejects(inFlight, { code: "MONITOR_STOPPED" });
+  assert.equal(await exists(path.join(directory, "during")), false);
+  assert.equal(pod.anyRunning(), false);
+  assert.deepEqual(monitors.list(scope), []);
+  await delay(300);
+  assert.equal(accepted.length, 0);
+});
+
+test("the user's Stop and deletion refuse monitors the stopping runtime's tools start, but a new user turn keeps them", async (context) => {
+  const { pod, monitors, accepted } = await fixture(context);
+  const lifecycle: string[] = [];
+  const attempts: string[] = [];
+  const releases: (() => void)[] = [];
+  const definition: AgentDefinition = {
+    id: scope.agentId,
+    ownerId: scope.ownerId,
+    name: "Monitor test teammate",
+    systemPrompt: "Watch long commands",
+    avatarId: "avatar-01",
+    createdAt: "",
+    inference: null,
+  };
+  const conversations = new ConversationService(
+    {
+      get: async (ownerId, id) => {
+        if (ownerId !== scope.ownerId || id !== scope.agentId)
+          throw new AgentNotFoundError();
+        return definition;
+      },
+      delete: async () => {
+        lifecycle.push("definition-deleted");
+      },
+    },
+    {
+      append: async (_scope, role, text) => ({
+        id: text,
+        role,
+        text,
+        createdAt: "",
+      }),
+      deliver: async (_scope, text) => ({
+        id: text,
+        role: "assistant",
+        text,
+        createdAt: "",
+      }),
+      page: async () => ({ messages: [], nextCursor: null }),
+    },
+    {
+      create: async () => ({
+        id: "session",
+        compacting: false,
+        compactionStartedAt: null,
+        lastToolName: undefined,
+        typing: false,
+        /** Run until stopped, as a turn waiting on a long tool would. */
+        prompt: () => new Promise<void>((resolve) => releases.push(resolve)),
+        /** A fork's tool call starts a monitor while Stop is still cancelling the existing one. */
+        abort: async (stopScope) => {
+          if (stopScope === "all") {
+            await until(() =>
+              pod.requests.some((route) => route.endsWith("/cancel")),
+            );
+            attempts.push(
+              await monitors
+                .start(scope, "fork", { command: "touch survivor; sleep 20" })
+                .then(
+                  () => "started",
+                  (error: { code: string }) => error.code,
+                ),
+            );
+          }
+          for (const release of releases.splice(0)) release();
+        },
+        dispose: async () => {
+          lifecycle.push("runtime-disposed");
+        },
+      }),
+    },
+    {
+      remove: async () => {
+        lifecycle.push("files-removed");
+      },
+    },
+    monitors,
+  );
+  context.after(() => conversations.close());
+
+  await conversations.send(scope.ownerId, scope.agentId, "first");
+  const kept = await monitors.start(scope, "main", { command: "sleep 20" });
+  await conversations.send(scope.ownerId, scope.agentId, "second");
+  assert.equal(pod.running(kept.id), true, "A new user turn keeps monitors");
+
+  const release = pod.holdCancel();
+  const interrupting = conversations.interrupt(scope.ownerId, scope.agentId);
+  await until(() => attempts.length === 1);
+  release(false);
+  await interrupting;
+  assert.deepEqual(attempts, ["MONITOR_STOPPED"]);
+  assert.equal(pod.anyRunning(), false);
+  assert.deepEqual(monitors.list(scope), []);
+
+  await conversations.send(scope.ownerId, scope.agentId, "third");
+  const removed = await monitors.start(scope, "main", { command: "sleep 20" });
+  pod.requests.length = 0;
+  const releaseDeletion = pod.holdCancel();
+  const deleting = conversations.delete(scope.ownerId, scope.agentId);
+  await until(() => attempts.length === 2);
+  releaseDeletion(false);
+  await deleting;
+  assert.deepEqual(attempts, ["MONITOR_STOPPED", "MONITOR_STOPPED"]);
+  assert.equal(pod.running(removed.id), false);
+  assert.equal(pod.anyRunning(), false);
+  assert.deepEqual(lifecycle, [
+    "runtime-disposed",
+    "definition-deleted",
+    "files-removed",
+  ]);
+  await delay(300);
+  assert.equal(accepted.length, 0);
 });

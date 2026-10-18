@@ -61,6 +61,8 @@ export class MonitorService implements MonitorOperations, MonitorLifecycle {
   private readonly monitors = new Map<string, TrackedMonitor>();
   /** Counts each teammate's stops, so a start that raced one is stopped too. */
   private readonly stops = new Map<string, number>();
+  /** Counts each teammate's stops still in progress; their new starts are refused. */
+  private readonly stoppingAgents = new Map<string, number>();
   private closed = false;
 
   /** Receive the pod transport, the wakeup path, failure reporting, and timing policy. */
@@ -83,6 +85,8 @@ export class MonitorService implements MonitorOperations, MonitorLifecycle {
     signal?: AbortSignal,
   ): Promise<MonitorSummary> {
     if (this.closed) throw new MonitorsUnavailableError();
+    // Work the teammate's Stop is still ending may call tools; it must not start commands that outlive it.
+    if (this.stoppingAgents.has(scope.agentId)) throw new MonitorStoppedError();
     const timeoutSeconds =
       input.timeoutSeconds ?? monitorLimits.defaultTimeoutSeconds;
     const stops = this.stops.get(scope.agentId) ?? 0;
@@ -172,14 +176,36 @@ export class MonitorService implements MonitorOperations, MonitorLifecycle {
   // Lifecycle
   // ===========================================
 
-  /** Stop a teammate's monitors without events, for the user's Stop action and teammate deletion. */
-  async stopAgent(agentId: string): Promise<void> {
+  /**
+   * Stop a teammate's monitors without events, for the user's Stop action and teammate deletion. New
+   * starts are refused until `stopWork`, which ends the teammate's turns and tool calls, has settled,
+   * and starts already in flight are stopped when they return, so no work Stop ends leaves one running.
+   */
+  async stopAgent(
+    agentId: string,
+    stopWork?: () => Promise<void>,
+  ): Promise<void> {
     this.stops.set(agentId, (this.stops.get(agentId) ?? 0) + 1);
-    await Promise.all(
-      [...this.monitors.values()]
-        .filter((tracked) => tracked.scope.agentId === agentId)
-        .map((tracked) => this.halt(tracked)),
+    this.stoppingAgents.set(
+      agentId,
+      (this.stoppingAgents.get(agentId) ?? 0) + 1,
     );
+    try {
+      const halting = Promise.all(
+        [...this.monitors.values()]
+          .filter((tracked) => tracked.scope.agentId === agentId)
+          .map((tracked) => this.halt(tracked)),
+      );
+      try {
+        await stopWork?.();
+      } finally {
+        await halting;
+      }
+    } finally {
+      const remaining = this.stoppingAgents.get(agentId)! - 1;
+      if (remaining === 0) this.stoppingAgents.delete(agentId);
+      else this.stoppingAgents.set(agentId, remaining);
+    }
   }
 
   /** Refuse new monitors and stop every command, so none outlives the process that would report it. */

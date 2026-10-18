@@ -107,8 +107,9 @@ export class ConversationService
   async interrupt(ownerId: string, agentId: string): Promise<void> {
     await this.locks.run(agentId, async () => {
       await this.agents.get(ownerId, agentId);
-      await this.monitors?.stopAgent(agentId);
-      await this.runtimes.get(agentId)?.stop();
+      await this.stopWork(agentId, async () => {
+        await this.runtimes.get(agentId)?.stop();
+      });
     });
   }
 
@@ -116,10 +117,11 @@ export class ConversationService
   async delete(ownerId: string, agentId: string): Promise<void> {
     await this.locks.run(agentId, async () => {
       await this.agents.get(ownerId, agentId);
-      await this.monitors?.stopAgent(agentId);
-      await this.unloadRuntime(agentId);
-      await this.agents.delete(ownerId, agentId);
-      await this.workspaces.remove(agentId);
+      await this.stopWork(agentId, async () => {
+        await this.unloadRuntime(agentId);
+        await this.agents.delete(ownerId, agentId);
+        await this.workspaces.remove(agentId);
+      });
     });
   }
 
@@ -159,6 +161,15 @@ export class ConversationService
     this.runtimes.set(agent.id, runtime);
     this.runtimeDefinitions.set(agent.id, definition);
     return runtime;
+  }
+
+  /** Run `work` while the teammate's monitors are stopped and new ones refused, so its tools cannot start survivors. */
+  private async stopWork(
+    agentId: string,
+    work: () => Promise<void>,
+  ): Promise<void> {
+    if (this.monitors) await this.monitors.stopAgent(agentId, work);
+    else await work();
   }
 
   /** Stop and release a loaded runtime; one already unloaded, for example by deletion, is ignored. */
