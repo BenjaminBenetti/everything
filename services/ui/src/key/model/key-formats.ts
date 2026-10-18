@@ -14,7 +14,7 @@ export const keyFormats: Record<
 > = {
   ssh: {
     description:
-      "Upload or paste an OpenSSH or PEM private key without a passphrase to make it available to all teammates and Fleet in this installation. Public keys and passphrase-protected keys can be stored, but cannot be used for SSH authentication.",
+      "Upload or paste an Ed25519, ECDSA, or RSA private key without a passphrase, in OpenSSH or PEM format, to make it available to all teammates and Fleet in this installation. Public keys, passphrase-protected keys, and DSA keys are stored only and can’t be used for SSH authentication.",
     placeholder: "Paste your key here…",
     invalidMessage:
       "This file isn’t a supported SSH key format. Choose an SSH public key or an OpenSSH or PEM private key.",

@@ -32,6 +32,9 @@ import type { WorkspaceSettings } from "../../settings/interface/workspace-setti
 import { WorkspaceSettingsProvider } from "../../settings/component/workspace-settings-provider.js";
 import type { InstallationUpgrades } from "../../upgrade/interface/installation-upgrades.js";
 import { InstallationUpgradesProvider } from "../../upgrade/component/installation-upgrades-provider.js";
+import type { DesktopNotifications } from "../../notification/interface/desktop-notifications.js";
+import { DesktopNotificationProvider } from "../../notification/component/desktop-notification-provider.js";
+import { DeliveryNotifications } from "../../notification/component/delivery-notifications.js";
 import type { WorkspaceDirectory } from "../../workspace/interface/workspace-directory.js";
 import { WorkspaceDirectoryProvider } from "../../workspace/component/workspace-directory-provider.js";
 import { WorkspacesPage } from "../../workspace/page/workspaces-page.js";
@@ -48,6 +51,7 @@ export function Application({
   upgrades,
   workspaces,
   keys,
+  notifications,
   queryClient,
 }: {
   session: BrowserSession;
@@ -60,6 +64,7 @@ export function Application({
   upgrades: InstallationUpgrades;
   workspaces: WorkspaceDirectory;
   keys: KeyDirectory;
+  notifications: DesktopNotifications;
   queryClient: QueryClient;
 }) {
   return (
@@ -74,7 +79,7 @@ export function Application({
                     <InstallationUpgradesProvider upgrades={upgrades}>
                       <WorkspaceDirectoryProvider directory={workspaces}>
                         <KeyDirectoryProvider directory={keys}>
-                          <AuthenticatedRoutes />
+                          <AuthenticatedRoutes notifications={notifications} />
                         </KeyDirectoryProvider>
                       </WorkspaceDirectoryProvider>
                     </InstallationUpgradesProvider>
@@ -90,7 +95,11 @@ export function Application({
 }
 
 /** Mount private pages only after session restoration, retaining the current route. */
-function AuthenticatedRoutes() {
+function AuthenticatedRoutes({
+  notifications,
+}: {
+  notifications: DesktopNotifications;
+}) {
   const { profile, loading } = useSession();
   const { search, hash } = useLocation();
   if (loading)
@@ -102,33 +111,40 @@ function AuthenticatedRoutes() {
     );
   if (!profile) return <LoginPage />;
   return (
-    <WorkspaceDialogsProvider>
-      <Routes>
-        <Route path="apps/open" element={<ArtifactOpenPage />} />
-        <Route
-          path="artifacts/open"
-          element={
-            <Navigate replace to={{ pathname: "/apps/open", search, hash }} />
-          }
-        />
-        <Route element={<WorkspaceShell />}>
-          <Route index element={<HomePage />} />
-          <Route path="team" element={<TeamPage />} />
-          <Route path="team/:agentId" element={<ConversationPage />} />
-          <Route path="updates" element={<UpdatesPage />} />
-          <Route path="apps" element={<ArtifactsPage />} />
+    // Each signed-in user gets their own notification state, so nothing carries over to another account.
+    <DesktopNotificationProvider
+      key={profile.subject}
+      notifications={notifications}
+    >
+      <WorkspaceDialogsProvider>
+        <DeliveryNotifications />
+        <Routes>
+          <Route path="apps/open" element={<ArtifactOpenPage />} />
           <Route
-            path="artifacts"
+            path="artifacts/open"
             element={
-              <Navigate replace to={{ pathname: "/apps", search, hash }} />
+              <Navigate replace to={{ pathname: "/apps/open", search, hash }} />
             }
           />
-          <Route path="keys" element={<KeysPage />} />
-          <Route path="workspaces" element={<WorkspacesPage />} />
-          <Route path="login" element={<Navigate replace to="/" />} />
-          <Route path="*" element={<Navigate replace to="/" />} />
-        </Route>
-      </Routes>
-    </WorkspaceDialogsProvider>
+          <Route element={<WorkspaceShell />}>
+            <Route index element={<HomePage />} />
+            <Route path="team" element={<TeamPage />} />
+            <Route path="team/:agentId" element={<ConversationPage />} />
+            <Route path="updates" element={<UpdatesPage />} />
+            <Route path="apps" element={<ArtifactsPage />} />
+            <Route
+              path="artifacts"
+              element={
+                <Navigate replace to={{ pathname: "/apps", search, hash }} />
+              }
+            />
+            <Route path="keys" element={<KeysPage />} />
+            <Route path="workspaces" element={<WorkspacesPage />} />
+            <Route path="login" element={<Navigate replace to="/" />} />
+            <Route path="*" element={<Navigate replace to="/" />} />
+          </Route>
+        </Routes>
+      </WorkspaceDialogsProvider>
+    </DesktopNotificationProvider>
   );
 }

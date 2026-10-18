@@ -28,6 +28,7 @@ export async function createPublicApplication(
       redact: [
         "req.headers.cookie",
         "req.headers.authorization",
+        'req.headers["x-api-key"]',
         "res.headers.set-cookie",
       ],
     },

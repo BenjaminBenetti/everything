@@ -52,6 +52,7 @@ function dependencies(
     artifacts: unusedOperations(),
     workers: unusedOperations(),
     generalSettings: unusedOperations(),
+    teammateOrder: unusedOperations(),
     workspaces: unusedOperations(),
     workspaceActivity: unusedOperations(),
     readiness: async () => {},
@@ -120,6 +121,21 @@ test("the production API reflects valid complete schemas, protects the document,
     (deletion.responses[204] as OpenAPIV3.ResponseObject).content,
     undefined,
   );
+  const apiKey = full.paths["/v1/artifacts/{appId}/api-key"]!.get!;
+  assert.match(apiKey.description!, /X-Api-Key/);
+  assert.deepEqual(
+    (
+      (apiKey.responses[200] as OpenAPIV3.ResponseObject).content![
+        "application/json"
+      ]!.schema as OpenAPIV3.SchemaObject
+    ).required,
+    ["apiKey"],
+  );
+  const listed = (
+    full.paths["/v1/artifacts"]!.get!.responses[200] as OpenAPIV3.ResponseObject
+  ).content!["application/json"]!.schema as OpenAPIV3.SchemaObject;
+  assert.match(JSON.stringify(listed), /"api-key"/);
+  assert.doesNotMatch(JSON.stringify(listed), /apiKey/);
   for (const path of Object.values(full.paths)) {
     for (const method of ["get", "post", "put", "patch", "delete"] as const) {
       const operation = path?.[method];

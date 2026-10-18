@@ -91,7 +91,7 @@ test("deploy_app forwards explicit capability grants and removals, and explains 
   const tool = appTools(workbench, context).find(
     (tool) => tool.name === appToolNames.deploy,
   )!;
-  for (const capabilities of [["everything-api"], []])
+  for (const capabilities of [["everything-api"], ["api-key"], []])
     await tool.execute(
       "call",
       { app: "app", capabilities } as never,
@@ -101,6 +101,7 @@ test("deploy_app forwards explicit capability grants and removals, and explains 
     );
   assert.deepEqual(calls, [
     ["owner", "app", { capabilities: ["everything-api"] }],
+    ["owner", "app", { capabilities: ["api-key"] }],
     ["owner", "app", { capabilities: [] }],
   ]);
   for (const name of [
@@ -112,6 +113,9 @@ test("deploy_app forwards explicit capability grants and removals, and explains 
     assert.ok(tool.description.includes(name));
   assert.match(tool.description, /client_credentials/);
   assert.match(tool.description, /app owner/);
+  assert.match(tool.description, /X-Api-Key/);
+  assert.match(tool.description, /APP_API_KEY/);
+  assert.match(tool.description, /revokes/);
 });
 
 test("tools act for the teammate and report results as text", async () => {

@@ -1,13 +1,24 @@
 import { createHash } from "node:crypto";
 import type { SecretCipher } from "@everything/security/session-cipher";
-import type { SshAgent, SshIdentity } from "../interface/ssh-agent.js";
+import type { SshAgent } from "../interface/ssh-agent.js";
 import type {
+  EncryptedSshIdentity,
   SshKeySource,
   SshKeyStatus,
   SshKeySynchronization,
 } from "../interface/ssh-key-source.js";
 
-/** Keep one SSH-agent socket aligned with an authorized encrypted snapshot across failures and restarts. */
+/** What Everything loaded for one saved key: its ciphertext's digest and the public key it offers. */
+interface LoadedKey {
+  readonly digest: string;
+  readonly publicKey: string | undefined;
+}
+
+/**
+ * Keep one SSH agent's managed identities aligned with an authorized encrypted snapshot, key by key:
+ * new keys are added and deleted ones removed while every other identity stays loaded. A dead
+ * agent is started again, and a locked or unresponsive one is replaced and reloaded.
+ */
 export class SshKeySynchronizer implements SshKeySynchronization {
   // ===========================================
   // Construction and state
@@ -17,9 +28,8 @@ export class SshKeySynchronizer implements SshKeySynchronization {
   private running: Promise<void> | undefined;
   private stopped = false;
   private requested = 0;
-  private snapshot: string | undefined;
-  private inventory: string | undefined;
-  private readonly statuses = new Map<string, SshKeyStatus>();
+  private readonly loaded = new Map<string, LoadedKey>();
+  private statuses = new Map<string, SshKeyStatus>();
 
   /** Receive only the selected pool, decryption, an authentication socket, and safe operational reporting. */
   constructor(
@@ -71,51 +81,107 @@ export class SshKeySynchronizer implements SshKeySynchronization {
   // Convergence
   // ===========================================
 
-  /** Serialize reads and socket changes, catching operational failures without recording secrets. */
+  /** Serialize passes, catching operational failures without recording secrets. */
   private async drain(): Promise<void> {
     let observed: number;
     do {
       observed = this.requested;
-      try {
-        await this.reconcile();
-      } catch {
-        // Until a successful pass verifies the socket, previously reported readiness is unknown.
-        this.statuses.clear();
-        this.snapshot = undefined;
-        this.reportFailure();
-      }
+      await this.pass();
     } while (!this.stopped && this.requested !== observed);
   }
 
-  /** Clear stale identities only after a successful source read, and load each decryptable key independently. */
-  private async reconcile(): Promise<void> {
-    const records = [...(await this.source.read())].sort((a, b) =>
-      a.id.localeCompare(b.id),
-    );
-    const snapshot = createHash("sha256")
-      .update(JSON.stringify(records))
-      .digest("hex");
-    await this.agent.start();
-    const inventory = await this.agent.inventory();
-    if (snapshot === this.snapshot && inventory === this.inventory) return;
-    const identities: SshIdentity[] = [];
-    const statuses = new Map<string, SshKeyStatus>();
-    for (const record of records) {
+  /**
+   * Read a fresh snapshot and converge the agent on it. A failed read leaves the agent's identities
+   * as they are; a failing agent is replaced once, which also revokes every deleted key.
+   */
+  private async pass(): Promise<void> {
+    let records: EncryptedSshIdentity[];
+    try {
+      records = [...(await this.source.read())].sort((a, b) =>
+        a.id.localeCompare(b.id),
+      );
+    } catch {
+      this.statuses.clear();
+      this.reportFailure();
+      return;
+    }
+    try {
+      await this.converge(records);
+    } catch {
       try {
-        identities.push({
-          id: record.id,
-          material: await this.cipher.open(record.encryptedMaterial),
-        });
+        this.loaded.clear();
+        if (this.stopped) return;
+        await this.agent.restart();
+        await this.converge(records);
       } catch {
-        statuses.set(record.id, "unavailable");
+        // Until a successful pass verifies the socket, previously reported readiness is unknown.
+        this.loaded.clear();
+        this.statuses.clear();
+        this.reportFailure();
       }
     }
-    if (this.stopped) return;
-    for (const result of await this.agent.replace(identities))
-      statuses.set(result.id, result.loaded ? "ready" : "unavailable");
-    this.inventory = await this.agent.inventory();
-    this.snapshot = snapshot;
-    this.statuses.clear();
-    for (const [id, status] of statuses) this.statuses.set(id, status);
   }
+
+  /**
+   * Remove identities of deleted or changed keys that no remaining key shares, then load keys the
+   * agent does not offer. A refused removal, an agent that refuses keys altogether, or a key that
+   * loaded before but is refused now means the agent is locked or broken, which throws so the agent
+   * is replaced. Material the agent cannot use is remembered and not retried until it changes.
+   */
+  private async converge(
+    records: readonly EncryptedSshIdentity[],
+  ): Promise<void> {
+    await this.agent.start();
+    const offered = new Set(await this.agent.identities());
+    const wanted = new Map(
+      records.map((record) => [record.id, digest(record.encryptedMaterial)]),
+    );
+    for (const [id, key] of this.loaded) {
+      if (wanted.get(id) === key.digest) continue;
+      this.loaded.delete(id);
+      if (!key.publicKey || this.shares(key.publicKey)) continue;
+      // Removed even when not offered: a locked agent hides its keys and refuses the removal, which
+      // replaces it, so a deleted key never survives to be unlocked later.
+      await this.agent.remove(key.publicKey);
+      offered.delete(key.publicKey);
+    }
+    const statuses = new Map<string, SshKeyStatus>();
+    for (const record of records) {
+      if (this.stopped) return;
+      const keyDigest = wanted.get(record.id)!;
+      const previous = this.loaded.get(record.id);
+      const known = previous?.digest === keyDigest ? previous : undefined;
+      if (known && (!known.publicKey || offered.has(known.publicKey))) {
+        statuses.set(record.id, known.publicKey ? "ready" : "unavailable");
+        continue;
+      }
+      let material: string;
+      try {
+        material = await this.cipher.open(record.encryptedMaterial);
+      } catch {
+        this.loaded.set(record.id, { digest: keyDigest, publicKey: undefined });
+        statuses.set(record.id, "unavailable");
+        continue;
+      }
+      const publicKey = await this.agent.add(material);
+      if (!publicKey && known?.publicKey)
+        throw new Error("SSH agent refused a key it held before");
+      this.loaded.set(record.id, { digest: keyDigest, publicKey });
+      if (publicKey) offered.add(publicKey);
+      statuses.set(record.id, publicKey ? "ready" : "unavailable");
+    }
+    this.statuses = statuses;
+  }
+
+  /** Whether a still-wanted key offers the same public key, such as a second upload of one file. */
+  private shares(publicKey: string): boolean {
+    for (const key of this.loaded.values())
+      if (key.publicKey === publicKey) return true;
+    return false;
+  }
+}
+
+/** Identify a record's ciphertext without decrypting it, so changed material is reloaded. */
+function digest(encryptedMaterial: string): string {
+  return createHash("sha256").update(encryptedMaterial).digest("hex");
 }

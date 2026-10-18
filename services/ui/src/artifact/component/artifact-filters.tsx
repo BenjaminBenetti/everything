@@ -1,4 +1,4 @@
-import { Database, Cable, UserRound } from "lucide-react";
+import { Database, Cable, KeyRound, UserRound } from "lucide-react";
 import { Select, MultiSelect } from "@everything/ui/select";
 import { TeammateAvatar } from "../../agent/component/teammate-avatar.js";
 import type { AppCreator, AppFilters } from "../model/artifact-filters.js";
@@ -58,16 +58,19 @@ export function ArtifactFilters({
           value={[
             ...(value.database ? ["database"] : []),
             ...(value.api ? ["everything-api"] : []),
+            ...(value.apiKey ? ["api-key"] : []),
           ]}
           options={[
             { value: "database", label: "DB", icon: <Database /> },
             { value: "everything-api", label: "API", icon: <Cable /> },
+            { value: "api-key", label: "API Key", icon: <KeyRound /> },
           ]}
           onValueChange={(capabilities) =>
             onChange({
               ...value,
               database: capabilities.includes("database"),
               api: capabilities.includes("everything-api"),
+              apiKey: capabilities.includes("api-key"),
             })
           }
         />

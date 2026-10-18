@@ -98,14 +98,18 @@ test("an artifact with a disk runs as a StatefulSet mounting /data, with its dat
 test("capability environments use Secret references and cannot be shadowed by older saved variables", () => {
   const requested = workload({
     database: true,
-    capabilities: ["everything-api"],
-    env: { MODE: "demo", EVERYTHING_CLIENT_SECRET: "old-value" },
+    capabilities: ["everything-api", "api-key"],
+    env: {
+      MODE: "demo",
+      EVERYTHING_CLIENT_SECRET: "old-value",
+      APP_API_KEY: "old-key",
+    },
   });
   const pod = deploymentManifest(
     {
       ...requested,
       capabilities: {
-        secretNames: ["app-api-secret"],
+        secretNames: ["app-api-secret", "app-key-secret"],
         fingerprint: "credentials-v2",
       },
     },
@@ -116,6 +120,7 @@ test("capability environments use Secret references and cannot be shadowed by ol
       secretRef: { name: "artifact-6f1c1f6e8c7e4c4b9a432d8b8f7c8f11-database" },
     },
     { secretRef: { name: "app-api-secret" } },
+    { secretRef: { name: "app-key-secret" } },
   ]);
   assert.equal(
     pod.metadata!.annotations!["everything.dev/capabilities"],
@@ -123,7 +128,7 @@ test("capability environments use Secret references and cannot be shadowed by ol
   );
   assert.doesNotMatch(
     JSON.stringify(pod),
-    /old-value|EVERYTHING_CLIENT_SECRET/,
+    /old-value|old-key|EVERYTHING_CLIENT_SECRET|APP_API_KEY/,
   );
 });
 
@@ -254,8 +259,8 @@ test("reconciling runs the live deployment by digest, reusing the stored databas
           fingerprint: "secret-version",
         };
       },
-      remove: async (id) => {
-        capabilityCalls.push(["remove", id]);
+      remove: async (removed) => {
+        capabilityCalls.push(["remove", removed.id, removed.ownerId]);
       },
     },
     new ArtifactLock(),
@@ -281,7 +286,7 @@ test("reconciling runs the live deployment by digest, reusing the stored databas
   assert.equal(applied.length, 1);
   assert.equal(capabilityCalls.length, 1);
   await reconciler.remove(app);
-  assert.deepEqual(capabilityCalls.at(-1), ["remove", app.id]);
+  assert.deepEqual(capabilityCalls.at(-1), ["remove", app.id, owner]);
 });
 
 test("background reconciliation rechecks existence under the shared lock before provisioning", async () => {

@@ -2,8 +2,12 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { AgentSession } from "../interface/agent-session.js";
 import { AgentRuntime } from "../service/agent-runtime.js";
+import {
+  FastModeLimitedError,
+  FastModeRejectedError,
+} from "../error/runtime-errors.js";
 
-/** A session whose turns run until aborted, or fail when prompted with "error". */
+/** A session whose turns run until aborted, or fail when prompted with "error" or a Fast refusal. */
 function session() {
   let finish: (() => void) | undefined;
   let disposed = false;
@@ -16,6 +20,8 @@ function session() {
     /** Remain active until aborted, or reject like a failed provider call. */
     async prompt(text) {
       if (text === "error") throw new Error("secret provider detail");
+      if (text === "fast-rejected") throw new FastModeRejectedError();
+      if (text === "fast-limited") throw new FastModeLimitedError();
       await new Promise<void>((resolve) => {
         finish = resolve;
       });
@@ -69,4 +75,20 @@ test("closing stops the active turn before releasing the session", async () => {
   await runtime.close();
   assert.equal(runtime.status.status, "idle");
   assert.equal(disposed(), true);
+});
+
+test("a refused Fast request reports how to recover instead of the generic provider failure", async () => {
+  for (const [text, error] of [
+    ["fast-rejected", new FastModeRejectedError().message],
+    ["fast-limited", new FastModeLimitedError().message],
+  ] as const) {
+    const runtime = new AgentRuntime(session().fake);
+    runtime.start(text);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(runtime.status.status, "error");
+    assert.equal(runtime.status.error, error);
+    assert.match(runtime.status.error!, /Fast mode/);
+    await runtime.stop();
+    assert.equal(runtime.status.error, null);
+  }
 });

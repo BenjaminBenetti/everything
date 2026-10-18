@@ -2,6 +2,7 @@ import { createContext, useContext, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   GeneralSettings,
+  TeammateOrder,
   WorkerSettings,
 } from "@everything/settings-contracts";
 import { updateQueryRoot } from "../../update/hook/use-updates.js";
@@ -57,6 +58,49 @@ export function useUpdateGeneralSettings() {
       await queries.invalidateQueries({
         queryKey: [...updateQueryRoot, profile?.subject, "feed"],
       });
+    },
+  });
+}
+
+/** Share the owner's teammate order between navigation and the team page. */
+export function useTeammateOrder() {
+  const settings = useWorkspaceSettings();
+  const { profile } = useSession();
+  return useQuery({
+    queryKey: ["teammate-order", profile?.subject],
+    queryFn: ({ signal }) => settings.teammateOrder(signal),
+    enabled: !!profile,
+    staleTime: 30_000,
+    retry: false,
+  });
+}
+
+/** Show a new teammate order at once, save drops in sequence, and restore the saved order if a save fails. */
+export function useSaveTeammateOrder() {
+  const settings = useWorkspaceSettings();
+  const { profile } = useSession();
+  const queries = useQueryClient();
+  const queryKey = ["teammate-order", profile?.subject];
+  return useMutation({
+    mutationKey: queryKey,
+    scope: { id: `teammate-order:${profile?.subject}` },
+    mutationFn: (next: TeammateOrder) => settings.updateTeammateOrder(next),
+    onMutate: async (next) => {
+      await queries.cancelQueries({ queryKey });
+      const previous = queries.getQueryData<TeammateOrder>(queryKey);
+      queries.setQueryData(queryKey, next);
+      return { previous };
+    },
+    onSuccess: (saved) => {
+      // An earlier save finishing must not replace a newer order that is still saving.
+      if (queries.isMutating({ mutationKey: queryKey }) === 1)
+        queries.setQueryData(queryKey, saved);
+    },
+    onError: async (_error, _next, context) => {
+      // A queued save already includes this move, so only the last one restores the saved order.
+      if (queries.isMutating({ mutationKey: queryKey }) > 1) return;
+      if (context?.previous) queries.setQueryData(queryKey, context.previous);
+      await queries.invalidateQueries({ queryKey });
     },
   });
 }

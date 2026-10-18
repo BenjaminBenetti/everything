@@ -1,9 +1,13 @@
 import { Type } from "typebox";
 import { providerIds } from "@everything/provider-contracts";
-import { inferenceEfforts } from "@everything/provider-contracts/inference";
+import {
+  inferenceEfforts,
+  inferenceSpeeds,
+} from "@everything/provider-contracts/inference";
 
 const nullableText = Type.Union([Type.String(), Type.Null()]);
 const effort = Type.Union(inferenceEfforts.map((value) => Type.Literal(value)));
+const speed = Type.Union(inferenceSpeeds.map((value) => Type.Literal(value)));
 
 /** Public connection state never includes stored provider credentials. */
 export const providerResponse = Type.Object({
@@ -39,7 +43,7 @@ export const providerAuthorizationResponse = Type.Object({
   expiresAt: Type.String(),
 });
 
-/** Model and effort choices available through an active connection. */
+/** Model, effort, and speed choices available through an active connection. */
 export const providerModelsResponse = Type.Object({
   models: Type.Array(
     Type.Object({
@@ -47,6 +51,7 @@ export const providerModelsResponse = Type.Object({
       name: Type.String(),
       efforts: Type.Array(effort),
       defaultEffort: effort,
+      speeds: Type.Array(speed),
     }),
   ),
 });

@@ -160,7 +160,7 @@ test("real sign-in, all non-chat pages, themes, deep links, and sign-out", async
   ).toBeVisible();
   await openWorkspaceAction(page, "Notification settings");
   await expect(page.getByRole("dialog")).toContainText(
-    "Push notifications aren’t available yet",
+    "Phone notifications aren’t available yet",
   );
   await page.keyboard.press("Escape");
   await expect(

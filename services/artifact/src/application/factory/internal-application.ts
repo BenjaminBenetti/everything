@@ -3,6 +3,8 @@ import { errorHandler } from "@everything/errors/fastify";
 import { requireAuthentication } from "@everything/security/fastify";
 import type { TokenVerifier } from "@everything/security/token-verifier";
 import { artifactController } from "../../artifact/controller/artifact-controller.js";
+import { appApiKeyController } from "../../capability/controller/app-api-key-controller.js";
+import type { AppApiKeys } from "../../capability/service/app-api-keys.js";
 import type { ArtifactService } from "../../artifact/service/artifact-service.js";
 import { buildController } from "../../image/controller/build-controller.js";
 import { buildSourceController } from "../../image/controller/build-source-controller.js";
@@ -37,6 +39,7 @@ export interface InternalDependencies {
   readonly content: ContentStore;
   readonly access: ViewAccess;
   readonly passes: ViewPasses;
+  readonly apiKeys: Pick<AppApiKeys, "reveal">;
   readonly readiness: ReadinessCheck;
 }
 
@@ -97,6 +100,7 @@ export async function createInternalApplication(
       await contentController(scope, dependencies.content);
       await viewController(scope, dependencies.access);
       await viewPassController(scope, dependencies.passes);
+      await appApiKeyController(scope, dependencies.apiKeys);
     },
     { prefix: "/internal/v1" },
   );

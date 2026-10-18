@@ -84,3 +84,56 @@ test("manual action errors keep missing apps opaque and translate conflicts with
     assert.doesNotMatch(response.body, /private detail/);
   }
 });
+
+test("the owner's API key is read from the app service for that owner and is never cached", async (context) => {
+  const apiKey = `everything_app_key_${"k".repeat(43)}`;
+  const requests: { url: string; init: RequestInit }[] = [];
+  let status = 200;
+  const gateway = new HttpArtifactGateway(
+    { url: "http://artifact:8081", hostUrl: "http://artifact:8080" },
+    { token: async () => "service-token" },
+    async (url, init = {}) => {
+      requests.push({ url: String(url), init });
+      return status === 200
+        ? Response.json({ apiKey })
+        : Response.json(
+            { code: "UPSTREAM", message: "private detail" },
+            { status },
+          );
+    },
+  );
+  const server = authenticatedTestServer();
+  context.after(() => server.close());
+  await artifactController(server, new ArtifactLibraryService(gateway));
+  const revealed = await server.inject({ url: `/artifacts/${appId}/api-key` });
+  assert.equal(revealed.statusCode, 200);
+  assert.equal(revealed.headers["cache-control"], "no-store");
+  assert.deepEqual(revealed.json(), { apiKey });
+  assert.deepEqual(
+    requests.map((request) => [request.url, request.init.method ?? "GET"]),
+    [
+      [
+        `http://artifact:8081/internal/v1/owners/owner/artifacts/${appId}/api-key`,
+        "GET",
+      ],
+    ],
+  );
+  for (const [upstream, expected, code] of [
+    [404, 404, "ARTIFACT_NOT_FOUND"],
+    [409, 409, "APP_API_KEY_UNAVAILABLE"],
+    [500, 503, "ARTIFACTS_UNAVAILABLE"],
+  ] as const) {
+    status = upstream;
+    const response = await server.inject({
+      url: `/artifacts/${appId}/api-key`,
+    });
+    assert.equal(response.statusCode, expected);
+    assert.equal(response.json().code, code);
+    assert.doesNotMatch(response.body, /private detail|everything_app_key_/);
+  }
+  assert.equal(
+    (await server.inject({ url: "/artifacts/not-an-id/api-key" })).statusCode,
+    400,
+  );
+  assert.equal(requests.length, 4);
+});

@@ -28,9 +28,11 @@ export class ModelUpdateSummarizer implements UpdateSummarizer {
   ): Promise<string> {
     if (!update.inference) throw new Error("No summary model is configured");
     signal.throwIfAborted();
+    // Background summaries don't explicitly request the teammate's Fast mode.
+    const { speed: _speed, ...selection } = update.inference;
     const { models, model } = await this.inference.create(
       update.ownerId,
-      update.inference,
+      selection,
     );
     signal.throwIfAborted();
     const response = await models.completeSimple(

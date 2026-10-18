@@ -134,6 +134,7 @@ test("browser endpoints list artifacts and open them, hiding artifact service de
     start: async () => ({}) as ArtifactDetails,
     stop: async () => ({}) as ArtifactDetails,
     delete: async () => {},
+    apiKey: async () => assert.fail("no key requested"),
     list: async (ownerId) => {
       if (failures.length) throw failures.shift();
       return [{ ...summary, slug: `for-${ownerId}` }];

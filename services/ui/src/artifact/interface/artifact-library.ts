@@ -12,4 +12,6 @@ export interface ArtifactLibrary {
   stop(id: string): Promise<void>;
   /** Delete a stopped or unpublished app and its saved data. */
   delete(id: string): Promise<void>;
+  /** Read a dynamic app's current API key, for showing it while the user asks to see it. */
+  apiKey(id: string, signal?: AbortSignal): Promise<string>;
 }

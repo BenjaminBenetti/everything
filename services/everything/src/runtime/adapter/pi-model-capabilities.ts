@@ -13,6 +13,7 @@ import type {
 } from "../../provider/interface/provider-models.js";
 import type { RuntimeModelCatalog } from "../interface/inference-runtime.js";
 import { compatibleModelMetadata } from "../model/compatible-model-metadata.js";
+import { fastModeModel } from "../model/fast-mode-support.js";
 
 /** Limits assumed for a model that neither its server nor Pi's catalog describes. */
 const unknownModelLimits = { contextWindow: 32768, maxTokens: 4096 } as const;
@@ -42,7 +43,10 @@ export class PiModelCapabilities
   // Model projection
   // ===========================================
 
-  /** Show only effort levels that Pi can apply, with a supported default. */
+  /**
+   * Show only effort levels that Pi can apply, with a supported default, and Fast mode only where
+   * its provider documents it for this exact model.
+   */
   describe(provider: ProviderId, model: DiscoveredModel): ProviderModel {
     const efforts = getSupportedThinkingLevels(
       this.resolve(provider, model.id, ""),
@@ -52,6 +56,9 @@ export class PiModelCapabilities
       name: model.name,
       efforts,
       defaultEffort: efforts.includes("medium") ? "medium" : efforts[0]!,
+      speeds: fastModeModel(provider, model.id)
+        ? ["standard", "fast"]
+        : ["standard"],
     };
   }
 

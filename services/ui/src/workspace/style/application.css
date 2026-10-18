@@ -90,6 +90,86 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* Rows keep the link's hover and active surfaces under the reorder handle. */
+.side-agent-row {
+  position: relative;
+  margin-bottom: 2px;
+  border-radius: var(--radius-control);
+}
+.side-agent-row .side-agent {
+  margin-bottom: 0;
+}
+.side-agent-row.reorderable .side-agent {
+  padding-right: 36px;
+}
+.side-agent-row:hover .side-agent {
+  background: var(--surface-selected);
+}
+.side-agent-handle {
+  @apply absolute flex items-center justify-center;
+  top: 50%;
+  right: 5px;
+  width: 26px;
+  height: 30px;
+  translate: 0 -50%;
+  border-radius: 6px;
+  color: var(--text-secondary);
+  cursor: grab;
+  touch-action: none;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+.side-agent-handle svg {
+  width: 15px;
+  height: 15px;
+}
+.side-agent-handle:hover {
+  color: var(--text-primary);
+}
+.side-agent-handle:focus-visible {
+  outline-offset: 0;
+}
+.side-agent-row:hover .side-agent-handle,
+.side-agent-row:focus-within .side-agent-handle,
+.side-agent-row.dragging .side-agent-handle {
+  opacity: 1;
+}
+.side-agent-row.dragging {
+  z-index: 1;
+  background: var(--surface-panel);
+  box-shadow:
+    0 8px 24px var(--shadow-color),
+    0 0 0 1px var(--border-active);
+}
+.sidebar-agents.sorting,
+.sidebar-agents.sorting .side-agent-handle {
+  cursor: grabbing;
+}
+.sidebar-agents.sorting
+  .side-agent-row:not(.dragging):hover
+  .side-agent:not(.active) {
+  background: transparent;
+}
+/* Touch screens have no hover, so their handles stay visible. */
+@media (hover: none) {
+  .side-agent-handle {
+    opacity: 0.75;
+  }
+}
+.sidebar-agents.outside .side-agent-row.dragging {
+  opacity: 0.6;
+}
+.sidebar-error {
+  font-size: 11px;
+  line-height: 1.7;
+  color: var(--text-danger);
+  padding: 8px 12px;
+}
+.sidebar-error button {
+  margin-top: 4px;
+  color: var(--text-primary);
+  text-decoration: underline;
+}
 .sidebar-empty {
   font-size: 11px;
   line-height: 1.7;
@@ -1076,7 +1156,8 @@
    Preferences and settings
    =========================================== */
 .preferences-dialog,
-.settings-dialog {
+.settings-dialog,
+.notification-dialog {
   width: 590px;
 }
 .settings-section-heading {
@@ -1139,6 +1220,9 @@
   border: 1px solid var(--border-default);
   border-radius: 11px;
   background: var(--surface-subtle);
+}
+.notification-status {
+  margin-top: 12px;
 }
 .settings-status {
   display: flex;

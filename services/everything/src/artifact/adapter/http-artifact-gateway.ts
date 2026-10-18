@@ -2,6 +2,7 @@ import { Readable } from "node:stream";
 import type { ReadableStream as NodeReadableStream } from "node:stream/web";
 import type {
   ActivateRevisionInput,
+  ArtifactApiKey,
   ArtifactBuild,
   ArtifactBuildDetails,
   ArtifactDetails,
@@ -274,6 +275,11 @@ export class HttpArtifactGateway implements ArtifactGateway {
       method: "POST",
       json: input,
     });
+  }
+
+  /** Read the app's API key. */
+  apiKey(ownerId: string, reference: string): Promise<ArtifactApiKey> {
+    return this.json(`${this.artifact(ownerId, reference)}/api-key`);
   }
 
   /** Issue a teammate pass and resolve its paths on the in-cluster artifact host. */

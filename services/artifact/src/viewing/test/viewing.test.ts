@@ -144,6 +144,7 @@ test("the artifact host signs viewers in, serves files with validators, and expl
     cookie: new ViewCookie("http://localhost:8081"),
     passes: new ViewPasses(new ArtifactLookup(artifacts), passes),
     passCredentials: new ViewPassCredentials(),
+    apiKeys: { authenticate: async () => assert.fail("no API key sent") },
     artifacts,
     site: new StaticSite(revisions),
     content: { open: async () => Readable.from(["hello"]) },
@@ -240,6 +241,7 @@ test("forwarded requests drop the host's credentials and keep the artifact's own
       {
         authorization: `Bearer ${pass}`,
         cookie: `theme=dark; everything-teammate-pass=${pass}`,
+        "x-api-key": "everything_app_key_secret",
         accept: "text/html",
       },
       privateCookies,
@@ -337,6 +339,7 @@ async function teammateHost(context: {
     cookie: new ViewCookie("http://localhost:8081"),
     passes,
     passCredentials: new ViewPassCredentials(),
+    apiKeys: { authenticate: async () => assert.fail("no API key sent") },
     artifacts,
     site: new StaticSite(revisions),
     content: { open: async () => Readable.from(["hello"]) },

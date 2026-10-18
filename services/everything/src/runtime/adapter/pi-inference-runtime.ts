@@ -17,6 +17,9 @@ import type {
   RuntimeModelCatalog,
 } from "../interface/inference-runtime.js";
 import type { ProviderId } from "@everything/provider-contracts";
+import { fastModeModel } from "../model/fast-mode-support.js";
+import { speedProtocols } from "./speed-protocols.js";
+import { SpeedRequest } from "./speed-request.js";
 
 /** Adapt owner-scoped connections to Pi without writing decrypted credentials to workspace files. */
 export class PiInferenceRuntimeFactory implements InferenceRuntimeFactory {
@@ -38,13 +41,19 @@ export class PiInferenceRuntimeFactory implements InferenceRuntimeFactory {
 
   /**
    * Pin the selected model with the limits its server reports, and refresh connection access before
-   * every inference request.
+   * every inference request. Every request carries the selected speed and records the speed served.
    */
   async create(
     ownerId: string,
     selection: InferenceSelection,
   ): Promise<InferenceRuntime> {
     const discovered = await this.choices.select(ownerId, selection);
+    const protocol = speedProtocols[selection.provider];
+    // Selection validation has already refused Fast for models without documented support.
+    const fast =
+      selection.speed === "fast"
+        ? fastModeModel(selection.provider, selection.model)
+        : undefined;
     const connection = await this.connections.access(
       ownerId,
       selection.provider,
@@ -81,33 +90,37 @@ export class PiInferenceRuntimeFactory implements InferenceRuntimeFactory {
             ...selected,
             baseUrl: this.address(selection.provider, current.baseUrl),
           };
-          const requestOptions = {
-            ...options,
-            apiKey: key || "local",
-            /** Do not invent authentication for keyless local servers or follow credential-bearing redirects. */
-            fetch: ((input, init) => {
-              const headers = new Headers(init?.headers);
-              if (!key) headers.delete("authorization");
-              return providerFetch(this.fetcher)(input, { ...init, headers });
-            }) satisfies typeof fetch,
+          /** Do not invent authentication for keyless local servers or follow credential-bearing redirects. */
+          const transport: typeof fetch = (input, init) => {
+            const headers = new Headers(init?.headers);
+            if (!key) headers.delete("authorization");
+            return providerFetch(this.fetcher)(input, { ...init, headers });
           };
-          if (selection.provider === "anthropic")
-            return anthropicStream(
-              target as Model<"anthropic-messages">,
-              context,
-              requestOptions,
-            );
-          if (selection.provider === "chatgpt")
-            return responsesStream(
-              { ...target, api: "openai-responses" },
-              context,
-              requestOptions,
-            );
-          return completionsStream(
-            { ...target, api: "openai-completions" },
-            context,
-            requestOptions,
-          );
+          const speed = protocol && new SpeedRequest(protocol, fast);
+          const requestOptions = {
+            ...(speed ? speed.options(options) : options),
+            apiKey: key || "local",
+            fetch: speed ? speed.fetch(transport) : transport,
+          };
+          const stream =
+            selection.provider === "anthropic"
+              ? anthropicStream(
+                  target as Model<"anthropic-messages">,
+                  context,
+                  requestOptions,
+                )
+              : selection.provider === "chatgpt"
+                ? responsesStream(
+                    { ...target, api: "openai-responses" },
+                    context,
+                    requestOptions,
+                  )
+                : completionsStream(
+                    { ...target, api: "openai-completions" },
+                    context,
+                    requestOptions,
+                  );
+          return speed ? speed.record(stream) : stream;
         }),
     });
     // Pi checks availability before opening a session; request authentication is resolved above.

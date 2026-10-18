@@ -524,6 +524,7 @@ test(
       await database.undoLastMigration();
       await database.undoLastMigration();
       await database.undoLastMigration();
+      await database.undoLastMigration();
       const runner = database.createQueryRunner();
       assert.equal(await runner.hasTable("updates"), false);
       await runner.release();

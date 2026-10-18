@@ -3,8 +3,12 @@ import { createKeycloakTokenVerifier } from "@everything/security/keycloak";
 import { KeycloakClientCredentials } from "@everything/security/client-credentials";
 import { KeycloakAppApiClients } from "../../capability/adapter/keycloak-app-api-clients.js";
 import { KubernetesCapabilitySecrets } from "../../capability/adapter/kubernetes-capability-secrets.js";
+import { PostgresAppApiKeyRepository } from "../../capability/repository/postgres-app-api-key-repository.js";
+import { ApiKeyCapability } from "../../capability/service/api-key-capability.js";
+import { AppApiKeys } from "../../capability/service/app-api-keys.js";
 import { ProvisionedArtifactCapabilities } from "../../capability/service/artifact-capabilities.js";
 import { EverythingApiCapability } from "../../capability/service/everything-api-capability.js";
+import { HashedAppApiKeyStore } from "../../capability/service/hashed-app-api-key-store.js";
 import { ArtifactEntity } from "../../artifact/schema/artifact-entity.js";
 import { PostgresArtifactRepository } from "../../artifact/repository/postgres-artifact-repository.js";
 import { ArtifactLock } from "../../artifact/service/artifact-lock.js";
@@ -69,6 +73,16 @@ async function main(): Promise<void> {
   const deploymentRepository = new PostgresDeploymentRepository(database);
   const lock = new ArtifactLock();
   const lookup = new ArtifactLookup(artifactRepository);
+  const apiKeyStore = new HashedAppApiKeyStore(
+    new PostgresAppApiKeyRepository(database),
+    capabilitySecrets,
+  );
+  const apiKeys = new AppApiKeys(
+    artifactRepository,
+    deploymentRepository,
+    lookup,
+    apiKeyStore,
+  );
   const content = new FileContentStore(config.contentDirectory);
   const orchestrator = new KubernetesWorkloads(clients, {
     namespace: config.cluster.artifactNamespace,
@@ -101,6 +115,7 @@ async function main(): Promise<void> {
             tokenUrl: `${config.appApi.protocolUrl}/token`,
           },
         ),
+        new ApiKeyCapability(apiKeyStore),
       ],
       capabilitySecrets,
     ),
@@ -171,10 +186,12 @@ async function main(): Promise<void> {
       orchestrator,
       lookup,
       lock,
+      apiKeyStore,
     ),
     content,
     access,
     passes,
+    apiKeys,
     /** Check the durable backing store before advertising readiness. */
     readiness: async () => {
       await database.getRepository(ArtifactEntity).exists();
@@ -187,6 +204,7 @@ async function main(): Promise<void> {
     cookie,
     passes,
     passCredentials,
+    apiKeys,
     artifacts: artifactRepository,
     site: new StaticSite(revisionRepository),
     content,

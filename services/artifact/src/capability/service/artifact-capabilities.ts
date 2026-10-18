@@ -36,7 +36,7 @@ export class ProvisionedArtifactCapabilities implements ArtifactCapabilities {
         throw new Error("Unsupported app capability");
     for (const provider of this.providers) {
       if (!enabled.includes(provider.name)) {
-        await this.removeProvider(owner.id, provider);
+        await this.removeProvider(owner, provider);
         continue;
       }
       const values = await provider.ensure(owner);
@@ -57,9 +57,9 @@ export class ProvisionedArtifactCapabilities implements ArtifactCapabilities {
   }
 
   /** Revoke external clients before deleting their stored credentials. */
-  async remove(appId: string): Promise<void> {
+  async remove(owner: CapabilityOwner): Promise<void> {
     for (const provider of this.providers)
-      await this.removeProvider(appId, provider);
+      await this.removeProvider(owner, provider);
   }
 
   // ===========================================
@@ -68,10 +68,10 @@ export class ProvisionedArtifactCapabilities implements ArtifactCapabilities {
 
   /** Leave the Secret available for retry until external revocation succeeds. */
   private async removeProvider(
-    appId: string,
+    owner: CapabilityOwner,
     provider: CapabilityProvider,
   ): Promise<void> {
-    await provider.remove(appId);
-    await this.secrets.remove(appId, provider.name);
+    await provider.remove(owner);
+    await this.secrets.remove(owner.id, provider.name);
   }
 }

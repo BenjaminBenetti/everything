@@ -262,3 +262,70 @@ test("Pi sends only the teammate's initial context, applies saved inference, and
     false,
   );
 });
+
+test("a teammate's Fast selection reaches its sessions through the one runtime its whole session family shares", async (context) => {
+  const directory = await mkdtemp(path.join(tmpdir(), "everything-speed-"));
+  context.after(() => rm(directory, { recursive: true, force: true }));
+  const bodies: Record<string, unknown>[] = [];
+  const runtime = new PiInferenceRuntimeFactory(
+    {
+      /** The owner's ChatGPT sign-in. */
+      async access() {
+        return {
+          credential: { accessToken: "oauth-owner" },
+          baseUrl: null,
+          model: null,
+        };
+      },
+    },
+    {
+      /** Selection policy is covered separately. */
+      async select(_ownerId, selection) {
+        return { id: selection.model, name: selection.model };
+      },
+    },
+    new PiModelCapabilities(await createModelRuntime()),
+    async (input, init) => {
+      assert.equal(String(input), "https://api.openai.com/v1/responses");
+      bodies.push(JSON.parse(String(init?.body)));
+      return new Response(
+        `event: response.completed\ndata: ${JSON.stringify({ type: "response.completed", response: { id: "response", status: "completed", output: [], service_tier: "priority", usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 } } })}\n\n`,
+        { headers: { "content-type": "text/event-stream" } },
+      );
+    },
+  );
+  const selections: unknown[] = [];
+  const inference: InferenceRuntimeFactory = {
+    /** Record each runtime the family opens; main, forks, and subagents share it. */
+    create(ownerId, selection) {
+      selections.push(selection);
+      return runtime.create(ownerId, selection);
+    },
+  };
+  const factory = new PiSessionFactory(
+    inference,
+    new FileSystemWorkspaces(directory),
+    {} as ArtifactWorkbench,
+    {} as WorkspaceTools,
+    stoppedFleet,
+    testApiDocumentation,
+    testConversationSearch,
+  );
+  const selection = {
+    provider: "chatgpt",
+    model: "gpt-6.1-sol",
+    effort: "high",
+    speed: "fast",
+  } as const;
+  const session = await factory.create(
+    { ...agent, inference: selection },
+    async () => {},
+  );
+  context.after(() => session.dispose());
+  await session.prompt("Hello");
+  assert.deepEqual(selections, [selection]);
+  assert.equal(bodies.length, 1);
+  assert.equal(bodies[0]!.service_tier, "priority");
+  assert.equal(bodies[0]!.model, "gpt-6.1-sol");
+  assert.equal((bodies[0]!.reasoning as { effort: string }).effort, "high");
+});

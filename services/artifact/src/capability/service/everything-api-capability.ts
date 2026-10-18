@@ -42,7 +42,7 @@ export class EverythingApiCapability implements CapabilityProvider {
   }
 
   /** Delete the client so it can no longer obtain access tokens. */
-  async remove(appId: string): Promise<void> {
-    await this.clients.remove(appId);
+  async remove(owner: CapabilityOwner): Promise<void> {
+    await this.clients.remove(owner.id);
   }
 }

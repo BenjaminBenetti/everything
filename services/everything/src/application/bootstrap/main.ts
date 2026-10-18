@@ -33,6 +33,7 @@ import { ProjectedTokenSource } from "../../upgrade/adapter/projected-token-sour
 import { UnavailableUpgrades } from "../../upgrade/adapter/unavailable-upgrades.js";
 import { GeneralSettingsService } from "../../settings/service/general-settings-service.js";
 import { PostgresGeneralSettingsRepository } from "../../settings/repository/postgres-general-settings-repository.js";
+import { TeammateOrderService } from "../../settings/service/teammate-order-service.js";
 import { createApplicationDatabase } from "../../persistence/factory/application-database.js";
 import { PiSessionFactory } from "../../runtime/adapter/pi-session-factory.js";
 import { createModelRuntime } from "../../runtime/factory/model-runtime.js";
@@ -44,8 +45,12 @@ import { KeyService } from "../../key/service/key-service.js";
 import { PostgresKeyRepository } from "../../key/repository/postgres-key-repository.js";
 import { PostgresSshKeyRepository } from "../../key/repository/postgres-ssh-key-repository.js";
 import { SshEnabledKeys } from "../../key/service/ssh-enabled-keys.js";
-import { OpenSshAgent } from "../../ssh/adapter/open-ssh-agent.js";
-import { SshKeySynchronizer } from "../../ssh/service/ssh-key-synchronizer.js";
+import { createSshRuntime } from "../../ssh/factory/ssh-runtime.js";
+import {
+  fleetGitAgentSocket,
+  sshAgentSocket,
+} from "../../ssh/model/ssh-sockets.js";
+import { fleetHome } from "../../fleet/model/fleet-home.js";
 import { sshAgentHostSocket } from "@everything/workspace-contracts/mount";
 import { isSshKeyMaterial } from "@everything/key-contracts/ssh";
 import { PostgresProviderRepository } from "../../provider/repository/postgres-provider-repository.js";
@@ -88,8 +93,7 @@ async function main(): Promise<void> {
   await database.initialize();
   await database.runMigrations();
   const sshKeys = new PostgresSshKeyRepository(database);
-  const sshAgent = new OpenSshAgent(sshAgentHostSocket);
-  const ssh = new SshKeySynchronizer(
+  const ssh = createSshRuntime(
     {
       /** Read the installation's SSH pool without bringing user metadata into runtime state. */
       read: async () =>
@@ -98,7 +102,12 @@ async function main(): Promise<void> {
         ),
     },
     new SessionCipher(config.sessionEncryptionKey),
-    sshAgent,
+    {
+      agent: sshAgentSocket,
+      consumers: sshAgentHostSocket,
+      fleetGit: fleetGitAgentSocket,
+      fleetClients: fleetHome(config.fleet.home).sshAgentRelay,
+    },
     () =>
       console.warn("SSH keys could not synchronize; Everything will retry."),
   );
@@ -163,7 +172,7 @@ async function main(): Promise<void> {
       console.warn("Fleet failed; Everything will retry.", {
         reason: error instanceof Error ? error.message : "unknown",
       }),
-    { ...process.env, SSH_AUTH_SOCK: sshAgent.socketPath },
+    { ...process.env, SSH_AUTH_SOCK: sshAgentHostSocket },
   );
   const inference = new PiInferenceRuntimeFactory(
     providers,
@@ -171,9 +180,10 @@ async function main(): Promise<void> {
     capabilities,
   );
   const updates = new PostgresUpdateRepository(database);
-  const generalSettings = new GeneralSettingsService(
-    new PostgresGeneralSettingsRepository(database),
+  const generalSettingsRepository = new PostgresGeneralSettingsRepository(
+    database,
   );
+  const generalSettings = new GeneralSettingsService(generalSettingsRepository);
   const workspaceActivity = new WorkspaceActivity(
     agents,
     new PostgresWorkspaceInteractionRepository(
@@ -210,7 +220,7 @@ async function main(): Promise<void> {
         new SessionCipher(config.sessionEncryptionKey),
         new Map([["ssh", { accepts: isSshKeyMaterial }]]),
       ),
-      ssh,
+      ssh.keys,
     ),
     providers,
     models,
@@ -234,6 +244,7 @@ async function main(): Promise<void> {
         )
       : new UnavailableUpgrades(),
     generalSettings,
+    teammateOrder: new TeammateOrderService(generalSettingsRepository),
     artifacts: new ArtifactLibraryService(artifactGateway),
     workers,
     workspaces: workspaceInstances,
@@ -248,7 +259,7 @@ async function main(): Promise<void> {
     /** Check the durable backing store before advertising readiness. */
     readiness: async () => {
       await database.getRepository(AgentEntity).exists();
-      await sshAgent.inventory();
+      await ssh.check();
     },
   });
   const summaries = new UpdateSummaryScheduler(
