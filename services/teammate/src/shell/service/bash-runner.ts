@@ -7,6 +7,7 @@ import type { WorkspaceDirectories } from "../../workspace/interface/workspace-f
 import type { CommandRunner } from "../interface/command-runner.js";
 import type { CommandProcessFactory } from "../interface/command-process-factory.js";
 import { commandEnvironment } from "../model/command-environment.js";
+import { SecretRedactor } from "../model/secret-redactor.js";
 
 /** Run concurrent commands with independently bounded output, cancellation, and cleanup. */
 export class BashRunner implements CommandRunner {
@@ -18,13 +19,15 @@ export class BashRunner implements CommandRunner {
   private closed = false;
 
   /**
-   * Receive workspace path policy, isolated command creation, and the variables commands inherit,
-   * which default to the allowlisted part of this process's environment with the workspace as home.
+   * Receive workspace path policy, isolated command creation, the variables commands inherit, which
+   * default to the allowlisted part of this process's environment with the workspace as home, and
+   * secrets that are redacted from output, such as the Fleet client token commands can read.
    */
   constructor(
     private readonly files: WorkspaceDirectories,
     private readonly processes: CommandProcessFactory,
     private readonly environment = commandEnvironment(process.env, files.home),
+    private readonly secrets: readonly string[] = [],
   ) {}
 
   // ===========================================
@@ -76,14 +79,18 @@ export class BashRunner implements CommandRunner {
             workspaceLimits.timeoutSeconds,
           ) * 1000,
         );
-        child.stdout.on("data", collect);
-        child.stderr.on("data", collect);
+        const stdout = new SecretRedactor(this.secrets);
+        const stderr = new SecretRedactor(this.secrets);
+        child.stdout.on("data", (chunk: Buffer) => collect(stdout.push(chunk)));
+        child.stderr.on("data", (chunk: Buffer) => collect(stderr.push(chunk)));
         signal?.addEventListener("abort", kill, { once: true });
         cancellation.signal.addEventListener("abort", kill, { once: true });
         // The supervisor exits only after descendants have released their inherited pipes.
         child.once("error", reject);
         child.once("close", (exitCode, exitSignal) => {
           clearTimeout(timer);
+          collect(stdout.end());
+          collect(stderr.end());
           signal?.removeEventListener("abort", kill);
           cancellation.signal.removeEventListener("abort", kill);
           if (signal?.aborted || cancellation.signal.aborted)

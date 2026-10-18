@@ -19,6 +19,7 @@ import type {
 } from "../interface/command-process-factory.js";
 import { commandEnvironment } from "../model/command-environment.js";
 import { BoundedOutput } from "../model/bounded-output.js";
+import { SecretRedactor } from "../model/secret-redactor.js";
 import {
   defaultMonitorPolicy,
   type MonitorPolicy,
@@ -68,13 +69,17 @@ export class MonitorRunner implements CommandMonitors {
   private starting = 0;
   private closed = false;
 
-  /** Receive the Bash tool's path policy, supervisor, and environment, plus lifetime policy and a clock. */
+  /**
+   * Receive the Bash tool's path policy, supervisor, environment, and redacted secrets, plus lifetime
+   * policy and a clock.
+   */
   constructor(
     private readonly files: WorkspaceDirectories,
     private readonly processes: CommandProcessFactory,
     private readonly policy: MonitorPolicy = defaultMonitorPolicy,
     private readonly environment = commandEnvironment(process.env, files.home),
     private readonly now: () => number = Date.now,
+    private readonly secrets: readonly string[] = [],
   ) {
     this.sweeper = setInterval(() => this.sweep(), policy.sweepMs);
     this.sweeper.unref();
@@ -152,7 +157,10 @@ export class MonitorRunner implements CommandMonitors {
   // Process lifecycle
   // ===========================================
 
-  /** Spawn the supervised command, collecting bounded output and logging it until the size limit. */
+  /**
+   * Spawn the supervised command, collecting bounded output and logging it until the size limit, with
+   * secrets redacted from both.
+   */
   private launch(
     id: string,
     input: MonitorInput,
@@ -251,8 +259,10 @@ export class MonitorRunner implements CommandMonitors {
     child.once("spawn", () => {
       spawned = true;
     });
-    child.stdout.on("data", collect);
-    child.stderr.on("data", collect);
+    const stdout = new SecretRedactor(this.secrets);
+    const stderr = new SecretRedactor(this.secrets);
+    child.stdout.on("data", (chunk: Buffer) => collect(stdout.push(chunk)));
+    child.stderr.on("data", (chunk: Buffer) => collect(stderr.push(chunk)));
     // A failed spawn reports only an error; a running command's errors precede its close event.
     child.once("error", () => {
       if (!spawned)
@@ -260,6 +270,8 @@ export class MonitorRunner implements CommandMonitors {
     });
     // The supervisor exits only after descendants have released their inherited pipes.
     child.once("close", (exitCode, signal) => {
+      collect(stdout.end());
+      collect(stderr.end());
       if (record.stopReason !== null)
         settle("cancelled", exitCode, signal, record.stopReason);
       else if (record.timedOut)

@@ -62,6 +62,34 @@ test("reads a development registry whose certificate Fleet accepts unverified", 
   assert.equal(fleet.registry.host, "registry.test:5443");
   assert.equal(fleet.registry.insecure, true);
 });
+test("reads remote Fleet through the internal gateway only with both its address and token", () => {
+  const gateway = "http://fleet-gateway.everything.svc.cluster.local:50051";
+  const token = "f".repeat(64);
+  assert.equal(loadApplicationConfig(environment()).fleet.remote, undefined);
+  assert.deepEqual(
+    loadApplicationConfig({
+      ...environment(),
+      FLEET_GATEWAY_URL: gateway,
+      FLEET_CLIENT_TOKEN: token,
+    }).fleet.remote,
+    { gatewayUrl: gateway, token },
+  );
+  assert.throws(() =>
+    loadApplicationConfig({ ...environment(), FLEET_GATEWAY_URL: gateway }),
+  );
+  assert.throws(() =>
+    loadApplicationConfig({ ...environment(), FLEET_CLIENT_TOKEN: token }),
+  );
+  for (const invalid of [
+    { FLEET_GATEWAY_URL: `${gateway}/path`, FLEET_CLIENT_TOKEN: token },
+    { FLEET_GATEWAY_URL: "ssh://fleet-gateway", FLEET_CLIENT_TOKEN: token },
+    { FLEET_GATEWAY_URL: gateway, FLEET_CLIENT_TOKEN: "short" },
+    { FLEET_GATEWAY_URL: gateway, FLEET_CLIENT_TOKEN: `!${token}` },
+  ])
+    assert.throws(() =>
+      loadApplicationConfig({ ...environment(), ...invalid }),
+    );
+});
 test("rejects invalid deployment input", () => {
   for (const override of [
     { PORT: "65536" },

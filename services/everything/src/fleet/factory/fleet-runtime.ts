@@ -1,9 +1,12 @@
+import path from "node:path";
 import { FleetCli } from "../adapter/fleet-cli.js";
 import { FleetMcpDiscovery } from "../adapter/fleet-mcp-discovery.js";
 import { fleetEnvironment, fleetHome } from "../model/fleet-home.js";
 import { fleetArchitecture } from "../model/fleet-release-files.js";
 import type { FleetSettings } from "../model/fleet-settings.js";
 import { FleetConnectionSetup } from "../service/fleet-connection-setup.js";
+import { FleetClientPublisher } from "../service/fleet-client-publisher.js";
+import { FleetRemoteSetup } from "../service/fleet-remote-setup.js";
 import { FleetDaemon } from "../service/fleet-daemon.js";
 import { FleetHost } from "../service/fleet-host.js";
 import { FleetInstaller } from "../service/fleet-installer.js";
@@ -14,10 +17,18 @@ import { KubernetesFleetResources } from "../adapter/kubernetes-fleet-resources.
 import { FleetWorkspaces } from "../service/fleet-workspaces.js";
 import type { WorkspaceInstances } from "../../workspace/interface/workspace-instances.js";
 import type { WorkspaceStates } from "../../workspace/interface/workspace-activity.js";
+import {
+  fleetClientFolder,
+  fleetGatewayFileName,
+} from "@everything/workspace-contracts/mount";
 
-/** Fleet inside this container, and the worker settings it keeps on its cluster connection. */
+/**
+ * Fleet inside this container, the worker settings it keeps on its cluster connection, and, with
+ * remote control configured, the publisher of the address teammates' `fleet` commands dial.
+ */
 export interface FleetRuntime {
   readonly host: FleetHost;
+  readonly clients: FleetClientPublisher | undefined;
   readonly workers: FleetWorkerSettings;
   readonly workspaces: WorkspaceInstances & WorkspaceStates;
 }
@@ -25,6 +36,7 @@ export interface FleetRuntime {
 /** Assemble Fleet's runtime for this container from the chart's settings. */
 export function createFleetRuntime(
   settings: FleetSettings,
+  agentsDirectory: string,
   reportFailure: (error: unknown) => void,
   sourceEnvironment: NodeJS.ProcessEnv = process.env,
 ): FleetRuntime {
@@ -37,6 +49,7 @@ export function createFleetRuntime(
       home.binaries,
       fleetArchitecture(process.arch),
     ),
+    new FleetRemoteSetup(home, settings.remote),
     new FleetDaemon(home.executable, environment, home.socket, reportFailure),
     new FleetConnectionSetup(commands, home, settings),
     new FleetMcpDiscovery(home),
@@ -46,6 +59,15 @@ export function createFleetRuntime(
   kube.loadFromDefault();
   return {
     host,
+    clients:
+      settings.remote &&
+      new FleetClientPublisher(
+        home,
+        settings.remote.gatewayUrl,
+        path.join(agentsDirectory, fleetClientFolder),
+        fleetGatewayFileName,
+        reportFailure,
+      ),
     workers: new FleetWorkerSettings(host, commands),
     workspaces: new FleetWorkspaces(
       new FleetMcpClient(host),

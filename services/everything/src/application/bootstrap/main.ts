@@ -166,16 +166,19 @@ async function main(): Promise<void> {
   );
   const {
     host: fleet,
+    clients: fleetClientAddress,
     workers,
     workspaces: workspaceInstances,
   } = createFleetRuntime(
     config.fleet,
+    config.agentsDirectory,
     (error) =>
       console.warn("Fleet failed; Everything will retry.", {
         reason: error instanceof Error ? error.message : "unknown",
       }),
     { ...process.env, SSH_AUTH_SOCK: sshAgentHostSocket },
   );
+  await fleetClientAddress?.prepare();
   const inference = new PiInferenceRuntimeFactory(
     providers,
     models,
@@ -306,6 +309,7 @@ async function main(): Promise<void> {
     await monitors.close();
     await conversations.close();
     await workspaces.close();
+    await fleetClientAddress?.close();
     await fleet.close();
     await ssh.close();
     await database.destroy();
@@ -316,6 +320,7 @@ async function main(): Promise<void> {
   providerChecks.start();
   workspaces.start();
   fleet.start();
+  fleetClientAddress?.start();
 }
 
 /** Drain requests and Pi tool writes before Kubernetes terminates the pod. */

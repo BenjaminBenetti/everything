@@ -13,6 +13,8 @@ import {
   type V1Service,
 } from "@kubernetes/client-node";
 import {
+  fleetClientFolder,
+  fleetClientWorkspaceMount,
   sharedWorkspaceFolder,
   sharedWorkspacePath,
   workspacePath,
@@ -51,8 +53,9 @@ export function createWorkspacePodClients() {
  * Build a singleton StatefulSet from the chart's zero-replica tools template. The pod mounts the
  * teammate's folder of the workspace volume at `/workspace/<agent id>`, where Everything's container
  * sees it too, and the shared folder at `/workspace/shared`; it never sees other teammates' folders.
- * These folders and the read-only SSH socket are subpaths of one volume: a second volume naming the same claim leaves the pod
- * waiting for a mount that some storage drivers never report.
+ * These folders, the read-only SSH socket, and the read-only Fleet gateway address are subpaths of one
+ * volume: a second volume naming the same claim leaves the pod waiting for a mount that some storage
+ * drivers never report.
  */
 export function workspaceStatefulSet(
   agentId: string,
@@ -113,6 +116,12 @@ export function workspaceStatefulSet(
       subPath: sshAgentFolder,
       readOnly: true,
     },
+    "fleet-client": {
+      name: "workspace",
+      mountPath: fleetClientWorkspaceMount,
+      subPath: fleetClientFolder,
+      readOnly: true,
+    },
   };
   for (const [name, mount] of Object.entries(mounts)) {
     const volumeMount = container.volumeMounts?.find(
@@ -126,7 +135,8 @@ export function workspaceStatefulSet(
     Object.assign(volumeMount, mount);
   }
   template.spec.volumes = template.spec.volumes!.flatMap((volume) => {
-    if (volume.name === "shared" || volume.name === "ssh-agent") return [];
+    if (["shared", "ssh-agent", "fleet-client"].includes(volume.name))
+      return [];
     if (volume.name !== "workspace") return [volume];
     return [
       {

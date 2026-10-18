@@ -122,6 +122,11 @@ fleet:
     fleet-pod-linux-arm64: 2788e2d966cbde804456346a62097916fc71fa88190ce808e0b2ce7f981bc414
     fleet-tmux-linux-amd64.tar.gz: a15f9be287746ab8389226ee5f117ede5bc5601c63c42284ea55655af70b282a
     fleet-tmux-linux-arm64.tar.gz: 30e19752c4d987bbdf942e147e8dcfa425c3446cff01a76b72df7129b283c39f
+  # The internal gateway (services.fleet-gateway) through which teammates' `fleet` commands control
+  # this fleetd: fleetd registers here, and the gateway gives clients this address with its session.
+  # It is a ClusterIP Service with no Ingress; the token in templates/fleet-remote-credentials.yaml
+  # authorizes each request. Plain h2c, like the rest of in-cluster traffic.
+  gatewayUrl: "http://fleet-gateway.{{ .Release.Namespace }}.svc.cluster.local:50051"
 
 # Upgrades from Everything: the upgrader service installs a newer released version of this chart when
 # Everything asks, the way the installer does.
@@ -416,6 +421,12 @@ services:
         key: password
       # Fleet builds devcontainer images with the docker sidecar's engine.
       DOCKER_HOST: unix:///run/docker-socket/docker.sock
+      # Teammates' `fleet` commands reach fleetd through the internal gateway with this token, which
+      # Everything gives fleetd; Everything publishes the address the gateway assigns to them.
+      FLEET_GATEWAY_URL: "{{ tpl .Values.fleet.gatewayUrl . }}"
+      FLEET_CLIENT_TOKEN:
+        secretName: fleet-client-token
+        key: token
       # The upgrader, which accepts the token on the upgrader-token volume.
       UPGRADER_URL: http://upgrader:8080
       UPGRADER_TOKEN_FILE: /var/run/secrets/upgrader/token
@@ -619,6 +630,11 @@ services:
       ssh-hosts:
         mountPath: /etc/ssh/ssh_config.d
         files: ssh
+      # The image's `fleet` command dials the gateway address Everything publishes in this folder,
+      # which reconciliation mounts read-only like the SSH relay, with the token mounted below.
+      fleet-client:
+        { mountPath: /run/fleet-client, emptyDir: {}, readOnly: true }
+      fleet-token: { mountPath: /run/secrets/fleet, secret: fleet-client-token }
       # Hide Pi's configuration and conversation files behind a read-only empty mount, which
       # reconciliation moves to /workspace/<agent id>/.pi.
       private: { mountPath: /workspace/.pi, emptyDir: {}, readOnly: true }
@@ -629,6 +645,34 @@ services:
       shm:
         mountPath: /dev/shm
         emptyDir: { medium: Memory, sizeLimit: 512Mi }
+
+  # Fleet's gateway, run unchanged from its published image: a router to Everything's fleetd, which
+  # dials out to it and keeps every Fleet state. Teammates' `fleet` commands reach fleetd through its
+  # gRPC port, a ClusterIP Service with no Ingress. Its HTTP listener, which would serve Remote MCP
+  # and webhooks, listens only inside its own pod. Rolling it keeps fleetd's session: fleetd
+  # reconnects and the signing key resumes the same session, so the published address stays valid.
+  fleet-gateway:
+    upstreamImage: ghcr.io/benjaminbenetti/fleet-man/gateway:3.2.0-beta@sha256:9a077f238f85c34c1b53fe70075abbcfb96c03a167af2a917b6b408c9886180c
+    env:
+      FLEET_GATEWAY_GRPC_ADDR: ":50051"
+      FLEET_GATEWAY_PUBLIC_GRPC_URL: "{{ tpl .Values.fleet.gatewayUrl . }}"
+      FLEET_GATEWAY_PUBLIC_ADDR: "127.0.0.1:8080"
+      FLEET_GATEWAY_PUBLIC_URL: http://127.0.0.1:8080
+      FLEET_GATEWAY_SESSION_KEY:
+        secretName: fleet-gateway-session
+        key: session-key
+    ports:
+      grpc: { containerPort: 50051, servicePort: 50051 }
+    probes:
+      readiness:
+        tcpSocket: { port: grpc }
+        periodSeconds: 5
+      liveness:
+        tcpSocket: { port: grpc }
+        periodSeconds: 15
+    resources:
+      requests: { cpu: 10m, memory: 32Mi }
+      limits: { cpu: 500m, memory: 128Mi }
 
   registry:
     # Images are files on its disk; one copy owns them.

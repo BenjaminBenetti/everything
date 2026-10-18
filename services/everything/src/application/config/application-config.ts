@@ -60,6 +60,10 @@ export function loadApplicationConfig(
     env: false,
     data: environment,
   });
+  if (!settings.FLEET_GATEWAY_URL !== !settings.FLEET_CLIENT_TOKEN)
+    throw new Error(
+      "FLEET_GATEWAY_URL and FLEET_CLIENT_TOKEN must be set together.",
+    );
   return {
     port: settings.PORT,
     issuer: settings.OIDC_ISSUER,
@@ -108,6 +112,14 @@ export function loadApplicationConfig(
         username: settings.REGISTRY_USERNAME,
         password: settings.REGISTRY_PASSWORD,
       },
+      ...(settings.FLEET_GATEWAY_URL
+        ? {
+            remote: {
+              gatewayUrl: settings.FLEET_GATEWAY_URL,
+              token: settings.FLEET_CLIENT_TOKEN,
+            },
+          }
+        : {}),
     },
   };
 }
