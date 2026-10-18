@@ -22,6 +22,16 @@ export const themes = [
     description: "White & blue",
   },
   { id: "sand", label: "Sand", description: "Warm neutrals & brown" },
+  {
+    id: "solarized-light",
+    label: "Solarized Light",
+    description: "Cream & blue",
+  },
+  {
+    id: "solarized-dark",
+    label: "Solarized Dark",
+    description: "Deep teal & blue",
+  },
 ] as const;
 export type Theme = (typeof themes)[number]["id"];
 
