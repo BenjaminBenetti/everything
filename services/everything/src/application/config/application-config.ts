@@ -96,10 +96,24 @@ export function loadApplicationConfig(
     voice: {
       service: settings.VOICE_ASR_URL
         ? {
-            url: speechServiceUrl(settings.VOICE_ASR_URL),
+            url: serviceUrl("VOICE_ASR_URL", settings.VOICE_ASR_URL, [
+              "http:",
+              "https:",
+            ]),
             token: settings.VOICE_ASR_TOKEN,
             model: settings.VOICE_ASR_MODEL,
             timeoutMs: settings.VOICE_ASR_TIMEOUT_MS,
+          }
+        : null,
+      stream: settings.VOICE_STREAM_URL
+        ? {
+            url: serviceUrl("VOICE_STREAM_URL", settings.VOICE_STREAM_URL, [
+              "ws:",
+              "wss:",
+            ]),
+            token: settings.VOICE_STREAM_TOKEN,
+            finalTimeoutMs: settings.VOICE_STREAM_FINAL_TIMEOUT_MS,
+            concurrency: settings.VOICE_STREAM_CONCURRENCY,
           }
         : null,
       admission: {
@@ -131,25 +145,29 @@ export function loadApplicationConfig(
 }
 
 /**
- * Accept an absolute HTTP(S) URL without credentials, a fragment, or whitespace. The message never
- * repeats the value, which may be sensitive.
+ * Accept an absolute URL with one of the given schemes and no credentials, fragment, or whitespace.
+ * Messages name the variable but never repeat its value, which may be sensitive.
  */
-function speechServiceUrl(value: string): string {
+function serviceUrl(
+  name: string,
+  value: string,
+  schemes: readonly string[],
+): string {
   let url: URL;
   try {
     url = new URL(value);
   } catch {
-    throw new Error("VOICE_ASR_URL must be an absolute HTTP URL");
+    throw new Error(`${name} must be an absolute URL`);
   }
   if (
-    !["http:", "https:"].includes(url.protocol) ||
+    !schemes.includes(url.protocol) ||
     url.username ||
     url.password ||
     value.includes("#") ||
     /\s/.test(value)
   )
     throw new Error(
-      "VOICE_ASR_URL must be an HTTP URL without credentials or a fragment",
+      `${name} must be a ${schemes.join(" or ")} URL without credentials or a fragment`,
     );
   return url.href;
 }

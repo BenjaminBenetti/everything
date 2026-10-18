@@ -56,6 +56,7 @@ function dependencies(
     workspaces: unusedOperations(),
     workspaceActivity: unusedOperations(),
     voice: unusedOperations(),
+    voiceStreams: unusedOperations(),
     readiness: async () => {},
   };
 }

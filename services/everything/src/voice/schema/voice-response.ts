@@ -18,6 +18,15 @@ export const voiceCapabilitiesResponse = Type.Object({
     description:
       "Longest a transcription request may take, including waiting for capacity.",
   }),
+  streaming: Type.Boolean({
+    description:
+      "Whether audio can stream to a self-hosted speech service while the microphone is held.",
+  }),
+  streamFinalTimeoutMs: Type.Integer({
+    minimum: 0,
+    description:
+      "Longest the server waits for a stream's final transcript after its end.",
+  }),
 });
 
 /** The final transcript of one recording. */

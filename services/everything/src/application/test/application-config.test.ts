@@ -65,6 +65,7 @@ test("reads a development registry whose certificate Fleet accepts unverified", 
 test("voice input is off by default with bounded transcription limits", () => {
   assert.deepEqual(loadApplicationConfig(environment()).voice, {
     service: null,
+    stream: null,
     admission: { concurrency: 1, queueLimit: 4, queueTimeoutMs: 60_000 },
   });
 });
@@ -88,8 +89,60 @@ test("reads a self-hosted speech recognition service and its limits", () => {
       model: "speech-model-q8",
       timeoutMs: 600_000,
     },
+    stream: null,
     admission: { concurrency: 2, queueLimit: 0, queueTimeoutMs: 1_000 },
   });
+});
+
+test("reads a self-hosted streaming speech service with its token and limits", () => {
+  const { voice } = loadApplicationConfig({
+    ...environment(),
+    VOICE_STREAM_URL:
+      "ws://voice-asr.everything.svc.cluster.local:8080/v1/stream",
+    VOICE_STREAM_TOKEN: "test-only",
+    VOICE_STREAM_FINAL_TIMEOUT_MS: "45000",
+    VOICE_STREAM_CONCURRENCY: "2",
+  });
+  assert.deepEqual(voice.stream, {
+    url: "ws://voice-asr.everything.svc.cluster.local:8080/v1/stream",
+    token: "test-only",
+    finalTimeoutMs: 45_000,
+    concurrency: 2,
+  });
+  assert.equal(
+    loadApplicationConfig({
+      ...environment(),
+      VOICE_STREAM_URL: "wss://speech.test/v1/stream",
+    }).voice.stream?.finalTimeoutMs,
+    30_000,
+  );
+});
+
+test("rejects streaming URLs that aren't WebSocket URLs or carry credentials or fragments", () => {
+  for (const url of [
+    "http://voice-asr:8080/v1/stream",
+    "voice-asr:8080/v1/stream",
+    "ws://user:secret-password@voice-asr/v1/stream",
+    "ws://voice-asr/v1/stream#fragment",
+  ])
+    assert.throws(
+      () => loadApplicationConfig({ ...environment(), VOICE_STREAM_URL: url }),
+      (error: Error) => !error.message.includes("secret-password"),
+      url,
+    );
+  for (const override of [
+    { VOICE_STREAM_TOKEN: "two words" },
+    { VOICE_STREAM_FINAL_TIMEOUT_MS: "999" },
+    { VOICE_STREAM_FINAL_TIMEOUT_MS: "300001" },
+    { VOICE_STREAM_CONCURRENCY: "0" },
+  ])
+    assert.throws(() =>
+      loadApplicationConfig({
+        ...environment(),
+        VOICE_STREAM_URL: "ws://voice-asr/v1/stream",
+        ...override,
+      }),
+    );
 });
 
 test("rejects speech service URLs with credentials, fragments, or other schemes without repeating them", () => {

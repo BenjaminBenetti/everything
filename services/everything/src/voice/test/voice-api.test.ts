@@ -18,7 +18,7 @@ import {
 } from "../../application/factory/http-application.js";
 import { FfmpegAudioDecoder } from "../adapter/ffmpeg-audio-decoder.js";
 import { VoiceRecordingInvalidError } from "../error/voice-errors.js";
-import { createVoiceService } from "../factory/voice-runtime.js";
+import { createVoiceRuntime } from "../factory/voice-runtime.js";
 import type { VoiceSettings } from "../model/voice-settings.js";
 import { ffmpegMissing, syntheticRecording } from "./synthetic-audio.js";
 
@@ -80,12 +80,13 @@ const tokens: Readonly<Record<string, string>> = {
 async function application(
   context: TestContext,
   service: VoiceSettings["service"],
-  decoder?: Parameters<typeof createVoiceService>[3],
+  decoder?: Parameters<typeof createVoiceRuntime>[3],
 ) {
   const documentation = new ApiDocumentationService();
-  const created = await createVoiceService(
+  const runtime = await createVoiceRuntime(
     {
       service,
+      stream: null,
       admission: { concurrency: 1, queueLimit: 1, queueTimeoutMs: 5_000 },
     },
     {
@@ -99,6 +100,7 @@ async function application(
     () => undefined,
     ...(decoder ? [decoder] : []),
   );
+  const created = runtime.uploads;
   const reservedOwners: string[] = [];
   const voice: HttpDependencies["voice"] = {
     capabilities: () => created.capabilities(),
@@ -151,10 +153,11 @@ async function application(
     workspaces: unusedOperations(),
     workspaceActivity: unusedOperations(),
     voice,
+    voiceStreams: runtime.streams,
     readiness: async () => {},
   };
   const app = await createHttpApplication(dependencies);
-  app.addHook("preClose", async () => created.close());
+  app.addHook("preClose", async () => runtime.close());
   context.after(() => app.close());
   return { app, documentation, reservedOwners };
 }
@@ -291,9 +294,10 @@ test("without a configured service, voice input is reported unavailable and refu
 
 test("a configured service is unavailable when the decoder can't start", async () => {
   const warnings: string[] = [];
-  const voice = await createVoiceService(
+  const { uploads: voice } = await createVoiceRuntime(
     {
       service: configured("http://127.0.0.1:9/v1/audio/transcriptions"),
+      stream: null,
       admission: { concurrency: 1, queueLimit: 0, queueTimeoutMs: 1_000 },
     },
     { get: async () => assert.fail("ownership must not be checked") },

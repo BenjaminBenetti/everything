@@ -13,6 +13,7 @@ import type { AudioDecoder } from "../interface/audio-decoder.js";
 import type { SpeechRecognizer } from "../interface/speech-recognizer.js";
 import type { VoiceRecording } from "../interface/voice-operations.js";
 import { VoiceAdmission } from "../service/voice-admission.js";
+import { VoiceReservations } from "../service/voice-reservations.js";
 import { VoiceService } from "../service/voice-service.js";
 
 const agentId = "6f1c1f6e-8c7e-4c4b-9a43-2d8b8f7c8f11";
@@ -74,7 +75,12 @@ function fixture(
       queueLimit: options.queueLimit ?? 1,
       queueTimeoutMs: 60_000,
     }),
-    { reservations: options.reservations ?? 2, responseTimeoutMs: 90_000 },
+    new VoiceReservations(options.reservations ?? 2),
+    {
+      responseTimeoutMs: 90_000,
+      streaming: false,
+      streamFinalTimeoutMs: 0,
+    },
   );
   return { service, calls, signals };
 }
@@ -106,6 +112,8 @@ test("validates, checks ownership, decodes, then returns the trimmed transcript"
     maxBytes: 8 * 1024 * 1024,
     mediaTypes: ["audio/webm", "audio/ogg", "audio/mp4"],
     responseTimeoutMs: 90_000,
+    streaming: false,
+    streamFinalTimeoutMs: 0,
   });
 });
 

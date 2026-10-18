@@ -5,11 +5,7 @@ import {
   type VoiceTranscript,
 } from "@everything/conversation-contracts/voice";
 import type { AgentCatalog } from "../../agent/interface/agent-catalog.js";
-import {
-  VoiceBusyError,
-  VoiceCapacityError,
-  VoiceUnavailableError,
-} from "../error/voice-errors.js";
+import { VoiceUnavailableError } from "../error/voice-errors.js";
 import type { AudioDecoder } from "../interface/audio-decoder.js";
 import type { SpeechRecognizer } from "../interface/speech-recognizer.js";
 import type {
@@ -20,13 +16,16 @@ import type {
 import { audioFormat } from "../model/audio-format.js";
 import { isSilent, waveFile } from "../model/pcm-audio.js";
 import type { VoiceAdmission } from "./voice-admission.js";
+import type { VoiceReservations } from "./voice-reservations.js";
 
-/** Limits on recordings in progress and on how long a caller may wait for one. */
+/** What capabilities report beyond the shared recording limits. */
 export interface VoiceServiceLimits {
-  /** Recordings that may be uploading, waiting, or transcribing at once, across all owners. */
-  readonly reservations: number;
   /** Longest a transcription request may take, including waiting for capacity. */
   readonly responseTimeoutMs: number;
+  /** Whether the streaming lane is configured. */
+  readonly streaming: boolean;
+  /** Longest a stream waits for its final transcript after its end. */
+  readonly streamFinalTimeoutMs: number;
 }
 
 /**
@@ -36,7 +35,6 @@ export interface VoiceServiceLimits {
  * the speech service. Silent recordings never reach the service. Nothing is stored or logged.
  */
 export class VoiceService implements VoiceOperations {
-  private readonly reserved = new Map<string, VoiceReservation>();
   private readonly shutdown = new AbortController();
 
   // ===========================================
@@ -49,6 +47,7 @@ export class VoiceService implements VoiceOperations {
     private readonly decoder: AudioDecoder,
     private readonly recognizer: SpeechRecognizer,
     private readonly admission: VoiceAdmission,
+    private readonly reservations: VoiceReservations,
     private readonly limits: VoiceServiceLimits,
   ) {}
 
@@ -64,6 +63,8 @@ export class VoiceService implements VoiceOperations {
       maxBytes: voiceLimits.maxBytes,
       mediaTypes: [...voiceMediaTypes],
       responseTimeoutMs: this.limits.responseTimeoutMs,
+      streaming: this.limits.streaming,
+      streamFinalTimeoutMs: this.limits.streamFinalTimeoutMs,
     };
   }
 
@@ -71,18 +72,7 @@ export class VoiceService implements VoiceOperations {
   reserve(ownerId: string): VoiceReservation {
     if (!this.recognizer.available || this.shutdown.signal.aborted)
       throw new VoiceUnavailableError();
-    if (this.reserved.has(ownerId)) throw new VoiceBusyError();
-    if (this.reserved.size >= this.limits.reservations)
-      throw new VoiceCapacityError();
-    const reservation: VoiceReservation = {
-      ownerId,
-      release: () => {
-        if (this.reserved.get(ownerId) === reservation)
-          this.reserved.delete(ownerId);
-      },
-    };
-    this.reserved.set(ownerId, reservation);
-    return reservation;
+    return this.reservations.reserve(ownerId);
   }
 
   /** Decode and transcribe a recording for a teammate the reservation's owner can access. */
@@ -92,7 +82,7 @@ export class VoiceService implements VoiceOperations {
     recording: VoiceRecording,
     signal: AbortSignal,
   ): Promise<VoiceTranscript> {
-    if (this.reserved.get(reservation.ownerId) !== reservation)
+    if (!this.reservations.holds(reservation))
       throw new VoiceUnavailableError();
     const format = audioFormat(recording.contentType, recording.bytes);
     await this.agents.get(reservation.ownerId, agentId);

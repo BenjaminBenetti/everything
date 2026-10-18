@@ -14,6 +14,10 @@
     "./voice": {
       "types": "./build/voice/model/voice.d.ts",
       "default": "./build/voice/model/voice.js"
+    },
+    "./voice-stream": {
+      "types": "./build/voice/model/voice-stream.d.ts",
+      "default": "./build/voice/model/voice-stream.js"
     }
   },
   "scripts": {

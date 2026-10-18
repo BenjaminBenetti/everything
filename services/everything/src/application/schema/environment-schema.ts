@@ -88,6 +88,25 @@ export const environmentSchema = Type.Object({
     maximum: 900_000,
     default: 60_000,
   }),
+  /**
+   * WebSocket URL of a self-hosted streaming speech service's stream endpoint; empty leaves
+   * streaming voice input unavailable.
+   */
+  VOICE_STREAM_URL: Type.String({ default: "" }),
+  /** Bearer token for the streaming speech service; empty sends none. */
+  VOICE_STREAM_TOKEN: Type.String({ pattern: "^[\\x21-\\x7E]*$", default: "" }),
+  /** Longest to wait for a stream's final transcript after its end. */
+  VOICE_STREAM_FINAL_TIMEOUT_MS: Type.Integer({
+    minimum: 1_000,
+    maximum: 300_000,
+    default: 30_000,
+  }),
+  /** Streams that run at once across all owners; the speech service may allow fewer. */
+  VOICE_STREAM_CONCURRENCY: Type.Integer({
+    minimum: 1,
+    maximum: 16,
+    default: 1,
+  }),
 });
 
 /** Pinned SHA-256 of each Fleet release file, by file name. */

@@ -3,8 +3,15 @@ import type { AddressInfo } from "node:net";
 import { test } from "node:test";
 import type { FastifyInstance } from "fastify";
 import { authenticatedTestServer } from "../../http/test/test-server.js";
-import { voiceController } from "../controller/voice-controller.js";
-import { VoiceBusyError } from "../error/voice-errors.js";
+import {
+  registerVoiceWebSocket,
+  voiceController,
+} from "../controller/voice-controller.js";
+import {
+  VoiceBusyError,
+  VoiceUnavailableError,
+} from "../error/voice-errors.js";
+import type { VoiceStreamOperations } from "../interface/voice-stream-operations.js";
 import type {
   VoiceOperations,
   VoiceRecording,
@@ -12,6 +19,15 @@ import type {
 
 const agentId = "6f1c1f6e-8c7e-4c4b-9a43-2d8b8f7c8f11";
 const route = `/agents/${agentId}/voice/transcriptions`;
+
+/** Streaming is not configured in these tests; the stream route has its own. */
+const unavailableStreams: VoiceStreamOperations = {
+  available: false,
+  admit: async () => {
+    throw new VoiceUnavailableError();
+  },
+  open: () => assert.fail("No stream is admitted"),
+};
 
 /** One transcription that reached the use case. */
 interface Call {
@@ -31,34 +47,42 @@ async function fixture(
   const calls: Call[] = [];
   const reserved = new Set<string>();
   const app = authenticatedTestServer();
+  await registerVoiceWebSocket(app);
   app.post("/agents/:agentId/messages", async (request) => ({
     received: typeof request.body,
   }));
-  await voiceController(app, {
-    capabilities: () => ({
-      available: true,
-      maxDurationMs: 60_000,
-      maxBytes: 8 * 1024 * 1024,
-      mediaTypes: ["audio/webm", "audio/ogg", "audio/mp4"],
-      responseTimeoutMs: 195_000,
-    }),
-    reserve(ownerId) {
-      if (reserved.has(ownerId)) throw new VoiceBusyError();
-      reserved.add(ownerId);
-      return { ownerId, release: () => reserved.delete(ownerId) };
+  await voiceController(
+    app,
+    {
+      capabilities: () => ({
+        available: true,
+        maxDurationMs: 60_000,
+        maxBytes: 8 * 1024 * 1024,
+        mediaTypes: ["audio/webm", "audio/ogg", "audio/mp4"],
+        responseTimeoutMs: 195_000,
+        streaming: false,
+        streamFinalTimeoutMs: 0,
+      }),
+      reserve(ownerId) {
+        if (reserved.has(ownerId)) throw new VoiceBusyError();
+        reserved.add(ownerId);
+        return { ownerId, release: () => reserved.delete(ownerId) };
+      },
+      async transcribe(reservation, id, recording, signal) {
+        calls.push({
+          ownerId: reservation.ownerId,
+          agentId: id,
+          recording,
+          signal,
+        });
+        return transcribe
+          ? transcribe(reservation, id, recording, signal)
+          : { text: "Draft this reply." };
+      },
     },
-    async transcribe(reservation, id, recording, signal) {
-      calls.push({
-        ownerId: reservation.ownerId,
-        agentId: id,
-        recording,
-        signal,
-      });
-      return transcribe
-        ? transcribe(reservation, id, recording, signal)
-        : { text: "Draft this reply." };
-    },
-  });
+    unavailableStreams,
+    () => undefined,
+  );
   return { app, calls, reserved };
 }
 

@@ -65,6 +65,15 @@ export class SessionCookie {
       throw new SessionOriginRejected();
   }
 
+  /**
+   * WebSocket upgrades are GET requests that carry the session cookie, so cookie-authenticated
+   * upgrades need the exact origin check mutations get; bearer clients remain independent of it.
+   */
+  protectUpgrade(request: FastifyRequest): void {
+    if (request.headers.authorization === undefined && this.read(request))
+      this.requireOrigin(request);
+  }
+
   /** Bearer API clients remain independent of browser-cookie CSRF policy. */
   protectMutation(request: FastifyRequest): void {
     if (
