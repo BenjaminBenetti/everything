@@ -1,5 +1,6 @@
 import type {
   GeneralSettings,
+  TeammateOrder,
   WorkerSettings,
 } from "@everything/settings-contracts";
 import type { JsonTransport } from "../../http/interface/json-transport.js";
@@ -32,6 +33,22 @@ export class HttpWorkspaceSettings implements WorkspaceSettings {
       method: "PUT",
       body: JSON.stringify(settings),
     });
+  }
+
+  /** Read the signed-in owner's teammate order. */
+  teammateOrder(signal?: AbortSignal): Promise<TeammateOrder> {
+    return this.transport.request<TeammateOrder>(
+      "/v1/settings/teammate-order",
+      signal ? { signal } : {},
+    );
+  }
+
+  /** Replace the signed-in owner's teammate order. */
+  updateTeammateOrder(order: TeammateOrder): Promise<TeammateOrder> {
+    return this.transport.request<TeammateOrder>(
+      "/v1/settings/teammate-order",
+      { method: "PUT", body: JSON.stringify(order) },
+    );
   }
 
   /** Read the worker settings. */

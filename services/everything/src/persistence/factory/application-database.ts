@@ -20,6 +20,7 @@ import { GeneralSettings1792368000000 } from "../migration/1792368000000-general
 import { GeneralSettingsSummaryDefault1792454400000 } from "../migration/1792454400000-general-settings-summary-default.js";
 import { AgentInteractions1792540800000 } from "../migration/1792540800000-agent-interactions.js";
 import { UpdateHistory1792627200000 } from "../migration/1792627200000-update-history.js";
+import { GeneralSettingsTeammateOrder1792800000000 } from "../migration/1792800000000-general-settings-teammate-order.js";
 
 /** Connection settings for the service's own PostgreSQL database. */
 export interface DatabaseConnectionSettings {
@@ -66,6 +67,7 @@ export function createApplicationDatabase(
       AgentInteractions1792540800000,
       UpdateHistory1792627200000,
       Keys1792713600000,
+      GeneralSettingsTeammateOrder1792800000000,
     ],
     migrationsTableName: "everything_migrations",
     migrationsTransactionMode: "all",

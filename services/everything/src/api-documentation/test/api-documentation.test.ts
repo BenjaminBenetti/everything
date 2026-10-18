@@ -52,6 +52,7 @@ function dependencies(
     artifacts: unusedOperations(),
     workers: unusedOperations(),
     generalSettings: unusedOperations(),
+    teammateOrder: unusedOperations(),
     workspaces: unusedOperations(),
     workspaceActivity: unusedOperations(),
     readiness: async () => {},

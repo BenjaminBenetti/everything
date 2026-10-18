@@ -33,6 +33,7 @@ import { ProjectedTokenSource } from "../../upgrade/adapter/projected-token-sour
 import { UnavailableUpgrades } from "../../upgrade/adapter/unavailable-upgrades.js";
 import { GeneralSettingsService } from "../../settings/service/general-settings-service.js";
 import { PostgresGeneralSettingsRepository } from "../../settings/repository/postgres-general-settings-repository.js";
+import { TeammateOrderService } from "../../settings/service/teammate-order-service.js";
 import { createApplicationDatabase } from "../../persistence/factory/application-database.js";
 import { PiSessionFactory } from "../../runtime/adapter/pi-session-factory.js";
 import { createModelRuntime } from "../../runtime/factory/model-runtime.js";
@@ -171,9 +172,10 @@ async function main(): Promise<void> {
     capabilities,
   );
   const updates = new PostgresUpdateRepository(database);
-  const generalSettings = new GeneralSettingsService(
-    new PostgresGeneralSettingsRepository(database),
+  const generalSettingsRepository = new PostgresGeneralSettingsRepository(
+    database,
   );
+  const generalSettings = new GeneralSettingsService(generalSettingsRepository);
   const workspaceActivity = new WorkspaceActivity(
     agents,
     new PostgresWorkspaceInteractionRepository(
@@ -234,6 +236,7 @@ async function main(): Promise<void> {
         )
       : new UnavailableUpgrades(),
     generalSettings,
+    teammateOrder: new TeammateOrderService(generalSettingsRepository),
     artifacts: new ArtifactLibraryService(artifactGateway),
     workers,
     workspaces: workspaceInstances,
