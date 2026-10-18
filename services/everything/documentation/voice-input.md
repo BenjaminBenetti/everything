@@ -35,12 +35,12 @@ It expects `200` with a JSON body containing a string `text`, at most 32,000 cha
 
 ## Streaming lane
 
-| Variable                        | Default | Meaning                                                                                                                                                                                                                          |
-| ------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Variable                        | Default                         | Meaning                                                                                                                                                                                                                                                                                        |
+| ------------------------------- | ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `VOICE_STREAM_URL`              | the chart's `voice-asr` Service | WebSocket URL of the streaming service's endpoint. The chart sets `ws://voice-asr.<namespace>.svc.cluster.local:8080/v1/stream` while `services.voice-asr` is enabled, and empty otherwise. Only `ws:` and `wss:`; credentials and fragments are rejected. Empty leaves streaming unavailable. |
-| `VOICE_STREAM_TOKEN`            | unset                           | Bearer token sent to the service in the Authorization header, never the URL. Supply it from a Secret.                                                                                                                                                                                      |
-| `VOICE_STREAM_FINAL_TIMEOUT_MS` | `30000`                         | Longest to wait for the final transcript after the stream ends (1 s to 5 min).                                                                                                                                                                                                             |
-| `VOICE_STREAM_CONCURRENCY`      | `1`                             | Streams Everything runs at once across all owners; `services/voice-asr` allows one native stream.                                                                                                                                                                                          |
+| `VOICE_STREAM_TOKEN`            | unset                           | Bearer token sent to the service in the Authorization header, never the URL. Supply it from a Secret.                                                                                                                                                                                          |
+| `VOICE_STREAM_FINAL_TIMEOUT_MS` | `30000`                         | Longest to wait for the final transcript after the stream ends (1 s to 5 min).                                                                                                                                                                                                                 |
+| `VOICE_STREAM_CONCURRENCY`      | `1`                             | Streams Everything runs at once across all owners; `services/voice-asr` allows one native stream.                                                                                                                                                                                              |
 
 **The chart's speech service.** `services.voice-asr` in `deployment/helm/values.yaml` is enabled by default and needs no operator step:
 
@@ -52,6 +52,7 @@ It expects `200` with a JSON body containing a string `text`, at most 32,000 cha
   - at every later start, it checks the cached copy and replaces it if it doesn't match.
 
   The service mounts the volume read-only and checks the model again before warming up. The model is licensed under the NVIDIA Open Model License (`services/voice-asr/MODEL_LICENSE.md`); the chart's `VOICE_ASR_MODEL_LICENSE` setting accepts it, and a `NOTICE` file beside the model records it. The cluster's nodes need outbound HTTPS to `huggingface.co` and its download servers the first time.
+
 - **Readiness.** The pod is ready once the model check, the native worker's start, and a warmup stream pass (`/readyz`). Until then the Service has no endpoint, and streams fail as unavailable.
 - **Automatic connection.** Everything's `VOICE_STREAM_URL` is rendered from the Service, so no endpoint needs configuring.
 
@@ -71,6 +72,7 @@ services:
 ```
 
 **Turning it off or replacing it.**
+
 - Set `services.voice-asr.enabled: false` to run without the speech service. The chart then removes its pod and Service, keeps its model claim, and sets `VOICE_STREAM_URL` empty, which turns streaming off.
 - Set `services.everything.env.VOICE_STREAM_URL` to use another speech service instead. Each variable is a single map entry, so an override replaces the chart's value rather than adding a second one.
 - Clusters without amd64 nodes can't schedule the pod; turn it off there.
