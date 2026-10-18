@@ -23,6 +23,8 @@ export async function monitorPodFixture(directory: string) {
   const requests: string[] = [];
   let unavailable = 0;
   let cancelFailures = 0;
+  let terminalWaits = 0;
+  let heldCancel: Promise<boolean> | undefined;
 
   /** Parse a JSON request body. */
   async function body(request: IncomingMessage): Promise<unknown> {
@@ -94,6 +96,12 @@ export async function monitorPodFixture(directory: string) {
         unavailable--;
         return reply(503, { code: "UNAVAILABLE", message: "restarting" });
       }
+      if (action === "cancel" && heldCancel) {
+        const fail = await heldCancel;
+        heldCancel = undefined;
+        if (fail)
+          return reply(503, { code: "UNAVAILABLE", message: "restarting" });
+      }
       if (action === "cancel" && cancelFailures > 0) {
         cancelFailures--;
         return reply(503, { code: "UNAVAILABLE", message: "restarting" });
@@ -110,6 +118,8 @@ export async function monitorPodFixture(directory: string) {
             setTimeout(resolve, action === "wait" ? 200 : 5000),
           ),
         ]);
+      if (action === "wait" && monitor.result.status !== "running")
+        terminalWaits++;
       return reply(200, monitor.result);
     })();
   });
@@ -143,6 +153,16 @@ export async function monitorPodFixture(directory: string) {
     /** Answer the next `count` cancel requests with a server error. */
     failCancels(count: number): void {
       cancelFailures = count;
+    },
+    /** Hold the next cancel request until released, then answer it with a server error or as usual. */
+    holdCancel(): (fail: boolean) => void {
+      let release!: (fail: boolean) => void;
+      heldCancel = new Promise((resolve) => (release = resolve));
+      return release;
+    },
+    /** Count wait requests answered with a finished command. */
+    terminalWaits(): number {
+      return terminalWaits;
     },
     /** Answer the next `count` wait requests with a server error. */
     failWaits(count: number): void {

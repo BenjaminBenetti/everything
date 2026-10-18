@@ -275,3 +275,48 @@ test("a start that races the teammate's Stop is stopped, and a failed stop reque
   await until(() => accepted.length === 1);
   assert.match(accepted[0]!.task, /KEPT/);
 });
+
+test("a stop request that fails after the command finished still delivers the completion event", async (context) => {
+  const { directory, pod, monitors, accepted } = await fixture(context);
+  const started = await monitors.start(scope, "main", {
+    command:
+      "touch started; while [ ! -f release ]; do sleep 0.02; done; echo FINISHED",
+  });
+  await until(() => exists(path.join(directory, "started")));
+  const release = pod.holdCancel();
+  const stopping = monitors.stop(scope, started.id);
+  await writeFile(path.join(directory, "release"), "go");
+  // Following observes the finished command while the stop request is still pending.
+  await until(() => pod.terminalWaits() > 0);
+  await delay(50);
+  assert.equal(accepted.length, 0);
+  release(true);
+  await assert.rejects(stopping, { code: "WORKSPACE_UNAVAILABLE" });
+  await until(() => accepted.length === 1);
+  assert.match(accepted[0]!.task, /FINISHED/);
+  await delay(100);
+  assert.equal(accepted.length, 1);
+});
+
+test("a stop request that succeeds after the command finished returns the outcome without an event", async (context) => {
+  const { directory, pod, monitors, accepted } = await fixture(context);
+  const started = await monitors.start(scope, "main", {
+    command:
+      "touch started; while [ ! -f release ]; do sleep 0.02; done; echo FINISHED",
+  });
+  await until(() => exists(path.join(directory, "started")));
+  const release = pod.holdCancel();
+  const stopping = monitors.stop(scope, started.id);
+  // A second stop shares the pending request instead of racing it.
+  const repeated = monitors.stop(scope, started.id);
+  await writeFile(path.join(directory, "release"), "go");
+  await until(() => pod.terminalWaits() > 0);
+  release(false);
+  const [stopped, again] = await Promise.all([stopping, repeated]);
+  assert.equal(stopped.status, "exited");
+  assert.match(stopped.output, /FINISHED/);
+  assert.deepEqual(again, stopped);
+  await delay(200);
+  assert.equal(accepted.length, 0);
+  assert.deepEqual(monitors.list(scope), []);
+});

@@ -40,8 +40,8 @@ interface TrackedMonitor {
   readonly context: MonitorContext;
   /** Aborts following and delivery without a completion event. */
   readonly following: AbortController;
-  /** Set when the teammate stopped it, which already returned the outcome. */
-  silenced: boolean;
+  /** The teammate's pending stop request; its outcome is returned there instead of in an event. */
+  stopping: Promise<MonitorResult> | undefined;
   delivering: boolean;
 }
 
@@ -115,7 +115,7 @@ export class MonitorService implements MonitorOperations, MonitorLifecycle {
         log: started.log,
       },
       following: new AbortController(),
-      silenced: false,
+      stopping: undefined,
       delivering: false,
     };
     this.monitors.set(started.id, tracked);
@@ -138,14 +138,22 @@ export class MonitorService implements MonitorOperations, MonitorLifecycle {
   }
 
   /** Stop the command and return its outcome directly instead of in a completion event. */
-  async stop(scope: MonitorScope, id: string): Promise<MonitorResult> {
+  stop(scope: MonitorScope, id: string): Promise<MonitorResult> {
     const tracked = this.monitors.get(id);
     if (!tracked || !this.owns(tracked, scope) || tracked.delivering)
-      throw new MonitorNotFoundError();
-    // Silence first so a completion observed while cancelling is not delivered as well.
-    tracked.silenced = true;
+      return Promise.reject(new MonitorNotFoundError());
+    // Concurrent stops share one request, so following waits for a single answer.
+    tracked.stopping ??= this.cancel(tracked).finally(() => {
+      tracked.stopping = undefined;
+    });
+    return tracked.stopping;
+  }
+
+  /** Cancel in the pod; while this is pending, following holds any outcome it observes. */
+  private async cancel(tracked: TrackedMonitor): Promise<MonitorResult> {
+    const { id } = tracked.context;
     try {
-      const result = await this.workspace.cancel(scope.agentId, id);
+      const result = await this.workspace.cancel(tracked.scope.agentId, id);
       tracked.following.abort();
       this.monitors.delete(id);
       return result;
@@ -155,8 +163,7 @@ export class MonitorService implements MonitorOperations, MonitorLifecycle {
         this.monitors.delete(id);
         throw new MonitorNotFoundError();
       }
-      // The pod may still be running it, so keep following and report its outcome as usual.
-      tracked.silenced = false;
+      // The pod may still be running it, so following continues and reports its outcome as usual.
       throw error;
     }
   }
@@ -192,7 +199,10 @@ export class MonitorService implements MonitorOperations, MonitorLifecycle {
     const { signal } = tracked.following;
     try {
       const outcome = await this.outcome(tracked, signal);
-      if (!outcome || signal.aborted || tracked.silenced) return;
+      // A pending stop returns the outcome itself if it succeeds; if it fails, the event is still owed.
+      while (tracked.stopping && !signal.aborted)
+        await tracked.stopping.catch(() => {});
+      if (!outcome || signal.aborted) return;
       tracked.delivering = true;
       await this.deliver(tracked, outcome, signal);
     } finally {
@@ -280,7 +290,6 @@ export class MonitorService implements MonitorOperations, MonitorLifecycle {
 
   /** Stop following and kill the command without an event, waiting at most five seconds for the pod. */
   private async halt(tracked: TrackedMonitor): Promise<void> {
-    tracked.silenced = true;
     tracked.following.abort();
     this.monitors.delete(tracked.context.id);
     // A delivery may be waiting for the teammate lock the caller holds, so it is not awaited here.
