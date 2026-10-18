@@ -9,6 +9,7 @@ import { toolSearchToolName } from "../tool/fleet-tools.js";
 import { sendMessageToolName } from "../tool/send-message-tool.js";
 import { workspaceToolNames } from "../tool/workspace-tools.js";
 import { forkToolNames } from "../tool/fork-tools.js";
+import { monitorToolNames } from "../../monitor/model/monitor-policy.js";
 import { apiDocumentationToolName } from "../../api-documentation/model/api-documentation.js";
 import { conversationSearchToolName } from "../../conversation/model/conversation-search.js";
 
@@ -64,6 +65,7 @@ export function mainAgentPrompt(
     `Use ${workspaceToolNames.read}, ${workspaceToolNames.write}, and ${workspaceToolNames.bash} to work with files. Commands run in your own pod, where your persistent files are at ${home}, which is also your home directory.`,
     `${sharedWorkspacePath} is shared with every teammate. Put files there to hand them to another teammate, and look there for files others left for you.`,
     "Bash commands run independently and may overlap with commands from your forks. Each invocation has its own output, timeout, and cancellation; finishing one command does not stop another. Coordinate commands that change the same files.",
+    `Use ${monitorToolNames.start} for a command that takes longer than ${workspaceToolNames.bash} allows or that you want to wait on without blocking, such as a long build, test run, or waiting for a job to finish. It returns at once; when the command ends, a temporary background session with fresh context receives its status and output and reports to main. Give it instructions for what to do with the result. Don't check on it with repeated commands.`,
     `Only files in ${home} and ${sharedWorkspacePath} survive when your pod is replaced. Private conversation state is unavailable to tools.`,
     `With file and app tools, use paths relative to ${home}, or absolute paths under it or ${sharedWorkspacePath}.`,
   ]);

@@ -22,6 +22,10 @@
     "./mount": {
       "types": "./build/workspace/model/mount.d.ts",
       "default": "./build/workspace/model/mount.js"
+    },
+    "./monitor": {
+      "types": "./build/workspace/schema/monitor.d.ts",
+      "default": "./build/workspace/schema/monitor.js"
     }
   },
   "scripts": {

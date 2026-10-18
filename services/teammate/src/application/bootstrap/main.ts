@@ -6,6 +6,7 @@ import {
 } from "@everything/workspace-contracts/mount";
 import { WorkspaceFiles } from "../../workspace/service/workspace-files.js";
 import { BashRunner } from "../../shell/service/bash-runner.js";
+import { MonitorRunner } from "../../shell/service/monitor-runner.js";
 import { LinuxCommandProcessFactory } from "../../shell/adapter/linux-command-process-factory.js";
 import { createHttpApplication } from "../factory/http-application.js";
 
@@ -32,11 +33,19 @@ async function main(): Promise<void> {
     settings.WORKSPACE_DIRECTORY,
     sharedWorkspacePath,
   );
-  const bash = new BashRunner(files, new LinuxCommandProcessFactory());
-  const app = createHttpApplication(files, bash, settings.WORKSPACE_TOKEN);
+  const processes = new LinuxCommandProcessFactory();
+  const bash = new BashRunner(files, processes);
+  const monitors = new MonitorRunner(files, processes);
+  const app = createHttpApplication(
+    files,
+    bash,
+    monitors,
+    settings.WORKSPACE_TOKEN,
+  );
   /** Stop work before allowing Kubernetes to replace the pod. */
   const shutdown = (): void => {
     bash.close();
+    void monitors.close();
     void app.close().then(() => process.exit(0));
   };
   process.once("SIGTERM", shutdown);

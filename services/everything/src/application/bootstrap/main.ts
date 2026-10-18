@@ -70,6 +70,8 @@ import {
   createWorkspacePodClients,
 } from "../../workspace/adapter/kubernetes-workspace-pods.js";
 import { HttpWorkspaceTools } from "../../workspace/adapter/http-workspace-tools.js";
+import { HttpWorkspaceMonitors } from "../../workspace/adapter/http-workspace-monitors.js";
+import { MonitorService } from "../../monitor/service/monitor-service.js";
 import { PostgresWorkspaceTargetRepository } from "../../workspace/repository/postgres-workspace-target-repository.js";
 import { WorkspaceReconciler } from "../../workspace/service/workspace-reconciler.js";
 import { createFleetRuntime } from "../../fleet/factory/fleet-runtime.js";
@@ -194,6 +196,22 @@ async function main(): Promise<void> {
   );
   const apiDocumentation = new ApiDocumentationService();
   const messages = new PostgresMessageRepository(database);
+  let subagents!: SubagentService;
+  // Completion events use the same owner-scoped wakeup service as the public endpoint, bound once composed.
+  const monitors = new MonitorService(
+    new HttpWorkspaceMonitors(
+      config.workspacePods.namespace,
+      config.sessionEncryptionKey,
+    ),
+    {
+      wakeup: (scope, input, signal) => subagents.wakeup(scope, input, signal),
+    },
+    (failure) =>
+      console.warn(
+        "A monitor's completion event could not be delivered.",
+        failure,
+      ),
+  );
   const conversations = new ConversationService(
     agents,
     messages,
@@ -209,8 +227,14 @@ async function main(): Promise<void> {
       apiDocumentation,
       new ConversationSearchService(messages),
       workspaceActivity,
+      monitors,
     ),
     workspaces,
+    monitors,
+  );
+  subagents = new SubagentService(
+    conversations,
+    new PiSubagentArchives(workspaces),
   );
   const app = await createHttpApplication({
     apiDocumentation,
@@ -232,10 +256,7 @@ async function main(): Promise<void> {
     ),
     removal: conversations,
     conversations,
-    subagents: new SubagentService(
-      conversations,
-      new PiSubagentArchives(workspaces),
-    ),
+    subagents,
     updates: new UpdateService(updates, generalSettings),
     upgrades: config.upgrader.url
       ? new HttpUpgrader(
@@ -282,6 +303,7 @@ async function main(): Promise<void> {
   app.addHook("onClose", async () => {
     await summaries.close();
     await providerChecks.close();
+    await monitors.close();
     await conversations.close();
     await workspaces.close();
     await fleet.close();

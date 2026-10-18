@@ -19,6 +19,7 @@ import type {
   SubagentSession,
   SubagentSessionAccess,
 } from "../../subagent/interface/subagent-sessions.js";
+import type { MonitorLifecycle } from "../../monitor/interface/monitor-operations.js";
 
 /** Coordinates durable chat and interruptible execution through runtime and storage interfaces. */
 export class ConversationService
@@ -37,12 +38,13 @@ export class ConversationService
   // Construction
   // ===========================================
 
-  /** Inject agent ownership, visible-message storage, the runtime factory, and agent working directories. */
+  /** Inject agent ownership, visible-message storage, the runtime factory, agent working directories, and optional monitors. */
   constructor(
     private readonly agents: Pick<AgentCatalog, "get" | "delete">,
     private readonly messages: ConversationMessageStore,
     private readonly sessions: AgentSessionFactory,
     private readonly workspaces: Pick<AgentWorkspaces, "remove">,
+    private readonly monitors?: Pick<MonitorLifecycle, "stopAgent">,
   ) {}
 
   // ===========================================
@@ -101,10 +103,11 @@ export class ConversationService
     });
   }
 
-  /** Stop active work while retaining the saved conversation. */
+  /** Stop active work, including monitors, while retaining the saved conversation. */
   async interrupt(ownerId: string, agentId: string): Promise<void> {
     await this.locks.run(agentId, async () => {
       await this.agents.get(ownerId, agentId);
+      await this.monitors?.stopAgent(agentId);
       await this.runtimes.get(agentId)?.stop();
     });
   }
@@ -113,6 +116,7 @@ export class ConversationService
   async delete(ownerId: string, agentId: string): Promise<void> {
     await this.locks.run(agentId, async () => {
       await this.agents.get(ownerId, agentId);
+      await this.monitors?.stopAgent(agentId);
       await this.unloadRuntime(agentId);
       await this.agents.delete(ownerId, agentId);
       await this.workspaces.remove(agentId);
