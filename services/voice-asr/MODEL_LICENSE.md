@@ -23,8 +23,12 @@ A summary of terms relevant to deployment follows. It is not legal advice and no
 
 ## Provisioning
 
-1. Download explicitly; the service never downloads anything itself:
-   `python3 scripts/fetch_model.py --dest /models/nemotron-speech-streaming-en-0.6b.q8_0.gguf --accept-nvidia-open-model-license`
-   The helper fetches only the pinned file. It verifies size and SHA-256 before installing it read-only, and writes the NOTICE file next to it.
-   The helper does **not** copy the Agreement itself. Anyone who redistributes the weights (for example, shipping the GGUF in an image, volume or archive to others) must also supply recipients with a full copy of the NVIDIA Open Model License Agreement from the link above, alongside that NOTICE.
-2. Mount the directory read-only into the container and set `VOICE_ASR_MODEL_PATH` to the file.
+The service itself never downloads anything. Provisioning is a separate step that fetches only the pinned file:
+- it verifies the size and SHA-256 before installing the file read-only;
+- it writes the NOTICE file next to it.
+
+- **With the Helm chart (default).** `services.voice-asr` runs `python -m voice_asr.provision` as an init container into the `voice-asr-models` volume. The chart sets `VOICE_ASR_MODEL_LICENSE=NVIDIA-Open-Model-License`, so deploying the chart with this service enabled downloads and uses the model under this Agreement; read it first, or turn the service off.
+- **Elsewhere.** Run the operator helper, then mount the directory read-only into the container and set `VOICE_ASR_MODEL_PATH` to the file:
+  `python3 scripts/fetch_model.py --dest /models/nemotron-speech-streaming-en-0.6b.q8_0.gguf --accept-nvidia-open-model-license`
+
+Neither copies the Agreement itself. Anyone who redistributes the weights (for example, shipping the GGUF in an image, volume or archive to others) must also supply recipients with a full copy of the NVIDIA Open Model License Agreement from the link above, alongside that NOTICE.

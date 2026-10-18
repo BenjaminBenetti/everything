@@ -106,6 +106,28 @@ The whole stream lifetime is bounded by start + recording + finalization (110 s 
 | `VOICE_ASR_OMP_THREAD_LIMIT` (unset, 1-8) | optional standard OpenMP thread cap for the worker. The C ABI itself always uses min(8, hardware threads) |
 | `VOICE_ASR_WORKER_PATH` | worker binary; the image sets `/opt/voice-asr/bin/voice-asr-worker` |
 
+Model provisioning (`python -m voice_asr.provision`, below) reads `VOICE_ASR_MODEL_PATH` too, and:
+
+| env | meaning |
+|---|---|
+| `VOICE_ASR_MODEL_LICENSE` | **required**; must be `NVIDIA-Open-Model-License` to install the model under that licence (see [MODEL_LICENSE.md](MODEL_LICENSE.md)) |
+| `VOICE_ASR_PROVISION_TIMEOUT_S` (1800, 60-7200) | deadline for the whole download |
+| `VOICE_ASR_PROVISION_READ_TIMEOUT_S` (30, 5-300) | longest wait for the connection or any single read |
+
+## Deployment
+
+The Everything Helm chart (`deployment/helm`, `services.voice-asr`) runs this service by default, as one private pod, and connects Everything's voice gateway to it. Nothing needs configuring.
+
+- **Image and scheduling.** The `everything-voice-asr` image is built and released with the chart's other images, for linux/amd64 only (`config.imagePlatforms` in `package.json`). The pod is scheduled on an amd64 node.
+- **Model provisioning.** An init container from the same image runs `python -m voice_asr.provision` against the `voice-asr-models` volume before the service starts:
+  - if the pinned file is already there with the right size and SHA-256, it keeps it;
+  - otherwise it downloads that one file over HTTPS, at the pinned revision, into a private partial file, with a byte cap at the pinned size, a per-read timeout and an overall deadline;
+  - it checks the size and SHA-256, makes the file read-only, renames it into place atomically, and writes the NVIDIA `NOTICE` beside it;
+  - a failed or interrupted attempt leaves nothing behind, and the init container is retried.
+- **Read-only model.** The service mounts the volume read-only and checks the model once more before warming up.
+- **Access.** It is reachable only through its ClusterIP Service: no Ingress, no Kubernetes API token. It runs without a bearer token unless the operator adds one; see `services/everything/documentation/voice-input.md`.
+- **Resources.** It requests 1 CPU and 1 GiB, is limited to 4 CPUs (`VOICE_ASR_OMP_THREAD_LIMIT=4`) and 3 GiB, and gets 20 s to shut down.
+
 ### Probes
 
 - `GET /healthz` returns 200 while the parent is alive.
@@ -129,8 +151,8 @@ docker run --rm -p 127.0.0.1:8080:8080 -v /models:/models:ro \
 ## Tests
 
 ```bash
+bash services/voice-asr/scripts/test.sh   # no model needed: units, contract (test-only fake worker), follow-ups, provisioning; CI runs it
 cd services/voice-asr
-PYTHONPATH=src:tests python -m unittest tests.test_units tests.test_contract   # no model needed (test-only fake worker)
 VOICE_ASR_AUDIO_DIR=<public clips + manifest.json> VOICE_ASR_NATIVE_WORKER=<prefix>/bin/voice-asr-worker \
 VOICE_ASR_NATIVE_MODEL=<pinned gguf> PYTHONPATH=src:tests python -m unittest tests.test_native    # real native
 VOICE_ASR_AUDIO_DIR=... VOICE_ASR_TEST_URL=ws://127.0.0.1:<port>/v1/stream PYTHONPATH=src:tests python -m unittest tests.test_native.NativeStreams  # e.g. the container
@@ -151,6 +173,7 @@ VOICE_ASR_AUDIO_DIR=... VOICE_ASR_TEST_URL=ws://127.0.0.1:<port>/v1/stream PYTHO
     - a full 16,000-sample window while the worker stops reading its (test-shrunk) pipe: the parent stays responsive, cancel kills and reaps before `cancelled`, and the watchdog fires while `drain()` is blocked;
     - a full-window pipelined stream that keeps every sample;
     - second-connection failures that leave the first lease intact.
+  - `tests/test_provision.py` serves the model from a local HTTP server: an atomic read-only install with its NOTICE, reuse of a verified copy without downloading, replacement of a copy that fails the check, discarding a stale partial file, refusal of oversized, wrongly announced, short or altered downloads, the overall deadline, HTTPS-only redirects, the required licence and path settings, and that the pins match the runtime's model check.
 - **Real-native suite.** It covers:
   - 9.9 s and 29.4 s public clips replayed on a real-time arrival schedule, with tail words checked;
   - silence, a short last frame, odd bytes, immediate end, cancel then reconnect;
@@ -227,4 +250,4 @@ These results come from fake-worker failure injection, the host-built native wor
   - On a shared host a long native stall can hold the window full long enough that the stream later fails with `TIMEOUT` (idle, recording, finalization or native-call deadline). This is the known risk behind the earlier 3.247 s spike, which can recur.
   - The service never buffers beyond the window and never drops audio.
 - **Thread count.** Threads are the C ABI default min(8, hardware). The optional `OMP_THREAD_LIMIT` is a standard OpenMP cap, not ABI control. 8 compute threads plus 2 unattributed auxiliary threads were observed earlier.
-- **Integration ownership.** Gateway, frontend, Helm and CI integration are owned by the voice integration owner and are not part of this component.
+- **Architecture.** There is no arm64 image; clusters without amd64 nodes turn the service off (`services.voice-asr.enabled: false`).
