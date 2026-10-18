@@ -35,6 +35,9 @@ import { InstallationUpgradesProvider } from "../../upgrade/component/installati
 import type { WorkspaceDirectory } from "../../workspace/interface/workspace-directory.js";
 import { WorkspaceDirectoryProvider } from "../../workspace/component/workspace-directory-provider.js";
 import { WorkspacesPage } from "../../workspace/page/workspaces-page.js";
+import type { VoiceClient } from "../../voice/interface/voice-client.js";
+import type { MediaEnvironment } from "../../voice/interface/media-environment.js";
+import { VoiceProvider } from "../../voice/component/voice-provider.js";
 
 /** Application composition accepts capabilities, making real and test transports interchangeable. */
 export function Application({
@@ -48,6 +51,8 @@ export function Application({
   upgrades,
   workspaces,
   keys,
+  voice,
+  media,
   queryClient,
 }: {
   session: BrowserSession;
@@ -60,6 +65,8 @@ export function Application({
   upgrades: InstallationUpgrades;
   workspaces: WorkspaceDirectory;
   keys: KeyDirectory;
+  voice: VoiceClient;
+  media: MediaEnvironment;
   queryClient: QueryClient;
 }) {
   return (
@@ -74,7 +81,9 @@ export function Application({
                     <InstallationUpgradesProvider upgrades={upgrades}>
                       <WorkspaceDirectoryProvider directory={workspaces}>
                         <KeyDirectoryProvider directory={keys}>
-                          <AuthenticatedRoutes />
+                          <VoiceProvider client={voice} media={media}>
+                            <AuthenticatedRoutes />
+                          </VoiceProvider>
                         </KeyDirectoryProvider>
                       </WorkspaceDirectoryProvider>
                     </InstallationUpgradesProvider>

@@ -26,6 +26,9 @@ import "../../conversation/style/message-markdown.css";
 import "../../update/style/updates.css";
 import { HttpConversationClient } from "../../conversation/adapter/http-conversation-client.js";
 import { HttpUpdateClient } from "../../update/adapter/http-update-client.js";
+import { HttpVoiceClient } from "../../voice/adapter/http-voice-client.js";
+import { browserMedia } from "../../voice/adapter/browser-media.js";
+import "../../voice/style/voice.css";
 
 initializeTheme();
 const element = document.getElementById("root");
@@ -71,6 +74,8 @@ async function bootstrap(): Promise<void> {
                 new HttpWorkspaceDirectory(createAuthenticatedTransport())
               }
               keys={new HttpKeyDirectory(createAuthenticatedTransport())}
+              voice={new HttpVoiceClient(createAuthenticatedTransport())}
+              media={browserMedia()}
               queryClient={new QueryClient()}
             />
           </AvatarAnimationProvider>
