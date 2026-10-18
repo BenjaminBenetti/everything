@@ -48,6 +48,14 @@ stack_image_workspaces() {
   done
 }
 
+# The platforms a workspace's image is built for: `config.imagePlatforms` in its package.json, such as
+# linux/amd64 for an image with native code for one architecture, or else the given default.
+workspace_image_platforms() {
+  local workspace=$1 default=$2 platforms
+  platforms=$(sed -n 's/.*"imagePlatforms": *"\([^"]*\)".*/\1/p' "$workspace/package.json")
+  echo "${platforms:-$default}"
+}
+
 # Find the workload containing a named environment setting in the rendered chart.
 stack_workload_with_environment() {
   local setting=$1

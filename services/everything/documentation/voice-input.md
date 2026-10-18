@@ -2,12 +2,10 @@
 
 Voice input lets the owner dictate into a teammate's message composer. On a desktop, holding Space in the composer for 3 seconds starts recording. On any device, holding the microphone button records immediately. Releasing ends the recording, and its final transcript goes into the draft where the caret or selection was when recording began. Nothing is sent to the teammate until the owner sends the message.
 
-There are two lanes, each unavailable until an operator configures its self-hosted service:
+There are two lanes, both self-hosted:
 
-- **Streaming** (`VOICE_STREAM_URL`): audio leaves the browser while the microphone is held, through Everything to a streaming speech service such as `services/voice-asr` (Nemotron). On release, the last audio is flushed, the stream ends, and the service's single final transcript is inserted. The composer prefers this lane when the browser supports audio worklets.
-- **Upload** (`VOICE_ASR_URL`): the browser records with MediaRecorder and uploads the finished recording once, to a generic OpenAI-compatible transcription endpoint. Nothing is processed while the button is held.
-
-The chart deploys neither speech service.
+- **Streaming** (`VOICE_STREAM_URL`): audio leaves the browser while the microphone is held, through Everything to the `services/voice-asr` speech service (NVIDIA's Nemotron Speech Streaming English 0.6B on the CPU). On release, the last audio is flushed, the stream ends, and the service's single final transcript is inserted. The composer prefers this lane when the browser supports audio worklets. **The chart deploys the speech service and connects Everything to it by default**; see [streaming lane](#streaming-lane).
+- **Upload** (`VOICE_ASR_URL`): the browser records with MediaRecorder and uploads the finished recording once, to a generic OpenAI-compatible transcription endpoint. Nothing is processed while the button is held. It is off until an operator sets `VOICE_ASR_URL`; the chart deploys no service for it.
 
 ## Configuration
 
@@ -39,24 +37,45 @@ It expects `200` with a JSON body containing a string `text`, at most 32,000 cha
 
 | Variable                        | Default | Meaning                                                                                                                                                                                                                          |
 | ------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `VOICE_STREAM_URL`              | empty   | WebSocket URL of the streaming service's endpoint, for example `ws://voice-asr.<namespace>.svc.cluster.local:8080/v1/stream`. Only `ws:` and `wss:`; credentials and fragments are rejected. Empty leaves streaming unavailable. |
-| `VOICE_STREAM_TOKEN`            | empty   | Bearer token sent to the service in the Authorization header, never the URL. Supply it from a Secret.                                                                                                                            |
-| `VOICE_STREAM_FINAL_TIMEOUT_MS` | `30000` | Longest to wait for the final transcript after the stream ends (1 s to 5 min).                                                                                                                                                   |
-| `VOICE_STREAM_CONCURRENCY`      | `1`     | Streams Everything runs at once across all owners; `services/voice-asr` allows one native stream.                                                                                                                                |
+| `VOICE_STREAM_URL`              | the chart's `voice-asr` Service | WebSocket URL of the streaming service's endpoint. The chart sets `ws://voice-asr.<namespace>.svc.cluster.local:8080/v1/stream` while `services.voice-asr` is enabled, and empty otherwise. Only `ws:` and `wss:`; credentials and fragments are rejected. Empty leaves streaming unavailable. |
+| `VOICE_STREAM_TOKEN`            | unset                           | Bearer token sent to the service in the Authorization header, never the URL. Supply it from a Secret.                                                                                                                                                                                      |
+| `VOICE_STREAM_FINAL_TIMEOUT_MS` | `30000`                         | Longest to wait for the final transcript after the stream ends (1 s to 5 min).                                                                                                                                                                                                             |
+| `VOICE_STREAM_CONCURRENCY`      | `1`                             | Streams Everything runs at once across all owners; `services/voice-asr` allows one native stream.                                                                                                                                                                                          |
 
-For `services/voice-asr` itself, leave `VOICE_ASR_TOKEN` and `VOICE_ASR_TOKEN_FILE` **unset** when it runs without a token; a blank value is a configuration error there. Its README documents its own settings, model provisioning, and licence.
+**The chart's speech service.** `services.voice-asr` in `deployment/helm/values.yaml` is enabled by default and needs no operator step:
 
-**Chart wiring.** Everything's side needs no chart change. The existing generic `services.everything.env` takes the URL as a value and the token as a Secret reference:
+- **One private pod.** One replica of the `everything-voice-asr` image, built with the other images and released for amd64 only, because its native worker targets x86-64 with AVX2. The pod is scheduled on an amd64 node, runs as a non-root user with a read-only root filesystem and no capabilities, and has no Kubernetes API token. Its Service is ClusterIP only, and no Ingress routes to it. It asks for 1 CPU and 1 GiB and may use 4 CPUs and 3 GiB; about 1 GiB is in use while it recognizes. These are sizing defaults, not a service-level objective.
+- **Model provisioning.** An init container from the same image (`python -m voice_asr.provision`) fills the `voice-asr-models` volume, a 2 GiB claim kept when the release is uninstalled, before the service starts:
+  - the first time, it downloads the one pinned model, `nvidia/nemotron-speech-streaming-en-0.6b` at revision `ebe59e5a817142986528bbbee5dba8db7b38ed50`, `nemotron-speech-streaming-en-0.6b.q8_0.gguf` (699,872,960 bytes);
+  - the download runs over HTTPS only, with a byte cap, a per-read timeout, and a 30-minute deadline;
+  - it installs the file read-only and atomically only once its SHA-256 matches `d9a01898d2a611c8764e23a1c2f45e70bbd5a425dc4de93692ac951dd603812d`;
+  - at every later start, it checks the cached copy and replaces it if it doesn't match.
+
+  The service mounts the volume read-only and checks the model again before warming up. The model is licensed under the NVIDIA Open Model License (`services/voice-asr/MODEL_LICENSE.md`); the chart's `VOICE_ASR_MODEL_LICENSE` setting accepts it, and a `NOTICE` file beside the model records it. The cluster's nodes need outbound HTTPS to `huggingface.co` and its download servers the first time.
+- **Readiness.** The pod is ready once the model check, the native worker's start, and a warmup stream pass (`/readyz`). Until then the Service has no endpoint, and streams fail as unavailable.
+- **Automatic connection.** Everything's `VOICE_STREAM_URL` is rendered from the Service, so no endpoint needs configuring.
+
+**Authentication.** By default nothing is configured: the speech service runs without a token and is reachable only through its ClusterIP Service, from pods in the cluster. Leave `VOICE_ASR_TOKEN` and `VOICE_ASR_TOKEN_FILE` **unset** when the service runs without a token; a blank value is a configuration error there. To require one, add a Secret under `secrets` in your credentials file and reference it on both sides:
 
 ```yaml
+secrets:
+  voice-asr-auth:
+    token: <16 to 512 printable characters, no spaces>
 services:
   everything:
     env:
-      VOICE_STREAM_URL: "ws://voice-asr:8080/v1/stream"
-      VOICE_STREAM_TOKEN: { secretName: voice-stream, key: token }
+      VOICE_STREAM_TOKEN: { secretName: voice-asr-auth, key: token }
+  voice-asr:
+    env:
+      VOICE_ASR_TOKEN: { secretName: voice-asr-auth, key: token }
 ```
 
-By default the chart renders no `VOICE_*` variables, so both lanes are off. Running the speech service itself is separate: it would be its own `services.<name>` workload, with its image, read-only model volume, resources, and optional token, and this change doesn't add one.
+**Turning it off or replacing it.**
+- Set `services.voice-asr.enabled: false` to run without the speech service. The chart then removes its pod and Service, keeps its model claim, and sets `VOICE_STREAM_URL` empty, which turns streaming off.
+- Set `services.everything.env.VOICE_STREAM_URL` to use another speech service instead. Each variable is a single map entry, so an override replaces the chart's value rather than adding a second one.
+- Clusters without amd64 nodes can't schedule the pod; turn it off there.
+
+The speech service's own settings, deadlines, and licence are in `services/voice-asr/README.md`.
 
 **Route.** The browser opens `GET /v1/agents/{agentId}/voice/stream` as a WebSocket on the application's origin. Before the connection is upgraded:
 
@@ -136,7 +155,7 @@ These are runs on a shared host over a real local test network, not a production
 
 Not yet verified:
 
-- A real speech recognition model and runtime, and their latency, resource use, cancellation, and logging.
+- The upload lane against a real speech recognition model and runtime, and their latency, resource use, cancellation, and logging.
 - Safari on iOS and macOS. Playwright's Linux WebKit build has audio worklets, which the streaming tests used for real, but no `MediaRecorder`; upload-lane tests there used a stand-in recorder that negotiates formats as Safari does. Real upload recording was tested in Chromium (WebM and MP4), and both decoded through the production decoder path.
 - Streaming against a physical microphone, real network conditions, or GPU or other hardware.
 - A deployed stack with an ingress configured for 8 MiB uploads.

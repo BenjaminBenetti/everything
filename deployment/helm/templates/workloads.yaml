@@ -43,45 +43,19 @@ spec:
       {{- end }}
       securityContext:
         {{- toYaml $service.podSecurityContext | nindent 8 }}
-      {{- with $service.sidecars }}
-      # Native sidecars: each starts before the main container and stops after it.
+      {{- with $service.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if or $service.initContainers $service.sidecars }}
+      # Init containers run to completion first, in name order. Native sidecars then each start before
+      # the main container and stop after it.
       initContainers:
-        {{- range $sidecarName, $sidecar := . }}
-        - name: {{ $sidecarName }}
-          {{- include "stack.containerImage" (dict "root" $ "name" (printf "%s.sidecars.%s" $name $sidecarName) "image" $sidecar.image "upstreamImage" $sidecar.upstreamImage) | nindent 10 }}
-          restartPolicy: Always
-          {{- with $sidecar.command }}
-          command:
-            {{- toYaml . | nindent 12 }}
-          {{- end }}
-          {{- with $sidecar.args }}
-          args:
-            {{- toYaml . | nindent 12 }}
-          {{- end }}
-          securityContext:
-            {{- toYaml ($sidecar.containerSecurityContext | default $service.containerSecurityContext) | nindent 12 }}
-          {{- with $sidecar.env }}
-          env:
-            {{- include "stack.env" (dict "root" $ "env" .) | trim | nindent 12 }}
-          {{- end }}
-          {{- range $probe, $spec := $sidecar.probes }}
-          {{ $probe }}Probe:
-            {{- toYaml $spec | nindent 12 }}
-          {{- end }}
-          {{- with $sidecar.resources }}
-          resources:
-            {{- toYaml . | nindent 12 }}
-          {{- end }}
-          {{- with $sidecar.volumeMounts }}
-          volumeMounts:
-            {{- range $volumeName, $mountPath := . }}
-            {{- if not (hasKey $service.volumes $volumeName) }}
-            {{- fail (printf "services.%s.sidecars.%s mounts volume %q, which the service does not declare" $name $sidecarName $volumeName) }}
-            {{- end }}
-            - name: {{ $volumeName }}
-              mountPath: {{ $mountPath }}
-            {{- end }}
-          {{- end }}
+        {{- range $containerName, $container := $service.initContainers }}
+        {{- include "stack.extraContainer" (dict "root" $ "name" $name "service" $service "kind" "initContainers" "containerName" $containerName "container" $container) | nindent 8 }}
+        {{- end }}
+        {{- range $containerName, $container := $service.sidecars }}
+        {{- include "stack.extraContainer" (dict "root" $ "name" $name "service" $service "kind" "sidecars" "containerName" $containerName "container" $container) | nindent 8 }}
         {{- end }}
       {{- end }}
       containers:
