@@ -32,6 +32,36 @@ export const themes = [
     label: "Solarized Dark",
     description: "Deep teal & blue",
   },
+  {
+    id: "gruvbox-dark-soft",
+    label: "Gruvbox Dark Soft",
+    description: "Lower contrast, warm gray & orange",
+  },
+  {
+    id: "gruvbox-dark-medium",
+    label: "Gruvbox Dark Medium",
+    description: "Default contrast, warm gray & orange",
+  },
+  {
+    id: "gruvbox-dark-hard",
+    label: "Gruvbox Dark Hard",
+    description: "Higher contrast, warm gray & orange",
+  },
+  {
+    id: "gruvbox-light-soft",
+    label: "Gruvbox Light Soft",
+    description: "Lower contrast, warm cream & orange",
+  },
+  {
+    id: "gruvbox-light-medium",
+    label: "Gruvbox Light Medium",
+    description: "Default contrast, warm cream & orange",
+  },
+  {
+    id: "gruvbox-light-hard",
+    label: "Gruvbox Light Hard",
+    description: "Higher contrast, warm cream & orange",
+  },
 ] as const;
 export type Theme = (typeof themes)[number]["id"];
 

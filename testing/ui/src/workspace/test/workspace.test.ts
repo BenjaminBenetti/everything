@@ -121,6 +121,12 @@ test("real sign-in, all non-chat pages, themes, deep links, and sign-out", async
     "sand",
     "solarized-light",
     "solarized-dark",
+    "gruvbox-dark-soft",
+    "gruvbox-dark-medium",
+    "gruvbox-dark-hard",
+    "gruvbox-light-soft",
+    "gruvbox-light-medium",
+    "gruvbox-light-hard",
   ]) {
     await page
       .locator(".choice-card")
@@ -153,7 +159,7 @@ test("real sign-in, all non-chat pages, themes, deep links, and sign-out", async
   await page.reload();
   await expect(page.locator("html")).toHaveAttribute(
     "data-theme",
-    "solarized-dark",
+    "gruvbox-light-hard",
   );
   await expect(
     page.getByRole("heading", { name: "Apps", exact: true }),
@@ -177,10 +183,10 @@ test("real sign-in, all non-chat pages, themes, deep links, and sign-out", async
   await navigate(page, "Home");
   await openWorkspaceAction(page, "Preferences");
   await expect(
-    page.getByRole("radio", { name: "Solarized Dark", exact: true }),
+    page.getByRole("radio", { name: "Gruvbox Light Hard", exact: true }),
   ).toBeChecked();
   await page
-    .getByRole("radio", { name: "Solarized Dark", exact: true })
+    .getByRole("radio", { name: "Gruvbox Light Hard", exact: true })
     .focus();
   await page.keyboard.press("ArrowRight");
   await expect(

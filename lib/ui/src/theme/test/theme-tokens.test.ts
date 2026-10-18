@@ -81,6 +81,56 @@ const solarizedPalette = new Set([
   "#859900",
 ]);
 
+/** The canonical morhetz/gruvbox colors: dark and light tones, gray, and bright, neutral, and faded hues. */
+const gruvboxPalette = new Set([
+  "#1d2021",
+  "#282828",
+  "#32302f",
+  "#3c3836",
+  "#504945",
+  "#665c54",
+  "#7c6f64",
+  "#928374",
+  "#f9f5d7",
+  "#fbf1c7",
+  "#f2e5bc",
+  "#ebdbb2",
+  "#d5c4a1",
+  "#bdae93",
+  "#a89984",
+  "#fb4934",
+  "#b8bb26",
+  "#fabd2f",
+  "#83a598",
+  "#d3869b",
+  "#8ec07c",
+  "#fe8019",
+  "#cc241d",
+  "#98971a",
+  "#d79921",
+  "#458588",
+  "#b16286",
+  "#689d6a",
+  "#d65d0e",
+  "#9d0006",
+  "#79740e",
+  "#b57614",
+  "#076678",
+  "#8f3f71",
+  "#427b58",
+  "#af3a03",
+]);
+
+/** The page tone, bg0, that morhetz/gruvbox gives each contrast. */
+const gruvboxPages = {
+  "gruvbox-dark-soft": "#32302f",
+  "gruvbox-dark-medium": "#282828",
+  "gruvbox-dark-hard": "#1d2021",
+  "gruvbox-light-soft": "#f2e5bc",
+  "gruvbox-light-medium": "#fbf1c7",
+  "gruvbox-light-hard": "#f9f5d7",
+};
+
 /** Palette values a root receives, for comparison with a theme's own rules. */
 function palette(tokens: Map<string, string>): Record<string, string> {
   return Object.fromEntries(
@@ -151,6 +201,51 @@ test("Solarized themes take surfaces, borders, and hero colors from the canonica
         solarizedPalette.has(tokens.get(token)!),
         `${id}: ${token} is ${tokens.get(token)}`,
       );
+  }
+});
+
+test("Gruvbox variants use their contrast's page tone and take text, borders, actions, and hero colors from the canonical palette", () => {
+  const anchors = [
+    "--surface-hero",
+    "--text-primary",
+    "--text-secondary",
+    "--text-on-hero",
+    "--text-hero-accent",
+    "--text-hero-muted",
+    "--border-default",
+    "--border-field",
+    "--border-active",
+    "--surface-action",
+    "--text-on-action",
+    "--status-ready",
+    "--surface-danger",
+    "--surface-danger-hover",
+    "--text-on-danger",
+  ];
+  for (const [id, page] of Object.entries(gruvboxPages)) {
+    const tokens = resolveTheme(rules, id);
+    assert.equal(tokens.get("--surface-page"), page, id);
+    for (const token of anchors)
+      assert.ok(
+        gruvboxPalette.has(tokens.get(token)!),
+        `${id}: ${token} is ${tokens.get(token)}`,
+      );
+  }
+});
+
+test("harder Gruvbox contrast gives primary text more contrast on the page", () => {
+  for (const mode of ["dark", "light"]) {
+    const [soft, medium, hard] = ["soft", "medium", "hard"].map((level) => {
+      const tokens = resolveTheme(rules, `gruvbox-${mode}-${level}`);
+      return contrast(
+        tokens.get("--text-primary")!,
+        tokens.get("--surface-page")!,
+      );
+    });
+    assert.ok(
+      soft! < medium! && medium! < hard!,
+      `${mode}: ${[soft, medium, hard].map((ratio) => ratio!.toFixed(2)).join(" < ")}`,
+    );
   }
 });
 
