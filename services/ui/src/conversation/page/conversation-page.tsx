@@ -147,6 +147,7 @@ function TeammateConversation({ agent }: { agent: Agent }) {
           </div>
         )}
         <MessageComposer
+          agentId={agent.id}
           name={agent.name}
           disabled={!agent.inference || snapshot.isPending || snapshot.isError}
           sending={send.isPending}

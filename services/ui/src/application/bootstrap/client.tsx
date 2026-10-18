@@ -27,6 +27,10 @@ import "../../update/style/updates.css";
 import { HttpConversationClient } from "../../conversation/adapter/http-conversation-client.js";
 import { HttpUpdateClient } from "../../update/adapter/http-update-client.js";
 import { BrowserDesktopNotifications } from "../../notification/adapter/browser-desktop-notifications.js";
+import { HttpVoiceClient } from "../../voice/adapter/http-voice-client.js";
+import { browserMedia } from "../../voice/adapter/browser-media.js";
+import { browserPcmCapture } from "../../voice/adapter/browser-pcm-capture.js";
+import "../../voice/style/voice.css";
 
 initializeTheme();
 const element = document.getElementById("root");
@@ -73,6 +77,9 @@ async function bootstrap(): Promise<void> {
               }
               keys={new HttpKeyDirectory(createAuthenticatedTransport())}
               notifications={new BrowserDesktopNotifications()}
+              voice={new HttpVoiceClient(createAuthenticatedTransport())}
+              media={browserMedia()}
+              capture={browserPcmCapture()}
               queryClient={new QueryClient()}
             />
           </AvatarAnimationProvider>

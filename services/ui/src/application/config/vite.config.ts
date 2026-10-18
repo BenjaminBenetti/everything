@@ -27,7 +27,11 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      "/v1": "http://localhost:8080",
+      // WebSocket upgrades, such as voice streams, follow the same route as API requests.
+      "/v1": {
+        target: process.env.UI_API_ORIGIN ?? "http://localhost:8080",
+        ws: true,
+      },
     },
   },
 });

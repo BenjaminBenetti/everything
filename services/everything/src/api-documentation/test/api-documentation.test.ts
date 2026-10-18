@@ -55,6 +55,8 @@ function dependencies(
     teammateOrder: unusedOperations(),
     workspaces: unusedOperations(),
     workspaceActivity: unusedOperations(),
+    voice: unusedOperations(),
+    voiceStreams: unusedOperations(),
     readiness: async () => {},
   };
 }

@@ -205,11 +205,18 @@ serviceDefaults:
   #   emptyDir: {}                                                 scratch space; the root filesystem is read-only
   #   serviceAccountToken: { audience, expirationSeconds? }       the pod account's token for one audience, as `token`
   volumes: {}
+  # Containers that run to completion, by name and in name order, before the main container and any
+  # sidecars start, such as one that prepares a volume. Each takes the settings a sidecar takes
+  # except `probes`; its `volumeMounts` are writable even where the main container's mount is not.
+  initContainers: {}
   # Containers that run beside the main one for the pod's whole life, by name. Each starts before
-  # the main container and stops after it, and takes `image` or `upstreamImage`, `args`, `env`,
-  # `containerSecurityContext` (replacing the service's), `probes`, `resources`, and `volumeMounts`,
-  # a map of the service's volume names to mount paths.
+  # the main container and stops after it, and takes `image` or `upstreamImage`, `command`, `args`,
+  # `env`, `containerSecurityContext` (replacing the service's), `probes`, `resources`, and
+  # `volumeMounts`, a map of the service's volume names to mount paths.
   sidecars: {}
+  # Node labels the pod must be scheduled on, such as `kubernetes.io/arch: amd64` for an image built
+  # for one architecture.
+  nodeSelector: {}
 
 # Each entry becomes a Deployment or StatefulSet, its persistent volume claims, a Service for exposed ports, and
 # Ingress paths. To add a microservice, add an entry here and a workspace under services/ with a
@@ -419,6 +426,9 @@ services:
       # The upgrader, which accepts the token on the upgrader-token volume.
       UPGRADER_URL: http://upgrader:8080
       UPGRADER_TOKEN_FILE: /var/run/secrets/upgrader/token
+      # Streaming voice input relays to the voice-asr service; empty, which turns streaming off, when
+      # that service is turned off.
+      VOICE_STREAM_URL: '{{ include "stack.serviceUrl" (dict "root" . "name" "voice-asr" "port" "http" "scheme" "ws" "path" "/v1/stream") }}'
     apiAccess:
       "{{ .Release.Namespace }}":
         - apiGroups: [apps]
@@ -761,6 +771,66 @@ services:
         mountPath: /content
         persistentVolume: { size: 10Gi }
       tmp: { mountPath: /tmp, emptyDir: {} }
+
+  # Speech recognition for voice input: NVIDIA's Nemotron Speech Streaming English 0.6B model on the
+  # CPU (services/voice-asr), one stream at a time. Everything's voice gateway is its only client,
+  # through the private Service; it has no Ingress and no token, because only pods in the cluster can
+  # reach it. Set `enabled: false` to run without it, which turns streaming voice input off.
+  voice-asr:
+    image: everything-voice-asr
+    # The native worker is built for x86-64 with AVX2, so the image exists only for amd64.
+    nodeSelector: { kubernetes.io/arch: amd64 }
+    # The image's user, which owns the model it downloads.
+    podSecurityContext:
+      runAsUser: 10001
+      runAsGroup: 10001
+      fsGroup: 10001
+    # Leaves time to stop the native worker (VOICE_ASR_SHUTDOWN_TIMEOUT_S, 15 s).
+    terminationGracePeriodSeconds: 20
+    env:
+      PORT: "8080"
+      VOICE_ASR_MODEL_PATH: /models/nemotron-speech-streaming-en-0.6b.q8_0.gguf
+      # The native worker's threads, matching the CPU limit.
+      VOICE_ASR_OMP_THREAD_LIMIT: "4"
+    ports:
+      http: { containerPort: 8080, servicePort: 8080 }
+    initContainers:
+      # Downloads the pinned model into the models volume the first time, and checks its size and
+      # SHA-256 at every start; the speech service only reads it. The model is licensed under the
+      # NVIDIA Open Model License (services/voice-asr/MODEL_LICENSE.md), which this setting accepts.
+      model:
+        image: everything-voice-asr
+        command: [python, -m, voice_asr.provision]
+        env:
+          VOICE_ASR_MODEL_PATH: /models/nemotron-speech-streaming-en-0.6b.q8_0.gguf
+          VOICE_ASR_MODEL_LICENSE: NVIDIA-Open-Model-License
+        resources:
+          requests: { cpu: 100m, memory: 64Mi }
+          limits: { cpu: "1", memory: 256Mi }
+        volumeMounts:
+          models: /models
+    probes:
+      startup:
+        httpGet: { path: /healthz, port: http }
+        failureThreshold: 30
+        periodSeconds: 2
+      # Ready after the model check, the native worker's start, and a warmup stream.
+      readiness:
+        httpGet: { path: /readyz, port: http }
+        periodSeconds: 5
+      liveness:
+        httpGet: { path: /healthz, port: http }
+        periodSeconds: 10
+    # About 1 GiB while recognizing; there is no GPU path.
+    resources:
+      requests: { cpu: "1", memory: 1Gi }
+      limits: { cpu: "4", memory: 3Gi }
+    volumes:
+      models:
+        mountPath: /models
+        readOnly: true
+        persistentVolume: { size: 2Gi }
+      tmp: { mountPath: /tmp, emptyDir: { sizeLimit: 64Mi } }
 
   # Installs newer released versions of this chart when Everything asks, the way the installer does.
   # It alone holds the access to change the release; it accepts requests only from Everything's

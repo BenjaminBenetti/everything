@@ -1,0 +1,73 @@
+/* ===========================================
+   Microphone button
+   =========================================== */
+.voice-button {
+  position: relative;
+  /* Holding must not scroll, select text, or open a callout menu on touch screens. */
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+.voice-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.voice-button[data-state="recording"] {
+  background: var(--surface-selected);
+  color: var(--text-danger);
+}
+/* The last dictation failed; the button's tooltip says why. */
+.voice-button[data-problem] {
+  color: var(--text-danger);
+}
+.voice-button[data-state="recording"]::after,
+.voice-button[data-state="arming"]::after {
+  content: "";
+  position: absolute;
+  inset: 2px;
+  border-radius: inherit;
+  border: 2px solid currentColor;
+  pointer-events: none;
+}
+.voice-button[data-state="recording"]::after {
+  animation: voice-pulse 1.4s ease-in-out infinite;
+}
+/* Arming shows only once a press is longer than ordinary typing, then fills toward recording. */
+.voice-button[data-state="arming"]::after {
+  opacity: 0;
+  animation: voice-arming 2.5s linear 0.5s forwards;
+}
+.voice-spinner {
+  animation: voice-spin 1s linear infinite;
+}
+@keyframes voice-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+@keyframes voice-arming {
+  from {
+    opacity: 0.2;
+    transform: scale(0.6);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+@keyframes voice-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ===========================================
+   Phone composer
+   =========================================== */
+@media (max-width: 650px) {
+  .chat-composer-actions .voice-button {
+    width: 44px;
+    height: 44px;
+  }
+}

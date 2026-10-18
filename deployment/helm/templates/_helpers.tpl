@@ -61,6 +61,70 @@ imagePullPolicy: {{ .root.Values.global.image.pullPolicy }}
 {{- end }}
 
 {{/*
+A container in a service's pod beside its main one, from an entry under `initContainers`, which runs
+to completion before the others start, or `sidecars`, which runs for the pod's whole life. It uses the
+service's container security context unless it sets its own, and mounts the service's volumes by name.
+*/}}
+{{- define "stack.extraContainer" -}}
+{{- $root := .root -}}
+{{- $container := .container -}}
+{{- $sidecar := eq .kind "sidecars" -}}
+- name: {{ .containerName }}
+  {{- include "stack.containerImage" (dict "root" $root "name" (printf "%s.%s.%s" .name .kind .containerName) "image" $container.image "upstreamImage" $container.upstreamImage) | nindent 2 }}
+  {{- if $sidecar }}
+  restartPolicy: Always
+  {{- end }}
+  {{- with $container.command }}
+  command:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with $container.args }}
+  args:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  securityContext:
+    {{- toYaml ($container.containerSecurityContext | default .service.containerSecurityContext) | nindent 4 }}
+  {{- with $container.env }}
+  env:
+    {{- include "stack.env" (dict "root" $root "env" .) | trim | nindent 4 }}
+  {{- end }}
+  {{- if $sidecar }}
+  {{- range $probe, $spec := $container.probes }}
+  {{ $probe }}Probe:
+    {{- toYaml $spec | nindent 4 }}
+  {{- end }}
+  {{- end }}
+  {{- with $container.resources }}
+  resources:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with $container.volumeMounts }}
+  volumeMounts:
+    {{- range $volumeName, $mountPath := . }}
+    {{- if not (hasKey $.service.volumes $volumeName) }}
+    {{- fail (printf "services.%s.%s.%s mounts volume %q, which the service does not declare" $.name $.kind $.containerName $volumeName) }}
+    {{- end }}
+    - name: {{ $volumeName }}
+      mountPath: {{ $mountPath }}
+    {{- end }}
+  {{- end }}
+{{- end }}
+
+{{/*
+The URL at which other pods reach a service's exposed port, as `<scheme>://<service>.<namespace>
+.svc.cluster.local:<servicePort><path>`; empty when the service is turned off or absent, which a
+client setting built from it reads as no service.
+*/}}
+{{- define "stack.serviceUrl" -}}
+{{- $service := include "stack.service" (dict "root" .root "name" .name) | fromYaml -}}
+{{- if and (hasKey .root.Values.services .name) $service.enabled -}}
+{{- $port := required (printf "services.%s has no port %q" .name .port) (get $service.ports .port) -}}
+{{- $servicePort := required (printf "services.%s.ports.%s has no servicePort" .name .port) $port.servicePort -}}
+{{ .scheme }}://{{ .name }}.{{ .root.Release.Namespace }}.svc.cluster.local:{{ $servicePort }}{{ .path }}
+{{- end -}}
+{{- end }}
+
+{{/*
 A container's `env` list from a map of variable name to a literal value, rendered as a template, or
 to `{ secretName, key }` for a Secret value.
 */}}

@@ -414,6 +414,15 @@
             "$ref": "#/definitions/volume"
           }
         },
+        "initContainers": {
+          "type": "object",
+          "propertyNames": {
+            "$ref": "#/definitions/dnsLabel"
+          },
+          "additionalProperties": {
+            "$ref": "#/definitions/initContainer"
+          }
+        },
         "sidecars": {
           "type": "object",
           "propertyNames": {
@@ -421,6 +430,12 @@
           },
           "additionalProperties": {
             "$ref": "#/definitions/sidecar"
+          }
+        },
+        "nodeSelector": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
           }
         }
       }
@@ -566,6 +581,59 @@
         },
         "probes": {
           "$ref": "#/definitions/probes"
+        },
+        "resources": {
+          "type": "object"
+        },
+        "volumeMounts": {
+          "type": "object",
+          "propertyNames": {
+            "$ref": "#/definitions/dnsLabel"
+          },
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^/"
+          }
+        }
+      },
+      "oneOf": [
+        {
+          "required": ["image"]
+        },
+        {
+          "required": ["upstreamImage"]
+        }
+      ]
+    },
+    "initContainer": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "image": {
+          "type": "string",
+          "minLength": 1
+        },
+        "upstreamImage": {
+          "type": "string",
+          "minLength": 1
+        },
+        "command": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "env": {
+          "$ref": "#/definitions/env"
+        },
+        "containerSecurityContext": {
+          "type": "object"
         },
         "resources": {
           "type": "object"

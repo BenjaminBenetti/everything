@@ -1,0 +1,13 @@
+{
+  "name": "@everything/voice-asr",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:image": "bash ../../deployment/script/build-image.sh services/voice-asr everything-voice-asr:foundation",
+    "test:python": "bash scripts/test.sh"
+  },
+  "config": {
+    "imagePlatforms": "linux/amd64"
+  }
+}

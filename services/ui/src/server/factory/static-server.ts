@@ -32,6 +32,8 @@ export async function createStaticServer(root: string) {
     },
   });
   app.addHook("onSend", async (request, reply) => {
+    // Voice input records only on the application's own pages, never inside an embedded frame.
+    reply.header("Permissions-Policy", "microphone=(self)");
     const pathname = request.url.split("?")[0] ?? "";
     reply.header(
       "Cache-Control",

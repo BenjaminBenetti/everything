@@ -2,7 +2,14 @@ import swagger from "@fastify/swagger";
 import type { FastifyInstance } from "fastify";
 import type { ApiDocumentationPublisher } from "../interface/api-documentation.js";
 import type { ApiDefinition } from "../model/api-documentation.js";
+import { Type } from "typebox";
 import { errorResponse } from "../../http/schema/http-response.js";
+
+/** Documentation for a request body read as raw bytes in each of the route's `consumes` types. */
+const rawBody = Type.String({
+  format: "binary",
+  description: "The raw bytes, sent with one of the listed content types.",
+});
 
 /** Reflect routes in the authenticated scope before its controllers register any endpoints. */
 export async function registerApiDocumentation(
@@ -38,6 +45,8 @@ export async function registerApiDocumentation(
         url,
         schema: {
           ...schema,
+          // Raw-body routes declare their media types without a JSON schema, which would reject a Buffer.
+          ...(schema?.consumes && !schema.body ? { body: rawBody } : {}),
           response: {
             default: errorResponse,
             ...(schema?.response as Record<string, unknown> | undefined),

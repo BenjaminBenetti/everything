@@ -78,6 +78,7 @@ import {
   WorkspaceActivity,
   recentWorkspaceListing,
 } from "../../workspace/service/workspace-activity.js";
+import { createVoiceRuntime } from "../../voice/factory/voice-runtime.js";
 
 /** Assemble concrete adapters once at the process boundary and own their lifecycle. */
 async function main(): Promise<void> {
@@ -212,6 +213,9 @@ async function main(): Promise<void> {
     ),
     workspaces,
   );
+  const voice = await createVoiceRuntime(config.voice, agents, (message) =>
+    console.warn(message),
+  );
   const app = await createHttpApplication({
     apiDocumentation,
     keys: new SshEnabledKeys(
@@ -249,6 +253,8 @@ async function main(): Promise<void> {
     workers,
     workspaces: workspaceInstances,
     workspaceActivity,
+    voice: voice.uploads,
+    voiceStreams: voice.streams,
     verifier,
     sessions: new SessionService(
       new PostgresSessionRepository(database),
@@ -279,6 +285,8 @@ async function main(): Promise<void> {
         "Automatic provider checks could not complete; scheduling will retry.",
       ),
   );
+  // Waiting on the speech services would hold shutdown open, so transcriptions and streams stop first.
+  app.addHook("preClose", async () => voice.close());
   app.addHook("onClose", async () => {
     await summaries.close();
     await providerChecks.close();
