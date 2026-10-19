@@ -1,12 +1,60 @@
 /**
- * Voice streaming protocol, version 1: the browser streams PCM while the microphone is held, and the
- * speech service returns one final transcript after an explicit end. The gateway and the internal
- * speech service speak the same messages. Field names and framing are frozen; change them only by
- * agreement with the speech service.
+ * Voice streaming protocol: the browser streams PCM while the microphone is held, and the speech
+ * service returns one final transcript after an explicit end. The gateway and the internal speech
+ * service speak the same messages. Field names and framing are frozen; change them only by agreement
+ * with the speech service.
+ *
+ * Version 1 returns only the final. Version 2 is version 1 plus `partial` messages: the service's
+ * provisional transcript while audio streams, which the final then replaces once. Peers agree on a
+ * version before start, so a version 1 peer never sees anything but version 1:
+ * - Browser to gateway: the browser offers both WebSocket subprotocols, version 1 first; a gateway
+ *   that predates version 2 selects the first offer, and one that speaks it selects version 2.
+ * - Gateway to speech service: a service that speaks version 2 lists its versions in the upgrade
+ *   response's {@link voiceStreamVersionsHeader}; without it, the gateway starts version 1.
  */
 
-/** The protocol version every start and ready message carries. */
+/** Protocol versions: 1 returns only a final; 2 adds partial transcripts while audio streams. */
+export const voiceStreamVersions = [1, 2] as const;
+
+/** A protocol version. */
+export type VoiceStreamVersion = (typeof voiceStreamVersions)[number];
+
+/** The original version, which every peer speaks. */
 export const voiceStreamVersion = 1;
+
+/** The version that adds partial transcripts. */
+export const voiceStreamLiveVersion = 2;
+
+/**
+ * WebSocket subprotocol for each version, between browser and gateway. Browsers offer them in this
+ * order, so a gateway that selects the first offer speaks version 1.
+ */
+export const voiceStreamProtocols = {
+  1: "voice-stream.1",
+  2: "voice-stream.2",
+} as const satisfies Record<VoiceStreamVersion, string>;
+
+/** The version a negotiated subprotocol names; anything else, including none, is version 1. */
+export function voiceStreamProtocolVersion(
+  protocol: string,
+): VoiceStreamVersion {
+  return protocol === voiceStreamProtocols[2] ? 2 : 1;
+}
+
+/**
+ * Upgrade response header in which a speech service lists the versions it speaks, such as `1, 2`.
+ * A service without it speaks only version 1.
+ */
+export const voiceStreamVersionsHeader = "voice-stream-versions";
+
+/** Whether a speech service's version header includes the version with partial transcripts. */
+export function speaksLiveVersion(header: string | undefined): boolean {
+  return (
+    !!header &&
+    header.length <= 64 &&
+    header.split(",").some((version) => version.trim() === "2")
+  );
+}
 
 /** Fixed audio format: 16 kHz, mono, signed 16-bit little-endian PCM. */
 export const voiceStreamAudio = {
@@ -54,10 +102,10 @@ export type VoiceStreamErrorCode = (typeof voiceStreamErrorCodes)[number];
 // Client to service
 // ===========================================
 
-/** Opens the stream; sent once, before any audio. */
+/** Opens the stream; sent once, before any audio, with the agreed version. */
 export interface VoiceStreamStart {
   readonly type: "start";
-  readonly version: typeof voiceStreamVersion;
+  readonly version: VoiceStreamVersion;
   readonly sampleRate: typeof voiceStreamAudio.sampleRate;
   readonly channels: typeof voiceStreamAudio.channels;
   readonly format: typeof voiceStreamAudio.format;
@@ -83,10 +131,10 @@ export type VoiceStreamClientMessage =
 // Service to client
 // ===========================================
 
-/** The stream is admitted and the speech service is ready for audio. */
+/** The stream is admitted and the speech service is ready for audio; carries start's version. */
 export interface VoiceStreamReady {
   readonly type: "ready";
-  readonly version: typeof voiceStreamVersion;
+  readonly version: VoiceStreamVersion;
   readonly maxSamples: number;
   readonly maxFrameSamples: number;
   readonly windowSamples: number;
@@ -96,6 +144,18 @@ export interface VoiceStreamReady {
 export interface VoiceStreamAck {
   readonly type: "ack";
   readonly sequence: number;
+}
+
+/**
+ * Version 2 only: the provisional transcript of everything heard so far, which later partials
+ * revise and the final replaces. Revisions only increase; one may be skipped, since each partial
+ * replaces the last. It is never stable text: an acknowledgement or partial says nothing about which
+ * words the final will keep.
+ */
+export interface VoiceStreamPartial {
+  readonly type: "partial";
+  readonly revision: number;
+  readonly text: string;
 }
 
 /** The one stable transcript, after end; empty when nothing was recognized. */
@@ -119,16 +179,24 @@ export interface VoiceStreamError {
 export type VoiceStreamServiceMessage =
   | VoiceStreamReady
   | VoiceStreamAck
+  | VoiceStreamPartial
   | VoiceStreamFinal
   | VoiceStreamCancelled
   | VoiceStreamError;
 
-/** The start message every stream begins with. */
+/** The version 1 start message. */
 export const voiceStreamStart: VoiceStreamStart = {
   type: "start",
   version: voiceStreamVersion,
   ...voiceStreamAudio,
 };
+
+/** The start message for a version. */
+export function voiceStreamStartFor(
+  version: VoiceStreamVersion,
+): VoiceStreamStart {
+  return { ...voiceStreamStart, version };
+}
 
 // ===========================================
 // Audio framing
@@ -217,7 +285,15 @@ function isCount(value: unknown, max: number): value is number {
   );
 }
 
-/** Parse a client text message, accepting only the exact v1 shapes. */
+/** A known protocol version. */
+function isVersion(value: unknown): value is VoiceStreamVersion {
+  return voiceStreamVersions.includes(value as VoiceStreamVersion);
+}
+
+/**
+ * Parse a client text message, accepting only the exact shapes. Start may carry either version; the
+ * receiver checks it against the version agreed for the connection.
+ */
 export function parseVoiceClientMessage(
   text: string,
 ): VoiceStreamClientMessage | null {
@@ -232,11 +308,11 @@ export function parseVoiceClientMessage(
         "channels",
         "format",
       ]) &&
-        value.version === voiceStreamVersion &&
+        isVersion(value.version) &&
         value.sampleRate === voiceStreamAudio.sampleRate &&
         value.channels === voiceStreamAudio.channels &&
         value.format === voiceStreamAudio.format
-        ? voiceStreamStart
+        ? voiceStreamStartFor(value.version)
         : null;
     case "end":
       return hasExactKeys(value, ["type", "sequence", "totalSamples"]) &&
@@ -256,16 +332,22 @@ export function parseVoiceClientMessage(
 }
 
 /**
- * Parse a service text message, accepting only the exact v1 shapes. Ready limits above the product's
- * own are refused, so a service can never raise them. Final text is accepted up to `maxText`
- * characters; `maxBytes` bounds the message as received.
+ * Parse a service text message, accepting only the exact shapes of the stream's `version`, 1 unless
+ * given: ready must carry it, and partials exist only in version 2. Ready limits above the product's
+ * own are refused, so a service can never raise them. Partial and final text is accepted up to
+ * `maxText` characters; `maxBytes` bounds the message as received.
  */
 export function parseVoiceServiceMessage(
   text: string,
   {
     maxText,
     maxBytes,
-  }: { readonly maxText: number; readonly maxBytes: number },
+    version = voiceStreamVersion,
+  }: {
+    readonly maxText: number;
+    readonly maxBytes: number;
+    readonly version?: VoiceStreamVersion;
+  },
 ): VoiceStreamServiceMessage | null {
   if (
     text.length > maxBytes ||
@@ -291,7 +373,7 @@ export function parseVoiceServiceMessage(
         "maxFrameSamples",
         "windowSamples",
       ]) &&
-        value.version === voiceStreamVersion &&
+        value.version === version &&
         isCount(value.maxSamples, limits.maxSamples) &&
         (value.maxSamples as number) > 0 &&
         isCount(value.maxFrameSamples, limits.maxFrameSamples) &&
@@ -300,7 +382,7 @@ export function parseVoiceServiceMessage(
         (value.windowSamples as number) > 0
         ? {
             type: "ready",
-            version: voiceStreamVersion,
+            version,
             maxSamples: value.maxSamples as number,
             maxFrameSamples: value.maxFrameSamples as number,
             windowSamples: value.windowSamples as number,
@@ -310,6 +392,16 @@ export function parseVoiceServiceMessage(
       return hasExactKeys(value, ["type", "sequence"]) &&
         isCount(value.sequence, limits.maxMessages - 1)
         ? { type: "ack", sequence: value.sequence }
+        : null;
+    case "partial":
+      // At most one partial per audio message, so revisions never pass the message limit.
+      return version >= voiceStreamLiveVersion &&
+        hasExactKeys(value, ["type", "revision", "text"]) &&
+        isCount(value.revision, limits.maxMessages) &&
+        (value.revision as number) > 0 &&
+        typeof value.text === "string" &&
+        value.text.length <= maxText
+        ? { type: "partial", revision: value.revision, text: value.text }
         : null;
     case "final":
       return hasExactKeys(value, ["type", "text"]) &&

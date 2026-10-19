@@ -1,7 +1,7 @@
 import type { VoiceState } from "./composer-state.js";
 
 /** How long Space must be held in the composer before recording starts. */
-export const spaceHoldMs = 3000;
+export const spaceHoldMs = 1000;
 
 /** The keyboard event fields the Space gesture reads. */
 export interface KeyFacts {
@@ -19,7 +19,7 @@ export interface KeyFacts {
  * What a keydown in the composer does to the gesture:
  * - `arm`: an ordinary Space that may become a hold; it still types its space.
  * - `suppress`: a repeat or stray Space while armed or recording; it must not type.
- * - `cancel`: Escape stops an active dictation.
+ * - `cancel`: Escape stops an active dictation, unless an IME composition is using it.
  * - `disarm`: any other key ends an armed hold; the key keeps its normal effect.
  * - `none`: not part of the gesture.
  */
@@ -41,7 +41,8 @@ export function spaceKeyDown(
   holdEnabled: boolean,
   spaceHeld = false,
 ): SpaceKeyDown {
-  if (event.key === "Escape" && voice.phase !== "idle") return "cancel";
+  if (event.key === "Escape" && voice.phase !== "idle" && !event.isComposing)
+    return "cancel";
   const space = event.key === " ";
   if (space && event.repeat && spaceHeld) return "suppress";
   if (voice.source === "space" && space)

@@ -33,10 +33,10 @@
 .voice-button[data-state="recording"]::after {
   animation: voice-pulse 1.4s ease-in-out infinite;
 }
-/* Arming shows only once a press is longer than ordinary typing, then fills toward recording. */
+/* Arming shows only once a press is longer than ordinary typing, then fills toward recording at 1 s. */
 .voice-button[data-state="arming"]::after {
   opacity: 0;
-  animation: voice-arming 2.5s linear 0.5s forwards;
+  animation: voice-arming 0.7s linear 0.3s forwards;
 }
 .voice-spinner {
   animation: voice-spin 1s linear infinite;

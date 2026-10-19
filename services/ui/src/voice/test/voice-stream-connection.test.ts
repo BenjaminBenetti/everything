@@ -10,15 +10,21 @@ class FakeSocket {
   static readonly CLOSING = 2;
   static readonly CLOSED = 3;
   static last: FakeSocket | null = null;
+  /** The subprotocol the next socket's server selects. */
+  static selects = "";
   readyState = FakeSocket.CONNECTING;
   bufferedAmount = 0;
   binaryType = "blob";
+  protocol = "";
   readonly sent: (string | ArrayBuffer)[] = [];
   onopen: (() => void) | null = null;
   onmessage: ((event: { data: unknown }) => void) | null = null;
   onerror: (() => void) | null = null;
   onclose: (() => void) | null = null;
-  constructor(readonly url: string) {
+  constructor(
+    readonly url: string,
+    readonly protocols: string[] = [],
+  ) {
     FakeSocket.last = this;
   }
   send(data: string | ArrayBuffer): void {
@@ -27,9 +33,10 @@ class FakeSocket {
   close(): void {
     this.readyState = FakeSocket.CLOSED;
   }
-  /** The server accepted the upgrade. */
+  /** The server accepted the upgrade, selecting `FakeSocket.selects`. */
   open(): void {
     this.readyState = FakeSocket.OPEN;
+    this.protocol = FakeSocket.selects;
     this.onopen?.();
   }
   /** The server sent a JSON message. */
@@ -58,26 +65,29 @@ const ready = {
   windowSamples: 16_000,
 };
 
-/** A connection over the fake socket, with failures recorded. */
+/** A connection over the fake socket, with failures and partials recorded. */
 function connection(context: TestContext, finalTimeoutMs = 30_000) {
   const original = globalThis.WebSocket;
   globalThis.WebSocket = FakeSocket as unknown as typeof WebSocket;
   mock.timers.enable({ apis: ["setTimeout"] });
   context.after(() => {
     globalThis.WebSocket = original;
+    FakeSocket.selects = "";
     mock.timers.reset();
   });
   const failures: string[] = [];
+  const partials: [string, number][] = [];
   const stream = new VoiceStreamConnection(
     "ws://localhost/v1/agents/a/voice/stream",
     {
       finalTimeoutMs,
       onFailure: (error) => failures.push(error.notice),
+      onPartial: (text, revision) => partials.push([text, revision]),
     },
   );
   stream.open();
   const socket = FakeSocket.last!;
-  return { stream, socket, failures };
+  return { stream, socket, failures, partials };
 }
 
 /** A connection that has opened and received ready. */
@@ -259,4 +269,93 @@ test("acknowledgements that go backwards or ahead, and a final before end, are p
   const early = streaming(context);
   early.socket.reply({ type: "final", text: "too soon" });
   assert.deepEqual(early.failures, ["failed"]);
+});
+
+// ===========================================
+// Version 2: partial transcripts
+// ===========================================
+
+/** A connection whose gateway selected version 2, open and ready. */
+function live(context: TestContext) {
+  const fixture = connection(context);
+  FakeSocket.selects = "voice-stream.2";
+  fixture.socket.open();
+  fixture.socket.reply({ ...ready, version: 2 });
+  return fixture;
+}
+
+test("offers both versions, version 1 first, and starts in the one the gateway selected", (context) => {
+  const older = connection(context);
+  assert.deepEqual(older.socket.protocols, [
+    "voice-stream.1",
+    "voice-stream.2",
+  ]);
+  // A gateway that predates version 2 selects the first offer, or nothing at all.
+  FakeSocket.selects = "voice-stream.1";
+  older.socket.open();
+  assert.equal(older.socket.json()[0]!.version, 1);
+  // Ready must carry the agreed version.
+  older.socket.reply({ ...ready, version: 2 });
+  assert.deepEqual(older.failures, ["failed"]);
+  mock.timers.reset();
+  const newer = connection(context);
+  FakeSocket.selects = "voice-stream.2";
+  newer.socket.open();
+  assert.deepEqual(newer.socket.json(), [
+    {
+      type: "start",
+      version: 2,
+      sampleRate: 16000,
+      channels: 1,
+      format: "pcm_s16le",
+    },
+  ]);
+});
+
+test("version 2 passes on each newer partial, before and after end, and the final is still the result", async (context) => {
+  const { stream, socket, partials, failures } = live(context);
+  stream.write(frame());
+  socket.reply({ type: "partial", revision: 1, text: "Hel" });
+  socket.reply({ type: "ack", sequence: 0 });
+  stream.write(frame());
+  socket.reply({ type: "partial", revision: 3, text: "Hello the" });
+  const finished = stream.finish(640);
+  socket.reply({ type: "partial", revision: 4, text: "Hello there" });
+  socket.reply({ type: "final", text: "Hello there." });
+  assert.equal(await finished, "Hello there.");
+  assert.deepEqual(partials, [
+    ["Hel", 1],
+    ["Hello the", 3],
+    ["Hello there", 4],
+  ]);
+  assert.deepEqual(failures, []);
+  // Nothing after the final is passed on.
+  socket.reply({ type: "partial", revision: 5, text: "late" });
+  assert.equal(partials.length, 3);
+});
+
+test("a partial out of order, before ready, or in version 1 is a protocol failure", (context) => {
+  const repeated = live(context);
+  repeated.socket.reply({ type: "partial", revision: 2, text: "a" });
+  repeated.socket.reply({ type: "partial", revision: 2, text: "b" });
+  assert.deepEqual(repeated.failures, ["failed"]);
+  mock.timers.reset();
+  const early = connection(context);
+  FakeSocket.selects = "voice-stream.2";
+  early.socket.open();
+  early.socket.reply({ type: "partial", revision: 1, text: "early" });
+  assert.deepEqual(early.failures, ["failed"]);
+  assert.deepEqual(early.partials, []);
+  mock.timers.reset();
+  const older = streaming(context);
+  older.socket.reply({ type: "partial", revision: 1, text: "unasked" });
+  assert.deepEqual(older.failures, ["failed"]);
+});
+
+test("a cancelled stream passes on no late partial", (context) => {
+  const { stream, socket, partials } = live(context);
+  stream.write(frame());
+  stream.cancel();
+  socket.reply({ type: "partial", revision: 1, text: "stale" });
+  assert.deepEqual(partials, []);
 });

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  committedDraft,
   composerReducer,
   initialComposerState,
   type ComposerAction,
@@ -38,15 +39,20 @@ function holdSpace(
   );
 }
 
-test("a Space hold promotes at exactly 3000 ms, not 2999 ms, restoring the text the space replaced", () => {
+test("a Space hold promotes at exactly 1000 ms, not 999 ms, once, restoring the text the space replaced", () => {
   const armed = holdSpace(drafted("Say hello"), 3);
   assert.equal(armed.draft, "Say  hello");
   assert.equal(armed.voice.phase, "arming");
   const { generation } = armed.voice;
-  const early = run(armed, { type: "holdTick", generation, now: 3_999 });
+  const early = run(armed, { type: "holdTick", generation, now: 1_999 });
   assert.equal(early, armed);
-  const promoted = run(armed, { type: "holdTick", generation, now: 4_000 });
+  const promoted = run(armed, { type: "holdTick", generation, now: 2_000 });
   assert.equal(promoted.voice.phase, "starting");
+  // Later ticks of the same hold start nothing more.
+  assert.equal(
+    run(promoted, { type: "holdTick", generation, now: 2_500 }),
+    promoted,
+  );
   assert.equal(promoted.draft, "Say hello");
   assert.deepEqual(promoted.voice.target, { start: 3, end: 3 });
   assert.equal(promoted.voice.selection?.start, 3);
@@ -103,7 +109,7 @@ test("a hold whose space can't be confirmed is abandoned with the text intact", 
   const abandoned = run(silent, {
     type: "holdTick",
     generation: silent.voice.generation,
-    now: 3_000,
+    now: 1_000,
   });
   assert.equal(abandoned.voice.phase, "idle");
   assert.equal(abandoned.draft, "Hi");
@@ -253,4 +259,268 @@ test("button presses clamp their selection and failures end the dictation with a
   assert.equal(failed.voice.notice, "permissionDenied");
   assert.equal(failed.draft, "Hi");
   assert.equal(run(failed, { type: "dismissNotice" }).voice.notice, null);
+});
+
+// ===========================================
+// Partial transcripts
+// ===========================================
+
+/** A button recording in progress at a selection. */
+function recording(draft: string, start: number, end = start): ComposerState {
+  const pressed = run(drafted(draft), {
+    type: "buttonDown",
+    selectionStart: start,
+    selectionEnd: end,
+  });
+  return run(pressed, {
+    type: "recordingStarted",
+    generation: pressed.voice.generation,
+  });
+}
+
+/** A partial transcript for the state's dictation. */
+function partial(
+  state: ComposerState,
+  revision: number,
+  text: string,
+  selection?: { start: number; end: number },
+): Extract<ComposerAction, { type: "partial" }> {
+  return {
+    type: "partial",
+    generation: state.voice.generation,
+    revision,
+    text,
+    ...(selection ? { selection } : {}),
+  };
+}
+
+test("partials revise only the dictation's text, in order, and the final replaces them exactly once", () => {
+  const live = recording("Say hello", 3);
+  const first = run(live, partial(live, 1, "there"));
+  assert.equal(first.draft, "Say there hello");
+  assert.deepEqual(first.voice.target, { start: 3, end: 9 });
+  const second = run(first, partial(live, 3, " there my "));
+  assert.equal(second.draft, "Say there my hello");
+  // A revision older than the newest applied is ignored.
+  assert.equal(run(second, partial(live, 2, "stale words")), second);
+  const released = run(second, {
+    type: "released",
+    generation: live.voice.generation,
+  });
+  // Partials keep arriving for audio sent before the release.
+  const late = run(released, partial(live, 4, "there my friend"));
+  assert.equal(late.draft, "Say there my friend hello");
+  const done = run(late, {
+    type: "transcribed",
+    generation: live.voice.generation,
+    text: "there, my friend",
+  });
+  assert.equal(done.draft, "Say there, my friend hello");
+  assert.equal(done.voice.phase, "idle");
+  assert.equal(done.voice.live, null);
+  assert.equal(done.voice.notice, "inserted");
+  assert.deepEqual(
+    { start: done.voice.selection?.start, end: done.voice.selection?.end },
+    { start: 20, end: 20 },
+  );
+});
+
+test("a selection stays until the first partial replaces it, and comes back on cancel, failure, or no speech", () => {
+  const live = recording("Use OLD here", 4, 7);
+  assert.equal(run(live, partial(live, 1, "   ")).draft, "Use OLD here");
+  const shown = run(
+    live,
+    partial(live, 1, "new"),
+    partial(live, 2, "newer words"),
+  );
+  assert.equal(shown.draft, "Use newer words here");
+  assert.equal(committedDraft(shown), "Use OLD here");
+  assert.equal(
+    run(shown, { type: "cancel", notice: "cancelled" }).draft,
+    "Use OLD here",
+  );
+  const failed = run(shown, {
+    type: "failed",
+    generation: live.voice.generation,
+    notice: "unavailable",
+  });
+  assert.equal(failed.draft, "Use OLD here");
+  assert.equal(failed.voice.notice, "unavailable");
+  // A blank revision shows the original again.
+  assert.equal(run(shown, partial(live, 3, "")).draft, "Use OLD here");
+  const released = run(shown, {
+    type: "released",
+    generation: live.voice.generation,
+  });
+  const silent = run(released, {
+    type: "transcribed",
+    generation: live.voice.generation,
+    text: " ",
+  });
+  assert.equal(silent.draft, "Use OLD here");
+  assert.equal(silent.voice.notice, "noSpeech");
+  // A late partial of the finished dictation changes nothing.
+  assert.equal(run(silent, partial(live, 9, "late")), silent);
+});
+
+test("typing before or after the partial is kept and moves it; editing the partial itself is refused", () => {
+  const live = recording("Hi", 2);
+  const shown = run(live, partial(live, 1, "there"));
+  assert.equal(shown.draft, "Hi there");
+  // Typed right after the partial: the user's, and outside the dictation's text.
+  const after = run(shown, { type: "edit", value: "Hi there!", caret: 9 });
+  assert.deepEqual(after.voice.target, { start: 2, end: 8 });
+  const before = run(after, { type: "edit", value: "Oh Hi there!", caret: 3 });
+  assert.deepEqual(before.voice.target, { start: 5, end: 11 });
+  const revised = run(before, partial(live, 2, "there friend"));
+  assert.equal(revised.draft, "Oh Hi there friend!");
+  // Backspace into the partial is refused: the draft stays, and the field is told to show it again.
+  const refused = run(revised, {
+    type: "edit",
+    value: "Oh Hi there frien!",
+    caret: 17,
+  });
+  assert.equal(refused.draft, "Oh Hi there friend!");
+  assert.deepEqual(refused.voice.target, revised.voice.target);
+  assert.equal(
+    refused.voice.selection?.revision,
+    (revised.voice.selection?.revision ?? 0) + 1,
+  );
+  assert.equal(refused.voice.selection?.start, 18);
+  const done = run(
+    run(refused, { type: "released", generation: live.voice.generation }),
+    {
+      type: "transcribed",
+      generation: live.voice.generation,
+      text: "there, friend",
+    },
+  );
+  assert.equal(done.draft, "Oh Hi there, friend!");
+});
+
+test("an IME composition is never interrupted; what it typed into the partial is replaced with it", () => {
+  const live = recording("Hi", 2);
+  const shown = run(live, partial(live, 1, "there"));
+  const composed = run(shown, {
+    type: "edit",
+    value: "Hi thかere",
+    caret: 6,
+    composing: true,
+  });
+  assert.equal(composed.draft, "Hi thかere");
+  assert.deepEqual(composed.voice.target, { start: 2, end: 9 });
+  assert.equal(
+    run(composed, partial(live, 2, "there now")).draft,
+    "Hi there now",
+  );
+  // A composition beside the partial is the user's text, like any other typing.
+  const beside = run(shown, {
+    type: "edit",
+    value: "Hi thereか",
+    caret: 9,
+    composing: true,
+  });
+  assert.deepEqual(beside.voice.target, { start: 2, end: 8 });
+  assert.equal(
+    run(beside, partial(live, 2, "there now")).draft,
+    "Hi there now か",
+  );
+});
+
+test("a keystroke made against the draft before a partial was shown is restated, never lost or duplicated", () => {
+  const live = recording("Note", 4);
+  const shown = run(live, partial(live, 1, "hello"));
+  assert.equal(shown.draft, "Note hello");
+  // The user typed at the start while the field still showed "Note".
+  const early = run(shown, {
+    type: "edit",
+    value: "A Note",
+    caret: 2,
+    base: "Note",
+  });
+  assert.equal(early.draft, "A Note hello");
+  assert.deepEqual(early.voice.target, { start: 6, end: 12 });
+  // Typed at the end of the old draft, where the partial now is: kept after it.
+  const end = run(shown, {
+    type: "edit",
+    value: "Note!",
+    caret: 5,
+    base: "Note",
+  });
+  assert.equal(end.draft, "Note hello!");
+  assert.equal(
+    run(end, partial(live, 2, "hello you")).draft,
+    "Note hello you!",
+  );
+  // An edit to text the partial replaced conflicts, and the draft keeps the dictation's text.
+  const selected = recording("Use OLD here", 4, 7);
+  const replaced = run(selected, partial(selected, 1, "new"));
+  const conflict = run(replaced, {
+    type: "edit",
+    value: "Use OL here",
+    caret: 6,
+    base: "Use OLD here",
+  });
+  assert.equal(conflict.draft, "Use new here");
+});
+
+test("the caret follows the partial when it was there, and otherwise stays where the user left it", () => {
+  const live = recording("Hello world", 11);
+  const shown = run(live, partial(live, 1, "and", { start: 11, end: 11 }));
+  assert.equal(shown.draft, "Hello world and");
+  assert.deepEqual(
+    { start: shown.voice.selection?.start, end: shown.voice.selection?.end },
+    { start: 15, end: 15 },
+  );
+  const grown = run(
+    shown,
+    partial(live, 2, "and more", { start: 15, end: 15 }),
+  );
+  assert.equal(grown.voice.selection?.start, 20);
+  // The user put the caret at the start to type there; it stays.
+  const elsewhere = run(
+    grown,
+    partial(live, 3, "and more words", { start: 0, end: 0 }),
+  );
+  assert.equal(elsewhere.voice.selection?.start, 0);
+  // A selection exactly over the original target follows the partial as a caret.
+  const selected = recording("Use OLD here", 4, 7);
+  const over = run(selected, partial(selected, 1, "new", { start: 4, end: 7 }));
+  assert.deepEqual(
+    { start: over.voice.selection?.start, end: over.voice.selection?.end },
+    { start: 7, end: 7 },
+  );
+});
+
+test("partials are ignored outside their dictation, and one that won't fit in a message is skipped", () => {
+  const live = recording("Draft", 5);
+  const { generation } = live.voice;
+  assert.equal(
+    run(live, { ...partial(live, 1, "words"), generation: generation + 1 }),
+    live,
+  );
+  const cancelled = run(live, { type: "cancel" });
+  assert.equal(run(cancelled, partial(live, 1, "late")), cancelled);
+  const full = recording("x".repeat(31_990), 31_990);
+  const fits = run(full, partial(full, 1, "short"));
+  assert.equal(fits.draft.length, 31_996);
+  const tooLong = run(fits, partial(full, 2, "much longer than will fit"));
+  assert.equal(tooLong.draft, fits.draft);
+  assert.equal(tooLong.voice.revision, 2);
+  // The final replaces the partial and is measured against the draft without it.
+  const done = run(
+    run(tooLong, { type: "released", generation: full.voice.generation }),
+    { type: "transcribed", generation: full.voice.generation, text: "fits" },
+  );
+  assert.equal(done.draft, `${"x".repeat(31_990)} fits`);
+});
+
+test("a send leaves the partial out of the draft it sends and clears only that", () => {
+  const live = recording("Typed", 5);
+  const shown = run(live, partial(live, 1, "spoken"));
+  const submitted = committedDraft(shown);
+  assert.equal(submitted, "Typed");
+  const sent = run(shown, { type: "cancel" }, { type: "sent", submitted });
+  assert.equal(sent.draft, "");
+  assert.equal(committedDraft(drafted("plain")), "plain");
 });

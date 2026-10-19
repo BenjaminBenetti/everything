@@ -8,6 +8,11 @@
  *
  * Frame (both directions): uint32 little-endian payload length, uint8 type, payload.
  *
+ * A stream started with the interim flag answers each push with its provisional transcript when that
+ * changed: the finals so far plus the native interim hypothesis of the current utterance. It is the
+ * cache-aware decoder's own interim result from the next() drain that already follows every push;
+ * nothing is decoded again.
+ *
  * usage: voice-asr-worker COMMAND_FD REPLY_FD MODEL_PATH
  */
 #include <nemo_speech/asr.h>
@@ -26,7 +31,7 @@
 /* ------------------------------------------------------------------------- */
 
 enum {
-    CMD_START  = 'S',
+    CMD_START  = 'S', /* payload: none, or one flags byte */
     CMD_PUSH   = 'P', /* payload: PCM16LE samples */
     CMD_FINISH = 'F',
     CMD_CLOSE  = 'C',
@@ -34,12 +39,13 @@ enum {
 };
 
 enum {
-    REPLY_READY  = 'R', /* payload: ABI version string */
-    REPLY_OK     = 'O',
-    REPLY_ACK    = 'A',
-    REPLY_FINAL  = 'T', /* payload: UTF-8 transcript */
-    REPLY_CLOSED = 'D',
-    REPLY_ERROR  = 'E', /* payload: one error byte */
+    REPLY_READY   = 'R', /* payload: ABI version string */
+    REPLY_OK      = 'O',
+    REPLY_ACK     = 'A',
+    REPLY_PARTIAL = 'I', /* an ACK whose payload is the changed provisional transcript, UTF-8 */
+    REPLY_FINAL   = 'T', /* payload: UTF-8 transcript */
+    REPLY_CLOSED  = 'D',
+    REPLY_ERROR   = 'E', /* payload: one error byte */
 };
 
 enum {
@@ -49,6 +55,9 @@ enum {
     ERR_OUTPUT_LIMIT = 4,
     ERR_NO_FINAL     = 5,
 };
+
+/* START flags. */
+#define START_INTERIM 0x01
 
 #define MAX_PUSH_SAMPLES 16000
 #define MAX_TEXT_UNITS   32000 /* UTF-16 code units, which also bounds code points */
@@ -110,10 +119,18 @@ typedef struct {
     nemo_speech_asr_stream * stream;
     bool                     finished;
     bool                     overflow;
+    bool                     interim;      /* report provisional transcripts (START_INTERIM) */
+    bool                     provisional_changed;
     int                      finals_after_finish;
     size_t                   text_bytes;
-    size_t                   text_units; /* JavaScript string length: UTF-16 code units */
+    size_t                   text_units;   /* JavaScript string length: UTF-16 code units */
+    size_t                   interim_bytes;
+    size_t                   reported_bytes;
+    /* Everything above is reset when a stream opens; the buffers below are reset by length. */
     char                     text[MAX_TEXT_BYTES + 1];
+    char                     interim_text[MAX_TEXT_BYTES + 1]; /* the current utterance's interim hypothesis */
+    char                     provisional[MAX_TEXT_BYTES + 1];  /* scratch: text, a space, interim */
+    char                     reported[MAX_TEXT_BYTES + 1];     /* the provisional last sent */
 } stream_state;
 
 /* UTF-16 code units of a UTF-8 string: one per code point, two for 4-byte sequences (U+10000 and above). */
@@ -149,7 +166,21 @@ static void append_final(stream_state * st, const char * text) {
     st->text[st->text_bytes] = '\0';
 }
 
-/* Drain stream_next until no result is available. Interim text is discarded; finals are accumulated. */
+/* Keep the current utterance's interim hypothesis when it changed; one too large to report is skipped. */
+static void note_interim(stream_state * st, const char * text) {
+    text     = text ? text : "";
+    size_t n = strlen(text);
+    if (n > MAX_TEXT_BYTES || (n == st->interim_bytes && memcmp(st->interim_text, text, n) == 0)) {
+        return;
+    }
+    memcpy(st->interim_text, text, n);
+    st->interim_text[n]     = '\0';
+    st->interim_bytes       = n;
+    st->provisional_changed = true;
+}
+
+/* Drain stream_next until no result is available. Finals are accumulated; an interim result is kept
+ * only for a stream that reports provisional text, and a final ends the utterance it belonged to. */
 static int drain(stream_state * st, bool after_finish) {
     for (;;) {
         nemo_speech_asr_result * result = NULL;
@@ -166,17 +197,23 @@ static int drain(stream_state * st, bool after_finish) {
             if (after_finish) {
                 st->finals_after_finish++;
             }
+            st->interim_bytes       = 0;
+            st->provisional_changed = true;
+        } else if (st->interim && !after_finish && nemo_speech_asr_result_alternative_count(result) > 0) {
+            note_interim(st, nemo_speech_asr_result_transcript(result, 0));
         }
         nemo_speech_asr_result_destroy(result);
     }
 }
 
-static int open_stream(nemo_speech_asr_recognizer * recognizer, stream_state * st) {
+static int open_stream(nemo_speech_asr_recognizer * recognizer, stream_state * st, bool interim) {
     nemo_speech_asr_recognition_options options = nemo_speech_asr_recognition_options_default();
     options.interim_results                     = true;
     options.enable_automatic_punctuation        = true;
     memset(st, 0, offsetof(stream_state, text));
-    st->text[0] = '\0';
+    st->text[0]         = '\0';
+    st->interim_text[0] = '\0';
+    st->interim         = interim;
     return nemo_speech_asr_streaming_recognize(recognizer, &options, &st->stream) == NEMO_SPEECH_ASR_OK ? 0 : -1;
 }
 
@@ -190,7 +227,7 @@ static void close_stream(stream_state * st) {
 /* A disposable stream of generated silence so lazy graph setup happens before readiness. */
 static int warm(nemo_speech_asr_recognizer * recognizer, stream_state * st) {
     static float silence[WARMUP_CHUNK];
-    if (open_stream(recognizer, st) != 0) {
+    if (open_stream(recognizer, st, false) != 0) {
         return -1;
     }
     int rc = 0;
@@ -211,6 +248,37 @@ static int warm(nemo_speech_asr_recognizer * recognizer, stream_state * st) {
 /* ------------------------------------------------------------------------- */
 /* Command loop                                                              */
 /* ------------------------------------------------------------------------- */
+
+/*
+ * Answer a push. A reporting stream whose provisional transcript changed, and still fits the
+ * transcript caps, gets it as REPLY_PARTIAL; otherwise, and always for other streams, a plain ACK.
+ */
+static void acknowledge(stream_state * st) {
+    if (!st->interim || !st->provisional_changed) {
+        reply(REPLY_ACK, NULL, 0);
+        return;
+    }
+    size_t sep = st->text_bytes > 0 && st->interim_bytes > 0 ? 1 : 0;
+    size_t n   = st->text_bytes + sep + st->interim_bytes;
+    if (n > MAX_TEXT_BYTES || st->text_units + sep + utf16_units(st->interim_text, st->interim_bytes) > MAX_TEXT_UNITS) {
+        reply(REPLY_ACK, NULL, 0);
+        return;
+    }
+    memcpy(st->provisional, st->text, st->text_bytes);
+    if (sep) {
+        st->provisional[st->text_bytes] = ' ';
+    }
+    memcpy(st->provisional + st->text_bytes + sep, st->interim_text, st->interim_bytes);
+    st->provisional_changed = false;
+    /* A final that ends an utterance usually repeats its last interim, leaving the text as it was. */
+    if (n == st->reported_bytes && memcmp(st->provisional, st->reported, n) == 0) {
+        reply(REPLY_ACK, NULL, 0);
+        return;
+    }
+    memcpy(st->reported, st->provisional, n);
+    st->reported_bytes = n;
+    reply(REPLY_PARTIAL, st->provisional, (uint32_t) n);
+}
 
 static void handle_push(stream_state * st, const uint8_t * payload, uint32_t length) {
     static float samples[MAX_PUSH_SAMPLES];
@@ -235,7 +303,7 @@ static void handle_push(stream_state * st, const uint8_t * payload, uint32_t len
         reply_error(ERR_OUTPUT_LIMIT);
         return;
     }
-    reply(REPLY_ACK, NULL, 0);
+    acknowledge(st);
 }
 
 static void handle_finish(stream_state * st) {
@@ -307,8 +375,10 @@ int main(int argc, char ** argv) {
             case CMD_START:
                 if (st.stream) {
                     reply_error(ERR_STATE);
-                } else if (length != 0 || open_stream(recognizer, &st) != 0) {
-                    reply_error(length != 0 ? ERR_PROTOCOL : ERR_NATIVE);
+                } else if (length > 1 || (length == 1 && (payload[0] & ~START_INTERIM) != 0)) {
+                    reply_error(ERR_PROTOCOL);
+                } else if (open_stream(recognizer, &st, length == 1 && (payload[0] & START_INTERIM)) != 0) {
+                    reply_error(ERR_NATIVE);
                 } else {
                     reply(REPLY_OK, NULL, 0);
                 }

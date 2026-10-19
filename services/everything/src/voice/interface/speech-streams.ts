@@ -14,11 +14,17 @@ export interface StreamListener {
   closed(): void;
 }
 
+/** An open connection to the speech service. */
+export interface SpeechStreamChannel extends StreamChannel {
+  /** Whether the service said, while upgrading, that it speaks the version with partial transcripts. */
+  readonly live: boolean;
+}
+
 /** Opens connections to the operator's streaming speech service, the only place streams go. */
 export interface SpeechStreams {
   /** Connect, resolving once open; rejects when the service can't be reached or `signal` aborts. */
   connect(
     listener: StreamListener,
     signal: AbortSignal,
-  ): Promise<StreamChannel>;
+  ): Promise<SpeechStreamChannel>;
 }

@@ -3,10 +3,12 @@ import { mock, test, type TestContext } from "node:test";
 import {
   encodeVoiceFrame,
   voiceStreamStart,
+  voiceStreamStartFor,
+  type VoiceStreamVersion,
 } from "@everything/conversation-contracts/voice-stream";
 import type {
+  SpeechStreamChannel,
   SpeechStreams,
-  StreamChannel,
   StreamListener,
 } from "../interface/speech-streams.js";
 import {
@@ -30,10 +32,11 @@ const ready = {
 };
 
 /** A channel that records what is sent to it. */
-class FakeChannel implements StreamChannel {
+class FakeChannel implements SpeechStreamChannel {
   readonly sent: (string | Uint8Array)[] = [];
   closed = false;
   bufferedAmount = 0;
+  live = false;
   send(message: string | Uint8Array): void {
     if (!this.closed) this.sent.push(message);
   }
@@ -54,12 +57,22 @@ class FakeChannel implements StreamChannel {
   }
 }
 
-/** A stream session with fake browser and service connections. */
-function session(options: { connectFails?: boolean } = {}) {
+/**
+ * A stream session with fake browser and service connections: the browser agreed on `version`, and
+ * the service says it speaks version 2 when `live`.
+ */
+function session(
+  options: {
+    connectFails?: boolean;
+    version?: VoiceStreamVersion;
+    live?: boolean;
+  } = {},
+) {
   const browser = new FakeChannel();
   const service = new FakeChannel();
+  service.live = !!options.live;
   let listener: StreamListener | undefined;
-  let connected: (channel: StreamChannel) => void = () => undefined;
+  let connected: (channel: SpeechStreamChannel) => void = () => undefined;
   let connectSignal: AbortSignal | undefined;
   const streams: SpeechStreams = {
     connect: (events, signal) => {
@@ -76,6 +89,7 @@ function session(options: { connectFails?: boolean } = {}) {
     streams,
     timing,
     () => finished++,
+    options.version,
   );
   return {
     stream,
@@ -137,6 +151,18 @@ async function streaming(context: TestContext) {
 /** The last message the browser received. */
 const lastToBrowser = (fixture: { browser: FakeChannel }) =>
   fixture.browser.json().at(-1);
+
+/** A version 2 browser's session that has started and received ready. */
+async function liveStreaming(context: TestContext, live = true) {
+  mock.timers.enable({ apis: ["setTimeout"] });
+  context.after(() => mock.timers.reset());
+  const fixture = session({ version: 2, live });
+  text(fixture.stream, voiceStreamStartFor(2));
+  await fixture.connect();
+  fixture.reply({ ...ready, version: live ? 2 : 1 });
+  assert.deepEqual(fixture.browser.json(), [{ ...ready, version: 2 }]);
+  return fixture;
+}
 
 test("relays a stream in order, crediting acknowledgements, and finishes once with the final", async (context) => {
   const fixture = await streaming(context);
@@ -520,4 +546,169 @@ test("shutdown fails a running stream and still waits for the service's confirma
   assert.deepEqual(fixture.service.json().at(-1), { type: "cancel" });
   fixture.reply({ type: "cancelled" });
   assert.equal(fixture.finished(), 1);
+});
+
+// ===========================================
+// Version 2: partial transcripts
+// ===========================================
+
+test("a version 2 browser streams version 2 to a live service and gets its partials, then one final", async (context) => {
+  const fixture = await liveStreaming(context);
+  assert.deepEqual(fixture.service.json(), [voiceStreamStartFor(2)]);
+  audio(fixture.stream, 0, 320);
+  fixture.reply({ type: "partial", revision: 1, text: "Hel" });
+  fixture.reply({ type: "ack", sequence: 0 });
+  audio(fixture.stream, 1, 320);
+  fixture.reply({ type: "partial", revision: 2, text: "Hello there" });
+  text(fixture.stream, { type: "end", sequence: 2, totalSamples: 640 });
+  // Partials and acknowledgements for audio before end still arrive before the final.
+  fixture.reply({ type: "partial", revision: 4, text: "Hello there," });
+  fixture.reply({ type: "ack", sequence: 1 });
+  fixture.reply({ type: "final", text: "Hello there, friend." });
+  assert.deepEqual(fixture.browser.json().slice(1), [
+    { type: "partial", revision: 1, text: "Hel" },
+    { type: "ack", sequence: 0 },
+    { type: "partial", revision: 2, text: "Hello there" },
+    { type: "partial", revision: 4, text: "Hello there," },
+    { type: "ack", sequence: 1 },
+    { type: "final", text: "Hello there, friend." },
+  ]);
+  assert.equal(fixture.finished(), 1);
+});
+
+test("a version 2 browser with a version 1 service gets ready 2 and only the final; the service sees version 1", async (context) => {
+  const fixture = await liveStreaming(context, false);
+  assert.deepEqual(fixture.service.json(), [voiceStreamStart]);
+  audio(fixture.stream, 0, 320);
+  fixture.reply({ type: "ack", sequence: 0 });
+  text(fixture.stream, { type: "end", sequence: 1, totalSamples: 320 });
+  fixture.reply({ type: "final", text: "Final only." });
+  assert.deepEqual(lastToBrowser(fixture), {
+    type: "final",
+    text: "Final only.",
+  });
+  // A partial from a service that agreed on version 1 breaks the protocol.
+  mock.timers.reset();
+  const rogue = await liveStreaming(context, false);
+  rogue.reply({ type: "partial", revision: 1, text: "unasked" });
+  assert.deepEqual(lastToBrowser(rogue), {
+    type: "error",
+    code: "UNAVAILABLE",
+  });
+  assert.deepEqual(rogue.service.json().at(-1), { type: "cancel" });
+});
+
+test("a version 1 browser starts version 1 even with a live service, and never sees a partial", async (context) => {
+  mock.timers.enable({ apis: ["setTimeout"] });
+  context.after(() => mock.timers.reset());
+  const fixture = session({ version: 1, live: true });
+  text(fixture.stream, voiceStreamStart);
+  await fixture.connect();
+  assert.deepEqual(fixture.service.json(), [voiceStreamStart]);
+  fixture.reply(ready);
+  fixture.reply({ type: "partial", revision: 1, text: "unasked" });
+  assert.deepEqual(fixture.browser.json(), [
+    ready,
+    { type: "error", code: "UNAVAILABLE" },
+  ]);
+});
+
+test("a start naming another version than the connection agreed on is refused", async (context) => {
+  mock.timers.enable({ apis: ["setTimeout"] });
+  context.after(() => mock.timers.reset());
+  for (const [version, start] of [
+    [1, voiceStreamStartFor(2)],
+    [2, voiceStreamStart],
+  ] as const) {
+    const fixture = session({ version, live: true });
+    text(fixture.stream, start);
+    assert.deepEqual(lastToBrowser(fixture), {
+      type: "error",
+      code: "INVALID_MESSAGE",
+    });
+    assert.equal(fixture.finished(), 1);
+    assert.equal(fixture.connectSignal(), undefined, "no service was asked");
+  }
+});
+
+test("partials must only increase, fit the limits, and follow ready; after cancel they are dropped", async (context) => {
+  for (const [name, act] of [
+    [
+      "repeated revision",
+      (f: Awaited<ReturnType<typeof liveStreaming>>) => {
+        f.reply({ type: "partial", revision: 2, text: "a" });
+        f.reply({ type: "partial", revision: 2, text: "b" });
+      },
+    ],
+    [
+      "revision backwards",
+      (f: Awaited<ReturnType<typeof liveStreaming>>) => {
+        f.reply({ type: "partial", revision: 3, text: "a" });
+        f.reply({ type: "partial", revision: 1, text: "b" });
+      },
+    ],
+    [
+      "revision zero",
+      (f: Awaited<ReturnType<typeof liveStreaming>>) =>
+        f.reply({ type: "partial", revision: 0, text: "a" }),
+    ],
+    [
+      "revision past the message limit",
+      (f: Awaited<ReturnType<typeof liveStreaming>>) =>
+        f.reply({ type: "partial", revision: 6_001, text: "a" }),
+    ],
+    [
+      "text too long",
+      (f: Awaited<ReturnType<typeof liveStreaming>>) =>
+        f.reply({ type: "partial", revision: 1, text: "x".repeat(32_001) }),
+    ],
+    [
+      "extra field",
+      (f: Awaited<ReturnType<typeof liveStreaming>>) =>
+        f.reply({ type: "partial", revision: 1, text: "a", stable: true }),
+    ],
+  ] as const) {
+    const fixture = await liveStreaming(context);
+    act(fixture);
+    assert.deepEqual(
+      lastToBrowser(fixture),
+      { type: "error", code: "UNAVAILABLE" },
+      name,
+    );
+    mock.timers.reset();
+  }
+  // Before ready.
+  mock.timers.enable({ apis: ["setTimeout"] });
+  const early = session({ version: 2, live: true });
+  text(early.stream, voiceStreamStartFor(2));
+  await early.connect();
+  early.reply({ type: "partial", revision: 1, text: "early" });
+  assert.deepEqual(lastToBrowser(early), {
+    type: "error",
+    code: "UNAVAILABLE",
+  });
+  mock.timers.reset();
+  // After a cancel, late partials are dropped while the service confirms.
+  const cancelled = await liveStreaming(context);
+  audio(cancelled.stream, 0, 320);
+  text(cancelled.stream, { type: "cancel" });
+  cancelled.reply({ type: "partial", revision: 1, text: "stale" });
+  cancelled.reply({ type: "cancelled" });
+  assert.ok(
+    !cancelled.browser.json().some((message) => message.type === "partial"),
+  );
+  assert.deepEqual(lastToBrowser(cancelled), { type: "cancelled" });
+});
+
+test("a partial is skipped while the browser isn't reading, and the next one still arrives", async (context) => {
+  const fixture = await liveStreaming(context);
+  audio(fixture.stream, 0, 320);
+  fixture.browser.bufferedAmount = 300 * 1024;
+  fixture.reply({ type: "partial", revision: 1, text: "skipped" });
+  fixture.browser.bufferedAmount = 0;
+  fixture.reply({ type: "partial", revision: 2, text: "delivered" });
+  assert.deepEqual(
+    fixture.browser.json().filter((message) => message.type === "partial"),
+    [{ type: "partial", revision: 2, text: "delivered" }],
+  );
 });

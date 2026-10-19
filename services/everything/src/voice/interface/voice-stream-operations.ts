@@ -1,3 +1,4 @@
+import type { VoiceStreamVersion } from "@everything/conversation-contracts/voice-stream";
 import type { StreamChannel } from "./speech-streams.js";
 
 /** The places an admitted stream holds until the speech service has finished with it. */
@@ -18,6 +19,10 @@ export interface VoiceStreamOperations {
   readonly available: boolean;
   /** Check teammate ownership and take the stream's places, before the connection is upgraded. */
   admit(ownerId: string, agentId: string): Promise<VoiceStreamLease>;
-  /** Run an admitted stream over the browser's connection. */
-  open(lease: VoiceStreamLease, browser: StreamChannel): VoiceStreamEvents;
+  /** Run an admitted stream over the browser's connection, in the protocol version it agreed. */
+  open(
+    lease: VoiceStreamLease,
+    browser: StreamChannel,
+    version: VoiceStreamVersion,
+  ): VoiceStreamEvents;
 }

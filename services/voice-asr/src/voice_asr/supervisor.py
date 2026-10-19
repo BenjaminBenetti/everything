@@ -4,7 +4,7 @@ import logging
 from collections.abc import Callable
 
 from . import system
-from .worker import CMD_CLOSE, CMD_START, NativeWorker, WorkerError, WorkerRejected
+from .worker import CMD_CLOSE, CMD_START, START_INTERIM, NativeWorker, WorkerError, WorkerRejected
 
 log = logging.getLogger("voice_asr")
 
@@ -18,11 +18,12 @@ class Lease:
         self.stream_open = False
         self._cleanup: asyncio.Future | None = None
 
-    async def open_stream(self, timeout: float) -> None:
+    async def open_stream(self, timeout: float, interim: bool = False) -> None:
+        """Open the native stream; with `interim`, each push answers with the changed provisional transcript."""
         # Intent first: if the caller is interrupted while START is in flight, the native stream may still be
         # created, so cleanup must settle the call and CLOSE (a CLOSE without a stream is a no-op in the worker).
         self.stream_open = True
-        await self.worker.call(CMD_START, b"", timeout)
+        await self.worker.call(CMD_START, START_INTERIM if interim else b"", timeout)
 
     async def cleanup(self, grace: float, native_timeout: float) -> None:
         """Make native work quiescent, then release the lease. Idempotent.

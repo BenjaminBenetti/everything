@@ -13,4 +13,4 @@ if [ ! -x "$environment/bin/python" ]; then
     -r requirements.lock
 fi
 PYTHONPATH="src:tests" "$environment/bin/python" -m unittest \
-  tests.test_units tests.test_contract tests.test_followup tests.test_provision
+  tests.test_units tests.test_contract tests.test_live tests.test_followup tests.test_provision

@@ -49,13 +49,17 @@ def word_edits(ref: list[str], hyp: list[str]) -> int:
     return row[-1]
 
 
-async def run_stream(url, audio: bytes, frame_samples=320, realtime=True, cancel_after_s=None, extra_frame=None, odd=False):
-    """Stream audio with the v1 protocol. Arrival is paced by sample time when realtime; the credit window is
-    respected in both modes. Returns the terminal message plus timings."""
+START_V2 = json.dumps({**json.loads(START), "version": 2})
+
+
+async def run_stream(url, audio: bytes, frame_samples=320, realtime=True, cancel_after_s=None, extra_frame=None, odd=False,
+                     version=1):
+    """Stream audio with the given protocol version. Arrival is paced by sample time when realtime; the credit window is
+    respected in both modes. Returns the terminal message plus timings, and every partial with when it arrived."""
     loop = asyncio.get_running_loop()
     for busy_retries in range(50):  # the single lease stays held until a previous stream's native cleanup is done
         ws = await connect(url, max_size=None, open_timeout=10, logger=SILENT)
-        await ws.send(START)
+        await ws.send(START_V2 if version == 2 else START)
         ready = json.loads(await asyncio.wait_for(ws.recv(), 10))
         if ready != {"type": "error", "code": "BUSY"}:
             break
@@ -67,13 +71,15 @@ async def run_stream(url, audio: bytes, frame_samples=320, realtime=True, cancel
         frames = [audio[2 * i: 2 * min(i + frame_samples, n)] for i in range(0, n, frame_samples)]
         sizes, acked, outstanding = {}, -1, 0
         credit = asyncio.Condition()
-        result = {}
+        result = {"partials": [], "versions_header": ws.response.headers.get("Voice-Stream-Versions")}
 
         async def receive():
             nonlocal acked, outstanding
             async for message in ws:
                 data = json.loads(message)
-                if data["type"] == "ack":
+                if data["type"] == "partial":
+                    result["partials"].append((loop.time(), data))
+                elif data["type"] == "ack":
                     async with credit:
                         for seq in range(acked + 1, data["sequence"] + 1):
                             outstanding -= sizes[seq]
@@ -84,7 +90,7 @@ async def run_stream(url, audio: bytes, frame_samples=320, realtime=True, cancel
                     return
 
         receiver = asyncio.create_task(receive())
-        t0 = loop.time()
+        t0 = result["t0"] = loop.time()
         max_late, sent_samples = 0.0, 0
         for seq, payload in enumerate(frames):
             samples = len(payload) // 2
@@ -171,6 +177,28 @@ class NativeStreams(unittest.IsolatedAsyncioTestCase):
             r = await run_stream(url, b"", realtime=False)
             self.assertEqual(r["terminal"], {"type": "final", "text": ""})
             records["immediate_end"] = r["terminal"]
+
+            # Version 2: the native provisional transcript arrives while real-time audio streams, before end, and
+            # the final replaces it once. A version 1 stream on the same service gets no partials.
+            r = await run_stream(url, pcm("ls_10s"), version=2)
+            self.assertEqual(r["versions_header"], "1, 2")
+            self.assertEqual(r["terminal"]["type"], "final")
+            partials = [data for _, data in r["partials"]]
+            before_end = [data for at, data in r["partials"] if at < r["end_sent_at"]]
+            self.assertEqual([data["revision"] for data in partials], list(range(1, len(partials) + 1)))
+            self.assertGreater(len(before_end), 3, "partials arrive while audio streams")
+            ref, hyp = words(manifest["ls_10s"]["reference"]), words(r["terminal"]["text"])
+            self.assertEqual(hyp[-2:], ref[-2:], "the final keeps the tail")
+            self.assertLessEqual(word_edits(ref, hyp), 3, "the final is the transcript once, with no repeated tail")
+            self.assertTrue(set(words(before_end[-1]["text"])) & set(ref), "partials are the clip's words")
+            records["live_ls_10s"] = {
+                "partials": len(partials), "partials_before_end": len(before_end),
+                "first_partial_after_start_s": round(r["partials"][0][0] - r["t0"], 3),
+                "last_partial_before_end": before_end[-1]["text"], "final": r["terminal"]["text"],
+                "release_to_final_s": round(r["at"] - r["release_at"], 3), "word_edits": word_edits(ref, hyp),
+            }
+            r = await run_stream(url, pcm("ls_05s"), realtime=False, frame_samples=3200)
+            self.assertEqual((r["terminal"]["type"], r["partials"]), ("final", []), "version 1 gets only the final")
 
             r = await run_stream(url, pcm("ls_30s"), realtime=False, frame_samples=3200, cancel_after_s=10)
             self.assertEqual(r["terminal"], {"type": "cancelled"})

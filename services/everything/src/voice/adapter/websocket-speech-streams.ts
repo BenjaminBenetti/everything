@@ -1,7 +1,12 @@
+import type { IncomingMessage } from "node:http";
 import { WebSocket } from "ws";
+import {
+  speaksLiveVersion,
+  voiceStreamVersionsHeader,
+} from "@everything/conversation-contracts/voice-stream";
 import type {
+  SpeechStreamChannel,
   SpeechStreams,
-  StreamChannel,
   StreamListener,
 } from "../interface/speech-streams.js";
 import type { SpeechStreamSettings } from "../model/voice-settings.js";
@@ -14,7 +19,9 @@ const handshakeTimeoutMs = 5_000;
  * configuration; the token travels in the Authorization header, never the URL. Redirects are
  * refused and compression is never negotiated. `maxMessageBytes` is enforced by the WebSocket
  * receiver from frame headers, across fragments, so an oversized message is refused before its
- * payload is buffered, and the connection closes.
+ * payload is buffered, and the connection closes. The upgrade response's versions header says
+ * whether the service speaks the version with partial transcripts; a service without it is
+ * version 1.
  */
 export class WebSocketSpeechStreams implements SpeechStreams {
   /** Bind the configured service and the largest message it may send. */
@@ -27,7 +34,7 @@ export class WebSocketSpeechStreams implements SpeechStreams {
   connect(
     listener: StreamListener,
     signal: AbortSignal,
-  ): Promise<StreamChannel> {
+  ): Promise<SpeechStreamChannel> {
     if (signal.aborted) return Promise.reject(new Error("Aborted"));
     return new Promise((resolve, reject) => {
       const socket = new WebSocket(this.settings.url, {
@@ -40,7 +47,12 @@ export class WebSocketSpeechStreams implements SpeechStreams {
         handshakeTimeout: handshakeTimeoutMs,
       });
       let open = false;
-      const channel: StreamChannel = {
+      let live = false;
+      socket.once("upgrade", (response: IncomingMessage) => {
+        const header = response.headers[voiceStreamVersionsHeader];
+        live = typeof header === "string" && speaksLiveVersion(header);
+      });
+      const channel: SpeechStreamChannel = {
         send: (message) => {
           if (socket.readyState === WebSocket.OPEN) socket.send(message);
         },
@@ -51,6 +63,9 @@ export class WebSocketSpeechStreams implements SpeechStreams {
         },
         get bufferedAmount() {
           return socket.bufferedAmount;
+        },
+        get live() {
+          return live;
         },
       };
       const abort = (): void => socket.terminate();

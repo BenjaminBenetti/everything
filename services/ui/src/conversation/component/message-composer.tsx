@@ -5,6 +5,7 @@ import { InputSurface } from "@everything/ui/input-surface";
 import { messageTextMaxLength } from "@everything/conversation-contracts";
 import { useComposerSize } from "../hook/use-composer-size.js";
 import {
+  committedDraft,
   composerReducer,
   initialComposerState,
 } from "../../voice/model/composer-state.js";
@@ -17,7 +18,8 @@ import {
 
 /**
  * Size the field to its draft, keep failed sends editable, and expose sending as an explicit action.
- * Dictation adds its transcript to the draft for review; it never sends.
+ * Dictation shows its words in the draft while it listens and adds its final transcript for review;
+ * it never sends, and its provisional words are never part of what is sent.
  */
 export function MessageComposer({
   agentId,
@@ -32,10 +34,13 @@ export function MessageComposer({
   sending: boolean;
   onSend: (text: string) => Promise<unknown>;
 }) {
-  const [{ draft, voice }, dispatch] = useReducer(
+  const [composer, dispatch] = useReducer(
     composerReducer,
     initialComposerState,
   );
+  const { draft, voice } = composer;
+  // What the user wrote, without a dictation's provisional words.
+  const written = committedDraft(composer);
   const field = useComposerSize(draft);
   const dictation = useVoiceInput({
     agentId,
@@ -44,15 +49,16 @@ export function MessageComposer({
     dispatch,
     disabled,
   });
-  const canSend = !!draft.trim() && !disabled && !sending;
+  const canSend = !!written.trim() && !disabled && !sending;
 
   /** Clear only the submitted draft after persistence succeeds, retaining text typed during the request. */
   async function submit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
     if (!canSend) return;
-    // A recording made for this draft is no longer wanted once the draft is sent.
+    // A recording made for this draft is no longer wanted once the draft is sent; cancelling takes
+    // its provisional words out of the draft.
     dictation.cancel();
-    const submitted = draft;
+    const submitted = written;
     try {
       await onSend(submitted.trim());
       dispatch({ type: "sent", submitted });
@@ -94,13 +100,17 @@ export function MessageComposer({
             type: "edit",
             value: event.target.value,
             caret: event.target.selectionEnd,
+            // The draft this change was typed against, which a dictation may have changed since.
+            base: draft,
+            composing: (event.nativeEvent as InputEvent).isComposing ?? false,
           })
         }
         onKeyDown={keyDown}
         onKeyUp={dictation.keyUp}
         onSelect={dictation.select}
         onBlur={dictation.blur}
-        onCompositionStart={dictation.interrupt}
+        onCompositionStart={dictation.compositionStart}
+        onCompositionEnd={dictation.compositionEnd}
         onPointerDown={dictation.interrupt}
         maxLength={messageTextMaxLength}
         disabled={disabled}
@@ -116,7 +126,7 @@ export function MessageComposer({
             // The microphone button is the only visible voice control.
             <span className="sr-only">
               {" "}
-              · Hold Space for 3 seconds to record
+              · Hold Space for 1 second to record
             </span>
           )}
         </p>

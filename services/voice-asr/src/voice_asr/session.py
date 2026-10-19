@@ -1,8 +1,9 @@
 """One single-utterance stream: start → ready → pipelined audio/ACK → end barrier → final (or cancel/error).
 
 The reader validates and queues every frame in order; the feeder pushes queued PCM to the native worker and
-acknowledges cumulatively only after the push and its next() drain returned. Native finish runs exactly once,
-behind every accepted frame. Cleanup always makes native work quiescent before the lease is released.
+acknowledges cumulatively only after the push and its next() drain returned. A version 2 stream also gets the
+native provisional transcript, as a partial before that ACK, whenever a push changed it. Native finish runs
+exactly once, behind every accepted frame. Cleanup always makes native work quiescent before the lease is released.
 """
 import asyncio
 import logging
@@ -12,7 +13,8 @@ from itertools import count
 from websockets.exceptions import ConnectionClosed
 
 from . import protocol as p
-from .worker import CMD_FINISH, CMD_PUSH, ERR_NO_FINAL, ERR_OUTPUT_LIMIT, WorkerError, WorkerRejected, WorkerTimeout
+from .worker import (CMD_FINISH, CMD_PUSH, ERR_NO_FINAL, ERR_OUTPUT_LIMIT, REPLY_ACK, REPLY_PARTIAL, WorkerError,
+                     WorkerRejected, WorkerTimeout)
 
 log = logging.getLogger("voice_asr")
 _ids = count(1)
@@ -53,6 +55,9 @@ class StreamSession:
         self.final_sent_at: float | None = None
         self.final_deadline: float | None = None
         self.timer_entered = False
+        self.version = p.VERSION
+        self.partials = 0
+        self.partial_text: str | None = None
 
     # ---------------------------------------------------------------------
     # Entry point
@@ -66,16 +71,16 @@ class StreamSession:
         try:
             try:
                 async with asyncio.timeout(self.settings.session_timeout):
-                    await self._receive_start()
+                    self.version = await self._receive_start()
                     lease = self.supervisor.try_lease()
                     if isinstance(lease, str):
                         code, lease = lease, None
                         raise p.ProtocolFailure(code)
                     try:
-                        await lease.open_stream(self.settings.native_call_timeout)
+                        await lease.open_stream(self.settings.native_call_timeout, interim=self.live)
                     except (WorkerError, WorkerRejected):
                         raise p.ProtocolFailure(p.UNAVAILABLE) from None
-                    await self.connection.send(p.READY_MESSAGE)
+                    await self.connection.send(p.ready_message(self.version))
                     text = await self._stream(lease)
                     await self.connection.send(p.final_message(text))
                     self.final_sent_at = loop.time()
@@ -101,9 +106,10 @@ class StreamSession:
             if lease is not None:
                 await lease.cleanup(self.settings.cancel_grace, self.settings.native_call_timeout)
             tail_ms = int((self.final_sent_at - self.ended_at) * 1000) if self.final_sent_at and self.ended_at else -1
-            log.info("stream_closed id=%d outcome=%s frames=%d samples=%d wall_ms=%d end_to_final_send_ms=%d empty_shortcut=%s",
-                     self.id, outcome, self.next_sequence, self.total_samples, int((loop.time() - started) * 1000), tail_ms,
-                     str(self.empty_shortcut).lower())
+            log.info("stream_closed id=%d outcome=%s version=%d frames=%d samples=%d partials=%d wall_ms=%d "
+                     "end_to_final_send_ms=%d empty_shortcut=%s",
+                     self.id, outcome, self.version, self.next_sequence, self.total_samples, self.partials,
+                     int((loop.time() - started) * 1000), tail_ms, str(self.empty_shortcut).lower())
 
     async def _send_quietly(self, message: str) -> None:
         try:
@@ -111,13 +117,23 @@ class StreamSession:
         except ConnectionClosed:
             pass
 
-    async def _receive_start(self) -> None:
+    @property
+    def live(self) -> bool:
+        """Whether this stream reports provisional transcripts (version 2)."""
+        return self.version == p.LIVE_VERSION
+
+    async def _receive_start(self) -> int:
+        """Read the start message and return the version it asks for."""
         try:
             message = await asyncio.wait_for(self.connection.recv(), self.settings.start_timeout)
         except TimeoutError:
             raise p.ProtocolFailure(p.TIMEOUT) from None
-        if not isinstance(message, str) or p.parse_control(message)["type"] != "start":
+        if not isinstance(message, str):
             raise p.ProtocolFailure(p.INVALID_MESSAGE)
+        control = p.parse_control(message)
+        if control["type"] != "start":
+            raise p.ProtocolFailure(p.INVALID_MESSAGE)
+        return control["version"]
 
     # ---------------------------------------------------------------------
     # Streaming
@@ -207,8 +223,12 @@ class StreamSession:
                             samples += len(pcm) // 2
                         self.queued_samples -= samples
                         self.inflight_samples = samples
-                        await lease.worker.call(CMD_PUSH, b"".join(batch), timeout)
+                        kind, payload = await lease.worker.call(CMD_PUSH, b"".join(batch), timeout)
                         self.inflight_samples = 0
+                        if kind == REPLY_PARTIAL and self.live:
+                            await self._send_partial(payload)
+                        elif kind != REPLY_ACK:
+                            raise p.ProtocolFailure(p.UNAVAILABLE)
                         await self.connection.send(p.ack_message(last))
                         continue
                     return await self._finish(lease, timeout)
@@ -220,6 +240,18 @@ class StreamSession:
             raise p.ProtocolFailure(p.TOO_LONG if rejected.code == ERR_OUTPUT_LIMIT else p.UNAVAILABLE) from None
         except WorkerError:
             raise p.ProtocolFailure(p.UNAVAILABLE) from None
+
+    async def _send_partial(self, payload: bytes) -> None:
+        """Send a changed provisional transcript. It is advisory: one that can't be sent is skipped, never fatal."""
+        try:
+            text = payload.decode("utf-8")
+        except UnicodeDecodeError:
+            return
+        if text == self.partial_text or not p.within_text_caps(text, len(payload)):
+            return
+        self.partial_text = text
+        self.partials += 1
+        await self.connection.send(p.partial_message(self.partials, text))
 
     async def _finish(self, lease, timeout: float) -> str:
         try:
@@ -234,6 +266,6 @@ class StreamSession:
             text = payload.decode("utf-8")
         except UnicodeDecodeError:
             raise p.ProtocolFailure(p.UNAVAILABLE) from None
-        if p.utf16_units(text) > p.MAX_FINAL_UTF16_UNITS or len(payload) > p.MAX_FINAL_UTF8_BYTES:
+        if not p.within_text_caps(text, len(payload)):
             raise p.ProtocolFailure(p.TOO_LONG)
         return text

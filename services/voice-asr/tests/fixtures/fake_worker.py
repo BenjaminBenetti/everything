@@ -2,8 +2,12 @@
 
 usage: fake_worker.py MODE COMMAND_FD REPLY_FD MODEL_PATH
 Modes: ok, never_ready, hang_push, crash_push, slow_push, hang_finish, long_text, astral_text, native_error_start,
-slow_start, hang_first_start, block_first_ipc ("first" = only the first worker process misbehaves).
-Each process appends its pid to MODEL_PATH + ".pids" and every received command to MODEL_PATH + ".log".
+slow_start, hang_first_start, block_first_ipc ("first" = only the first worker process misbehaves), and for streams
+started with the interim flag: stable_partial (the same provisional text every push), bad_partial (invalid UTF-8),
+huge_partial (over the transcript caps), rogue_partial (partials even without the flag).
+In ok mode a stream started with the interim flag answers every push with a changed provisional transcript.
+Each process appends its pid to MODEL_PATH + ".pids" and every received command to MODEL_PATH + ".log"
+(an interim START is logged as "Si").
 """
 import fcntl
 import os
@@ -20,9 +24,9 @@ if mode == "block_first_ipc" and first:
     fcntl.fcntl(command_fd, fcntl.F_SETPIPE_SZ, 4096)  # a small pipe so the parent's writes back up quickly
 
 
-def note(kind):
+def note(kind, payload=b""):
     with open(model_path + ".log", "a") as f:
-        f.write(f"{os.getpid()}:{kind.decode()}\n")
+        f.write(f"{os.getpid()}:{kind.decode()}{'i' if kind == b'S' and payload == b'\x01' else ''}\n")
 
 
 def read_exact(n):
@@ -43,12 +47,12 @@ if mode == "never_ready":
     time.sleep(3600)
 time.sleep(0.05)
 reply(b"R", b"fake-worker")
-stream, samples, streams = False, 0, 0
+stream, samples, streams, interim = False, 0, 0, False
 while True:
     length, kind = struct.unpack("<IB", read_exact(5))
     payload = read_exact(length)
     kind = bytes([kind])
-    note(kind)
+    note(kind, payload)
     if kind == b"S":
         if mode == "slow_start":
             time.sleep(1.0)
@@ -60,7 +64,10 @@ while True:
         if stream:  # like the C worker: a second START while a stream is open is a state error
             reply(b"E", bytes([2]))
             continue
-        stream, samples, streams = True, 0, streams + 1
+        if payload not in (b"", b"\x01"):
+            reply(b"E", bytes([1]))
+            continue
+        stream, samples, streams, interim = True, 0, streams + 1, payload == b"\x01"
         reply(b"O")
         if mode == "block_first_ipc" and first:
             time.sleep(3600)  # never read the command pipe again
@@ -72,7 +79,16 @@ while True:
         if mode == "slow_push":
             time.sleep(0.3)
         samples += length // 2
-        reply(b"A")
+        if mode == "rogue_partial" or (interim and mode in ("ok", "slow_push")):
+            reply(b"I", f"SENTINEL_PARTIAL stream {streams} samples {samples}".encode())
+        elif interim and mode == "stable_partial":
+            reply(b"I", b"SENTINEL_PARTIAL steady")
+        elif interim and mode == "bad_partial":
+            reply(b"I", b"\xff\xfe")
+        elif interim and mode == "huge_partial":
+            reply(b"I", b"a" * 32001)
+        else:
+            reply(b"A")
     elif kind == b"F":
         if mode == "hang_finish":
             time.sleep(3600)

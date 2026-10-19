@@ -1,3 +1,4 @@
+import type { VoiceStreamVersion } from "@everything/conversation-contracts/voice-stream";
 import type { AgentCatalog } from "../../agent/interface/agent-catalog.js";
 import {
   VoiceCapacityError,
@@ -69,7 +70,11 @@ export class VoiceStreamService implements VoiceStreamOperations {
   }
 
   /** Run an admitted stream over the browser's connection; its places return when it finishes. */
-  open(lease: VoiceStreamLease, browser: StreamChannel): VoiceStreamSession {
+  open(
+    lease: VoiceStreamLease,
+    browser: StreamChannel,
+    version: VoiceStreamVersion,
+  ): VoiceStreamSession {
     // Nothing reaches the speech service after shutdown; the caller releases the places.
     if (!this.streams || this.closed) throw new VoiceUnavailableError();
     const session: VoiceStreamSession = new VoiceStreamSession(
@@ -80,6 +85,7 @@ export class VoiceStreamService implements VoiceStreamOperations {
         this.sessions.delete(session);
         lease.release();
       },
+      version,
     );
     this.sessions.add(session);
     return session;

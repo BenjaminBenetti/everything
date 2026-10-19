@@ -11,6 +11,8 @@ import struct
 
 CMD_START, CMD_PUSH, CMD_FINISH, CMD_CLOSE, CMD_QUIT = b"S", b"P", b"F", b"C", b"Q"
 REPLY_READY, REPLY_OK, REPLY_ACK, REPLY_FINAL, REPLY_CLOSED, REPLY_ERROR = b"R", b"O", b"A", b"T", b"D", b"E"
+REPLY_PARTIAL = b"I"           # a push's ACK carrying the changed provisional transcript
+START_INTERIM = b"\x01"        # START payload: report provisional transcripts for this stream
 ERR_PROTOCOL, ERR_STATE, ERR_NATIVE, ERR_OUTPUT_LIMIT, ERR_NO_FINAL = 1, 2, 3, 4, 5
 MAX_REPLY_BYTES = 32_000 * 4
 

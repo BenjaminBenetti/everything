@@ -21,11 +21,15 @@ export interface VoiceWorkspace {
 
 /**
  * Mock every API route the conversation page uses, so tests run against an isolated UI server
- * without a cluster. The teammate Avery has a model and voice input is available unless disabled.
+ * without a cluster. The teammate Avery has a model and voice input is available unless disabled;
+ * `streaming` offers the streaming lane too.
  */
 export async function voiceWorkspace(
   context: BrowserContext,
-  { available = true }: { available?: boolean } = {},
+  {
+    available = true,
+    streaming = false,
+  }: { available?: boolean; streaming?: boolean } = {},
 ): Promise<VoiceWorkspace> {
   const state: VoiceWorkspace = {
     uploads: [],
@@ -122,6 +126,7 @@ export async function voiceWorkspace(
         maxBytes: 8 * 1024 * 1024,
         mediaTypes: ["audio/webm", "audio/ogg", "audio/mp4"],
         responseTimeoutMs: 195_000,
+        ...(streaming ? { streaming, streamFinalTimeoutMs: 30_000 } : {}),
       },
     }),
   );
