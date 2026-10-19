@@ -9,7 +9,7 @@ No status line appears above the field, and the keyboard help shows only Enter a
 - **Transcribing:** the button shows a spinner.
 - **Failed dictation:** the button turns the danger colour, and its name and tooltip say what happened.
 
-Screen readers still hear each change through a visually hidden live region, and the field's description still tells them to hold Space for 3 seconds to record.
+Screen readers still hear each change through a visually hidden live region, and the field's description still tells them to hold Space for 1 second to record.
 
 | Image | Viewport | State |
 | --- | --- | --- |

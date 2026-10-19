@@ -1,10 +1,10 @@
 # Voice input
 
-Voice input lets the owner dictate into a teammate's message composer. On a desktop, holding Space in the composer for 3 seconds starts recording. On any device, holding the microphone button records immediately. Releasing ends the recording, and its final transcript goes into the draft where the caret or selection was when recording began. Nothing is sent to the teammate until the owner sends the message.
+Voice input lets the owner dictate into a teammate's message composer. On a desktop, holding Space in the composer for 1 second starts recording; a shorter press types a space as usual. On any device, holding the microphone button records immediately. With the streaming lane, the words appear in the draft while the owner speaks, where the caret or selection was when recording began, and are revised in place as recognition improves. Releasing ends the recording, and its final transcript replaces those words. Nothing is sent to the teammate until the owner sends the message.
 
 There are two lanes, both self-hosted:
 
-- **Streaming** (`VOICE_STREAM_URL`): audio leaves the browser while the microphone is held, through Everything to the `services/voice-asr` speech service (NVIDIA's Nemotron Speech Streaming English 0.6B on the CPU). On release, the last audio is flushed, the stream ends, and the service's single final transcript is inserted. The composer prefers this lane when the browser supports audio worklets. **The chart deploys the speech service and connects Everything to it by default**; see [streaming lane](#streaming-lane).
+- **Streaming** (`VOICE_STREAM_URL`): audio leaves the browser while the microphone is held, through Everything to the `services/voice-asr` speech service (NVIDIA's Nemotron Speech Streaming English 0.6B on the CPU), and the service's provisional transcript comes back into the composer while it does. On release, the last audio is flushed, the stream ends, and the service's single final transcript replaces the provisional words. The composer prefers this lane when the browser supports audio worklets. **The chart deploys the speech service and connects Everything to it by default**; see [streaming lane](#streaming-lane).
 - **Upload** (`VOICE_ASR_URL`): the browser records with MediaRecorder and uploads the finished recording once, to a generic OpenAI-compatible transcription endpoint. Nothing is processed while the button is held. It is off until an operator sets `VOICE_ASR_URL`; the chart deploys no service for it.
 
 ## Configuration
@@ -88,7 +88,7 @@ The speech service's own settings, deadlines, and licence are in `services/voice
 
 Every refusal is plain HTTP, and only this route can upgrade; an upgrade aimed at any other route is refused with 404 and its connection is closed. The route is not part of the generated API definition, which can't describe a WebSocket.
 
-**Protocol.** Version 1 is shared verbatim with the speech service and defined in `@everything/conversation-contracts/voice-stream`:
+**Protocol.** The protocol is shared verbatim with the speech service and defined in `@everything/conversation-contracts/voice-stream`. Version 1:
 
 - JSON `start`;
 - binary audio messages, each a uint32 little-endian sequence then 1 to 3,200 samples of 16 kHz mono PCM16LE;
@@ -102,7 +102,24 @@ The service answers `ready`, cumulative `ack`s, and exactly one `final`, or `can
 - service limits are never allowed above the product's;
 - service messages are bounded on the wire (`maxPayload`, compression off, redirects refused) as well as when parsed.
 
+Version 2 adds one service message, `{"type":"partial","revision":N,"text":"..."}`: the provisional transcript of everything heard so far, which later partials revise and the final replaces once. Revisions only increase, there is at most one per audio message, and the text has the final's 32,000-character limit. Each connection agrees on its version before start, so peers that predate version 2 keep working unchanged, including during a rolling upgrade:
+
+- **Browser to Everything.** The browser offers the WebSocket subprotocols `voice-stream.1` then `voice-stream.2`. Everything selects version 2; an older Everything selects the first offer, version 1. A browser that offers none, such as an older page, is version 1.
+- **Everything to the speech service.** `services/voice-asr` answers each upgrade with `Voice-Stream-Versions: 1, 2`. Everything starts version 2 only when it sees that and the browser agreed on version 2; any other service, such as an operator's own version 1 service, gets version 1, and the browser then receives only the final.
+
+Everything relays a partial only between ready and the final, with increasing revisions; it drops partials while a cancel is pending and skips one, rather than queueing it, while the browser isn't reading. Nothing else about admission, limits, or deadlines changes.
+
 **Deadlines.** Start 5 s, idle 5 s while recording, final as configured, cleanup after a cancel 10 s, and a bound on the whole stream.
+
+**Composer.** Partial words occupy exactly the caret or selection the dictation started from, and only the dictation changes them:
+
+- typing before or after them is kept and moves them; editing the provisional words themselves is refused until the final arrives;
+- a keystroke typed while a revision was being shown is applied to the new text, never lost or duplicated, and an IME composition is never interrupted: revisions wait until it ends;
+- the caret stays where the owner left it, or follows the words if it was at them;
+- cancelling (Escape, leaving the composer, page, or teammate), a failure, or a final with no speech puts back the text the words replaced; late or stale results are ignored;
+- sending while dictating sends only what the owner typed, without the provisional words.
+
+The microphone button is the only visible voice control; status changes are announced to screen readers only.
 
 **Browser.** Capture uses an `AudioContext` asked to run at 16 kHz, verified rather than assumed. The browser resamples and mixes down; the worklet only converts to PCM16 and cuts 20 ms frames. Its port, the pending queue (at most 4 s), the acknowledgement window, and the WebSocket buffer are all bounded, and overflowing any of them fails the whole recording rather than dropping audio. On release, the worklet's last short frame is flushed before `end`, and one client deadline covers draining and the final. Browsers without audio worklets fall back to the upload lane when it is configured, and otherwise say voice input isn't supported.
 
@@ -154,6 +171,14 @@ Verified for the streaming lane against `services/voice-asr` (CPU, a public Libr
 - the Space gesture, cancelling mid-stream followed by a new stream with no earlier words, a release with no speech, a release mid-sentence (short last frame), and the 60 s limit all behaved as described.
 
 These are runs on a shared host over a real local test network, not a production WAN or mobile network, and not service-level objectives. The clips end in natural quiet, so they don't measure last-phoneme latency.
+
+Verified for partial transcripts on 2026-10-19, on the same host, with the `services/voice-asr` image built from these sources, the local gateway (`src/voice/test/e2e-gateway.ts`), and the UI development server, in Chromium:
+
+- holding the microphone button while the public LibriSpeech 9.9 s clip played into the synthetic microphone, the browser's audio worklet streamed it, and the native service's 29 partial transcripts appeared in the composer **before release**, after the text already there; by the end of the clip, still held, the draft read the whole sentence;
+- on release the final replaced those words exactly once, keeping the tail ("…little of rocky Ithaca") with no repeated words, and nothing was sent;
+- the speech service logged `version=2` and the number of partials, and no service logged any transcript text.
+
+Holding Space for 1 second, Space typing, modifiers, IME, touch holds, cancelling, and sending were checked in Chromium against stand-in services, including a stand-in version 2 gateway for typing beside the words, refused edits to them, Escape, and sending while dictating. Safari was not run for this change.
 
 Verified for the default deployment on 2026-10-18 (`pnpm cluster:up`, the chart's default values, a local one-node amd64 Minikube):
 

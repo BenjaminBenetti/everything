@@ -1,6 +1,6 @@
 # voice-asr
 
-Internal, CPU-only streaming speech-to-text sidecar for Everything's hold-to-talk voice input. It runs NVIDIA's English **Nemotron Speech Streaming 0.6B (Q8_0)** model through the public C ABI of NVIDIA **NeMo-Speech.cpp**. It speaks the frozen **voice streaming v1** WebSocket protocol to the Everything gateway.
+Internal, CPU-only streaming speech-to-text sidecar for Everything's hold-to-talk voice input. It runs NVIDIA's English **Nemotron Speech Streaming 0.6B (Q8_0)** model through the public C ABI of NVIDIA **NeMo-Speech.cpp**. It speaks the **voice streaming** WebSocket protocol to the Everything gateway: frozen **version 1**, which returns one final transcript, and **version 2**, which also sends the native provisional transcript while audio streams.
 
 - **Network position.** The service sits behind the authenticated Everything gateway on a private network. The gateway owns user/Keycloak/teammate/Origin checks and admission. This service only checks an optional operator bearer token.
 - **No public exposure.** Do not expose it publicly without auth, TLS and network controls.
@@ -22,24 +22,28 @@ gateway ──WebSocket /v1/stream──▶ python -m voice_asr (asyncio, websoc
   - no warmup call in the C ABI.
 
   So every native call runs on the worker's single thread. The parent bounds each call with a deadline. A hung call is ended by killing and **reaping this service's own worker** (never anything else), which is then restarted and rewarmed before readiness returns.
+- **Partial transcripts.** The cache-aware decoder already returns an interim result from the `next()` drain that follows every push; the worker used to discard it. A stream opened with the interim flag (a one-byte `START` payload) keeps it and answers a push with `I` (an ACK carrying the provisional transcript: the finals so far, a space, and the current utterance's interim) whenever that text changed, and with a plain `A` otherwise. Nothing is decoded again, and `FINISH` still produces the one final. Version 1 streams open without the flag and get exactly the version 1 replies.
 - **Why Python.** Python stdlib asyncio plus exactly one pinned dependency (`websockets`) keeps the sidecar self-contained. It writes no monorepo package locks, and the native side stays a ~300-line C program over the public ABI. It is not a custom ASR engine.
 - **Isolation.**
   - The worker starts with stdin/stdout/stderr on `/dev/null`, so native logging can't reach IPC or logs. It gets a clean environment (no token) and uses `PR_SET_PDEATHSIG` plus a parent-PID race check (it dies if the parent dies).
   - **No core dumps.** Both processes set `RLIMIT_CORE` to 0/0 and `PR_SET_DUMPABLE=0` (which also defeats piped system core handlers and ptrace/procfs memory reads), and verify both. The Python parent does this first in `main()`, before the token, model or any audio is read; on failure it logs `process_hardening_failed` and exits 3. The C worker does it right after exec, before the model or audio; on failure it exits 5, so the parent never becomes ready. Only these two processes are changed; no host or kernel setting (`core_pattern`, limits of other processes) is touched.
   - IPC frames are bounded in both directions.
 
-## Wire protocol (v1, frozen; see the canonical STREAMING_PROTOCOL agreed with the gateway owner)
+## Wire protocol (version 1 frozen, version 2 adds partials; see the canonical STREAMING_PROTOCOL agreed with the gateway owner)
+
+Version 2 is version 1 plus the `partial` message below. Everything else (framing, limits, ordering, deadlines, errors, cancel and cleanup) is identical for both versions, and a version 1 stream sees nothing it didn't before.
 
 ### Transport
 
 - `GET /v1/stream` WebSocket.
 - If `VOICE_ASR_TOKEN`/`VOICE_ASR_TOKEN_FILE` is set, exactly one `Authorization: Bearer <token>` header is required. It is compared in constant time and checked **before upgrade**; failure gives HTTP 401. Any query string gives 400, so tokens never go in URLs.
 - When more than `VOICE_ASR_MAX_CONNECTIONS` connections are open, the upgrade gets HTTP 503.
+- Every accepted upgrade's response carries `Voice-Stream-Versions: 1, 2`, so a client knows before it sends start that it may ask for version 2. A service without the header (one that predates version 2) speaks only version 1.
 - No compression. Messages over 6404 bytes are refused by the transport (close 1009).
 
 ### Client → service
 
-- **Start**, text, first message only: `{"type":"start","version":1,"sampleRate":16000,"channels":1,"format":"pcm_s16le"}`. Fields are exact: no extras, no duplicate keys, integers not booleans or floats.
+- **Start**, text, first message only: `{"type":"start","version":1,"sampleRate":16000,"channels":1,"format":"pcm_s16le"}`, or `"version":2` for partials. Fields are exact: no extras, no duplicate keys, integers not booleans or floats; any other version is `INVALID_MESSAGE`.
 - **Audio**, binary: a `uint32` little-endian sequence (starting at 0, strictly consecutive) followed by 1..3200 PCM16LE mono 16 kHz samples, so 6..6404 bytes with an even payload.
   - At most 6000 audio messages and **960,000 samples (60 s) total** per stream, counted by the service.
   - At most **16,000 unacknowledged samples** (queued + in flight) at any time. The window is pipelined, not stop-and-wait.
@@ -49,12 +53,16 @@ gateway ──WebSocket /v1/stream──▶ python -m voice_asr (asyncio, websoc
 
 ### Service → client
 
-- **Ready**: `{"type":"ready","version":1,"maxSamples":960000,"maxFrameSamples":3200,"windowSamples":16000}`. Sent only after the global lease is held and the native stream is open.
+- **Ready**: `{"type":"ready","version":1,"maxSamples":960000,"maxFrameSamples":3200,"windowSamples":16000}`, with the version start asked for. Sent only after the global lease is held and the native stream is open.
 - **Ack**: `{"type":"ack","sequence":N}`. Cumulative. Sent only after the native `push` and the `next()` drain for every frame through N have returned. An ACK means ingested, not that the corresponding words are stable.
+- **Partial** (version 2 only): `{"type":"partial","revision":N,"text":"..."}`.
+  - The native provisional transcript of everything heard so far, sent just before the ACK of the push that changed it; unchanged text is not sent again. Revisions count up from 1, so there is at most one partial per push and never more than 6000.
+  - It is never stable text: later partials revise it, and the final replaces it once. An ACK or a partial says nothing about which words the final will keep.
+  - It shares the final's caps (32,000 UTF-16 characters, 128,000 UTF-8 bytes); one that would exceed them, or isn't valid UTF-8, is skipped rather than failing the stream. Partials may still arrive after end, for audio sent before it, until the final.
 - **Final**: `{"type":"final","text":"..."}`.
   - Exactly one, after end → native `finish` → the explicit `is_final` result.
   - At most 32,000 JavaScript (UTF-16) characters, and at most 128,000 UTF-8 bytes. The worker enforces the same caps.
-  - Interim text is never sent; partials are not part of v1. The socket then closes with code 1000.
+  - A version 1 stream never receives interim text. The socket then closes with code 1000.
 - **Cancelled**: `{"type":"cancelled"}`. Sent only after native work is quiescent: the in-flight call returned and the stream was closed, or the worker was killed and reaped. Then close 1000.
 - **Error**: `{"type":"error","code":CODE}`, then close. `CODE` is one of:
 
@@ -158,7 +166,7 @@ VOICE_ASR_NATIVE_MODEL=<pinned gguf> PYTHONPATH=src:tests python -m unittest tes
 VOICE_ASR_AUDIO_DIR=... VOICE_ASR_TEST_URL=ws://127.0.0.1:<port>/v1/stream PYTHONPATH=src:tests python -m unittest tests.test_native.NativeStreams  # e.g. the container
 ```
 
-- **Fake-worker suites.** `tests/fixtures/fake_worker.py` is a separate test-only process speaking the pipe protocol, with hang, crash, slow, oversized-text and never-ready modes. The service has no mock or fallback inference mode. These suites cover:
+- **Fake-worker suites.** `tests/fixtures/fake_worker.py` is a separate test-only process speaking the pipe protocol, with hang, crash, slow, oversized-text and never-ready modes, and provisional-text modes for interim streams. The service has no mock or fallback inference mode. These suites cover:
   - message validation, sequencing, the end barrier, ACKs and the credit window;
   - the 60 s and 6000-frame caps, transcript caps, zero audio, busy and readiness;
   - auth headers only and fail-closed token files;
@@ -173,10 +181,12 @@ VOICE_ASR_AUDIO_DIR=... VOICE_ASR_TEST_URL=ws://127.0.0.1:<port>/v1/stream PYTHO
     - a full 16,000-sample window while the worker stops reading its (test-shrunk) pipe: the parent stays responsive, cancel kills and reaps before `cancelled`, and the watchdog fires while `drain()` is blocked;
     - a full-window pipelined stream that keeps every sample;
     - second-connection failures that leave the first lease intact.
+  - `tests/test_live.py` covers version 2: the versions header, start and ready versions and the interim `START` flag; partials before their ACK with consecutive revisions and one final; no partials for version 1 streams beside them; unchanged, invalid-UTF-8 and over-cap provisional text skipped; a partial reply on a version 1 stream treated as a worker fault; cancel dropping late partials, with the next stream starting at revision 1; and the window, sequence and 60 s limits unchanged.
   - `tests/test_provision.py` serves the model from a local HTTP server: an atomic read-only install with its NOTICE, reuse of a verified copy without downloading, replacement of a copy that fails the check, discarding a stale partial file, refusal of oversized, wrongly announced, short or altered downloads, the overall deadline, HTTPS-only redirects, the required licence and path settings, and that the pins match the runtime's model check.
 - **Real-native suite.** It covers:
   - 9.9 s and 29.4 s public clips replayed on a real-time arrival schedule, with tail words checked;
   - silence, a short last frame, odd bytes, immediate end, cancel then reconnect;
+  - version 2: the 9.9 s clip in real time with partials arriving before end, consecutive revisions, and the final keeping its tail once; a version 1 stream on the same service gets no partials;
   - a 960,000-sample boundary input fed as fast as credit allows (a labelled concatenation of public clips plus zero padding; **not** a release-latency measurement), and +1 sample;
   - the process lifecycle: SIGTERM reaps the worker, and parent SIGKILL takes the worker with it.
 
@@ -236,13 +246,26 @@ These results come from fake-worker failure injection, the host-built native wor
   - Procfs metadata of the running container: the Python parent and the C worker each report core limit `0 0` and root-owned `/proc` entries (non-dumpable), process uid 10001.
   - This is a **single service-only observation** with a local WebSocket client. It is not a new latency matrix and **not a browser or end-to-end SLO**. The original image's 10/30/60 s results above are unchanged.
 
+### Partial transcripts validation (version 2, 2026-10-19)
+
+The image built from this commit's sources (`voice-asr-live:dev`, same pins and portable flags, ISA guard passed) on the same Threadripper 2970WX host, with the pinned model provisioned once by the image's own `voice_asr.provision` (699,872,960 bytes, SHA-256 `d9a01898…812d`). Clips are LibriSpeech dev-clean 1272-128104 utterances converted losslessly to 16 kHz WAV: `ls_05s` 0008 (5.12 s), `ls_10s` 0003, `ls_20s` 0009, `ls_30s` 0004, plus 3 s of generated silence.
+
+- **Fake-worker suites:** `tests.test_units` + `tests.test_contract` + `tests.test_live` + `tests.test_followup` + `tests.test_provision`: **65 tests OK**, 1 skipped without a built worker; the worker hardening probe passes when given the image's worker.
+- **Real native, in-process server with the image's worker** (`tests.test_native`, both tests OK, 137 s):
+  - version 2, 9.9 s clip in real time: 27 partials with revisions 1-27, **all before end**, the first 1.06 s after the stream started; the last one already read the whole sentence through "…little of rocky Ithaca", and the final equals it (0 word edits), 0.200 s after the scheduled last sample;
+  - a version 1 stream on the same service: no partials;
+  - the version 1 rows are unchanged: release → final 0.216 / 0.219 / 0.206 s (10 s, 30 s, 10 s repeat), 0 / 7 / 0 word edits; silence and immediate end give `""`; the short last frame and the stream after a cancel keep every word; 960,000 samples gives a final (134 words, 25.5 s fast feed), and one more sample gives `TOO_LONG`; SIGTERM and parent death reap the worker.
+- **Browser to composer:** see `services/everything/documentation/voice-input.md`.
+
+These are single runs on a shared host, not latency claims.
+
 ## Limitations
 
 - **Measured latency scope.** Latency is measured from the scheduled arrival of the last real sample to receipt of the final at a local WebSocket client on the same host. It **includes** the loopback WebSocket, the parent↔worker IPC and the service overhead. It **excludes** real browser capture/AudioWorklet, the Everything gateway and any external network. There is **no browser or last-phoneme SLO claim**.
 - **Outlier.** The earlier benchmark of this runtime recorded one 3.247 s release tail outlier (a 2.02 s single native call, cause undetermined) among otherwise ~0.2 s tails. It can recur. The 10 s native-call watchdog is set above it.
 - **Trailing quiet.** The public LibriSpeech clips end with short trailing quiet, which may let their last words settle before release. It does not guarantee that.
   - In the earlier benchmark's 3.247 s outlier, the last word ("Ithaca") was still missing at release and appeared only in the final.
-  - v1 exposes no partials, so the service makes no claim about what was decoded before release.
+  - Partials show what was decoded before release, but they are provisional; only the final is a result.
   - Speech ending abruptly at release depends more on the native flush and is not validated here.
 - **Narrow data.** English only; one LibriSpeech reader; no accents, noise, spontaneous speech, concurrency > 1 or audio over 60 s validated. Word-edit counts on 4 clips are not a WER claim.
 - **Credit window.** Filling the 16,000-sample window is **not** an error. A compliant pipelined sender pauses enqueueing when its credit is used up and holds audio in its own bounded capture buffer.
