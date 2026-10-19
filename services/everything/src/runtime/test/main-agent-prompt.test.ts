@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { mainAgentPrompt } from "../prompt/main-agent-prompt.js";
 import { forkToolNames } from "../tool/fork-tools.js";
+import { monitorToolNames } from "../../monitor/model/monitor-policy.js";
+import { taskReceiptMonitorScript } from "../../fleet/model/fleet-task-receipt.js";
 
 const agentId = "6f1c1f6e-8c7e-4c4b-9a43-2d8b8f7c8f11";
 
@@ -87,5 +89,47 @@ test("the prompt treats Fleet instances as workers for long-running and backgrou
   assert.match(
     workers,
     /enter it in the worker's session to finish signing in/,
+  );
+});
+
+test("the prompt arms a worker's receipt monitor only after confirming once that the worker began the task", () => {
+  const workers = prompt.slice(
+    prompt.indexOf("## Workers"),
+    prompt.indexOf("## Fleet"),
+  );
+  const receipt = workers.indexOf("Never reuse an ID.");
+  const handoff = workers.indexOf(
+    "Then confirm once that the worker's agent accepted and began this task before you wait on it",
+  );
+  const monitor = workers.indexOf(
+    `Only after that, start ${monitorToolNames.start} with this script`,
+  );
+  assert.ok(receipt >= 0 && receipt < handoff && handoff < monitor, workers);
+  assert.ok(workers.includes(taskReceiptMonitorScript));
+  const rule = workers.slice(handoff, monitor);
+  assert.match(
+    rule,
+    /your task submitted as a user turn, followed by a reply or a first step specific to this task/,
+  );
+  assert.match(
+    rule,
+    /A live container or CLI, a send that exited successfully, text still waiting in its input, an autocomplete suggestion, or an older task finishing doesn't count\./,
+  );
+  assert.match(
+    rule,
+    /unsubmitted or waiting on an approval or sign-in, deal with that or tell the user instead of treating it as working/,
+  );
+  assert.match(rule, /rather than pressing Enter through a dialog/);
+  assert.match(
+    rule,
+    /If a valid receipt for this task already exists, use its result and don't start a monitor\./,
+  );
+  assert.match(
+    rule,
+    /one-time check at handoff, not a reason to keep checking on progress/,
+  );
+  assert.match(
+    workers.slice(monitor),
+    /Once started, it waits for the result; it doesn't show that the worker is still busy\./,
   );
 });
