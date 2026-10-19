@@ -35,7 +35,7 @@ test("oversized tools responses are cancelled before they can exhaust Everything
   assert.equal(cancelled, true);
 });
 
-test("tools pods mount their workspace, shared folder and read-only SSH socket from one claim volume, preserve limits and receive no controller credential", () => {
+test("tools pods mount their workspace, shared folder, read-only SSH socket and read-only Fleet client folder from one claim volume, preserve limits and receive no controller credential", () => {
   const source = {
     metadata: { labels: { "app.kubernetes.io/name": "teammate" } },
     spec: {
@@ -49,6 +49,11 @@ test("tools pods mount their workspace, shared folder and read-only SSH socket f
             { name: "workspace", mountPath: "/workspace" },
             { name: "shared", mountPath: "/workspace/shared" },
             { name: "ssh-agent", mountPath: "/run/ssh-agent", readOnly: true },
+            {
+              name: "fleet-client",
+              mountPath: "/run/fleet-client",
+              readOnly: true,
+            },
             { name: "private", mountPath: "/workspace/.pi", readOnly: true },
           ],
         },
@@ -57,6 +62,7 @@ test("tools pods mount their workspace, shared folder and read-only SSH socket f
         { name: "workspace", emptyDir: {} },
         { name: "shared", emptyDir: {} },
         { name: "ssh-agent", emptyDir: {} },
+        { name: "fleet-client", emptyDir: {} },
         { name: "private", emptyDir: {} },
       ],
     },
@@ -77,6 +83,12 @@ test("tools pods mount their workspace, shared folder and read-only SSH socket f
       name: "workspace",
       mountPath: "/run/ssh-agent",
       subPath: ".ssh-agent",
+      readOnly: true,
+    },
+    {
+      name: "workspace",
+      mountPath: "/run/fleet-client",
+      subPath: ".fleet-client",
       readOnly: true,
     },
     { name: "private", mountPath: `/workspace/${id}/.pi`, readOnly: true },

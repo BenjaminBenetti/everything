@@ -163,6 +163,19 @@ test("rejects speech service URLs with credentials, fragments, or other schemes 
     );
 });
 
+test("reads remote Fleet through the internal gateway from its address alone", () => {
+  const gateway = "http://fleet-gateway.everything.svc.cluster.local:50051";
+  assert.equal(loadApplicationConfig(environment()).fleet.remote, undefined);
+  assert.deepEqual(
+    loadApplicationConfig({ ...environment(), FLEET_GATEWAY_URL: gateway })
+      .fleet.remote,
+    { gatewayUrl: gateway },
+  );
+  for (const invalid of [`${gateway}/path`, "ssh://fleet-gateway"])
+    assert.throws(() =>
+      loadApplicationConfig({ ...environment(), FLEET_GATEWAY_URL: invalid }),
+    );
+});
 test("rejects invalid deployment input", () => {
   for (const override of [
     { PORT: "65536" },

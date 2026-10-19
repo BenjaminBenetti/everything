@@ -140,6 +140,9 @@ export function loadApplicationConfig(
         username: settings.REGISTRY_USERNAME,
         password: settings.REGISTRY_PASSWORD,
       },
+      ...(settings.FLEET_GATEWAY_URL
+        ? { remote: { gatewayUrl: settings.FLEET_GATEWAY_URL } }
+        : {}),
     },
   };
 }

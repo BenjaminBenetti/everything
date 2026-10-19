@@ -17,8 +17,13 @@ import type {
   CommandProcess,
   CommandProcessFactory,
 } from "../interface/command-process-factory.js";
+import {
+  noOutputSecrets,
+  type OutputSecrets,
+} from "../interface/output-secrets.js";
 import { commandEnvironment } from "../model/command-environment.js";
 import { BoundedOutput } from "../model/bounded-output.js";
+import { SecretRedactor } from "../model/secret-redactor.js";
 import {
   defaultMonitorPolicy,
   type MonitorPolicy,
@@ -68,13 +73,17 @@ export class MonitorRunner implements CommandMonitors {
   private starting = 0;
   private closed = false;
 
-  /** Receive the Bash tool's path policy, supervisor, and environment, plus lifetime policy and a clock. */
+  /**
+   * Receive the Bash tool's path policy, supervisor, environment, and redacted secrets, plus lifetime
+   * policy and a clock.
+   */
   constructor(
     private readonly files: WorkspaceDirectories,
     private readonly processes: CommandProcessFactory,
     private readonly policy: MonitorPolicy = defaultMonitorPolicy,
     private readonly environment = commandEnvironment(process.env, files.home),
     private readonly now: () => number = Date.now,
+    private readonly secrets: OutputSecrets = noOutputSecrets,
   ) {
     this.sweeper = setInterval(() => this.sweep(), policy.sweepMs);
     this.sweeper.unref();
@@ -96,13 +105,14 @@ export class MonitorRunner implements CommandMonitors {
       const directory = path.join(home, monitorLogDirectory);
       await mkdir(directory, { recursive: true, mode: 0o700 });
       await this.prune(directory);
+      const secrets = await this.secrets.current();
       if (this.closed) throw new MonitorsClosedError();
       const id = randomUUID();
       const log = createWriteStream(path.join(directory, `${id}.log`), {
         flags: "wx",
         mode: 0o600,
       });
-      const record = this.launch(id, input, cwd, home, log);
+      const record = this.launch(id, input, cwd, home, log, secrets);
       this.records.set(id, record);
       return this.snapshot(record);
     } finally {
@@ -152,13 +162,17 @@ export class MonitorRunner implements CommandMonitors {
   // Process lifecycle
   // ===========================================
 
-  /** Spawn the supervised command, collecting bounded output and logging it until the size limit. */
+  /**
+   * Spawn the supervised command, collecting bounded output and logging it until the size limit, with
+   * secrets redacted from both.
+   */
   private launch(
     id: string,
     input: MonitorInput,
     cwd: string,
     home: string,
     log: WriteStream,
+    secrets: readonly string[],
   ): MonitorRecord {
     let finish!: () => void;
     const done = new Promise<void>((resolve) => {
@@ -251,8 +265,11 @@ export class MonitorRunner implements CommandMonitors {
     child.once("spawn", () => {
       spawned = true;
     });
-    child.stdout.on("data", collect);
-    child.stderr.on("data", collect);
+    const redactor = new SecretRedactor(secrets);
+    const stdout = redactor.stream();
+    const stderr = redactor.stream();
+    child.stdout.on("data", (chunk: Buffer) => collect(stdout(chunk)));
+    child.stderr.on("data", (chunk: Buffer) => collect(stderr(chunk)));
     // A failed spawn reports only an error; a running command's errors precede its close event.
     child.once("error", () => {
       if (!spawned)
@@ -260,6 +277,7 @@ export class MonitorRunner implements CommandMonitors {
     });
     // The supervisor exits only after descendants have released their inherited pipes.
     child.once("close", (exitCode, signal) => {
+      collect(redactor.end());
       if (record.stopReason !== null)
         settle("cancelled", exitCode, signal, record.stopReason);
       else if (record.timedOut)

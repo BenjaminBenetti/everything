@@ -52,6 +52,14 @@ export const environmentSchema = Type.Object({
   FLEET_REGISTRY_INSECURE: Type.Boolean({ default: false }),
   REGISTRY_USERNAME: required,
   REGISTRY_PASSWORD: required,
+  /**
+   * The internal Fleet gateway fleetd registers with, so teammates' `fleet` commands reach it; empty
+   * leaves remote Fleet as it is.
+   */
+  FLEET_GATEWAY_URL: Type.String({
+    pattern: "^(https?://[^/?#@]+)?$",
+    default: "",
+  }),
   /** The upgrader, reachable inside the cluster; empty leaves upgrades unavailable. */
   UPGRADER_URL: Type.String({ pattern: "^(https?://[^/]+)?$", default: "" }),
   /** Everything's service account token for the upgrader's audience, renewed by the kubelet. */

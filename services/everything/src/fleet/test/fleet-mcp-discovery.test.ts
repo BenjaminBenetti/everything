@@ -11,6 +11,7 @@ import type { FleetConnectionSetup } from "../service/fleet-connection-setup.js"
 import type { FleetDaemon } from "../service/fleet-daemon.js";
 import { FleetHost } from "../service/fleet-host.js";
 import type { FleetInstaller } from "../service/fleet-installer.js";
+import type { FleetRemoteSetup } from "../service/fleet-remote-setup.js";
 
 /** An empty Fleet home with its state directory, and a loopback port nothing listens on yet. */
 async function fixture(context: TestContext) {
@@ -47,7 +48,7 @@ test("gives up on a token Pi would expand or a port nothing serves", async (cont
   });
 });
 
-test("announces fleetd's MCP server to teammates once Fleet is up", async () => {
+test("prepares fleetd's remote access before starting it and announces its MCP server to teammates once Fleet is up", async () => {
   const endpoint: FleetMcpEndpoint = {
     url: "http://127.0.0.1:6012/",
     token: "token",
@@ -59,6 +60,7 @@ test("announces fleetd's MCP server to teammates once Fleet is up", async () => 
   };
   const host = new FleetHost(
     { install: step("install") } as unknown as FleetInstaller,
+    { apply: step("remote") } as unknown as FleetRemoteSetup,
     {
       start: step("start"),
       close: step("close"),
@@ -77,6 +79,7 @@ test("announces fleetd's MCP server to teammates once Fleet is up", async () => 
   host.start();
   assert.deepEqual(await host.whenRunning(), endpoint);
   assert.deepEqual(host.endpoint, endpoint);
-  assert.deepEqual(steps, ["install", "start", "apply", "find"]);
+  // fleetd reads its remote settings and token when it starts, so they are written first.
+  assert.deepEqual(steps, ["install", "remote", "start", "apply", "find"]);
   await host.close();
 });

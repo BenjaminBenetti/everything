@@ -15,8 +15,15 @@ export interface FleetHome {
   readonly dockerConfig: string;
   /** The loopback port of fleetd's MCP server, which fleetd writes when it binds the server. */
   readonly mcpPort: string;
-  /** The bearer token fleetd's MCP server requires, readable only by Fleet's account. */
+  /**
+   * The bearer token fleetd's MCP server requires, readable only by Fleet's account. fleetd reuses
+   * it across restarts and requires it of remote clients too.
+   */
   readonly mcpToken: string;
+  /** fleetd's settings, including how it registers with a gateway for remote control. */
+  readonly config: string;
+  /** The gateway session fleetd keeps, with the address remote clients dial; it holds secrets too. */
+  readonly gatewaySession: string;
   /**
    * fleetd's SSH agent relay, which it points its children's `SSH_AUTH_SOCK` at: the agent of the
    * newest attached Fleet client that has one, otherwise the agent fleetd was started with.
@@ -37,6 +44,8 @@ export function fleetHome(directory: string): FleetHome {
     dockerConfig: path.join(directory, ".docker", "config.json"),
     mcpPort: path.join(state, "mcp.port"),
     mcpToken: path.join(state, "mcp.token"),
+    config: path.join(state, "config.json"),
+    gatewaySession: path.join(state, "gateway_session.json"),
     sshAgentRelay: path.join(state, "ssh-agent", "agent.sock"),
   };
 }

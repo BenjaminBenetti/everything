@@ -1,6 +1,4 @@
-import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
-import path from "node:path";
+import { readJsonObject, writePrivateJson } from "../adapter/private-files.js";
 import type { FleetCommands } from "../interface/fleet-commands.js";
 import {
   connectionFields,
@@ -63,32 +61,5 @@ export class FleetConnectionSetup {
       `--kubeconfig=${this.home.kubeconfig}`,
       ...fields,
     ]);
-  }
-}
-
-/** A JSON file's object, or an empty one when the file does not exist. */
-async function readJsonObject(file: string): Promise<Record<string, unknown>> {
-  try {
-    const value: unknown = JSON.parse(await readFile(file, "utf8"));
-    return typeof value === "object" && value !== null && !Array.isArray(value)
-      ? (value as Record<string, unknown>)
-      : {};
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return {};
-    throw error;
-  }
-}
-
-/** Replace a file readable only by Everything's user with JSON, all at once. */
-async function writePrivateJson(file: string, value: unknown): Promise<void> {
-  await mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
-  const partial = `${file}.${randomUUID()}.partial`;
-  try {
-    await writeFile(partial, `${JSON.stringify(value, null, 2)}\n`, {
-      mode: 0o600,
-    });
-    await rename(partial, file);
-  } finally {
-    await rm(partial, { force: true });
   }
 }

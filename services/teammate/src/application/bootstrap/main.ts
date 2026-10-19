@@ -1,6 +1,7 @@
 import envSchema from "env-schema";
 import { Type, type Static } from "typebox";
 import {
+  fleetTokenWorkspaceFile,
   sharedWorkspacePath,
   workspaceRoot,
 } from "@everything/workspace-contracts/mount";
@@ -8,6 +9,9 @@ import { WorkspaceFiles } from "../../workspace/service/workspace-files.js";
 import { BashRunner } from "../../shell/service/bash-runner.js";
 import { MonitorRunner } from "../../shell/service/monitor-runner.js";
 import { LinuxCommandProcessFactory } from "../../shell/adapter/linux-command-process-factory.js";
+import { FileOutputSecrets } from "../../shell/adapter/file-output-secrets.js";
+import { commandEnvironment } from "../../shell/model/command-environment.js";
+import { defaultMonitorPolicy } from "../../shell/model/monitor-policy.js";
 import { createHttpApplication } from "../factory/http-application.js";
 
 const settingsSchema = Type.Object({
@@ -34,8 +38,19 @@ async function main(): Promise<void> {
     sharedWorkspacePath,
   );
   const processes = new LinuxCommandProcessFactory();
-  const bash = new BashRunner(files, processes);
-  const monitors = new MonitorRunner(files, processes);
+  // Commands can read the Fleet token, which grants full control of Fleet, but their output must
+  // never return it. Everything may publish it, or a new one, after the workspace starts.
+  const secrets = new FileOutputSecrets([fleetTokenWorkspaceFile]);
+  const environment = commandEnvironment(process.env, files.home);
+  const bash = new BashRunner(files, processes, environment, secrets);
+  const monitors = new MonitorRunner(
+    files,
+    processes,
+    defaultMonitorPolicy,
+    environment,
+    Date.now,
+    secrets,
+  );
   const app = createHttpApplication(
     files,
     bash,

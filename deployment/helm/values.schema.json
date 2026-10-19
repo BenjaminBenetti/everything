@@ -170,8 +170,12 @@
     "fleet": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["version", "releaseUrl", "checksums"],
+      "required": ["version", "releaseUrl", "checksums", "gatewayUrl"],
       "properties": {
+        "gatewayUrl": {
+          "type": "string",
+          "minLength": 1
+        },
         "version": {
           "type": "string",
           "pattern": "^v[0-9A-Za-z][0-9A-Za-z.+-]*$"

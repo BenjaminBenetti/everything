@@ -6,10 +6,11 @@ import type { FleetMcpEndpoint } from "../model/fleet-mcp-endpoint.js";
 import type { FleetConnectionSetup } from "./fleet-connection-setup.js";
 import type { FleetDaemon } from "./fleet-daemon.js";
 import type { FleetInstaller } from "./fleet-installer.js";
+import type { FleetRemoteSetup } from "./fleet-remote-setup.js";
 
 /**
- * Run Fleet inside Everything: install the pinned release, start fleetd, connect it to the cluster,
- * and find its MCP server for teammates. Everything serves without Fleet, so startup retries in the
+ * Run Fleet inside Everything: install the pinned release, prepare its remote access, start fleetd,
+ * connect it to the cluster, and find its MCP server for teammates. Everything serves without Fleet, so startup retries in the
  * background until it succeeds or Everything stops.
  */
 export class FleetHost implements FleetMcpServer, FleetAvailability {
@@ -28,6 +29,7 @@ export class FleetHost implements FleetMcpServer, FleetAvailability {
   /** Receive the parts of Fleet's runtime. */
   constructor(
     private readonly installer: FleetInstaller,
+    private readonly remote: FleetRemoteSetup,
     private readonly daemon: FleetDaemon,
     private readonly connection: FleetConnectionSetup,
     private readonly mcp: FleetMcpDiscovery,
@@ -81,6 +83,7 @@ export class FleetHost implements FleetMcpServer, FleetAvailability {
   /** Each step is idempotent, so a retry repeats only what has not succeeded. */
   private async bringUp(): Promise<void> {
     await this.installer.install();
+    await this.remote.apply();
     await this.daemon.start();
     await this.connection.apply();
     this.mcpEndpoint = await this.mcp.find(this.stopping.signal);

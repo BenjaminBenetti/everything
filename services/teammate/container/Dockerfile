@@ -1,9 +1,21 @@
 # syntax=docker/dockerfile:1
+# The architecture being built, which BuildKit sets; it selects the Fleet client stage below.
+ARG TARGETARCH
 # Toolchains copied into the runtime image. Every stage uses Debian trixie, so the copied builds
 # link against the same shared libraries the runtime image installs.
 FROM python:3.14.8-slim-trixie AS python
 FROM ruby:4.0.7-slim-trixie AS ruby
 FROM golang:1.27.2-trixie AS go
+# Fleet's command-line client, the release Everything runs fleetd from: deployment/helm/values.yaml
+# pins its version and SHA-256s (fleet.version and fleet.checksums), and check-stack.sh fails when
+# these differ. BuildKit checks each download's digest and builds only the target's stage.
+FROM scratch AS fleet-amd64
+ADD --checksum=sha256:4aefbbe2f23cce52ca06ed9f1d4420d3c1a1a8bf0f4fdfb6e0f31a57b1e6a20f --chmod=755 \
+    https://github.com/BenjaminBenetti/fleet-man/releases/download/v3.2.0-beta/fleet-linux-amd64 /fleet
+FROM scratch AS fleet-arm64
+ADD --checksum=sha256:2b26debefc56582063c496030d379b2fd330003807ea23083e54ebc220a7db82 --chmod=755 \
+    https://github.com/BenjaminBenetti/fleet-man/releases/download/v3.2.0-beta/fleet-linux-arm64 /fleet
+FROM fleet-${TARGETARCH} AS fleet
 
 FROM node:24.21.0-trixie-slim AS build
 WORKDIR /app
@@ -43,6 +55,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=python /usr/local/ /usr/local/
 COPY --from=ruby /usr/local/ /usr/local/
 COPY --from=go /usr/local/go /usr/local/go
+# Commands run `fleet` through the wrapper, which points it at Everything's fleetd.
+COPY --from=fleet /fleet /usr/local/libexec/fleet/fleet
+COPY --chmod=755 services/teammate/container/fleet /usr/local/bin/fleet
 # Register the copied shared libraries, and fail the build if any copied program misses a library.
 RUN ldconfig \
     && ! find /usr/local -path /usr/local/go -prune -o -type f \( -name '*.so*' -o -perm -u+x \) -print \
