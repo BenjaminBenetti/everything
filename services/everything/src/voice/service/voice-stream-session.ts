@@ -5,11 +5,15 @@ import {
   parseVoiceServiceMessage,
   voiceStreamAudio,
   voiceStreamLimits,
-  voiceStreamStart,
+  voiceStreamLiveVersion,
+  voiceStreamStartFor,
+  voiceStreamVersion,
   type VoiceStreamEnd,
   type VoiceStreamErrorCode,
+  type VoiceStreamPartial,
   type VoiceStreamReady,
   type VoiceStreamServiceMessage,
+  type VoiceStreamVersion,
 } from "@everything/conversation-contracts/voice-stream";
 import type {
   SpeechStreams,
@@ -51,6 +55,12 @@ const maxServiceBufferBytes = voiceStreamLimits.windowSamples * 2 + 64 * 1024;
 export const maxServiceMessageBytes = messageTextMaxLength * 6 + 256;
 
 /**
+ * Bytes queued toward the browser beyond which a partial transcript is skipped rather than queued.
+ * Each partial replaces the last and the final replaces them all, so a slow browser only sees fewer.
+ */
+const maxBrowserPartialBufferBytes = 256 * 1024;
+
+/**
  * Where a stream is:
  * - `awaitingStart`: connected, no start yet.
  * - `connecting`: connecting to the speech service.
@@ -70,17 +80,23 @@ type Stage =
   | "done";
 
 /**
- * Relays one browser stream to the speech service under the v1 protocol, validating both sides. It
- * enforces the frame size, consecutive sequences, the sample and message limits, the
- * acknowledgement window, and the end barrier, so the service never sees an invalid stream and the
- * browser never sees anything but the allowlisted messages. On cancellation or a browser
- * disconnect it asks the service to cancel and waits, within a deadline, for confirmation; a closed
- * connection is never taken as proof that the service's work stopped. `finished` runs exactly once,
- * when nothing more will be sent to the service.
+ * Relays one browser stream to the speech service, validating both sides. It enforces the frame
+ * size, consecutive sequences, the sample and message limits, the acknowledgement window, and the
+ * end barrier, so the service never sees an invalid stream and the browser never sees anything but
+ * the allowlisted messages. On cancellation or a browser disconnect it asks the service to cancel
+ * and waits, within a deadline, for confirmation; a closed connection is never taken as proof that
+ * the service's work stopped. `finished` runs exactly once, when nothing more will be sent to the
+ * service.
+ *
+ * Each side keeps its own agreed version. A version 2 browser streams version 2 to a service that
+ * speaks it, and receives its partial transcripts; with a version 1 service it gets only the final,
+ * as a version 1 browser always does.
  */
 export class VoiceStreamSession {
   private stage: Stage = "awaitingStart";
   private service: StreamChannel | null = null;
+  private serviceVersion: VoiceStreamVersion = voiceStreamVersion;
+  private partialRevision = 0;
   private readonly connecting = new AbortController();
   private ready: VoiceStreamReady | null = null;
   private browserOpen = true;
@@ -97,12 +113,13 @@ export class VoiceStreamSession {
   // Construction
   // ===========================================
 
-  /** Start the start and lifetime deadlines for a browser that has just connected. */
+  /** Start the start and lifetime deadlines for a browser that has just connected with `version`. */
   constructor(
     private readonly browser: StreamChannel,
     private readonly streams: SpeechStreams,
     private readonly timing: StreamTiming,
     private readonly finished: () => void,
+    private readonly browserVersion: VoiceStreamVersion = voiceStreamVersion,
   ) {
     this.schedule("start", timing.startTimeoutMs);
     // The whole stream is bounded, whatever arrives: startup, a full recording, finalizing, cleanup.
@@ -130,7 +147,10 @@ export class VoiceStreamSession {
     if (!message) return this.fail("INVALID_MESSAGE");
     switch (message.type) {
       case "start":
-        return this.start();
+        // The start must name the version the connection agreed on.
+        return message.version === this.browserVersion
+          ? this.start()
+          : this.fail("INVALID_MESSAGE");
       case "end":
         return this.end(message);
       case "cancel":
@@ -162,6 +182,7 @@ export class VoiceStreamSession {
         ? parseVoiceServiceMessage(data, {
             maxText: messageTextMaxLength,
             maxBytes: maxServiceMessageBytes,
+            version: this.serviceVersion,
           })
         : null;
     if (!message) return this.serviceFault();
@@ -177,12 +198,17 @@ export class VoiceStreamSession {
         this.stage = "streaming";
         this.clear("start");
         this.schedule("idle", this.timing.idleTimeoutMs);
-        return this.toBrowser(message);
+        return this.toBrowser({ ...message, version: this.browserVersion });
       case "ack":
         if (this.stage === "cancelling") return;
         if (this.stage !== "streaming" && this.stage !== "ending")
           return this.serviceFault();
         return this.acknowledge(message.sequence);
+      case "partial":
+        if (this.stage === "cancelling") return;
+        if (this.stage !== "streaming" && this.stage !== "ending")
+          return this.serviceFault();
+        return this.partial(message);
       case "final":
         if (this.stage === "cancelling") return this.complete();
         if (this.stage !== "ending") return this.serviceFault();
@@ -233,7 +259,13 @@ export class VoiceStreamSession {
           if (this.stage !== "connecting") return service.close();
           this.service = service;
           this.stage = "starting";
-          service.send(JSON.stringify(voiceStreamStart));
+          this.serviceVersion =
+            this.browserVersion === voiceStreamLiveVersion && service.live
+              ? voiceStreamLiveVersion
+              : voiceStreamVersion;
+          service.send(
+            JSON.stringify(voiceStreamStartFor(this.serviceVersion)),
+          );
         },
         () => {
           if (this.stage === "connecting") this.fail("UNAVAILABLE");
@@ -277,6 +309,17 @@ export class VoiceStreamSession {
       this.unacknowledgedSamples -= this.frameSamples[index]!;
     this.acknowledged = sequence;
     this.toBrowser({ type: "ack", sequence });
+  }
+
+  /**
+   * Pass a partial transcript on; revisions must only increase. One is skipped while the browser
+   * isn't reading, rather than queued, since the next one or the final replaces it.
+   */
+  private partial(message: VoiceStreamPartial): void {
+    if (message.revision <= this.partialRevision) return this.serviceFault();
+    this.partialRevision = message.revision;
+    if (this.browser.bufferedAmount <= maxBrowserPartialBufferBytes)
+      this.toBrowser(message);
   }
 
   /** Pass end on once it matches every audio message received; the final must follow. */

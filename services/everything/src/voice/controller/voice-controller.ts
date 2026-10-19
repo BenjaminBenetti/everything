@@ -5,7 +5,11 @@ import {
   voiceLimits,
   voiceMediaTypes,
 } from "@everything/conversation-contracts/voice";
-import { voiceStreamLimits } from "@everything/conversation-contracts/voice-stream";
+import {
+  voiceStreamLimits,
+  voiceStreamProtocolVersion,
+  voiceStreamProtocols,
+} from "@everything/conversation-contracts/voice-stream";
 import {
   agentParams,
   type AgentParams,
@@ -36,13 +40,20 @@ export const maxBrowserMessageBytes = 8 * 1024;
  * root, so upgrade requests are marked before authentication runs: then any upgrade refused by
  * authentication, the origin check, validation, or admission, or aimed at a route that isn't a
  * stream, has its connection destroyed instead of lingering half-open. Connections are upgraded
- * only by the stream route's handler, after every check has passed.
+ * only by the stream route's handler, after every check has passed. Of the voice stream
+ * subprotocols a browser offers, the newest is selected; a browser that offers none speaks version 1.
  */
 export async function registerVoiceWebSocket(
   app: FastifyInstance,
 ): Promise<void> {
   await app.register(websocket, {
-    options: { maxPayload: maxBrowserMessageBytes },
+    options: {
+      maxPayload: maxBrowserMessageBytes,
+      handleProtocols: (offered) =>
+        [voiceStreamProtocols[2], voiceStreamProtocols[1]].find((protocol) =>
+          offered.has(protocol),
+        ) ?? false,
+    },
     // Errors on an established socket are not logged; they can only end the stream.
     errorHandler: (_error, socket) => socket.terminate(),
   });
@@ -189,7 +200,7 @@ export async function voiceController(
         },
         schema: {
           summary: "Stream voice input while the microphone is held",
-          description: `WebSocket voice streaming, protocol version 1: a JSON start, binary audio messages (a uint32 little-endian sequence then up to ${voiceStreamLimits.maxFrameSamples} samples of 16 kHz mono PCM16LE), and a JSON end, answered by ready, cumulative acks, and one final transcript; cancel is acknowledged by cancelled. Not part of the generated API definition.`,
+          description: `WebSocket voice streaming: a JSON start, binary audio messages (a uint32 little-endian sequence then up to ${voiceStreamLimits.maxFrameSamples} samples of 16 kHz mono PCM16LE), and a JSON end, answered by ready, cumulative acks, and one final transcript; cancel is acknowledged by cancelled. Offering the subprotocol ${voiceStreamProtocols[2]} selects version 2, which adds partial transcripts while audio streams; without it the stream is version 1. Not part of the generated API definition.`,
           params: agentParams,
         },
       },
@@ -202,15 +213,19 @@ export async function voiceController(
         }
         let session: VoiceStreamEvents;
         try {
-          session = streams.open(lease, {
-            send: (message) => {
-              if (socket.readyState === socket.OPEN) socket.send(message);
+          session = streams.open(
+            lease,
+            {
+              send: (message) => {
+                if (socket.readyState === socket.OPEN) socket.send(message);
+              },
+              close: () => socket.close(1000),
+              get bufferedAmount() {
+                return socket.bufferedAmount;
+              },
             },
-            close: () => socket.close(1000),
-            get bufferedAmount() {
-              return socket.bufferedAmount;
-            },
-          });
+            voiceStreamProtocolVersion(socket.protocol),
+          );
         } catch {
           lease.release();
           return socket.terminate();

@@ -5,7 +5,9 @@ import type { AddressInfo, Socket } from "node:net";
 import { test, type TestContext } from "node:test";
 import {
   encodeVoiceFrame,
+  voiceStreamProtocols,
   voiceStreamStart,
+  voiceStreamStartFor,
 } from "@everything/conversation-contracts/voice-stream";
 import { AgentNotFoundError } from "../../agent/error/agent-errors.js";
 import type { AgentCatalog } from "../../agent/interface/agent-catalog.js";
@@ -177,11 +179,16 @@ function upgradeStatus(
   });
 }
 
-/** A browser-side stream client that collects every message. */
-async function client(port: number, headers: Record<string, string>) {
+/** A browser-side stream client that collects every message, offering these subprotocols. */
+async function client(
+  port: number,
+  headers: Record<string, string>,
+  protocols: string[] = [],
+) {
   const messages: Record<string, unknown>[] = [];
   const socket = new WebSocket(`ws://127.0.0.1:${port}${route}`, {
     headers,
+    protocols,
   } as unknown as string[]);
   socket.binaryType = "arraybuffer";
   const closed = new Promise<void>((resolve) =>
@@ -309,6 +316,87 @@ test("relays a stream with the backend-only token and returns one final transcri
     voiceStreamStart,
     { type: "end", sequence: 10, totalSamples: 2887 },
   ]);
+});
+
+test("a browser offering version 2 gets the live service's partials; version 1 peers on either side keep version 1", async (context) => {
+  const offered = [voiceStreamProtocols[1], voiceStreamProtocols[2]];
+  const partial = (samples: number) => `Heard ${samples} so far`;
+  const behavior: FakeStreamBehavior = { versions: "1, 2", partial };
+  /** Stream two frames and end; returns the browser's messages and what the service received. */
+  async function dictate(
+    speechBehavior: FakeStreamBehavior,
+    protocols: string[],
+    version: 1 | 2,
+  ) {
+    const speech = await fakeSpeechStream(context, speechBehavior);
+    const { port } = await gateway(context, { url: speech.url });
+    const browser = await client(port, bearer, protocols);
+    const negotiated = browser.socket.protocol;
+    browser.socket.send(JSON.stringify(voiceStreamStartFor(version)));
+    await browser.next("ready");
+    browser.socket.send(encodeVoiceFrame(0, new Int16Array(320)));
+    browser.socket.send(encodeVoiceFrame(1, new Int16Array(320)));
+    await eventually(() =>
+      browser.messages.some((m) => m.type === "ack" && m.sequence === 1),
+    );
+    browser.socket.send(
+      JSON.stringify({ type: "end", sequence: 2, totalSamples: 640 }),
+    );
+    await browser.next("final");
+    await browser.closed;
+    return { negotiated, messages: browser.messages, speech: speech.record };
+  }
+
+  const live = await dictate(behavior, offered, 2);
+  assert.equal(live.negotiated, voiceStreamProtocols[2]);
+  assert.deepEqual(live.speech.controls[0], voiceStreamStartFor(2));
+  assert.deepEqual(
+    live.messages.map((m) => m.type),
+    ["ready", "partial", "ack", "partial", "ack", "final"],
+  );
+  assert.equal(live.messages[0]!.version, 2);
+  assert.deepEqual(live.messages[3], {
+    type: "partial",
+    revision: 2,
+    text: "Heard 640 so far",
+  });
+
+  // A service without the versions header is spoken to in version 1; the browser gets only the final.
+  const finalOnly = await dictate({ partial }, offered, 2);
+  assert.equal(finalOnly.negotiated, voiceStreamProtocols[2]);
+  assert.deepEqual(finalOnly.speech.controls[0], voiceStreamStart);
+  assert.deepEqual(
+    finalOnly.messages.map((m) => m.type),
+    ["ready", "ack", "ack", "final"],
+  );
+  assert.equal(finalOnly.messages[0]!.version, 2);
+
+  // A browser that offers no subprotocol, as before version 2, is version 1 end to end.
+  const legacy = await dictate(behavior, [], 1);
+  assert.equal(legacy.negotiated, "");
+  assert.deepEqual(legacy.speech.controls[0], voiceStreamStart);
+  assert.deepEqual(
+    legacy.messages.map((m) => m.type),
+    ["ready", "ack", "ack", "final"],
+  );
+  assert.equal(legacy.messages[0]!.version, 1);
+});
+
+test("a browser that offers only version 1, or starts another version than it agreed, stays within version 1", async (context) => {
+  const speech = await fakeSpeechStream(context, {
+    versions: "1, 2",
+    partial: () => "never sent",
+  });
+  const { port } = await gateway(context, { url: speech.url });
+  const onlyOne = await client(port, bearer, [voiceStreamProtocols[1]]);
+  assert.equal(onlyOne.socket.protocol, voiceStreamProtocols[1]);
+  onlyOne.socket.send(JSON.stringify(voiceStreamStartFor(2)));
+  assert.deepEqual(await onlyOne.next("error"), {
+    type: "error",
+    code: "INVALID_MESSAGE",
+  });
+  await onlyOne.closed;
+  assert.equal(speech.record.controls.length, 0, "the service was never asked");
 });
 
 test("one stream per owner, shared with uploads, and a bounded total, held until the service confirms cancellation", async (context) => {
@@ -601,11 +689,15 @@ test("opening after shutdown fails and the places return exactly once", async ()
   service.close();
   assert.throws(
     () =>
-      service.open(lease, {
-        send: () => undefined,
-        close: () => undefined,
-        bufferedAmount: 0,
-      }),
+      service.open(
+        lease,
+        {
+          send: () => undefined,
+          close: () => undefined,
+          bufferedAmount: 0,
+        },
+        1,
+      ),
     VoiceUnavailableError,
   );
   lease.release();

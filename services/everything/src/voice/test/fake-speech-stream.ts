@@ -29,14 +29,20 @@ export interface FakeStreamBehavior {
   readonly cancelDelayMs?: number;
   /** Replaces ready after start, for example to send something malformed. */
   readonly afterStart?: (socket: FakeSocket) => void;
+  /** Versions header sent while upgrading, as a version 2 service does; none by default. */
+  readonly versions?: string;
+  /** Partial text sent before each acknowledgement of a version 2 stream. */
+  readonly partial?: (samples: number) => string;
 }
 
 /** The stand-in's side of one connection. */
 export type FakeSocket = WebSocket;
 
 /**
- * A stand-in for the native streaming speech service implementing the v1 contract on a local port:
- * ready after start, cumulative acks, one final after end, cancelled after cancel.
+ * A stand-in for the native streaming speech service implementing the contract on a local port:
+ * ready after start, cumulative acks, one final after end, cancelled after cancel. By default it
+ * speaks only version 1; with `versions` it advertises version 2 and, given `partial`, sends partial
+ * transcripts on version 2 streams.
  */
 export async function fakeSpeechStream(
   context: TestContext,
@@ -51,11 +57,17 @@ export async function fakeSpeechStream(
   };
   const app = Fastify();
   await app.register(websocket);
+  if (behavior.versions)
+    app.websocketServer.on("headers", (headers: string[]) =>
+      headers.push(`Voice-Stream-Versions: ${behavior.versions}`),
+    );
   app.get("/v1/stream", { websocket: true }, (socket, request) => {
     record.authorizations.push(request.headers.authorization);
     record.paths.push(request.url);
     record.open++;
     let samples = 0;
+    let version = 1;
+    let revision = 0;
     socket.on("close", () => record.open--);
     socket.on("message", (data: Buffer, binary: boolean) => {
       if (binary) {
@@ -63,6 +75,14 @@ export async function fakeSpeechStream(
         if (!frame) return;
         record.frames.push(frame);
         samples += frame.samples;
+        if (version === 2 && behavior.partial)
+          socket.send(
+            JSON.stringify({
+              type: "partial",
+              revision: ++revision,
+              text: behavior.partial(samples),
+            }),
+          );
         if (behavior.acknowledge !== false)
           socket.send(
             JSON.stringify({ type: "ack", sequence: frame.sequence }),
@@ -74,13 +94,14 @@ export async function fakeSpeechStream(
         unknown
       >;
       record.controls.push(message);
+      if (message.type === "start") version = message.version as number;
       if (message.type === "start" && behavior.afterStart)
         behavior.afterStart(socket);
       else if (message.type === "start")
         socket.send(
           JSON.stringify({
             type: "ready",
-            version: 1,
+            version,
             maxSamples: 960_000,
             maxFrameSamples: 3_200,
             windowSamples: 16_000,
