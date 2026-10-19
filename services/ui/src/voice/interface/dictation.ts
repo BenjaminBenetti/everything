@@ -19,4 +19,9 @@ export interface DictationEvents {
   onLimit(): void;
   /** The dictation failed while no finish was pending. */
   onFailure(error: VoiceInputError): void;
+  /**
+   * The streaming lane's newer provisional transcript of everything said so far, while the
+   * dictation runs; the final replaces it. Lanes without one never call it.
+   */
+  onPartial?(text: string, revision: number): void;
 }

@@ -1,9 +1,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  absorbEdit,
   draftEdit,
+  followSelection,
   insertTranscript,
+  mapOwned,
   mapSpan,
+  rebaseEdit,
+  writeExact,
+  writeSpaced,
   type DraftSpan,
 } from "../model/draft-anchor.js";
 
@@ -174,5 +180,115 @@ test("never cuts a transcript to fit, and reports empty transcripts", () => {
   assert.deepEqual(
     insertTranscript("x".repeat(100), { start: 0, end: 100 }, "hello", 100),
     { draft: "hello", caret: 5 },
+  );
+});
+
+// ===========================================
+// Live dictation text
+// ===========================================
+
+test("spaced writes cover their own spaces, so rewriting them never adds another", () => {
+  const first = writeSpaced("Hello world", { start: 5, end: 5 }, "big");
+  assert.deepEqual(first, {
+    draft: "Hello big world",
+    span: { start: 5, end: 9 },
+    textEnd: 9,
+  });
+  const mid = writeSpaced("Helloworld", { start: 5, end: 5 }, "big");
+  assert.deepEqual(mid, {
+    draft: "Hello big world",
+    span: { start: 5, end: 10 },
+    textEnd: 9,
+  });
+  const again = writeSpaced(mid.draft, mid.span, "bigger");
+  assert.equal(again.draft, "Hello bigger world");
+  assert.equal(writeExact(again.draft, again.span, "").draft, "Helloworld");
+});
+
+test("owned text moves with edits beside it, keeps typing at either end outside, and refuses edits to itself", () => {
+  const span = { start: 3, end: 8 };
+  // Typing at the end or the start stays outside; elsewhere moves or leaves it.
+  assert.deepEqual(mapOwned(span, { start: 8, removed: 0, inserted: 1 }), span);
+  assert.deepEqual(mapOwned(span, { start: 3, removed: 0, inserted: 2 }), {
+    start: 5,
+    end: 10,
+  });
+  assert.deepEqual(mapOwned(span, { start: 0, removed: 3, inserted: 0 }), {
+    start: 0,
+    end: 5,
+  });
+  assert.deepEqual(mapOwned(span, { start: 9, removed: 4, inserted: 1 }), span);
+  // Backspace at its end, typing inside, or a selection across it changes it.
+  for (const edit of [
+    { start: 7, removed: 1, inserted: 0 },
+    { start: 5, removed: 0, inserted: 1 },
+    { start: 1, removed: 4, inserted: 1 },
+  ])
+    assert.equal(mapOwned(span, edit), null, JSON.stringify(edit));
+  // An edit it must take in grows it to cover what was typed.
+  assert.deepEqual(absorbEdit(span, { start: 5, removed: 1, inserted: 2 }), {
+    start: 3,
+    end: 9,
+  });
+  // Removing 1-5 and typing one character leaves the owned 5-8 at 2-5, after what was typed.
+  assert.deepEqual(absorbEdit(span, { start: 1, removed: 4, inserted: 1 }), {
+    start: 1,
+    end: 5,
+  });
+});
+
+test("a selection follows rewritten text only when it was at it", () => {
+  const from = { start: 4, end: 9 };
+  const to = { start: 4, end: 14 };
+  assert.deepEqual(followSelection(undefined, from, to, 14), {
+    start: 14,
+    end: 14,
+  });
+  assert.deepEqual(followSelection({ start: 9, end: 9 }, from, to, 14), {
+    start: 14,
+    end: 14,
+  });
+  assert.deepEqual(followSelection({ start: 6, end: 6 }, from, to, 14), {
+    start: 14,
+    end: 14,
+  });
+  assert.deepEqual(followSelection({ start: 4, end: 9 }, from, to, 14), {
+    start: 14,
+    end: 14,
+  });
+  assert.deepEqual(followSelection({ start: 4, end: 4 }, from, to, 14), {
+    start: 4,
+    end: 4,
+  });
+  assert.deepEqual(followSelection({ start: 1, end: 2 }, from, to, 14), {
+    start: 1,
+    end: 2,
+  });
+  assert.deepEqual(followSelection({ start: 10, end: 12 }, from, to, 14), {
+    start: 15,
+    end: 17,
+  });
+  // An empty target: a caret at it follows.
+  const point = { start: 4, end: 4 };
+  assert.deepEqual(
+    followSelection({ start: 4, end: 4 }, point, { start: 4, end: 8 }, 8),
+    { start: 8, end: 8 },
+  );
+});
+
+test("an edit to an older draft is restated past the dictation's change, unless both changed the same text", () => {
+  // The dictation wrote " hi" at 5 since the user's keystroke was made.
+  assert.deepEqual(rebaseEdit("Hello", "Hello!", 6, "Hello hi"), {
+    value: "Hello hi!",
+    caret: 9,
+  });
+  assert.deepEqual(rebaseEdit("Hello", "Oh Hello", 3, "Hello hi"), {
+    value: "Oh Hello hi",
+    caret: 3,
+  });
+  // The dictation replaced "OLD"; the user deleted from it.
+  assert.equal(
+    rebaseEdit("Use OLD here", "Use OL here", 6, "Use new here"),
+    null,
   );
 });

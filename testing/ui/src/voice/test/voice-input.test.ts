@@ -1,5 +1,6 @@
 import { writeFile } from "node:fs/promises";
 import { expect, test, type Locator, type Page } from "@playwright/test";
+import { liveGateway } from "../fixture/live-gateway.js";
 import {
   answerPermission,
   chromiumFormats,
@@ -134,10 +135,10 @@ test.describe("desktop Space hold", () => {
     await open(page, browserName);
     // Screen readers hear how to record; on screen only the microphone button shows voice input.
     await expect(page.locator("#composer-help")).toContainText(
-      "Hold Space for 3 seconds to record",
+      "Hold Space for 1 second to record",
     );
     const hint = await page
-      .getByText("Hold Space for 3 seconds to record")
+      .getByText("Hold Space for 1 second to record")
       .boundingBox();
     expect(hint!.width).toBeLessThanOrEqual(1);
     expect(hint!.height).toBeLessThanOrEqual(1);
@@ -146,19 +147,44 @@ test.describe("desktop Space hold", () => {
     );
     await composer(page).click();
     await page.keyboard.type("a b c");
-    await holdSpace(page, 1_500);
+    await holdSpace(page, 600);
     await page.keyboard.up(" ");
     await page.keyboard.type("d");
     // One space per press: the held press's repeats added nothing.
     expect((await field(page)).value).toBe("a b c d");
     for (const modifier of ["Shift", "Control", "Alt"]) {
       await page.keyboard.down(modifier);
-      await holdSpace(page, 3_300);
+      await holdSpace(page, 1_300);
       await page.keyboard.up(" ");
       await page.keyboard.up(modifier);
     }
     expect((await microphone(page)).requests).toBe(0);
     await expect(status(page)).toHaveText("");
+  });
+
+  test("with time held still, a hold starts recording at exactly 1 second, once", async ({
+    page,
+    browserName,
+  }) => {
+    await page.clock.install();
+    await open(page, browserName);
+    await draft(page, "Hi", 2);
+    await composer(page).focus();
+    await page.clock.pauseAt(Date.now() + 60_000);
+    await page.keyboard.down(" ");
+    await page.clock.runFor(999);
+    await expect(micButton(page)).toHaveAttribute("data-state", "arming");
+    expect((await microphone(page)).requests).toBe(0);
+    expect((await field(page)).value).toBe("Hi ");
+    await page.clock.runFor(1);
+    await expect(micButton(page)).toHaveAttribute("data-state", "recording");
+    // The hold's own space is gone; more time starts nothing more.
+    expect((await field(page)).value).toBe("Hi");
+    await page.clock.runFor(5_000);
+    expect((await microphone(page)).requests).toBe(1);
+    await page.keyboard.up(" ");
+    await page.clock.resume();
+    await expect(composer(page)).toHaveValue("Hi there");
   });
 
   test("other keys and IME composition end a hold before it records", async ({
@@ -171,17 +197,17 @@ test.describe("desktop Space hold", () => {
     // Fast typing: the next letter goes down while Space is still held.
     await page.keyboard.down(" ");
     await page.keyboard.press("t");
-    await page.waitForTimeout(3_300);
+    await page.waitForTimeout(1_300);
     await page.keyboard.up(" ");
     expect((await field(page)).value).toBe("Hi t");
     await page.keyboard.down(" ");
     await composer(page).dispatchEvent("compositionstart");
-    await page.waitForTimeout(3_300);
+    await page.waitForTimeout(1_300);
     await page.keyboard.up(" ");
     expect((await microphone(page)).requests).toBe(0);
   });
 
-  test("a 3-second hold records, and release adds the transcript at the caret without sending", async ({
+  test("a 1-second hold records, and release adds the transcript at the caret without sending", async ({
     page,
     browserName,
   }) => {
@@ -189,7 +215,7 @@ test.describe("desktop Space hold", () => {
     await draft(page, "Say hello", 3);
     await composer(page).focus();
     const top = await fieldTop(page);
-    await holdSpace(page, 3_300);
+    await holdSpace(page, 1_300);
     await expect(status(page)).toContainText("Recording");
     await expect(micButton(page)).toHaveAttribute("data-state", "recording");
     await expect(micButton(page)).toHaveAccessibleName(/^Recording/);
@@ -222,7 +248,7 @@ test.describe("desktop Space hold", () => {
     server.transcript = "new";
     await draft(page, "Use OLD here", 4, 7);
     await composer(page).focus();
-    await holdSpace(page, 3_300);
+    await holdSpace(page, 1_300);
     await expect(status(page)).toContainText("Recording");
     expect(await field(page)).toEqual({
       value: "Use OLD here",
@@ -240,7 +266,7 @@ test.describe("desktop Space hold", () => {
     const server = await open(page, browserName);
     await draft(page, "Keep this", 9);
     await composer(page).focus();
-    await holdSpace(page, 3_300);
+    await holdSpace(page, 1_300);
     await expect(status(page)).toContainText("Recording");
     await page.keyboard.press("Escape");
     await expect(status(page)).toContainText("Recording canceled");
@@ -261,7 +287,7 @@ test.describe("desktop Space hold", () => {
     server.gate = new Promise((resolve) => (open_ = resolve));
     await draft(page, "Hello", 5);
     await composer(page).focus();
-    await holdSpace(page, 3_300);
+    await holdSpace(page, 1_300);
     await page.waitForTimeout(600);
     await page.keyboard.up(" ");
     await expect.poll(() => server.uploads.length).toBe(1);
@@ -279,7 +305,7 @@ test.describe("desktop Space hold", () => {
     server.gate = new Promise((resolve) => (open_ = resolve));
     await draft(page, "Ship it", 7);
     await composer(page).focus();
-    await holdSpace(page, 3_300);
+    await holdSpace(page, 1_300);
     await page.waitForTimeout(600);
     await page.keyboard.up(" ");
     await expect.poll(() => server.uploads.length).toBe(1);
@@ -297,7 +323,7 @@ test.describe("desktop Space hold", () => {
   }) => {
     const server = await open(page, browserName, "manual");
     await composer(page).focus();
-    await holdSpace(page, 3_300);
+    await holdSpace(page, 1_300);
     await expect(status(page)).toContainText("Allow access");
     await page.keyboard.up(" ");
     await expect(status(page)).toContainText("Keep holding to record");
@@ -317,7 +343,7 @@ test.describe("desktop Space hold", () => {
     await draft(page, "Draft", 5);
     await composer(page).focus();
     const top = await fieldTop(page);
-    await holdSpace(page, 3_300);
+    await holdSpace(page, 1_300);
     await expect(status(page)).toContainText("Microphone access is blocked");
     // On screen, the button is marked and its name and tooltip explain the problem.
     await expect(micButton(page)).toHaveAttribute("data-problem", "true");
@@ -355,7 +381,7 @@ test.describe("desktop Space hold", () => {
           });
         }),
     ]) {
-      await holdSpace(page, 3_300);
+      await holdSpace(page, 1_300);
       await expect(status(page)).toContainText("Recording");
       await leave();
       await expect(micButton(page)).toHaveAttribute("data-state", "idle");
@@ -456,6 +482,114 @@ test.describe("desktop Space hold", () => {
 // ===========================================
 // Phones: holding the microphone button
 // ===========================================
+
+// ===========================================
+// Streaming: partial transcripts in the composer
+// ===========================================
+
+test.describe("live dictation", () => {
+  test.beforeEach(({ browserName, isMobile }) => {
+    test.skip(
+      browserName !== "chromium" || isMobile,
+      "The stand-in gateway's silent microphone is checked on desktop Chromium.",
+    );
+  });
+
+  /** Open Avery's conversation with the streaming lane and a stand-in version 2 gateway. */
+  async function openLive(page: Page) {
+    const gateway = await liveGateway(page.context());
+    const server = await voiceWorkspace(page.context(), { streaming: true });
+    await page.goto("/team/avery");
+    await expect(micButton(page)).toBeEnabled();
+    return { gateway, server };
+  }
+
+  test("words appear in the composer while held, are revised in place, and the final replaces them once", async ({
+    page,
+  }) => {
+    const { gateway, server } = await openLive(page);
+    await draft(page, "Note:", 5);
+    await composer(page).focus();
+    const top = await fieldTop(page);
+    await micButton(page).hover();
+    await page.mouse.down();
+    await expect(micButton(page)).toHaveAttribute("data-state", "recording");
+    await expect.poll(() => gateway.frames).toBeGreaterThan(5);
+    expect(gateway.starts).toEqual([2]);
+    gateway.partial("hello");
+    await expect(composer(page)).toHaveValue("Note: hello");
+    gateway.partial("hello wor");
+    gateway.partial("hello world");
+    await expect(composer(page)).toHaveValue("Note: hello world");
+    expect(await field(page)).toEqual({
+      value: "Note: hello world",
+      start: 17,
+      end: 17,
+    });
+    // Still held: no end yet, nothing on screen but the words and the button.
+    expect(gateway.ends).toBe(0);
+    await expectNoVisibleStatus(page, top);
+    await page.mouse.up();
+    await expect.poll(() => gateway.ends).toBe(1);
+    await expect(micButton(page)).toHaveAttribute("data-state", "transcribing");
+    gateway.final("Hello, world.");
+    await expect(composer(page)).toHaveValue("Note: Hello, world.");
+    await expect(status(page)).toContainText("Added your words");
+    expect(server.sends).toEqual([]);
+  });
+
+  test("typing beside the words is kept as they change, and Escape puts the draft back", async ({
+    page,
+  }) => {
+    const { gateway, server } = await openLive(page);
+    await draft(page, "Hi", 2);
+    await composer(page).focus();
+    await holdSpace(page, 1_300);
+    await expect(micButton(page)).toHaveAttribute("data-state", "recording");
+    gateway.partial("there");
+    await expect(composer(page)).toHaveValue("Hi there");
+    await page.keyboard.type("!");
+    await expect(composer(page)).toHaveValue("Hi there!");
+    gateway.partial("there friend");
+    await expect(composer(page)).toHaveValue("Hi there friend!");
+    expect(await field(page)).toEqual({
+      value: "Hi there friend!",
+      start: 16,
+      end: 16,
+    });
+    // Backspace into the words is refused while they are provisional.
+    await page.keyboard.press("ArrowLeft");
+    await page.keyboard.press("Backspace");
+    await expect(composer(page)).toHaveValue("Hi there friend!");
+    // Sending now would send only what was typed; Escape takes the words out.
+    await page.keyboard.press("Escape");
+    await expect(composer(page)).toHaveValue("Hi!");
+    await expect(status(page)).toContainText("Recording canceled");
+    await page.keyboard.up(" ");
+    await expect.poll(() => gateway.cancels).toBe(1);
+    gateway.partial("late words");
+    await page.waitForTimeout(300);
+    await expect(composer(page)).toHaveValue("Hi!");
+    expect(server.sends).toEqual([]);
+  });
+
+  test("sending during dictation sends only the typed text and drops the words", async ({
+    page,
+  }) => {
+    const { gateway, server } = await openLive(page);
+    await draft(page, "Typed", 5);
+    await composer(page).focus();
+    await micButton(page).hover();
+    await page.mouse.down();
+    await expect(micButton(page)).toHaveAttribute("data-state", "recording");
+    gateway.partial("spoken words");
+    await expect(composer(page)).toHaveValue("Typed spoken words");
+    await page.keyboard.press("Enter");
+    await expect.poll(() => server.sends).toEqual(["Typed"]);
+    await expect(composer(page)).toHaveValue("");
+    await page.mouse.up();
+  });
+});
 
 test.describe("phone microphone button", () => {
   test.beforeEach(({ isMobile }) => {

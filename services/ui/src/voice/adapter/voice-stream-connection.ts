@@ -3,9 +3,13 @@ import {
   encodeVoiceFrame,
   parseVoiceServiceMessage,
   voiceStreamLimits,
-  voiceStreamStart,
+  voiceStreamProtocolVersion,
+  voiceStreamProtocols,
+  voiceStreamStartFor,
+  voiceStreamVersion,
   type VoiceStreamErrorCode,
   type VoiceStreamReady,
+  type VoiceStreamVersion,
 } from "@everything/conversation-contracts/voice-stream";
 import type { PcmSink } from "../interface/pcm-capture.js";
 import { VoiceInputError } from "../model/voice-input-error.js";
@@ -44,17 +48,23 @@ export interface VoiceStreamConnectionOptions {
   readonly finalTimeoutMs: number;
   /** The stream failed while no finish was pending. */
   onFailure(error: VoiceInputError): void;
+  /** A newer partial transcript arrived; it is provisional, and only the final is a result. */
+  onPartial?(text: string, revision: number): void;
 }
 
 /**
- * One voice stream to the gateway, speaking protocol v1. Frames are sent as they arrive within the
- * acknowledgement window; while connecting or while the window is full they wait in a bounded
- * queue, and a full queue fails the recording rather than dropping audio. End is sent only after
- * every frame, with the counted totals, and only a final from the service is a transcript.
+ * One voice stream to the gateway. Frames are sent as they arrive within the acknowledgement window;
+ * while connecting or while the window is full they wait in a bounded queue, and a full queue fails
+ * the recording rather than dropping audio. End is sent only after every frame, with the counted
+ * totals, and only a final from the service is a transcript. The connection offers both protocol
+ * versions; when the gateway agrees on version 2, partial transcripts are passed on while audio
+ * streams, newest revision only, and the final still settles the result.
  */
 export class VoiceStreamConnection implements PcmSink {
   private socket: WebSocket | null = null;
+  private version: VoiceStreamVersion = voiceStreamVersion;
   private ready: VoiceStreamReady | null = null;
+  private revision = 0;
   private stage: "connecting" | "streaming" | "ending" | "done" = "connecting";
   private readonly pending: Int16Array[] = [];
   private pendingSamples = 0;
@@ -83,13 +93,22 @@ export class VoiceStreamConnection implements PcmSink {
   // Operations
   // ===========================================
 
-  /** Connect and send start; audio written meanwhile waits in the bounded queue. */
+  /**
+   * Connect and send start in the version the gateway selected; audio written meanwhile waits in the
+   * bounded queue. Version 1 is offered first, so a gateway that picks the first offer speaks it.
+   */
   open(): void {
-    const socket = new WebSocket(this.url);
+    const socket = new WebSocket(this.url, [
+      voiceStreamProtocols[1],
+      voiceStreamProtocols[2],
+    ]);
     this.socket = socket;
     socket.binaryType = "arraybuffer";
     this.deadline = setTimeout(() => this.fail("unavailable"), readyTimeoutMs);
-    socket.onopen = () => socket.send(JSON.stringify(voiceStreamStart));
+    socket.onopen = () => {
+      this.version = voiceStreamProtocolVersion(socket.protocol);
+      socket.send(JSON.stringify(voiceStreamStartFor(this.version)));
+    };
     socket.onmessage = (event: MessageEvent) =>
       typeof event.data === "string"
         ? this.receive(event.data)
@@ -213,6 +232,7 @@ export class VoiceStreamConnection implements PcmSink {
     const message = parseVoiceServiceMessage(text, {
       maxText: messageTextMaxLength,
       maxBytes: maxMessageBytes,
+      version: this.version,
     });
     if (!message) return this.fail("failed");
     switch (message.type) {
@@ -232,6 +252,12 @@ export class VoiceStreamConnection implements PcmSink {
         this.acknowledged = Math.max(this.acknowledged, sequence);
         return this.drain();
       }
+      case "partial":
+        // Partials follow ready; each must be newer than the last.
+        if (!this.ready || message.revision <= this.revision)
+          return this.fail("failed");
+        this.revision = message.revision;
+        return this.options.onPartial?.(message.text, message.revision);
       case "final": {
         if (!this.endSent) return this.fail("failed");
         const finished = this.finished;

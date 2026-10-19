@@ -7,7 +7,8 @@ import { PcmMicrophone } from "./pcm-microphone.js";
 const networkMarginMs = 15_000;
 
 /**
- * The streaming lane: audio leaves the browser while the microphone is held. On release the
+ * The streaming lane: audio leaves the browser while the microphone is held, and partial
+ * transcripts come back while it does, when the speech service provides them. On release the
  * worklet's last frame is flushed, every queued frame is sent, end follows, and the final transcript
  * is the result. Capture and transport fail together: either failing stops both.
  */
@@ -28,6 +29,7 @@ export class LiveDictation implements Dictation {
         this.microphone.cancel();
         events.onFailure(error);
       },
+      onPartial: (text, revision) => events.onPartial?.(text, revision),
     });
     this.microphone = new PcmMicrophone(capture, this.connection, {
       maxDurationMs: events.maxDurationMs,

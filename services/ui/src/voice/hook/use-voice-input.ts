@@ -10,9 +10,11 @@ import {
   type PointerEvent,
   type RefObject,
 } from "react";
+import { flushSync } from "react-dom";
 import { useVoice, useVoiceCapabilities } from "../component/voice-provider.js";
 import type { Dictation, DictationEvents } from "../interface/dictation.js";
 import type { ComposerAction, VoiceState } from "../model/composer-state.js";
+import type { DraftSpan } from "../model/draft-anchor.js";
 import { recordingType } from "../model/recording-format.js";
 import { spaceHoldMs, spaceKeyDown, spaceKeyUp } from "../model/space-hold.js";
 import { noticeOf } from "../model/voice-input-error.js";
@@ -40,6 +42,15 @@ interface Session {
 interface Press {
   readonly pointerId: number | null;
   readonly startedAt: number;
+}
+
+/** A dictation result that changes the draft, made with the field's selection when it is applied. */
+type DraftResult = (selection: DraftSpan | undefined) => ComposerAction;
+
+/** Results held while an IME composition runs: the newest partial, and how the dictation ended. */
+interface HeldResults {
+  partial: DraftResult | null;
+  end: DraftResult | null;
 }
 
 /** What the composer needs from the dictation it hosts. */
@@ -92,21 +103,58 @@ export function useVoiceInput({
   const press = useRef<Press | null>(null);
   // The Space press that armed a hold is still down; its repeats must not type.
   const spaceHeld = useRef(false);
+  // An IME composition is running in the field; the dictation must not change the draft under it.
+  const composing = useRef(false);
+  const held = useRef<HeldResults>({ partial: null, end: null });
+
+  // ===========================================
+  // Draft changes from the dictation
+  // ===========================================
+
+  /** The field's selection now. */
+  const selection = useCallback((): DraftSpan | undefined => {
+    const element = field.current;
+    return element
+      ? { start: element.selectionStart, end: element.selectionEnd }
+      : undefined;
+  }, [field]);
+
+  /**
+   * Apply a dictation result to the draft. It is committed at once, so the field shows it before
+   * the next keystroke is typed against it. During an IME composition it waits for the composition
+   * to end, keeping only the newest partial; how the dictation ended supersedes any partial.
+   */
+  const deliver = useCallback(
+    (kind: keyof HeldResults, result: DraftResult) => {
+      if (composing.current) {
+        if (kind === "end") held.current = { partial: null, end: result };
+        else if (!held.current.end) held.current.partial = result;
+        return;
+      }
+      flushSync(() => dispatch(result(selection())));
+    },
+    [dispatch, selection],
+  );
 
   // ===========================================
   // Session control
   // ===========================================
 
-  /** Stop the current dictation and drop its result. */
+  /** Stop the current dictation and drop its result, putting back what any partial replaced. */
   const cancel = useCallback(
     (notice?: VoiceNotice) => {
       const current = session.current;
       session.current = null;
       press.current = null;
       current?.dictation.cancel();
-      dispatch({ type: "cancel", ...(notice ? { notice } : {}) });
+      const where = selection();
+      dispatch({
+        type: "cancel",
+        ...(notice ? { notice } : {}),
+        ...(where ? { selection: where } : {}),
+      });
     },
-    [dispatch],
+    [dispatch, selection],
   );
 
   /** End a session with an outcome, if it is still the current one. */
@@ -115,9 +163,29 @@ export function useVoiceInput({
       if (session.current !== current) return;
       session.current = null;
       current.dictation.cancel();
-      dispatch({ type: "failed", generation: current.generation, notice });
+      deliver("end", (where) => ({
+        type: "failed",
+        generation: current.generation,
+        notice,
+        ...(where ? { selection: where } : {}),
+      }));
     },
-    [dispatch],
+    [deliver],
+  );
+
+  /** Show a newer partial transcript, if its session is still the current one. */
+  const partial = useCallback(
+    (current: Session, text: string, revision: number) => {
+      if (session.current !== current) return;
+      deliver("partial", (where) => ({
+        type: "partial",
+        generation: current.generation,
+        revision,
+        text,
+        ...(where ? { selection: where } : {}),
+      }));
+    },
+    [deliver],
   );
 
   /** Finish the dictation and wait for its final transcript. */
@@ -132,12 +200,17 @@ export function useVoiceInput({
           if (session.current !== current) return;
           if (text === null) return fail(current, "tooShort");
           session.current = null;
-          dispatch({ type: "transcribed", generation, text });
+          deliver("end", (where) => ({
+            type: "transcribed",
+            generation,
+            text,
+            ...(where ? { selection: where } : {}),
+          }));
         },
         (error: unknown) => fail(current, noticeOf(error)),
       );
     },
-    [dispatch, fail],
+    [dispatch, deliver, fail],
   );
 
   // ===========================================
@@ -181,6 +254,8 @@ export function useVoiceInput({
       maxDurationMs: capabilities.maxDurationMs - recordingMarginMs,
       onLimit: () => current && release(current, "limitReached"),
       onFailure: (error) => current && fail(current, error.notice),
+      onPartial: (text, revision) =>
+        current && partial(current, text, revision),
     };
     current = {
       generation,
@@ -225,6 +300,7 @@ export function useVoiceInput({
     dispatch,
     release,
     fail,
+    partial,
   ]);
 
   // Leaving the page or the window, focus moving outside the composer, or the composer becoming
@@ -319,7 +395,8 @@ export function useVoiceInput({
         spaceHeld.current = true;
         dispatch({
           type: "spaceDown",
-          at: event.timeStamp,
+          // The same clock the hold's timer reads.
+          at: performance.now(),
           selectionStart: event.currentTarget.selectionStart,
           selectionEnd: event.currentTarget.selectionEnd,
         });
@@ -367,6 +444,27 @@ export function useVoiceInput({
   /** Composition and pointer input end an armed hold. */
   function interrupt(): void {
     if (voice.phase === "arming") cancel();
+  }
+
+  /** An IME composition began: it ends an armed hold, and dictation results wait until it ends. */
+  function compositionStart(): void {
+    composing.current = true;
+    interrupt();
+  }
+
+  /**
+   * The composition ended. Results held meanwhile are applied once the browser has delivered the
+   * composition's last input, which some engines send just after this event.
+   */
+  function compositionEnd(): void {
+    composing.current = false;
+    setTimeout(() => {
+      if (composing.current) return;
+      const { partial: latest, end } = held.current;
+      held.current = { partial: null, end: null };
+      const result = end ?? latest;
+      if (result) flushSync(() => dispatch(result(selection())));
+    }, 0);
   }
 
   /** Release the current recording, or treat a release before it began as a tap. */
@@ -476,6 +574,8 @@ export function useVoiceInput({
     select,
     blur,
     interrupt,
+    compositionStart,
+    compositionEnd,
     /** Stop any dictation, as sending a message does. */
     cancel,
     buttonProps,

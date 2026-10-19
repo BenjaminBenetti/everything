@@ -81,6 +81,11 @@ test("while recording, Space never types, Escape cancels, and other keys type no
     "suppress",
   );
   assert.equal(spaceKeyDown(recording, key({ key: "Escape" }), true), "cancel");
+  // An IME composition's Escape belongs to the composition.
+  assert.equal(
+    spaceKeyDown(recording, key({ key: "Escape", isComposing: true }), true),
+    "none",
+  );
   assert.equal(spaceKeyDown(recording, key({ key: "x" }), true), "none");
   assert.equal(spaceKeyUp(recording, " "), "release");
   assert.equal(

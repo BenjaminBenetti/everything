@@ -1,9 +1,16 @@
 import { messageTextMaxLength } from "@everything/conversation-contracts";
 import {
+  absorbEdit,
   draftEdit,
+  followSelection,
   insertTranscript,
+  mapOwned,
   mapSpan,
+  rebaseEdit,
+  writeExact,
+  writeSpaced,
   type DraftSpan,
+  type DraftWrite,
 } from "./draft-anchor.js";
 import { spaceHoldMs } from "./space-hold.js";
 import type { VoiceNotice } from "./voice-notice.js";
@@ -33,17 +40,30 @@ export interface PendingSpace {
   readonly typed: boolean;
 }
 
+/** A partial transcript shown in the draft while a dictation runs. */
+export interface LiveText {
+  /** The text the target held before the partial replaced it, put back if no transcript replaces it. */
+  readonly original: string;
+}
+
 /** Dictation state that must change together with the draft. */
 export interface VoiceState {
   readonly phase: VoicePhase;
   readonly source: VoiceSource | null;
   /** Identifies one dictation; results that arrive for an earlier one are ignored. */
   readonly generation: number;
-  /** When the Space hold began, on the event clock. */
+  /** When the Space hold began, on the performance clock. */
   readonly armedAt: number | null;
   readonly pendingSpace: PendingSpace | null;
-  /** The part of the draft the transcript replaces, kept in place through every edit. */
+  /**
+   * The part of the draft the transcript replaces, kept in place through every edit. While a partial
+   * transcript is shown, it is exactly that text, which only the dictation changes.
+   */
   readonly target: DraftSpan | null;
+  /** The partial transcript the target shows, if any. */
+  readonly live: LiveText | null;
+  /** The newest partial applied for this dictation; older ones are ignored. */
+  readonly revision: number;
   /** A selection for the field to show after the reducer changed the draft, numbered to apply once. */
   readonly selection: (DraftSpan & { readonly revision: number }) | null;
   readonly notice: VoiceNotice | null;
@@ -57,8 +77,17 @@ export interface ComposerState {
 
 /** Everything that changes the draft or dictation. */
 export type ComposerAction =
-  /** The user changed the field; `caret` is where the selection ended up. */
-  | { readonly type: "edit"; readonly value: string; readonly caret?: number }
+  /**
+   * The user changed the field; `caret` is where the selection ended up. `base` is the draft the
+   * field showed when the change was made, and `composing` marks an IME composition update.
+   */
+  | {
+      readonly type: "edit";
+      readonly value: string;
+      readonly caret?: number;
+      readonly base?: string;
+      readonly composing?: boolean;
+    }
   /** A send succeeded; the draft clears only if it is still what was sent. */
   | { readonly type: "sent"; readonly submitted: string }
   /** An ordinary Space that may become a hold was pressed at `at` with this selection. */
@@ -83,6 +112,17 @@ export type ComposerAction =
       readonly selectionEnd: number;
     }
   | { readonly type: "recordingStarted"; readonly generation: number }
+  /**
+   * A partial transcript arrived. `selection` is the field's selection now; dictation results
+   * that change the draft carry it so the caret stays where the user left it.
+   */
+  | {
+      readonly type: "partial";
+      readonly generation: number;
+      readonly revision: number;
+      readonly text: string;
+      readonly selection?: DraftSpan;
+    }
   /** Recording ended by release or by reaching its limit. */
   | {
       readonly type: "released";
@@ -93,14 +133,20 @@ export type ComposerAction =
       readonly type: "transcribed";
       readonly generation: number;
       readonly text: string;
+      readonly selection?: DraftSpan;
     }
   | {
       readonly type: "failed";
       readonly generation: number;
       readonly notice: VoiceNotice;
+      readonly selection?: DraftSpan;
     }
   /** Stop any dictation and drop its pending result. */
-  | { readonly type: "cancel"; readonly notice?: VoiceNotice }
+  | {
+      readonly type: "cancel";
+      readonly notice?: VoiceNotice;
+      readonly selection?: DraftSpan;
+    }
   | { readonly type: "dismissNotice" };
 
 /** A composer with an empty draft and no dictation. */
@@ -113,6 +159,8 @@ export const initialComposerState: ComposerState = {
     armedAt: null,
     pendingSpace: null,
     target: null,
+    live: null,
+    revision: 0,
     selection: null,
     notice: null,
   },
@@ -126,7 +174,9 @@ export function composerReducer(
   const { voice } = state;
   switch (action.type) {
     case "edit":
-      return edit(state, action.value, action.caret);
+      return action.base === undefined || action.base === state.draft
+        ? edit(state, action.value, action.caret, action.composing)
+        : rebased(state, action.base, action.value, action.caret);
     case "sent":
       return state.draft === action.submitted ? { ...state, draft: "" } : state;
     case "spaceDown":
@@ -146,6 +196,8 @@ export function composerReducer(
           typed: false,
         },
         target: null,
+        live: null,
+        revision: 0,
         notice: null,
       });
     case "holdTick":
@@ -170,6 +222,8 @@ export function composerReducer(
         armedAt: null,
         pendingSpace: null,
         target: { start: Math.min(start, end), end: Math.max(start, end) },
+        live: null,
+        revision: 0,
         notice: null,
       });
     }
@@ -178,6 +232,17 @@ export function composerReducer(
         voice.generation === action.generation
         ? withVoice(state, { phase: "recording" })
         : state;
+    case "partial":
+      if (
+        (voice.phase !== "starting" &&
+          voice.phase !== "recording" &&
+          voice.phase !== "transcribing") ||
+        voice.generation !== action.generation ||
+        action.revision <= voice.revision ||
+        !voice.target
+      )
+        return state;
+      return showPartial(state, voice.target, action);
     case "released":
       return (voice.phase === "starting" || voice.phase === "recording") &&
         voice.generation === action.generation
@@ -193,22 +258,25 @@ export function composerReducer(
         !voice.target
       )
         return state;
-      return insert(state, voice.target, action.text);
+      return insert(state, voice.target, action.text, action.selection);
     case "failed":
       return voice.phase !== "idle" && voice.generation === action.generation
-        ? withVoice(state, { ...stopped, notice: action.notice })
+        ? restore(state, { notice: action.notice }, action.selection)
         : state;
     case "cancel":
       if (voice.phase === "idle")
         return action.notice
           ? withVoice(state, { notice: action.notice })
           : state;
-      return withVoice(state, {
-        ...stopped,
-        // A new generation guarantees a late result from the cancelled dictation is ignored.
-        generation: voice.generation + 1,
-        notice: action.notice ?? null,
-      });
+      return restore(
+        state,
+        {
+          // A new generation guarantees a late result from the cancelled dictation is ignored.
+          generation: voice.generation + 1,
+          notice: action.notice ?? null,
+        },
+        action.selection,
+      );
     case "dismissNotice":
       return voice.notice ? withVoice(state, { notice: null }) : state;
   }
@@ -221,17 +289,32 @@ const stopped = {
   armedAt: null,
   pendingSpace: null,
   target: null,
+  live: null,
 } as const satisfies Partial<VoiceState>;
+
+/**
+ * The draft as the user wrote it: without a partial transcript, which is never sent. With no
+ * partial shown, it is the draft itself.
+ */
+export function committedDraft(state: ComposerState): string {
+  const { target, live } = state.voice;
+  return target && live
+    ? writeExact(state.draft, target, live.original).draft
+    : state.draft;
+}
 
 /**
  * Take a user edit. While a hold is armed, only the hold's own space may change the draft; any
  * other edit ends the hold and keeps the text as typed. Otherwise the transcript's target follows
- * the edit.
+ * the edit. A partial transcript in the draft belongs to the dictation until the final replaces it:
+ * an edit to it is refused, and the field shows the dictation's text again. An IME composition is
+ * never interrupted; text it changes there joins the dictation's text and is replaced with it.
  */
 function edit(
   state: ComposerState,
   value: string,
   caret?: number,
+  composing = false,
 ): ComposerState {
   const { voice } = state;
   const change = draftEdit(state.draft, value, caret);
@@ -252,12 +335,136 @@ function edit(
         }
       : { draft: value, voice: { ...voice, ...stopped } };
   }
+  if (voice.target && voice.live) {
+    const target = mapOwned(voice.target, change);
+    if (target) return { draft: value, voice: { ...voice, target } };
+    if (composing)
+      return {
+        draft: value,
+        voice: { ...voice, target: absorbEdit(voice.target, change) },
+      };
+    // The field shows the dictation's text again, with the caret where the edit was made.
+    const at = Math.min(change.start + change.removed, state.draft.length);
+    return withVoice(state, {
+      selection: { start: at, end: at, revision: nextRevision(voice) },
+    });
+  }
   return {
     draft: value,
     voice: voice.target
       ? { ...voice, target: mapSpan(voice.target, change) }
       : voice,
   };
+}
+
+/**
+ * Take a user edit made to a draft the dictation has since changed, as when a keystroke lands just
+ * before a partial transcript is shown. The edit is restated against the current draft; if both
+ * changed the same text, the draft keeps the dictation's change.
+ */
+function rebased(
+  state: ComposerState,
+  base: string,
+  value: string,
+  caret?: number,
+): ComposerState {
+  const restated = rebaseEdit(base, value, caret, state.draft);
+  if (restated) return edit(state, restated.value, restated.caret);
+  const at = Math.min(caret ?? state.draft.length, state.draft.length);
+  return withVoice(state, {
+    selection: { start: at, end: at, revision: nextRevision(state.voice) },
+  });
+}
+
+/**
+ * Show a partial transcript in place of the target: the selection's text before the first one,
+ * and the previous partial afterwards. A blank partial shows the original text again; one that
+ * would make the draft too long for a message is skipped, keeping the previous one.
+ */
+function showPartial(
+  state: ComposerState,
+  target: DraftSpan,
+  partial: {
+    readonly revision: number;
+    readonly text: string;
+    readonly selection?: DraftSpan;
+  },
+): ComposerState {
+  const { voice } = state;
+  const original =
+    voice.live?.original ?? state.draft.slice(target.start, target.end);
+  const text = partial.text.trim();
+  if (!text && !voice.live)
+    return withVoice(state, { revision: partial.revision });
+  const written = text
+    ? writeSpaced(state.draft, target, text)
+    : writeExact(state.draft, target, original);
+  if (written.draft.length > messageTextMaxLength)
+    return withVoice(state, { revision: partial.revision });
+  return {
+    draft: written.draft,
+    voice: {
+      ...voice,
+      target: written.span,
+      live: text ? { original } : null,
+      revision: partial.revision,
+      selection: placed(
+        voice,
+        partial.selection,
+        target,
+        written,
+        written.span.end,
+      ),
+    },
+  };
+}
+
+/**
+ * End the dictation, putting back the text a partial transcript replaced. The caret stays where
+ * the user left it, or follows the restored text if it was at the partial.
+ */
+function restore(
+  state: ComposerState,
+  changes: Partial<VoiceState>,
+  selection?: DraftSpan,
+): ComposerState {
+  const { target, live } = state.voice;
+  if (!target || !live) return withVoice(state, { ...stopped, ...changes });
+  const written = writeExact(state.draft, target, live.original);
+  return {
+    draft: written.draft,
+    voice: {
+      ...state.voice,
+      ...stopped,
+      ...changes,
+      selection: placed(
+        state.voice,
+        selection,
+        target,
+        written,
+        written.span.end,
+      ),
+    },
+  };
+}
+
+/** The field selection to show after the dictation rewrote `from`, numbered to apply once. */
+function placed(
+  voice: VoiceState,
+  selection: DraftSpan | undefined,
+  from: DraftSpan,
+  written: DraftWrite,
+  follow: number,
+): VoiceState["selection"] {
+  return {
+    ...followSelection(selection, from, written.span, follow),
+    revision: nextRevision(voice),
+  };
+}
+
+/** The number for the next selection the reducer sets. */
+function nextRevision(voice: VoiceState): number {
+  return (voice.selection?.revision ?? 0) + 1;
 }
 
 /**
@@ -286,7 +493,7 @@ function promote(state: ComposerState): ComposerState {
       armedAt: null,
       pendingSpace: null,
       target,
-      selection: { ...target, revision: (voice.selection?.revision ?? 0) + 1 },
+      selection: { ...target, revision: nextRevision(voice) },
     },
   };
 }
@@ -312,12 +519,18 @@ function select(
     : withVoice(state, stopped);
 }
 
-/** Put a finished transcript at the target, or explain why nothing was added. */
+/**
+ * Put the final transcript at the target, replacing any partial transcript there exactly once, or
+ * explain why nothing was added and put back the text the partial replaced.
+ */
 function insert(
   state: ComposerState,
   target: DraftSpan,
   text: string,
+  selection?: DraftSpan,
 ): ComposerState {
+  // Spacing depends only on the text around the target, so the transcript replaces a partial there
+  // just as it would the original text.
   const insertion = insertTranscript(
     state.draft,
     target,
@@ -325,21 +538,33 @@ function insert(
     messageTextMaxLength,
   );
   if ("error" in insertion)
-    return withVoice(state, {
-      ...stopped,
-      notice: insertion.error === "empty" ? "noSpeech" : "doesNotFit",
-    });
+    return restore(
+      state,
+      { notice: insertion.error === "empty" ? "noSpeech" : "doesNotFit" },
+      selection,
+    );
+  // Only the target changed, so what was written ends where the target did, moved by the growth.
+  const written: DraftWrite = {
+    draft: insertion.draft,
+    span: {
+      start: target.start,
+      end: target.end + insertion.draft.length - state.draft.length,
+    },
+    textEnd: insertion.caret,
+  };
   return {
     draft: insertion.draft,
     voice: {
       ...state.voice,
       ...stopped,
       notice: "inserted",
-      selection: {
-        start: insertion.caret,
-        end: insertion.caret,
-        revision: (state.voice.selection?.revision ?? 0) + 1,
-      },
+      selection: placed(
+        state.voice,
+        selection,
+        target,
+        written,
+        insertion.caret,
+      ),
     },
   };
 }
