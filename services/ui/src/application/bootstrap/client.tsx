@@ -19,6 +19,7 @@ import { AvatarAnimationRegistry } from "../../agent/service/avatar-animation-re
 import { AvatarAnimationProvider } from "../../agent/component/avatar-animation.js";
 import { IdleAvatarAnimation } from "../../agent/component/idle-avatar-animation.js";
 import { TypingAvatarAnimation } from "../../agent/component/typing-avatar-animation.js";
+import { ThinkingAvatarAnimation } from "../../agent/component/thinking-avatar-animation.js";
 import "../../workspace/style/application.css";
 import "../../provider/style/provider.css";
 import "../../conversation/style/conversation.css";
@@ -47,6 +48,11 @@ async function bootstrap(): Promise<void> {
     "typing",
     TypingAvatarAnimation,
     TypingAvatarAnimation,
+  );
+  avatarAnimations.register(
+    "thinking",
+    ThinkingAvatarAnimation,
+    ThinkingAvatarAnimation,
   );
   root.render(
     <StrictMode>

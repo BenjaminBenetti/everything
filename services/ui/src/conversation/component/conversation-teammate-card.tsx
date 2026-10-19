@@ -5,13 +5,18 @@ import { TeammateAvatar } from "../../agent/component/teammate-avatar.js";
 import { effortLabels } from "../../agent/model/inference-options.js";
 import { providerOptions } from "../../provider/model/provider-options.js";
 
-/** Show teammate details with an animated background indicator only while its count is positive. */
+/**
+ * Show teammate details with an animated background indicator only while its count is positive; the
+ * avatar blinks at rest and thinks while the main teammate works.
+ */
 export function ConversationTeammateCard({
   agent,
+  working,
   backgroundCount,
   onEdit,
 }: {
   agent: Agent;
+  working: boolean;
   backgroundCount: number;
   onEdit: () => void;
 }) {
@@ -23,7 +28,7 @@ export function ConversationTeammateCard({
       <div className="chat-teammate-identity">
         <TeammateAvatar
           avatarId={agent.avatarId}
-          animation="idle"
+          animation={working ? "thinking" : "idle"}
           animationSeed={agent.id}
         />
         <h1>{agent.name}</h1>

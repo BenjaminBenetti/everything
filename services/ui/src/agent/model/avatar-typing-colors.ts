@@ -1,6 +1,6 @@
 import type { AgentAvatarId } from "@everything/agent-contracts/avatar";
 
-/** Match the typing paws, gloves, or hands to each bundled character's existing palette. */
+/** Match the typing and thinking paws, gloves, or hands to each bundled character's existing palette. */
 export const avatarTypingColors = {
   "avatar-01": "#f78b32", // Cat
   "avatar-02": "#f9a647", // Corgi

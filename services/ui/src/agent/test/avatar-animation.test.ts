@@ -1,8 +1,14 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { agentAvatarIds } from "@everything/agent-contracts/avatar";
 import { AvatarAnimationRegistry } from "../service/avatar-animation-registry.js";
 import { avatarIdleEyes } from "../model/avatar-idle-eyes.js";
+import {
+  avatarThinkingArtwork,
+  avatarThinkingPaw,
+  avatarThinkingPawSize,
+} from "../model/avatar-thinking-pose.js";
 
 /** Stand in for an independently implemented animation. */
 function Blink() {
@@ -47,4 +53,30 @@ test("every bundled character has eye regions inside its original artwork", () =
       assert.match(eye.lid, /^#[0-9a-f]{6}$/i);
     }
   }
+});
+
+test("every thinking paw rests inside the artwork, below the moved eyes", () => {
+  const { scale, shift } = avatarThinkingArtwork;
+  for (const id of agentAvatarIds) {
+    const paw = avatarThinkingPaw(id);
+    assert.ok(Number.isInteger(paw.x) && Number.isInteger(paw.y), id);
+    assert.ok(paw.x >= 0 && paw.x + avatarThinkingPawSize <= 128, id);
+    assert.ok(paw.y >= 0 && paw.y + avatarThinkingPawSize <= 128, id);
+    const eyesBottom = Math.max(
+      ...avatarIdleEyes[id].map((eye) => eye.y + eye.height),
+    );
+    assert.ok(paw.y > 64 + (eyesBottom - 64) * scale + (shift / 100) * 128, id);
+  }
+});
+
+test("the stylesheet moves thinking artwork exactly where the paw expects it", () => {
+  const { scale, shift } = avatarThinkingArtwork;
+  const css = readFileSync(
+    new URL("../style/avatar-animation.css", import.meta.url),
+    "utf8",
+  );
+  const rule = css.match(
+    /\[data-avatar-animation="thinking"\]\) > img \{\s*transform: ([^;]+);/,
+  );
+  assert.equal(rule?.[1], `translate(-${shift}%, ${shift}%) scale(${scale})`);
 });

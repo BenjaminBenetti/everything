@@ -7,13 +7,18 @@ import { TeammateAvatar } from "../../agent/component/teammate-avatar.js";
 import { ConversationTeammateCard } from "./conversation-teammate-card.js";
 import { ConversationWorkspacesCard } from "./conversation-workspaces-card.js";
 
-/** Keep details beside desktop messages and behind an info button on smaller screens. */
+/**
+ * Keep details beside desktop messages and behind an info button on smaller screens. While the main
+ * teammate works, every visible avatar of it thinks and screen readers hear one status for both layouts.
+ */
 export function ConversationDetails({
   agent,
+  working,
   backgroundCount,
   onEdit,
 }: {
   agent: Agent;
+  working: boolean;
   backgroundCount: number;
   onEdit: () => void;
 }) {
@@ -21,6 +26,9 @@ export function ConversationDetails({
   const [expanded, setExpanded] = useState(false);
   return (
     <div className="chat-sidebar" data-expanded={expanded}>
+      <p className="sr-only" role="status">
+        {working ? `${agent.name} is working` : ""}
+      </p>
       <header className="chat-mobile-header">
         <Link
           to="/team"
@@ -29,7 +37,12 @@ export function ConversationDetails({
         >
           <ArrowLeft aria-hidden="true" />
         </Link>
-        <TeammateAvatar avatarId={agent.avatarId} small />
+        <TeammateAvatar
+          avatarId={agent.avatarId}
+          small
+          {...(working ? { animation: "thinking" } : {})}
+          animationSeed={agent.id}
+        />
         <div className="chat-mobile-identity">
           <h1 title={agent.name}>{agent.name}</h1>
           {backgroundCount > 0 && (
@@ -59,6 +72,7 @@ export function ConversationDetails({
       <div id={panelId} className="chat-sidebar-panel">
         <ConversationTeammateCard
           agent={agent}
+          working={working}
           backgroundCount={backgroundCount}
           onEdit={onEdit}
         />
