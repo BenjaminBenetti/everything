@@ -4,11 +4,12 @@ import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 /**
  * Real end-to-end voice streaming: the browser's own AudioWorklet captures a public LibriSpeech clip
  * played into a synthetic microphone stream, the local gateway relays it, and the self-hosted
- * Nemotron service transcribes it while the button is held. Only the clip source is synthetic: the
- * audio graph, worklet, WebSocket transport, gateway, and native service are all real. API routes
- * the conversation page needs besides voice are mocked; capabilities and the stream go to the
- * gateway. Run with `pnpm --filter @everything/ui-tests test:voice-e2e` against a running gateway
- * and UI server; see the voice-input documentation.
+ * Nemotron service transcribes it while the button is held, sending its provisional words back into
+ * the composer. Only the clip source is synthetic: the audio graph, worklet, WebSocket transport,
+ * gateway, and native service are all real. API routes the conversation page needs besides voice
+ * are mocked; capabilities and the stream go to the gateway. Run with
+ * `pnpm --filter @everything/ui-tests test:voice-e2e` against a running gateway and UI server; see
+ * the voice-input documentation.
  */
 
 const agentId = "6f1c1f6e-8c7e-4c4b-9a43-2d8b8f7c8f11";
@@ -242,6 +243,7 @@ for (const clip of clips)
       const acks: { at: number; sequence: number }[] = [];
       const frames = { sent: 0 };
       const ends: string[] = [];
+      const partials: string[] = [];
       const finals: string[] = [];
       const connections: string[] = [];
       page.on("websocket", (socket) => {
@@ -263,6 +265,7 @@ for (const clip of clips)
           };
           if (message.type === "ack")
             acks.push({ at: Date.now(), sequence: message.sequence! });
+          if (message.type === "partial") partials.push(message.text!);
           if (message.type === "final") finals.push(message.text!);
         });
       });
@@ -284,11 +287,13 @@ for (const clip of clips)
       );
       await play(page, clip.file);
       const acksBeforeRelease = acks.length;
-      // Still held: recording, nothing inserted, and neither end nor a final has happened yet.
+      // Still held: recording, the provisional words are in the draft, and neither end nor a final
+      // has happened yet.
       await expect(page.locator("#voice-status")).toContainText(
         "Release to add your words",
       );
-      await expect(composer).toHaveValue("");
+      expect(partials.length).toBeGreaterThan(0);
+      await expect(composer).toHaveValue(partials.at(-1)!.trim());
       expect(ends).toEqual([]);
       expect(finals).toEqual([]);
       const releasedAtWall = Date.now();
@@ -314,9 +319,13 @@ for (const clip of clips)
             }
           ).voiceTiming,
       );
-      const releaseToInsertMs = timing.insertedAt - timing.releasedAt;
-      expect(Number.isFinite(releaseToInsertMs)).toBe(true);
-      expect(releaseToInsertMs).toBeGreaterThanOrEqual(0);
+      const releaseToChangeMs = timing.insertedAt - timing.releasedAt;
+      expect(Number.isFinite(releaseToChangeMs)).toBe(true);
+      expect(releaseToChangeMs).toBeGreaterThanOrEqual(0);
+      await expect(page.locator("#voice-status")).toContainText(
+        "Added your words",
+        { timeout: 60_000 },
+      );
       const text = await composer.inputValue();
       // One stream, one end, one final, and the draft holds exactly that final; nothing was sent.
       expect(connections).toHaveLength(1);
@@ -329,7 +338,9 @@ for (const clip of clips)
         browser: info.project.name,
         clip: clip.file,
         run,
-        releaseToInsertMs: Math.round(releaseToInsertMs),
+        // The draft already held provisional words, so this is release to the first change after it.
+        releaseToChangeMs: Math.round(releaseToChangeMs),
+        partials: partials.length,
         framesSent: frames.sent,
         acksBeforeRelease,
         lastAckBeforeRelease:
@@ -353,6 +364,94 @@ for (const clip of clips)
     });
 
 // ===========================================
+// Live words while held
+// ===========================================
+
+test("live: provisional words appear in the composer while held, and the final replaces them once", async ({
+  page,
+  context,
+  baseURL,
+}, info) => {
+  test.setTimeout(150_000);
+  const { composer, traffic, status, button } = await dictationPage(
+    page,
+    context,
+    baseURL!,
+  );
+  await composer.fill("Quote:");
+  await composer.focus();
+  // Every value the field shows, with the page clock, so the words are seen before the release.
+  await page.evaluate(() => {
+    const field = document.getElementById(
+      "chat-message",
+    ) as HTMLTextAreaElement;
+    const seen: { at: number; value: string }[] = [];
+    Object.assign(window, { voiceValues: seen });
+    const poll = () => {
+      if (seen.at(-1)?.value !== field.value)
+        seen.push({ at: performance.now(), value: field.value });
+      requestAnimationFrame(poll);
+    };
+    requestAnimationFrame(poll);
+  });
+  await holdButton(page, status, button);
+  const startedAt = await page.evaluate(() => performance.now());
+  const endedAt = await play(page, "ls_10s.wav");
+  // Still held after the whole clip: words are on screen, and no end or final has been sent.
+  await expect(composer).toBeVisible();
+  const held = await composer.inputValue();
+  expect(held.startsWith("Quote: ")).toBe(true);
+  expect(traffic.partials.length).toBeGreaterThan(3);
+  expect(held).toBe(`Quote: ${traffic.partials.at(-1)!.trim()}`);
+  expect(traffic.ends).toEqual([]);
+  expect(traffic.finals).toEqual([]);
+  const releasedAt = await page.evaluate(() => performance.now());
+  await page.mouse.up();
+  await expect(status).toContainText("Added your words", { timeout: 60_000 });
+  const values = await page.evaluate(
+    () =>
+      (window as unknown as { voiceValues: { at: number; value: string }[] })
+        .voiceValues,
+  );
+  const shownWhileHeld = values.filter(
+    (entry) => entry.at < releasedAt && entry.value !== "Quote:",
+  );
+  const text = await composer.inputValue();
+  // The final replaced the provisional words exactly once: the draft is the prefix and the final.
+  expect(traffic.ends).toHaveLength(1);
+  expect(traffic.finals).toHaveLength(1);
+  expect(text).toBe(`Quote: ${traffic.finals[0]!.trim()}`);
+  const words = text
+    .toLowerCase()
+    .replace(/[^a-z' ]/g, " ")
+    .trim()
+    .split(/\s+/);
+  expect(words.slice(-2)).toEqual(["rocky", "ithaca"]);
+  for (const word of ["grave", "doubts", "ithaca"])
+    expect(words.filter((each) => each === word)).toHaveLength(1);
+  expect(wordErrorRate(clips[0].reference, traffic.finals[0]!)).toBeLessThan(
+    0.25,
+  );
+  expect(sends.count).toBe(0);
+  const result = {
+    browser: info.project.name,
+    edge: "live",
+    partials: traffic.partials.length,
+    distinctValuesWhileHeld: shownWhileHeld.length,
+    firstWordsAfterStartMs: Math.round(shownWhileHeld[0]!.at - startedAt),
+    clipEndToReleaseMs: Math.round(releasedAt - endedAt),
+    heldText: held,
+    finalText: text,
+  };
+  await info.attach("live.json", {
+    body: JSON.stringify(result),
+    contentType: "application/json",
+  });
+  console.log(`VOICE_E2E_LIVE ${JSON.stringify(result)}`);
+  expect(shownWhileHeld.length).toBeGreaterThan(3);
+});
+
+// ===========================================
 // Native edge cases
 // ===========================================
 
@@ -370,6 +469,7 @@ async function dictationPage(
     acks: 0,
     cancels: 0,
     ends: [] as { sequence: number; totalSamples: number }[],
+    partials: [] as string[],
     finals: [] as string[],
     errors: [] as string[],
   };
@@ -393,6 +493,7 @@ async function dictationPage(
         code?: string;
       };
       if (message.type === "ack") traffic.acks++;
+      if (message.type === "partial") traffic.partials.push(message.text!);
       if (message.type === "final") traffic.finals.push(message.text!);
       if (message.type === "error") traffic.errors.push(message.code!);
     });
@@ -441,7 +542,7 @@ async function holdButton(
 test.describe("native edges", () => {
   test.setTimeout(150_000);
 
-  test("holding Space for 3 seconds streams while held and adds the final at the caret", async ({
+  test("holding Space for 1 second streams while held and adds the final at the caret", async ({
     page,
     context,
     baseURL,
@@ -469,6 +570,7 @@ test.describe("native edges", () => {
     await play(page, "ls_10s.wav");
     expect(traffic.ends).toEqual([]);
     expect(traffic.finals).toEqual([]);
+    await expect(composer).not.toHaveValue("Note:");
     await page.keyboard.up(" ");
     await expect(status).toContainText("Added your words", { timeout: 60_000 });
     expect(traffic.finals).toHaveLength(1);

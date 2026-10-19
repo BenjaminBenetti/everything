@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { Agent, createServer, request as httpRequest } from "node:http";
 import type { AddressInfo, Socket } from "node:net";
 import { test, type TestContext } from "node:test";
+import { WebSocketServer } from "ws";
 import {
   encodeVoiceFrame,
   voiceStreamProtocols,
@@ -380,6 +381,24 @@ test("a browser offering version 2 gets the live service's partials; version 1 p
     ["ready", "ack", "ack", "final"],
   );
   assert.equal(legacy.messages[0]!.version, 1);
+});
+
+test("a gateway that predates version 2, which selects no subprotocol itself, answers the browser's offer with version 1", async (context) => {
+  // Before version 2 the gateway's WebSocket server had no subprotocol selection, so it takes the first offer.
+  const older = new WebSocketServer({ port: 0, host: "127.0.0.1" });
+  context.after(() => older.close());
+  await new Promise((resolve) => older.once("listening", resolve));
+  const { port } = older.address() as AddressInfo;
+  const socket = new WebSocket(`ws://127.0.0.1:${port}`, [
+    voiceStreamProtocols[1],
+    voiceStreamProtocols[2],
+  ]);
+  await new Promise((resolve, reject) => {
+    socket.addEventListener("open", resolve);
+    socket.addEventListener("error", reject);
+  });
+  assert.equal(socket.protocol, voiceStreamProtocols[1]);
+  socket.close();
 });
 
 test("a browser that offers only version 1, or starts another version than it agreed, stays within version 1", async (context) => {
