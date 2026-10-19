@@ -9,6 +9,12 @@ import {
   avatarThinkingPaw,
   avatarThinkingPawSize,
 } from "../model/avatar-thinking-pose.js";
+import {
+  avatarWatchingGlass,
+  avatarWatchingLensRadius,
+  avatarWatchingLids,
+  avatarWatchingReach,
+} from "../model/avatar-watching-pose.js";
 
 /** Stand in for an independently implemented animation. */
 function Blink() {
@@ -79,4 +85,42 @@ test("the stylesheet moves thinking artwork exactly where the paw expects it", (
     /\[data-avatar-animation="thinking"\]\) > img \{\s*transform: ([^;]+);/,
   );
   assert.equal(rule?.[1], `translate(-${shift}%, ${shift}%) scale(${scale})`);
+});
+
+test("every watching glass and its paw stay inside the artwork, clear of the eyes", () => {
+  for (const id of agentAvatarIds) {
+    const glass = avatarWatchingGlass(id);
+    assert.ok(Number.isInteger(glass.x) && Number.isInteger(glass.y), id);
+    assert.ok(glass.x - avatarWatchingLensRadius >= 0, id);
+    assert.ok(glass.y - avatarWatchingLensRadius >= 0, id);
+    assert.ok(glass.x + avatarWatchingReach <= 128, id);
+    assert.ok(glass.y + avatarWatchingReach <= 128, id);
+    for (const eye of avatarIdleEyes[id]) {
+      // The nearest point of the eye's rectangle lies outside the lens.
+      const nearestX = Math.max(eye.x, Math.min(glass.x, eye.x + eye.width));
+      const nearestY = Math.max(eye.y, Math.min(glass.y, eye.y + eye.height));
+      assert.ok(
+        Math.hypot(glass.x - nearestX, glass.y - nearestY) >
+          avatarWatchingLensRadius,
+        id,
+      );
+    }
+  }
+});
+
+test("watching lids cover only the upper half of each eye, in its own face colour", () => {
+  for (const id of agentAvatarIds) {
+    const eyes = avatarIdleEyes[id];
+    const lids = avatarWatchingLids(id);
+    assert.equal(lids.length, eyes.length, id);
+    lids.forEach((lid, index) => {
+      const eye = eyes[index]!;
+      assert.deepEqual(
+        { x: lid.x, y: lid.y, width: lid.width, lid: lid.lid },
+        { x: eye.x, y: eye.y, width: eye.width, lid: eye.lid },
+        id,
+      );
+      assert.ok(lid.height >= eye.height / 2 && lid.height < eye.height, id);
+    });
+  }
 });

@@ -1,5 +1,5 @@
 import type { AgentAvatarId } from "@everything/agent-contracts/avatar";
-import { avatarIdleEyes } from "./avatar-idle-eyes.js";
+import { avatarFace } from "./avatar-face.js";
 
 /**
  * The thinking pose shrinks the artwork and moves it `shift` percent toward the lower left, leaving
@@ -19,30 +19,15 @@ function placed(x: number, y: number): { x: number; y: number } {
   };
 }
 
-/**
- * Rest the paw just below the mouth, slightly off-centre, using the artist-aligned eye regions:
- * the gap below the eyes grows with their spacing, within limits that suit every bundled character.
- */
+/** Rest the paw just below the mouth, slightly off-centre, on the moved artwork. */
 export function avatarThinkingPaw(avatarId: AgentAvatarId): {
   x: number;
   y: number;
 } {
-  const eyes = avatarIdleEyes[avatarId];
-  const centers = eyes.map((eye) => eye.x + eye.width / 2);
-  const middle =
-    centers.reduce((sum, center) => sum + center, 0) / centers.length;
-  // The moon has one open eye; its width stands in for the spacing between two.
-  const spacing =
-    centers.length > 1
-      ? Math.abs(centers[1]! - centers[0]!)
-      : eyes[0]!.width * 2.2;
-  const bottom = Math.max(...eyes.map((eye) => eye.y + eye.height));
-  const chin = placed(
-    middle + spacing * 0.35,
-    bottom + Math.min(14, Math.max(9, spacing * 0.45)),
-  );
+  const { middle, spacing, chin } = avatarFace(avatarId);
+  const point = placed(middle + spacing * 0.35, chin);
   return {
-    x: Math.round(chin.x - avatarThinkingPawSize / 2),
-    y: Math.round(chin.y - 2),
+    x: Math.round(point.x - avatarThinkingPawSize / 2),
+    y: Math.round(point.y - 2),
   };
 }

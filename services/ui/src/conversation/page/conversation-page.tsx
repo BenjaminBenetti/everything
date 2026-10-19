@@ -9,7 +9,7 @@ import { MessageHistory } from "../component/message-history.js";
 import { ConversationDetails } from "../component/conversation-details.js";
 import { CompactionIndicator } from "../component/compaction-indicator.js";
 import { useReplyNotifications } from "../../notification/hook/use-reply-notifications.js";
-import { mainTeammateWorking } from "../model/main-activity.js";
+import { mainTeammateActivity } from "../model/main-activity.js";
 
 /** Resolve the teammate's sole conversation from the directory, including direct links. */
 export function ConversationPage() {
@@ -42,7 +42,7 @@ export function ConversationPage() {
   return <TeammateConversation key={agent.id} agent={agent} />;
 }
 
-/** Present the ongoing conversation with visible compaction progress, main work, and background activity. */
+/** Present the ongoing conversation with visible compaction progress, main activity, and background activity. */
 function TeammateConversation({ agent }: { agent: Agent }) {
   const { open } = useWorkspaceDialogs();
   const [search] = useSearchParams();
@@ -57,8 +57,8 @@ function TeammateConversation({ agent }: { agent: Agent }) {
   const runtime = snapshot.data?.runtime;
   // The typing indicator tracks only messages; background activity appears in the teammate card.
   const typing = runtime?.status === "running" && runtime.typing;
-  // The avatar follows only the main session, never background teammates or a stale snapshot.
-  const working = mainTeammateWorking(snapshot);
+  // The avatar follows the main session and its monitors, never background teammates or a stale snapshot.
+  const activity = mainTeammateActivity(snapshot);
   const error =
     send.error?.message ??
     older.error?.message ??
@@ -68,7 +68,7 @@ function TeammateConversation({ agent }: { agent: Agent }) {
     <section className="chat-page" aria-label={`Chat with ${agent.name}`}>
       <ConversationDetails
         agent={agent}
-        working={working}
+        activity={activity}
         backgroundCount={runtime?.backgroundCount ?? 0}
         onEdit={() => open({ kind: "editor", agent })}
       />
