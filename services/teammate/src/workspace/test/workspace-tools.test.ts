@@ -13,6 +13,7 @@ import { test, type TestContext } from "node:test";
 import { workspaceLimits } from "@everything/workspace-contracts";
 import { WorkspaceFiles } from "../service/workspace-files.js";
 import { BashRunner } from "../../shell/service/bash-runner.js";
+import { MonitorRunner } from "../../shell/service/monitor-runner.js";
 import { LinuxCommandProcessFactory } from "../../shell/adapter/linux-command-process-factory.js";
 import { createHttpApplication } from "../../application/factory/http-application.js";
 
@@ -28,9 +29,11 @@ async function fixture(context: TestContext) {
   await mkdir(shared);
   const files = new WorkspaceFiles(root, shared);
   const bash = new BashRunner(files, new LinuxCommandProcessFactory());
-  const app = createHttpApplication(files, bash, "test-token");
+  const monitors = new MonitorRunner(files, new LinuxCommandProcessFactory());
+  const app = createHttpApplication(files, bash, monitors, "test-token");
   context.after(async () => {
     bash.close();
+    await monitors.close();
     await app.close();
     await rm(parent, { recursive: true, force: true });
   });

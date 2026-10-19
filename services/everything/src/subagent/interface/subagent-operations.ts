@@ -14,8 +14,15 @@ export interface SubagentScope {
 export interface SubagentOperations {
   /** Open and start a child of the main teammate without waiting for its result. */
   create(scope: SubagentScope, input: CreateSubagentInput): Promise<Subagent>;
-  /** Run an event prompt in a temporary child, deleting its subtree when it stops. */
-  wakeup(scope: SubagentScope, input: CreateSubagentInput): Promise<Subagent>;
+  /**
+   * Run an event prompt in a temporary child, deleting its subtree when it stops. An aborted `signal`
+   * withdraws the event before it is accepted, including while it waits for the teammate's lock.
+   */
+  wakeup(
+    scope: SubagentScope,
+    input: CreateSubagentInput,
+    signal?: AbortSignal,
+  ): Promise<Subagent>;
   /** List all background sessions without starting model work. */
   list(scope: SubagentScope): Promise<Subagent[]>;
   /** Stop a background session and its descendants and delete their transcripts. */

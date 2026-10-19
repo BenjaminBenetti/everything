@@ -19,6 +19,7 @@ import type {
   SubagentSession,
   SubagentSessionAccess,
 } from "../../subagent/interface/subagent-sessions.js";
+import type { MonitorLifecycle } from "../../monitor/interface/monitor-operations.js";
 
 /** Coordinates durable chat and interruptible execution through runtime and storage interfaces. */
 export class ConversationService
@@ -37,12 +38,13 @@ export class ConversationService
   // Construction
   // ===========================================
 
-  /** Inject agent ownership, visible-message storage, the runtime factory, and agent working directories. */
+  /** Inject agent ownership, visible-message storage, the runtime factory, agent working directories, and optional monitors. */
   constructor(
     private readonly agents: Pick<AgentCatalog, "get" | "delete">,
     private readonly messages: ConversationMessageStore,
     private readonly sessions: AgentSessionFactory,
     private readonly workspaces: Pick<AgentWorkspaces, "remove">,
+    private readonly monitors?: Pick<MonitorLifecycle, "stopAgent">,
   ) {}
 
   // ===========================================
@@ -101,11 +103,13 @@ export class ConversationService
     });
   }
 
-  /** Stop active work while retaining the saved conversation. */
+  /** Stop active work, including monitors, while retaining the saved conversation. */
   async interrupt(ownerId: string, agentId: string): Promise<void> {
     await this.locks.run(agentId, async () => {
       await this.agents.get(ownerId, agentId);
-      await this.runtimes.get(agentId)?.stop();
+      await this.stopWork(agentId, async () => {
+        await this.runtimes.get(agentId)?.stop();
+      });
     });
   }
 
@@ -113,9 +117,11 @@ export class ConversationService
   async delete(ownerId: string, agentId: string): Promise<void> {
     await this.locks.run(agentId, async () => {
       await this.agents.get(ownerId, agentId);
-      await this.unloadRuntime(agentId);
-      await this.agents.delete(ownerId, agentId);
-      await this.workspaces.remove(agentId);
+      await this.stopWork(agentId, async () => {
+        await this.unloadRuntime(agentId);
+        await this.agents.delete(ownerId, agentId);
+        await this.workspaces.remove(agentId);
+      });
     });
   }
 
@@ -155,6 +161,15 @@ export class ConversationService
     this.runtimes.set(agent.id, runtime);
     this.runtimeDefinitions.set(agent.id, definition);
     return runtime;
+  }
+
+  /** Run `work` while the teammate's monitors are stopped and new ones refused, so its tools cannot start survivors. */
+  private async stopWork(
+    agentId: string,
+    work: () => Promise<void>,
+  ): Promise<void> {
+    if (this.monitors) await this.monitors.stopAgent(agentId, work);
+    else await work();
   }
 
   /** Stop and release a loaded runtime; one already unloaded, for example by deletion, is ignored. */

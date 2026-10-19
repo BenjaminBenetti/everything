@@ -19,3 +19,15 @@ export class WorkspaceOperationError extends ApplicationError {
     super(400, "WORKSPACE_OPERATION_FAILED", message);
   }
 }
+
+/** The pod does not know the addressed resource, for example a monitor lost when the pod restarted. */
+export class WorkspaceResourceNotFoundError extends ApplicationError {
+  /** Keep the pod's internal routes private. */
+  constructor() {
+    super(
+      404,
+      "WORKSPACE_RESOURCE_NOT_FOUND",
+      "This teammate's workspace doesn't have the requested item.",
+    );
+  }
+}

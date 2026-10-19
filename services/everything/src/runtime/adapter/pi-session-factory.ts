@@ -46,6 +46,8 @@ import type { ConversationSearchReader } from "../../conversation/interface/conv
 import { conversationSearchTool } from "../../conversation/tool/conversation-search-tool.js";
 import { FleetMcpClient } from "../../fleet/adapter/fleet-mcp-client.js";
 import { fleetCreationDefaults } from "../tool/fleet-creation-defaults.js";
+import type { MonitorOperations } from "../../monitor/interface/monitor-operations.js";
+import { monitorTools } from "../tool/monitor-tools.js";
 
 /** Pi's per-agent configuration and session paths inside the agent's workspace. */
 interface AgentDirectories {
@@ -60,7 +62,7 @@ export class PiSessionFactory implements AgentSessionFactory {
   // Construction
   // ===========================================
 
-  /** Receive inference, workspace tools, Fleet, API documentation, conversation search, and optional interaction recording. */
+  /** Receive inference, workspace tools, Fleet, API documentation, conversation search, and optional interaction recording and monitors. */
   constructor(
     private readonly inference: InferenceRuntimeFactory,
     private readonly workspaces: Pick<AgentWorkspaces, "directory" | "shared">,
@@ -70,6 +72,7 @@ export class PiSessionFactory implements AgentSessionFactory {
     private readonly apiDocumentation: ApiDocumentationReader,
     private readonly conversationSearch: ConversationSearchReader,
     private readonly workspaceActivity?: WorkspaceActivityRecorder,
+    private readonly monitors?: MonitorOperations,
   ) {}
 
   // ===========================================
@@ -188,6 +191,14 @@ export class PiSessionFactory implements AgentSessionFactory {
       }),
       ...forkTools(messaging),
       ...workspaceTools(this.workspace, agent.id),
+      // Completion events return to this teammate whichever session in its family started them.
+      ...(this.monitors
+        ? monitorTools(
+            this.monitors,
+            { ownerId: agent.ownerId, agentId: agent.id },
+            parentId === undefined ? "main" : sessionManager.getSessionId(),
+          )
+        : []),
       ...appTools(this.artifacts, {
         ownerId: agent.ownerId,
         author: { id: agent.id, name: agent.name },

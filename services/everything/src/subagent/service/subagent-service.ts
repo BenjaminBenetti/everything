@@ -38,10 +38,16 @@ export class SubagentService implements SubagentOperations {
   }
 
   /** Accept an event for temporary background processing through the same ownership boundary. */
-  wakeup(scope: SubagentScope, input: CreateSubagentInput): Promise<Subagent> {
-    return this.sessions.withSubagents(scope, true, async (session) =>
-      this.requireSession(session).wakeup(input),
-    );
+  wakeup(
+    scope: SubagentScope,
+    input: CreateSubagentInput,
+    signal?: AbortSignal,
+  ): Promise<Subagent> {
+    return this.sessions.withSubagents(scope, true, async (session) => {
+      // Checked under the lock, so a Stop that ran first withdraws the event.
+      signal?.throwIfAborted();
+      return this.requireSession(session).wakeup(input);
+    });
   }
 
   /** Inspect live state or saved histories without starting any model work. */
