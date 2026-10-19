@@ -38,6 +38,10 @@ import { DeliveryNotifications } from "../../notification/component/delivery-not
 import type { WorkspaceDirectory } from "../../workspace/interface/workspace-directory.js";
 import { WorkspaceDirectoryProvider } from "../../workspace/component/workspace-directory-provider.js";
 import { WorkspacesPage } from "../../workspace/page/workspaces-page.js";
+import type { VoiceClient } from "../../voice/interface/voice-client.js";
+import type { MediaEnvironment } from "../../voice/interface/media-environment.js";
+import type { PcmCaptureEnvironment } from "../../voice/interface/pcm-capture.js";
+import { VoiceProvider } from "../../voice/component/voice-provider.js";
 
 /** Application composition accepts capabilities, making real and test transports interchangeable. */
 export function Application({
@@ -52,6 +56,9 @@ export function Application({
   workspaces,
   keys,
   notifications,
+  voice,
+  media,
+  capture,
   queryClient,
 }: {
   session: BrowserSession;
@@ -65,6 +72,9 @@ export function Application({
   workspaces: WorkspaceDirectory;
   keys: KeyDirectory;
   notifications: DesktopNotifications;
+  voice: VoiceClient;
+  media: MediaEnvironment;
+  capture: PcmCaptureEnvironment;
   queryClient: QueryClient;
 }) {
   return (
@@ -79,7 +89,15 @@ export function Application({
                     <InstallationUpgradesProvider upgrades={upgrades}>
                       <WorkspaceDirectoryProvider directory={workspaces}>
                         <KeyDirectoryProvider directory={keys}>
-                          <AuthenticatedRoutes notifications={notifications} />
+                          <VoiceProvider
+                            client={voice}
+                            media={media}
+                            capture={capture}
+                          >
+                            <AuthenticatedRoutes
+                              notifications={notifications}
+                            />
+                          </VoiceProvider>
                         </KeyDirectoryProvider>
                       </WorkspaceDirectoryProvider>
                     </InstallationUpgradesProvider>

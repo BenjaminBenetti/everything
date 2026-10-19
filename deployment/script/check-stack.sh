@@ -21,8 +21,15 @@ for values in "" "$chart/values.prod.yaml" "$chart"/ci/*-values.yaml; do
   # Lint only warns about missing required values; rendering fails on them.
   render_stack "${arguments[@]}" > /dev/null
 done
-# The release workflow builds each image the chart builds from the workspace that names it.
-stack_image_workspaces > /dev/null
+# The release workflow builds each image the chart builds from the workspace that names it, for the
+# platforms the workspace allows.
+stack_image_workspaces | while read -r image workspace; do
+  platforms=$(workspace_image_platforms "$workspace" linux/amd64,linux/arm64)
+  if ! [[ $platforms =~ ^linux/(amd64|arm64)(,linux/(amd64|arm64))?$ ]]; then
+    echo "$workspace builds $image for $platforms; use linux/amd64, linux/arm64, or both." >&2
+    exit 1
+  fi
+done
 # Teammate images carry the Fleet client of the release fleetd runs, for each architecture; a client
 # of another version cannot talk to it.
 dockerfile=services/teammate/container/Dockerfile

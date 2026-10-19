@@ -62,6 +62,107 @@ test("reads a development registry whose certificate Fleet accepts unverified", 
   assert.equal(fleet.registry.host, "registry.test:5443");
   assert.equal(fleet.registry.insecure, true);
 });
+test("voice input is off by default with bounded transcription limits", () => {
+  assert.deepEqual(loadApplicationConfig(environment()).voice, {
+    service: null,
+    stream: null,
+    admission: { concurrency: 1, queueLimit: 4, queueTimeoutMs: 60_000 },
+  });
+});
+
+test("reads a self-hosted speech recognition service and its limits", () => {
+  const { voice } = loadApplicationConfig({
+    ...environment(),
+    VOICE_ASR_URL:
+      "http://speech.everything.svc.cluster.local:8000/v1/audio/transcriptions",
+    VOICE_ASR_TOKEN: "test-only",
+    VOICE_ASR_MODEL: "speech-model-q8",
+    VOICE_ASR_TIMEOUT_MS: "600000",
+    VOICE_CONCURRENCY: "2",
+    VOICE_QUEUE_LIMIT: "0",
+    VOICE_QUEUE_TIMEOUT_MS: "1000",
+  });
+  assert.deepEqual(voice, {
+    service: {
+      url: "http://speech.everything.svc.cluster.local:8000/v1/audio/transcriptions",
+      token: "test-only",
+      model: "speech-model-q8",
+      timeoutMs: 600_000,
+    },
+    stream: null,
+    admission: { concurrency: 2, queueLimit: 0, queueTimeoutMs: 1_000 },
+  });
+});
+
+test("reads a self-hosted streaming speech service with its token and limits", () => {
+  const { voice } = loadApplicationConfig({
+    ...environment(),
+    VOICE_STREAM_URL:
+      "ws://voice-asr.everything.svc.cluster.local:8080/v1/stream",
+    VOICE_STREAM_TOKEN: "test-only",
+    VOICE_STREAM_FINAL_TIMEOUT_MS: "45000",
+    VOICE_STREAM_CONCURRENCY: "2",
+  });
+  assert.deepEqual(voice.stream, {
+    url: "ws://voice-asr.everything.svc.cluster.local:8080/v1/stream",
+    token: "test-only",
+    finalTimeoutMs: 45_000,
+    concurrency: 2,
+  });
+  assert.equal(
+    loadApplicationConfig({
+      ...environment(),
+      VOICE_STREAM_URL: "wss://speech.test/v1/stream",
+    }).voice.stream?.finalTimeoutMs,
+    30_000,
+  );
+});
+
+test("rejects streaming URLs that aren't WebSocket URLs or carry credentials or fragments", () => {
+  for (const url of [
+    "http://voice-asr:8080/v1/stream",
+    "voice-asr:8080/v1/stream",
+    "ws://user:secret-password@voice-asr/v1/stream",
+    "ws://voice-asr/v1/stream#fragment",
+  ])
+    assert.throws(
+      () => loadApplicationConfig({ ...environment(), VOICE_STREAM_URL: url }),
+      (error: Error) => !error.message.includes("secret-password"),
+      url,
+    );
+  for (const override of [
+    { VOICE_STREAM_TOKEN: "two words" },
+    { VOICE_STREAM_FINAL_TIMEOUT_MS: "999" },
+    { VOICE_STREAM_FINAL_TIMEOUT_MS: "300001" },
+    { VOICE_STREAM_CONCURRENCY: "0" },
+  ])
+    assert.throws(() =>
+      loadApplicationConfig({
+        ...environment(),
+        VOICE_STREAM_URL: "ws://voice-asr/v1/stream",
+        ...override,
+      }),
+    );
+});
+
+test("rejects speech service URLs with credentials, fragments, or other schemes without repeating them", () => {
+  for (const url of [
+    "speech:8000/transcribe",
+    "/v1/audio/transcriptions",
+    "ftp://speech/transcribe",
+    "file:///models/speech",
+    "http://user:secret-password@speech/transcribe",
+    "http://speech/transcribe#fragment",
+    "http://speech/transcribe#",
+    "http://speech/ transcribe",
+  ])
+    assert.throws(
+      () => loadApplicationConfig({ ...environment(), VOICE_ASR_URL: url }),
+      (error: Error) => !error.message.includes("secret-password"),
+      url,
+    );
+});
+
 test("reads remote Fleet through the internal gateway from its address alone", () => {
   const gateway = "http://fleet-gateway.everything.svc.cluster.local:50051";
   assert.equal(loadApplicationConfig(environment()).fleet.remote, undefined);
@@ -97,6 +198,13 @@ test("rejects invalid deployment input", () => {
     { FLEET_REGISTRY: "https://registry.test" },
     { FLEET_REGISTRY_INSECURE: "sometimes" },
     { REGISTRY_PASSWORD: undefined },
+    { VOICE_ASR_TOKEN: "two words" },
+    { VOICE_ASR_MODEL: "x".repeat(257) },
+    { VOICE_ASR_TIMEOUT_MS: "999" },
+    { VOICE_ASR_TIMEOUT_MS: "900001" },
+    { VOICE_CONCURRENCY: "0" },
+    { VOICE_QUEUE_LIMIT: "-1" },
+    { VOICE_QUEUE_TIMEOUT_MS: "soon" },
   ])
     assert.throws(() =>
       loadApplicationConfig({ ...environment(), ...override }),

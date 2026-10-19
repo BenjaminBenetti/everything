@@ -67,6 +67,54 @@ export const environmentSchema = Type.Object({
     pattern: "^/",
     default: "/var/run/secrets/upgrader/token",
   }),
+  /**
+   * Complete transcription endpoint of a self-hosted speech recognition service, such as an
+   * in-cluster OpenAI-compatible server; empty leaves voice input unavailable.
+   */
+  VOICE_ASR_URL: Type.String({ default: "" }),
+  /** Bearer token for the speech recognition service; empty sends none. */
+  VOICE_ASR_TOKEN: Type.String({ pattern: "^[\\x21-\\x7E]*$", default: "" }),
+  /** Model identifier sent with each transcription; empty sends none. */
+  VOICE_ASR_MODEL: Type.String({
+    pattern: "^[\\x21-\\x7E]*$",
+    maxLength: 256,
+    default: "",
+  }),
+  /** Deadline for one transcription by the service, which depends on its model and hardware. */
+  VOICE_ASR_TIMEOUT_MS: Type.Integer({
+    minimum: 1_000,
+    maximum: 900_000,
+    default: 120_000,
+  }),
+  /** Transcriptions that run at once across all callers. */
+  VOICE_CONCURRENCY: Type.Integer({ minimum: 1, maximum: 16, default: 1 }),
+  /** Transcriptions that may wait for a free slot; more are refused at once. */
+  VOICE_QUEUE_LIMIT: Type.Integer({ minimum: 0, maximum: 64, default: 4 }),
+  /** Longest a transcription waits for a free slot. */
+  VOICE_QUEUE_TIMEOUT_MS: Type.Integer({
+    minimum: 1_000,
+    maximum: 900_000,
+    default: 60_000,
+  }),
+  /**
+   * WebSocket URL of a self-hosted streaming speech service's stream endpoint; empty leaves
+   * streaming voice input unavailable.
+   */
+  VOICE_STREAM_URL: Type.String({ default: "" }),
+  /** Bearer token for the streaming speech service; empty sends none. */
+  VOICE_STREAM_TOKEN: Type.String({ pattern: "^[\\x21-\\x7E]*$", default: "" }),
+  /** Longest to wait for a stream's final transcript after its end. */
+  VOICE_STREAM_FINAL_TIMEOUT_MS: Type.Integer({
+    minimum: 1_000,
+    maximum: 300_000,
+    default: 30_000,
+  }),
+  /** Streams that run at once across all owners; the speech service may allow fewer. */
+  VOICE_STREAM_CONCURRENCY: Type.Integer({
+    minimum: 1,
+    maximum: 16,
+    default: 1,
+  }),
 });
 
 /** Pinned SHA-256 of each Fleet release file, by file name. */

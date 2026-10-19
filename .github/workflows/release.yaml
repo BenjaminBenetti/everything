@@ -57,11 +57,17 @@ jobs:
             echo "registry=ghcr.io/${GITHUB_REPOSITORY,,}"
             echo "platforms=linux/amd64,linux/arm64"
           } >> "$GITHUB_OUTPUT"
+      # Each image is built for every platform unless its workspace names fewer, as voice-asr's native
+      # x86-64 code does.
       - id: images
-        name: List the images the chart builds and their workspaces
+        name: List the images the chart builds, their workspaces, and platforms
+        env:
+          PLATFORMS: ${{ steps.version.outputs.platforms }}
         run: |
           source deployment/script/stack-chart.sh
-          images=$(stack_image_workspaces | jq -Rnc '[inputs | split(" ") | {name: .[0], workspace: .[1]}]')
+          images=$(stack_image_workspaces | while read -r name workspace; do
+            echo "$name $workspace $(workspace_image_platforms "$workspace" "$PLATFORMS")"
+          done | jq -Rnc '[inputs | split(" ") | {name: .[0], workspace: .[1], platforms: .[2]}]')
           echo "images=$images" >> "$GITHUB_OUTPUT"
 
   verify:
@@ -89,7 +95,7 @@ jobs:
     with:
       output: image
       push: true
-      platforms: ${{ needs.plan.outputs.platforms }}
+      platforms: ${{ matrix.image.platforms }}
       file: ${{ matrix.image.workspace }}/container/Dockerfile
       meta-images: ${{ needs.plan.outputs.registry }}/${{ matrix.image.name }}
       # The full version, plus <major>.<minor> and latest for releases that are not prereleases.
@@ -163,8 +169,9 @@ jobs:
           PLATFORMS: ${{ needs.plan.outputs.platforms }}
           IMAGES: ${{ needs.plan.outputs.images }}
         run: |
-          image_list=$(jq -r --arg registry "$REGISTRY" --arg version "$VERSION" \
-            '.[] | "- `\($registry)/\(.name):\($version)`"' <<< "$IMAGES")
+          image_list=$(jq -r --arg registry "$REGISTRY" --arg version "$VERSION" --arg platforms "$PLATFORMS" \
+            '.[] | "- `\($registry)/\(.name):\($version)`" + (if .platforms == $platforms then "" else " (\(.platforms) only)" end)' \
+            <<< "$IMAGES")
           cat > "$RUNNER_TEMP/notes.md" <<EOF
           ## Install
 

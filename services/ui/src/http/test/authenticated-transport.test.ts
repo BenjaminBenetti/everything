@@ -64,3 +64,33 @@ test("server errors never reveal response content", async () => {
     );
   }
 });
+
+test("uploads raw bytes with their own content type under the same path and request rules", async () => {
+  const requests: { path: string; options: RequestInit }[] = [];
+  const transport = createAuthenticatedTransport(
+    async (input, options = {}) => {
+      requests.push({ path: String(input), options });
+      return Response.json({ text: "ok" });
+    },
+  );
+  const body = new Blob(["bytes"]);
+  assert.deepEqual(
+    await transport.upload(
+      "/v1/agents/a/voice/transcriptions",
+      body,
+      "audio/webm;codecs=opus",
+    ),
+    { text: "ok" },
+  );
+  const headers = new Headers(requests[0]?.options.headers);
+  assert.equal(headers.get("Content-Type"), "audio/webm;codecs=opus");
+  assert.equal(requests[0]?.options.body, body);
+  assert.equal(requests[0]?.options.credentials, "same-origin");
+  assert.equal(requests[0]?.options.redirect, "error");
+  for (const path of ["https://elsewhere.test/v1/x", "/v1/../auth", "/v1/\\x"])
+    await assert.rejects(
+      transport.upload(path, body, "audio/webm"),
+      /Invalid API path/,
+    );
+  assert.equal(requests.length, 1);
+});

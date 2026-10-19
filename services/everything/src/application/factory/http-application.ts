@@ -57,6 +57,12 @@ import type {
   ApiDocumentationReader,
   ApiDocumentationPublisher,
 } from "../../api-documentation/interface/api-documentation.js";
+import type { VoiceOperations } from "../../voice/interface/voice-operations.js";
+import type { VoiceStreamOperations } from "../../voice/interface/voice-stream-operations.js";
+import {
+  registerVoiceWebSocket,
+  voiceController,
+} from "../../voice/controller/voice-controller.js";
 
 /** Use cases and transport settings supplied by the composition root. */
 export interface HttpDependencies {
@@ -82,6 +88,8 @@ export interface HttpDependencies {
   readonly teammateOrder: TeammateOrderOperations;
   readonly workspaces: WorkspaceInstances;
   readonly workspaceActivity: WorkspaceActivityReader;
+  readonly voice: VoiceOperations;
+  readonly voiceStreams: VoiceStreamOperations;
   readonly readiness: ReadinessCheck;
 }
 
@@ -118,6 +126,8 @@ export async function createHttpApplication(
     ajv: strictRequestValidation,
   });
   await app.register(helmet);
+  // Before every route, so refused upgrades are cleaned up whichever hook refuses them.
+  await registerVoiceWebSocket(app);
   await app.register(fastifyCookie);
   // Only routes that opt in are limited: those reachable without authentication.
   await app.register(rateLimit, { global: false });
@@ -175,5 +185,11 @@ function protectedApi(
     await teammateOrderController(scope, dependencies.teammateOrder);
     await workspaceInstanceController(scope, dependencies.workspaces);
     await workspaceActivityController(scope, dependencies.workspaceActivity);
+    await voiceController(
+      scope,
+      dependencies.voice,
+      dependencies.voiceStreams,
+      (request) => cookie.protectUpgrade(request),
+    );
   };
 }

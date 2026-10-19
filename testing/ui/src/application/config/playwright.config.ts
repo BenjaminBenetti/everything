@@ -5,6 +5,8 @@ import { fileURLToPath } from "node:url";
 export default defineConfig({
   testDir: fileURLToPath(new URL("../../", import.meta.url)),
   testMatch: "**/test/*.test.ts",
+  // Voice input runs against an isolated server in more browsers; see playwright.voice.config.ts.
+  testIgnore: "**/voice/test/**",
   outputDir: fileURLToPath(
     new URL("../../../../../.local/ui-test-results", import.meta.url),
   ),

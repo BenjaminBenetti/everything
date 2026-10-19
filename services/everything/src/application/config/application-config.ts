@@ -2,6 +2,7 @@ import path from "node:path";
 import envSchema from "env-schema";
 import { Value } from "typebox/value";
 import type { FleetSettings } from "../../fleet/model/fleet-settings.js";
+import type { VoiceSettings } from "../../voice/model/voice-settings.js";
 import {
   environmentSchema,
   fleetChecksumsSchema,
@@ -49,6 +50,8 @@ export interface ApplicationConfig {
     readonly url: string;
     readonly tokenFile: string;
   };
+  /** The self-hosted speech recognition service and transcription limits; no service, no voice input. */
+  readonly voice: VoiceSettings;
 }
 
 /** Validate deployment settings with env-schema and normalize paths. */
@@ -90,6 +93,35 @@ export function loadApplicationConfig(
       url: settings.UPGRADER_URL,
       tokenFile: settings.UPGRADER_TOKEN_FILE,
     },
+    voice: {
+      service: settings.VOICE_ASR_URL
+        ? {
+            url: serviceUrl("VOICE_ASR_URL", settings.VOICE_ASR_URL, [
+              "http:",
+              "https:",
+            ]),
+            token: settings.VOICE_ASR_TOKEN,
+            model: settings.VOICE_ASR_MODEL,
+            timeoutMs: settings.VOICE_ASR_TIMEOUT_MS,
+          }
+        : null,
+      stream: settings.VOICE_STREAM_URL
+        ? {
+            url: serviceUrl("VOICE_STREAM_URL", settings.VOICE_STREAM_URL, [
+              "ws:",
+              "wss:",
+            ]),
+            token: settings.VOICE_STREAM_TOKEN,
+            finalTimeoutMs: settings.VOICE_STREAM_FINAL_TIMEOUT_MS,
+            concurrency: settings.VOICE_STREAM_CONCURRENCY,
+          }
+        : null,
+      admission: {
+        concurrency: settings.VOICE_CONCURRENCY,
+        queueLimit: settings.VOICE_QUEUE_LIMIT,
+        queueTimeoutMs: settings.VOICE_QUEUE_TIMEOUT_MS,
+      },
+    },
     fleet: {
       home: path.resolve(settings.FLEET_HOME),
       release: {
@@ -113,4 +145,32 @@ export function loadApplicationConfig(
         : {}),
     },
   };
+}
+
+/**
+ * Accept an absolute URL with one of the given schemes and no credentials, fragment, or whitespace.
+ * Messages name the variable but never repeat its value, which may be sensitive.
+ */
+function serviceUrl(
+  name: string,
+  value: string,
+  schemes: readonly string[],
+): string {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error(`${name} must be an absolute URL`);
+  }
+  if (
+    !schemes.includes(url.protocol) ||
+    url.username ||
+    url.password ||
+    value.includes("#") ||
+    /\s/.test(value)
+  )
+    throw new Error(
+      `${name} must be a ${schemes.join(" or ")} URL without credentials or a fragment`,
+    );
+  return url.href;
 }

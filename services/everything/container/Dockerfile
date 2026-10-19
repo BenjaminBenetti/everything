@@ -51,6 +51,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       # Init that reaps the commands fleetd leaves behind.
       tini \
       ca-certificates git openssh-client tmux \
+      # Voice input decodes recordings with FFmpeg under prlimit's kernel limits.
+      ffmpeg util-linux \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=docker /usr/local/bin/docker /usr/local/bin/docker
 COPY --from=docker /usr/local/libexec/docker/cli-plugins/docker-buildx /usr/local/libexec/docker/cli-plugins/docker-buildx

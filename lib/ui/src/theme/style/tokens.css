@@ -233,6 +233,123 @@
   --text-on-danger: #fdf6e3;
 }
 
+/* Gruvbox follows morhetz/gruvbox: soft, medium, and hard contrast change only the page tone, bg0.
+   Panel, subtle, and code surfaces step from it to a neighboring canonical tone, or blend two where
+   none fits. The welcome surface, primary and secondary text, borders, and action and danger colors
+   are canonical; hover, selection, avatar, and error surfaces blend them. Accent, selected,
+   placeholder, and status text shift a canonical color toward a neighboring tone only where WCAG AA
+   contrast needs it. */
+[data-theme="gruvbox-dark-soft"],
+[data-theme="gruvbox-dark-medium"],
+[data-theme="gruvbox-dark-hard"] {
+  color-scheme: dark;
+  --text-primary: #ebdbb2;
+  --text-secondary: #bdae93;
+  --text-placeholder: #a89984;
+  --border-default: #504945;
+  --border-field: #665c54;
+  --border-active: #fe8019;
+  --text-accent: #fd9521;
+  --surface-selected: #4d3e33;
+  --text-selected: #fca526;
+  --surface-hero: #3c3836;
+  --text-on-hero: #fbf1c7;
+  --text-hero-accent: #fe8019;
+  --text-hero-muted: #bdae93;
+  --surface-action: #fe8019;
+  --text-on-action: #282828;
+  --surface-action-hover: #fc9822;
+  --status-ready: #fabd2f;
+  --surface-avatar: #554132;
+  --text-avatar: #fca526;
+  --overlay: #0f101199;
+  --shadow-color: #00000033;
+  --status-connected: #b8bb26;
+  --status-disconnected: #fb8467;
+  --text-danger: #fb8467;
+  --surface-danger: #cc241d;
+  --surface-danger-hover: #9d0006;
+  --surface-danger-subtle: #4a3330;
+  --text-on-danger: #fbf1c7;
+}
+
+[data-theme="gruvbox-dark-soft"] {
+  --surface-page: #32302f;
+  --surface-panel: #3c3836;
+  --surface-subtle: #373433;
+  --surface-review: #282828;
+  --text-placeholder: #afa089;
+}
+
+[data-theme="gruvbox-dark-medium"] {
+  --surface-page: #282828;
+  --surface-panel: #32302f;
+  --surface-subtle: #2d2c2c;
+  --surface-review: #1d2021;
+}
+
+[data-theme="gruvbox-dark-hard"] {
+  --surface-page: #1d2021;
+  --surface-panel: #282828;
+  --surface-subtle: #232425;
+  --surface-review: #141617;
+}
+
+[data-theme="gruvbox-light-soft"],
+[data-theme="gruvbox-light-medium"],
+[data-theme="gruvbox-light-hard"] {
+  color-scheme: light;
+  --text-primary: #3c3836;
+  --text-secondary: #665c54;
+  --text-placeholder: #73675e;
+  --border-default: #d5c4a1;
+  --border-field: #bdae93;
+  --border-active: #af3a03;
+  --text-accent: #af3a03;
+  --surface-selected: #f3dfb3;
+  --text-selected: #983a0d;
+  --surface-hero: #ebdbb2;
+  --text-on-hero: #282828;
+  --text-hero-accent: #af3a03;
+  --text-hero-muted: #665c54;
+  --surface-action: #af3a03;
+  --text-on-action: #f9f5d7;
+  --surface-action-hover: #983a0d;
+  --status-ready: #b57614;
+  --surface-avatar: #edd7ad;
+  --text-avatar: #983a0d;
+  --overlay: #28282855;
+  --shadow-color: #3c383614;
+  --status-connected: #6d6816;
+  --status-disconnected: #9d0006;
+  --text-danger: #9d0006;
+  --surface-danger: #cc241d;
+  --surface-danger-hover: #9d0006;
+  --surface-danger-subtle: #f5d8b3;
+  --text-on-danger: #f9f5d7;
+}
+
+[data-theme="gruvbox-light-soft"] {
+  --surface-page: #f2e5bc;
+  --surface-panel: #fbf1c7;
+  --surface-subtle: #efe0b7;
+  --surface-review: #ebdbb2;
+}
+
+[data-theme="gruvbox-light-medium"] {
+  --surface-page: #fbf1c7;
+  --surface-panel: #f9f5d7;
+  --surface-subtle: #f7ebc2;
+  --surface-review: #f2e5bc;
+}
+
+[data-theme="gruvbox-light-hard"] {
+  --surface-page: #f9f5d7;
+  --surface-panel: #fcfaeb;
+  --surface-subtle: #fbf1c7;
+  --surface-review: #f2e5bc;
+}
+
 [data-theme="daylight"],
 [data-theme="sand"] {
   --status-connected: #247247;
@@ -244,7 +361,10 @@
 /* Light themes show the black ChatGPT mark on a white brand surface. */
 [data-theme="daylight"],
 [data-theme="sand"],
-[data-theme="solarized-light"] {
+[data-theme="solarized-light"],
+[data-theme="gruvbox-light-soft"],
+[data-theme="gruvbox-light-medium"],
+[data-theme="gruvbox-light-hard"] {
   --brand-chatgpt-background: #ffffff;
   --brand-chatgpt-foreground: #000000;
   --brand-chatgpt-logo: url("/brand/chatgpt-logo-black.svg");

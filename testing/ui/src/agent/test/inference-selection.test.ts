@@ -536,6 +536,12 @@ test("dropdown menus follow every theme and keep long model catalogs within the 
     "sand",
     "solarized-light",
     "solarized-dark",
+    "gruvbox-dark-soft",
+    "gruvbox-dark-medium",
+    "gruvbox-dark-hard",
+    "gruvbox-light-soft",
+    "gruvbox-light-medium",
+    "gruvbox-light-hard",
   ]) {
     await page.goto(`/team?theme=${theme}`);
     await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
@@ -567,7 +573,14 @@ test("dropdown menus follow every theme and keep long model catalogs within the 
       page.viewportSize()!.height,
     );
     if (
-      ["midnight", "sand", "solarized-light", "solarized-dark"].includes(theme)
+      [
+        "midnight",
+        "sand",
+        "solarized-light",
+        "solarized-dark",
+        "gruvbox-dark-medium",
+        "gruvbox-light-medium",
+      ].includes(theme)
     )
       await page.screenshot({ path: info.outputPath(`dropdown-${theme}.png`) });
     await page.keyboard.press("End");

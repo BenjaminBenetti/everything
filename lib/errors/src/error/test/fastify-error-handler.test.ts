@@ -41,6 +41,22 @@ test("maps correctable framework failures to stable codes", async (context) => {
   assert.equal(response.json().code, "REQUEST_TOO_LARGE");
 });
 
+test("rejects a content type no parser accepts without reporting an internal failure", async (context) => {
+  const app = createServer();
+  context.after(() => app.close());
+  const response = await app.inject({
+    method: "POST",
+    url: "/body",
+    headers: { "content-type": "audio/webm" },
+    payload: "abc",
+  });
+  assert.equal(response.statusCode, 415);
+  assert.deepEqual(response.json(), {
+    code: "UNSUPPORTED_MEDIA_TYPE",
+    message: "The request's content type isn't supported.",
+  });
+});
+
 test("hides unexpected failure details", async (context) => {
   const app = createServer();
   context.after(() => app.close());
