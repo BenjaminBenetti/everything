@@ -168,7 +168,7 @@ After authentication, each folder creates the agents it needs and deletes them a
 | DELETE | `/v1/agents/:agentId` | Stop execution, delete the agent's files, and remove application records. |
 | GET | `/v1/agents/:agentId/messages` | Latest 100 visible messages and `nextCursor`; `?before=<cursor>` reads earlier history. |
 | POST | `/v1/agents/:agentId/messages` | Persist `{ "text": "..." }`, interrupt prior work, and return 202 with message/run IDs. |
-| GET | `/v1/agents/:agentId/runtime` | `idle`, `running`, or `error`, plus the loaded session ID. |
+| GET | `/v1/agents/:agentId/runtime` | `idle`, `running`, or `error` for the teammate and its background work, `mainRunning` for the main session's own model and tool work, plus the loaded session ID. |
 | POST | `/v1/agents/:agentId/interrupt` | Abort generation and await in-flight tools. |
 | GET | `/v1/artifacts` | Artifacts shared by the caller's teammates, with status, link, and authors. |
 | POST | `/v1/artifact-views` | Exchange `{ "slug": "...", "path": "/optional" }` for a one-time `url` that opens the artifact on the artifact host. |

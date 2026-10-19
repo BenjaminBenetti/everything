@@ -43,6 +43,7 @@ test("refuses to overlap turns until the active one is stopped", async () => {
   const first = runtime.start("first");
   assert.deepEqual(runtime.status, {
     status: "running",
+    mainRunning: true,
     compacting: false,
     compactionStartedAt: null,
     typing: false,
@@ -54,6 +55,7 @@ test("refuses to overlap turns until the active one is stopped", async () => {
   assert.throws(() => runtime.start("overlap"), /Stop the active turn/);
   await runtime.stop();
   assert.equal(runtime.status.status, "idle");
+  assert.equal(runtime.status.mainRunning, false);
   assert.notEqual(runtime.start("second"), first);
   await runtime.stop();
 });
@@ -63,6 +65,7 @@ test("reports provider failures without their details and clears them when stopp
   runtime.start("error");
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(runtime.status.status, "error");
+  assert.equal(runtime.status.mainRunning, false);
   assert.equal(runtime.status.error?.includes("secret"), false);
   await runtime.stop();
   assert.equal(runtime.status.error, null);
@@ -91,4 +94,45 @@ test("a refused Fast request reports how to recover instead of the generic provi
     await runtime.stop();
     assert.equal(runtime.status.error, null);
   }
+});
+
+test("main activity is reported apart from background teammates", async () => {
+  const { fake } = session();
+  const background = {
+    running: true,
+    mainRunning: false,
+    failed: false,
+    activeCount: 1,
+  };
+  const runtime = new AgentRuntime({ ...fake, background });
+  /** Read only the fields that separate main and background activity. */
+  const activity = () => {
+    const { status, mainRunning, backgroundCount } = runtime.status;
+    return { status, mainRunning, backgroundCount };
+  };
+  assert.deepEqual(activity(), {
+    status: "running",
+    mainRunning: false,
+    backgroundCount: 1,
+  });
+  background.mainRunning = true;
+  assert.equal(activity().mainRunning, true, "a fork's result woke main");
+  Object.assign(background, {
+    running: false,
+    mainRunning: false,
+    activeCount: 0,
+  });
+  assert.deepEqual(activity(), {
+    status: "idle",
+    mainRunning: false,
+    backgroundCount: 0,
+  });
+  runtime.start("work");
+  assert.equal(activity().mainRunning, true);
+  await runtime.stop();
+  assert.deepEqual(activity(), {
+    status: "idle",
+    mainRunning: false,
+    backgroundCount: 0,
+  });
 });

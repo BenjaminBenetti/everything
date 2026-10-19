@@ -4,6 +4,7 @@ export type { RuntimeStatus } from "@everything/conversation-contracts";
 /** Status of an agent whose runtime has not been loaded in this process. */
 export const unloadedRuntimeStatus: RuntimeStatus = Object.freeze({
   status: "idle",
+  mainRunning: false,
   compacting: false,
   compactionStartedAt: null,
   typing: false,

@@ -28,6 +28,10 @@ export const runtimeStatusResponse = Type.Object({
     Type.Literal("running"),
     Type.Literal("error"),
   ]),
+  mainRunning: Type.Boolean({
+    description:
+      "Whether the main conversation itself is working, including model and tool calls. Background teammates count only toward status and backgroundCount.",
+  }),
   compacting: Type.Boolean(),
   compactionStartedAt: Type.Union(
     [Type.String({ format: "date-time" }), Type.Null()],

@@ -26,7 +26,7 @@ export class AgentRuntime {
 
   private current: Omit<
     RuntimeStatus,
-    "backgroundCount" | "compactionStartedAt"
+    "mainRunning" | "backgroundCount" | "compactionStartedAt"
   >;
   private completion: Promise<void> = Promise.resolve();
 
@@ -67,6 +67,9 @@ export class AgentRuntime {
         : background?.failed
           ? "error"
           : this.current.status,
+      // A user turn counts until it settles, including its delivery reminders, and so does a woken main session.
+      mainRunning:
+        this.current.status === "running" || Boolean(background?.mainRunning),
       error: this.current.error ?? (background?.failed ? runFailure : null),
       compacting,
       compactionStartedAt: compacting ? this.session.compactionStartedAt : null,

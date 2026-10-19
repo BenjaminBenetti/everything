@@ -132,8 +132,13 @@ export class ForkingAgentSession implements AgentSession {
     };
   }
 
-  /** Smooth the displayed fork count while reporting actual execution independently. */
-  get background(): { running: boolean; failed: boolean; activeCount: number } {
+  /** Smooth the displayed fork count while reporting actual execution, and the main session's own, independently. */
+  get background(): {
+    running: boolean;
+    mainRunning: boolean;
+    failed: boolean;
+    activeCount: number;
+  } {
     return {
       running:
         this.creating > 0 ||
@@ -141,6 +146,8 @@ export class ForkingAgentSession implements AgentSession {
         [...this.forks.values()].some((fork) =>
           ["running", "queued"].includes(fork.mailbox.status),
         ),
+      // A queued main session is paused until the next user turn, so it isn't working yet.
+      mainRunning: this.root.status === "running",
       failed: this.root.status === "error",
       activeCount: this.displayedForkCount,
     };

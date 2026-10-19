@@ -279,9 +279,13 @@ test("app-authenticated subagent API runs private Pi sessions, wakes main, survi
   assert.equal(child.parentId, "main");
   await until(() => working);
   assert.equal(visible.length, 0);
+  const progress = await conversations.status("owner", agentId);
+  assert.equal(progress.backgroundCount, 1);
+  assert.equal(progress.status, "running");
   assert.equal(
-    (await conversations.status("owner", agentId)).backgroundCount,
-    1,
+    progress.mainRunning,
+    false,
+    "API background work leaves the main session idle",
   );
   const messagesUrl = `${url}/${child.id}/messages`;
   const queued = await app.inject({

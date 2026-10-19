@@ -22,6 +22,8 @@ export interface AgentSession {
   readonly background?:
     | {
         readonly running: boolean;
+        /** Whether the main session itself is running, such as a turn a fork's result woke; forks never count. */
+        readonly mainRunning: boolean;
         readonly failed: boolean;
         /** Displayed fork count, including a ten-second idle grace period and excluding the main session. */
         readonly activeCount: number;
