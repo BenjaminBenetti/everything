@@ -36,6 +36,8 @@ export interface RuntimeStatus {
   readonly typing: boolean;
   /** Background teammates running now or idle for less than ten seconds; excludes the main session. */
   readonly backgroundCount: number;
+  /** Monitors this teammate or its background teammates started whose commands are still running. */
+  readonly monitorCount: number;
   readonly sessionId: string | null;
   readonly runId: string | null;
   readonly error: string | null;

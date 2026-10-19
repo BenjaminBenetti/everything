@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { AgentSession } from "../interface/agent-session.js";
-import type { RuntimeStatus } from "../model/runtime-status.js";
+import type { SessionRuntimeStatus } from "../model/runtime-status.js";
 import {
   FastModeLimitedError,
   FastModeRejectedError,
@@ -25,7 +25,7 @@ export class AgentRuntime {
   // ===========================================
 
   private current: Omit<
-    RuntimeStatus,
+    SessionRuntimeStatus,
     "mainRunning" | "backgroundCount" | "compactionStartedAt"
   >;
   private completion: Promise<void> = Promise.resolve();
@@ -56,7 +56,7 @@ export class AgentRuntime {
   }
 
   /** Combine the latest turn state with live activity and background teammate counts. */
-  get status(): RuntimeStatus {
+  get status(): SessionRuntimeStatus {
     const background = this.session.background;
     const running = this.current.status === "running" || background?.running;
     const compacting = Boolean(running && this.session.compacting);

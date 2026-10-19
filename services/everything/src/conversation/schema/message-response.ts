@@ -42,6 +42,11 @@ export const runtimeStatusResponse = Type.Object({
   ),
   typing: Type.Boolean(),
   backgroundCount: Type.Integer({ minimum: 0 }),
+  monitorCount: Type.Integer({
+    minimum: 0,
+    description:
+      "Monitors the teammate or its background teammates started whose commands are still running. Only the count is reported.",
+  }),
   sessionId: Type.Union([Type.String(), Type.Null()]),
   runId: Type.Union([Type.String(), Type.Null()]),
   error: Type.Union([Type.String(), Type.Null()]),

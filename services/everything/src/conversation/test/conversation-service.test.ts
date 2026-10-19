@@ -4,12 +4,18 @@ import { AgentNotFoundError } from "../../agent/error/agent-errors.js";
 import type { AgentCatalog } from "../../agent/interface/agent-catalog.js";
 import type { AgentDefinition } from "../../agent/model/agent.js";
 import type { AgentSessionFactory } from "../../runtime/interface/agent-session.js";
+import type {
+  MonitorActivity,
+  MonitorLifecycle,
+} from "../../monitor/interface/monitor-operations.js";
 import type { ConversationMessageStore } from "../interface/message-repository.js";
 import type { ConversationMessage } from "../model/message.js";
 import { ConversationService } from "../service/conversation-service.js";
 
 /** Build controllable test doubles for testing concurrency independently of Pi and PostgreSQL. */
-function fixture() {
+function fixture(
+  monitors?: Pick<MonitorLifecycle, "stopAgent"> & MonitorActivity,
+) {
   const recorded: Array<ConversationMessage & { agentId: string }> = [];
   const writes: string[] = [];
   const running = new Set<string>();
@@ -118,12 +124,18 @@ function fixture() {
     },
   };
   return {
-    service: new ConversationService(agents, messages, sessions, {
-      /** Record removal of the agent's working directory. */
-      async remove(agentId) {
-        lifecycle.push(`files-removed:${agentId}`);
+    service: new ConversationService(
+      agents,
+      messages,
+      sessions,
+      {
+        /** Record removal of the agent's working directory. */
+        async remove(agentId) {
+          lifecycle.push(`files-removed:${agentId}`);
+        },
       },
-    }),
+      monitors,
+    ),
     lifecycle,
     recorded,
     running,
@@ -253,4 +265,41 @@ test("deletion stops the runtime, removes desired state, then cleans up the work
   await assert.rejects(f.service.send("owner", "one", "later"), {
     code: "AGENT_NOT_FOUND",
   });
+});
+
+test("status adds the teammate's running monitors after checking ownership, loaded or not", async () => {
+  const running = new Map([["one", 2]]);
+  const counted: string[] = [];
+  const f = fixture({
+    /** Stopping a teammate's work ends its monitors, as the monitor service does. */
+    async stopAgent(agentId, stopWork) {
+      running.delete(agentId);
+      await stopWork?.();
+    },
+    /** Report the scripted count for exactly the requested owner and teammate. */
+    runningCount({ ownerId, agentId }) {
+      counted.push(`${ownerId}:${agentId}`);
+      return running.get(agentId) ?? 0;
+    },
+  });
+  const unloaded = await f.service.status("owner", "one");
+  assert.equal(unloaded.monitorCount, 2, "monitors outlive a runtime reload");
+  assert.equal(unloaded.mainRunning, false);
+  await f.service.send("owner", "one", "Keep going");
+  const working = await f.service.status("owner", "one");
+  assert.equal(working.mainRunning, true);
+  assert.equal(working.monitorCount, 2);
+  assert.equal((await f.service.status("owner", "two")).monitorCount, 0);
+  await assert.rejects(f.service.status("intruder", "one"), AgentNotFoundError);
+  await f.service.interrupt("owner", "one");
+  const stopped = await f.service.status("owner", "one");
+  assert.equal(stopped.monitorCount, 0);
+  assert.equal(stopped.mainRunning, false);
+  assert.deepEqual(counted, [
+    "owner:one",
+    "owner:one",
+    "owner:two",
+    "owner:one",
+  ]);
+  await f.service.close();
 });

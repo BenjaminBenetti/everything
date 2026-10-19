@@ -19,7 +19,10 @@ import type {
   SubagentSession,
   SubagentSessionAccess,
 } from "../../subagent/interface/subagent-sessions.js";
-import type { MonitorLifecycle } from "../../monitor/interface/monitor-operations.js";
+import type {
+  MonitorActivity,
+  MonitorLifecycle,
+} from "../../monitor/interface/monitor-operations.js";
 
 /** Coordinates durable chat and interruptible execution through runtime and storage interfaces. */
 export class ConversationService
@@ -38,13 +41,14 @@ export class ConversationService
   // Construction
   // ===========================================
 
-  /** Inject agent ownership, visible-message storage, the runtime factory, agent working directories, and optional monitors. */
+  /** Inject agent ownership, visible-message storage, the runtime factory, agent working directories, and optional monitors to stop and count. */
   constructor(
     private readonly agents: Pick<AgentCatalog, "get" | "delete">,
     private readonly messages: ConversationMessageStore,
     private readonly sessions: AgentSessionFactory,
     private readonly workspaces: Pick<AgentWorkspaces, "remove">,
-    private readonly monitors?: Pick<MonitorLifecycle, "stopAgent">,
+    private readonly monitors?: Pick<MonitorLifecycle, "stopAgent"> &
+      MonitorActivity,
   ) {}
 
   // ===========================================
@@ -81,10 +85,14 @@ export class ConversationService
     });
   }
 
-  /** Return execution status without exposing private Pi messages or storage paths. */
+  /** Return execution status and a monitor count without exposing private Pi messages, commands, or storage paths. */
   async status(ownerId: string, agentId: string): Promise<RuntimeStatus> {
     await this.agents.get(ownerId, agentId);
-    return this.runtimes.get(agentId)?.status ?? unloadedRuntimeStatus;
+    return {
+      ...(this.runtimes.get(agentId)?.status ?? unloadedRuntimeStatus),
+      // Monitors outlive a runtime reload, so they are counted even before the runtime loads again.
+      monitorCount: this.monitors?.runningCount({ ownerId, agentId }) ?? 0,
+    };
   }
 
   /** Authorize and serialize private work with main-conversation lifecycle, without interrupting it. */

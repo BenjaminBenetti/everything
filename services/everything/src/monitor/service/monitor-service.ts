@@ -16,6 +16,7 @@ import {
   MonitorsUnavailableError,
 } from "../error/monitor-errors.js";
 import type {
+  MonitorActivity,
   MonitorLifecycle,
   MonitorOperations,
   MonitorRequest,
@@ -53,7 +54,9 @@ interface TrackedMonitor {
  * never retried. Following lives in this process: after a restart the pod's lease stops orphaned
  * commands and nothing is replayed.
  */
-export class MonitorService implements MonitorOperations, MonitorLifecycle {
+export class MonitorService
+  implements MonitorOperations, MonitorActivity, MonitorLifecycle
+{
   // ===========================================
   // Construction and state
   // ===========================================
@@ -139,6 +142,13 @@ export class MonitorService implements MonitorOperations, MonitorLifecycle {
     return [...this.monitors.values()]
       .filter((tracked) => this.owns(tracked, scope))
       .map((tracked) => this.summary(tracked));
+  }
+
+  /** Count the owning teammate's commands still running; one whose outcome is being delivered has ended. */
+  runningCount(scope: MonitorScope): number {
+    return [...this.monitors.values()].filter(
+      (tracked) => this.owns(tracked, scope) && !tracked.delivering,
+    ).length;
   }
 
   /** Stop the command and return its outcome directly instead of in a completion event. */
