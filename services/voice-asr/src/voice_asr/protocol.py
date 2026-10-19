@@ -1,4 +1,9 @@
-"""Frozen voice streaming v1 wire protocol: constants, safe error codes and message validation."""
+"""Voice streaming wire protocol: constants, safe error codes and message validation.
+
+Version 1 is frozen. Version 2 is version 1 plus `partial` messages, the provisional transcript while
+audio streams; a client asks for it with its start message. The upgrade response's versions header
+lets a client learn that this service speaks version 2 before it sends start.
+"""
 import json
 import struct
 
@@ -7,6 +12,10 @@ import struct
 # ---------------------------------------------------------------------------
 
 VERSION = 1
+LIVE_VERSION = 2               # version 1 plus partial transcripts
+VERSIONS = (VERSION, LIVE_VERSION)
+VERSIONS_HEADER = "Voice-Stream-Versions"
+VERSIONS_HEADER_VALUE = "1, 2"
 SAMPLE_RATE = 16000
 MAX_SAMPLES = 960_000          # 60 s of 16 kHz mono
 MAX_FRAME_SAMPLES = 3200
@@ -18,10 +27,6 @@ MAX_CONTROL_MESSAGES = 8       # start + end + a few idempotent cancels
 MAX_FINAL_UTF16_UNITS = 32_000
 MAX_FINAL_UTF8_BYTES = 4 * MAX_FINAL_UTF16_UNITS
 
-READY_MESSAGE = json.dumps({
-    "type": "ready", "version": VERSION, "maxSamples": MAX_SAMPLES,
-    "maxFrameSamples": MAX_FRAME_SAMPLES, "windowSamples": WINDOW_SAMPLES,
-}, separators=(",", ":"))
 CANCELLED_MESSAGE = '{"type":"cancelled"}'
 
 # ---------------------------------------------------------------------------
@@ -55,8 +60,24 @@ def error_message(code: str) -> str:
     return json.dumps({"type": "error", "code": code}, separators=(",", ":"))
 
 
+def ready_message(version: int) -> str:
+    """Ready for a stream of the given version, carrying the limits."""
+    return json.dumps({
+        "type": "ready", "version": version, "maxSamples": MAX_SAMPLES,
+        "maxFrameSamples": MAX_FRAME_SAMPLES, "windowSamples": WINDOW_SAMPLES,
+    }, separators=(",", ":"))
+
+
+READY_MESSAGE = ready_message(VERSION)
+
+
 def ack_message(sequence: int) -> str:
     return json.dumps({"type": "ack", "sequence": sequence}, separators=(",", ":"))
+
+
+def partial_message(revision: int, text: str) -> str:
+    """Version 2: the provisional transcript so far; revisions count up from 1."""
+    return json.dumps({"type": "partial", "revision": revision, "text": text}, ensure_ascii=False, separators=(",", ":"))
 
 
 def final_message(text: str) -> str:
@@ -66,6 +87,11 @@ def final_message(text: str) -> str:
 def utf16_units(text: str) -> int:
     """Length of text as a JavaScript string (UTF-16 code units)."""
     return len(text) + sum(1 for ch in text if ord(ch) > 0xFFFF)
+
+
+def within_text_caps(text: str, utf8_bytes: int) -> bool:
+    """Whether a transcript fits the final's caps, which partials share."""
+    return utf8_bytes <= MAX_FINAL_UTF8_BYTES and utf16_units(text) <= MAX_FINAL_UTF16_UNITS
 
 
 # ---------------------------------------------------------------------------
@@ -95,8 +121,10 @@ def parse_control(message: str) -> dict:
         raise ProtocolFailure(INVALID_MESSAGE)
     kind = value["type"]
     if kind == "start":
-        expected = {"type": "start", "version": VERSION, "sampleRate": SAMPLE_RATE, "channels": 1, "format": "pcm_s16le"}
-        if set(value) != set(expected) or any(
+        # The version is any one this service speaks; every other field is fixed.
+        expected = {"type": "start", "version": value.get("version"), "sampleRate": SAMPLE_RATE, "channels": 1,
+                    "format": "pcm_s16le"}
+        if set(value) != set(expected) or not _is_int(value["version"]) or value["version"] not in VERSIONS or any(
             (_is_int(expected[key]) and not _is_int(value[key])) or value[key] != expected[key] for key in expected
         ):
             raise ProtocolFailure(INVALID_MESSAGE)

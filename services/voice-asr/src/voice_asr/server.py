@@ -56,6 +56,13 @@ class VoiceAsrServer:
             return connection.respond(http.HTTPStatus.SERVICE_UNAVAILABLE, "busy\n")
         return None
 
+    @staticmethod
+    def process_response(connection, request, response):
+        """List the protocol versions this service speaks on every accepted upgrade, so a client can ask for 2."""
+        if response.status_code == http.HTTPStatus.SWITCHING_PROTOCOLS:
+            response.headers[p.VERSIONS_HEADER] = p.VERSIONS_HEADER_VALUE
+        return None
+
     async def handle(self, connection) -> None:
         self._connections += 1
         try:
@@ -68,7 +75,7 @@ class VoiceAsrServer:
     async def start(self) -> None:
         self._server = await serve(
             self.handle, self.settings.host, self.settings.port,
-            process_request=self.process_request,
+            process_request=self.process_request, process_response=self.process_response,
             max_size=p.MAX_BINARY_BYTES, max_queue=32, compression=None,
             open_timeout=self.settings.start_timeout, close_timeout=2, logger=transport_log,
         )

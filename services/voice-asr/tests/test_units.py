@@ -22,13 +22,15 @@ class ControlParsing(unittest.TestCase):
 
     def test_valid_controls(self):
         self.assertEqual(p.parse_control(json.dumps(START))["type"], "start")
+        self.assertEqual(p.parse_control(json.dumps({**START, "version": 2}))["version"], 2)
         self.assertEqual(p.parse_control('{"type":"end","sequence":3,"totalSamples":9600}')["sequence"], 3)
         self.assertEqual(p.parse_control('{"type":"cancel"}')["type"], "cancel")
 
     def test_invalid_controls(self):
         for message in [
             "not json", "[]", '{"type":1}', {"type": "ping"},
-            {**START, "version": 2}, {**START, "version": True}, {**START, "version": 1.0}, {**START, "sampleRate": 48000},
+            {**START, "version": 0}, {**START, "version": 3}, {**START, "version": "2"}, {**START, "version": True},
+            {**START, "version": 1.0}, {**START, "version": 2.0}, {**START, "sampleRate": 48000},
             {**START, "extra": 1}, {k: v for k, v in START.items() if k != "format"},
             {"type": "end", "sequence": "3", "totalSamples": 1}, {"type": "end", "sequence": 1}, {"type": "cancel", "x": 1},
             '{"type":"cancel","type":"cancel"}', json.dumps({"type": "cancel", "pad": "x" * 1100}),
@@ -45,6 +47,11 @@ class ControlParsing(unittest.TestCase):
 
     def test_messages_and_codes(self):
         self.assertEqual(json.loads(p.READY_MESSAGE), {"type": "ready", "version": 1, "maxSamples": 960000, "maxFrameSamples": 3200, "windowSamples": 16000})
+        self.assertEqual(json.loads(p.ready_message(2))["version"], 2)
+        self.assertEqual(json.loads(p.partial_message(3, "héllo")), {"type": "partial", "revision": 3, "text": "héllo"})
+        self.assertTrue(p.within_text_caps("a" * 32000, 32000))
+        self.assertFalse(p.within_text_caps("a" * 32001, 32001))
+        self.assertFalse(p.within_text_caps("\U0001F600" * 16001, 4 * 16001))
         self.assertEqual(json.loads(p.error_message("not-a-code")), {"type": "error", "code": "UNAVAILABLE"})
         self.assertEqual(p.ERROR_CODES, {"INVALID_MESSAGE", "INVALID_SEQUENCE", "INVALID_AUDIO", "TOO_LONG", "BUSY", "UNAVAILABLE", "BACKPRESSURE", "TIMEOUT"})
         self.assertEqual(p.utf16_units("a\U0001F600"), 3)
