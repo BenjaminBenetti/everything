@@ -46,7 +46,8 @@ test("only the main teammate's own work shows the thinking pose, beside the back
   await expect(thinking).toBeAttached();
   await expect(thinking).toHaveAttribute("data-animation-active", "true");
   await expect(thinking.locator(".avatar-thought-cloud")).toBeVisible();
-  await expect(thinking.locator(".avatar-thinking-paw")).toBeVisible();
+  await expect(thinking.locator(".avatar-thinking-paw")).toHaveCount(0);
+  await expect(thinking.locator(".avatar-thinking-scene > *")).toHaveCount(1);
   await expect(working).toBeAttached();
   await expect(background).toHaveText("2 background");
   expect(await animations(page)).toBeGreaterThan(0);
@@ -104,7 +105,8 @@ test("reduced motion holds a still thinking pose at the same size", async ({
   await expect(thinking).toBeAttached();
   await expect(thinking).toHaveAttribute("data-animation-active", "false");
   await expect(thinking.locator(".avatar-thought-cloud")).toBeVisible();
-  await expect(thinking.locator(".avatar-thinking-paw")).toBeVisible();
+  await expect(thinking.locator(".avatar-thinking-paw")).toHaveCount(0);
+  await expect(thinking.locator(".avatar-thinking-scene > *")).toHaveCount(1);
   await expect(
     page.getByText("Avery is working", { exact: true }),
   ).toBeAttached();

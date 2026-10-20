@@ -1,14 +1,14 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { agentAvatarIds } from "@everything/agent-contracts/avatar";
 import { AvatarAnimationRegistry } from "../service/avatar-animation-registry.js";
+import { ThinkingAvatarAnimation } from "../component/thinking-avatar-animation.js";
+import { WatchingAvatarAnimation } from "../component/watching-avatar-animation.js";
 import { avatarIdleEyes } from "../model/avatar-idle-eyes.js";
-import {
-  avatarThinkingArtwork,
-  avatarThinkingPaw,
-  avatarThinkingPawSize,
-} from "../model/avatar-thinking-pose.js";
+import { avatarTypingColors } from "../model/avatar-typing-colors.js";
 import {
   avatarWatchingGlass,
   avatarWatchingLensRadius,
@@ -61,30 +61,46 @@ test("every bundled character has eye regions inside its original artwork", () =
   }
 });
 
-test("every thinking paw rests inside the artwork, below the moved eyes", () => {
-  const { scale, shift } = avatarThinkingArtwork;
-  for (const id of agentAvatarIds) {
-    const paw = avatarThinkingPaw(id);
-    assert.ok(Number.isInteger(paw.x) && Number.isInteger(paw.y), id);
-    assert.ok(paw.x >= 0 && paw.x + avatarThinkingPawSize <= 128, id);
-    assert.ok(paw.y >= 0 && paw.y + avatarThinkingPawSize <= 128, id);
-    const eyesBottom = Math.max(
-      ...avatarIdleEyes[id].map((eye) => eye.y + eye.height),
+/** The outline of the shared pixel-art paw that holds the watching glass. */
+const pawOutline = "M0 3h3V0h8v3h3v8h-3v3H2v-3H0z";
+
+test("every thinking pose shows only the shared thought cloud, with no paw", () => {
+  const scene = (avatarId: (typeof agentAvatarIds)[number]) =>
+    renderToStaticMarkup(
+      createElement(ThinkingAvatarAnimation, { avatarId, seed: "avery" }),
     );
-    assert.ok(paw.y > 64 + (eyesBottom - 64) * scale + (shift / 100) * 128, id);
-  }
+  const first = scene(agentAvatarIds[0]);
+  assert.match(first, /class="avatar-thought-cloud"/);
+  assert.doesNotMatch(first, /paw/);
+  assert.ok(!first.includes(pawOutline));
+  // Nothing in the scene depends on the character, so no character can show a paw.
+  for (const id of agentAvatarIds) assert.equal(scene(id), first, id);
 });
 
-test("the stylesheet moves thinking artwork exactly where the paw expects it", () => {
-  const { scale, shift } = avatarThinkingArtwork;
+test("the stylesheet drifts only the thought cloud while thinking, and stills it for reduced motion", () => {
   const css = readFileSync(
     new URL("../style/avatar-animation.css", import.meta.url),
     "utf8",
   );
-  const rule = css.match(
-    /\[data-avatar-animation="thinking"\]\) > img \{\s*transform: ([^;]+);/,
+  assert.doesNotMatch(css, /thinking-paw|thinking-scratch/);
+  assert.match(
+    css,
+    /\[data-avatar-animation="thinking"\]\[data-animation-active="true"\]\s+\.avatar-thought-cloud \{\s*animation: avatar-thinking-drift /,
   );
-  assert.equal(rule?.[1], `translate(-${shift}%, ${shift}%) scale(${scale})`);
+  const reduced = css.slice(css.indexOf("@media (prefers-reduced-motion"));
+  assert.match(reduced, /\.avatar-thought-cloud,[^{]*\{\s*animation: none;/);
+});
+
+test("every watching pose still holds its glass in a paw of the character's palette", () => {
+  for (const id of agentAvatarIds) {
+    const markup = renderToStaticMarkup(
+      createElement(WatchingAvatarAnimation, { avatarId: id, seed: "avery" }),
+    );
+    assert.match(markup, /class="avatar-watching-glass"/, id);
+    assert.match(markup, /class="avatar-magnifier"/, id);
+    assert.ok(markup.includes(`fill="${avatarTypingColors[id]}"`), id);
+    assert.ok(markup.includes(pawOutline), id);
+  }
 });
 
 test("every watching glass and its paw stay inside the artwork, clear of the eyes", () => {

@@ -101,37 +101,16 @@
   }
 }
 /* ===========================================
-   Thinking: a paw on the chin under a thought cloud
+   Thinking: a thought cloud beside the artwork
    =========================================== */
-/* Matches avatarThinkingArtwork, which places each paw on the moved artwork. */
+/* Shrink the artwork toward the lower left, leaving room for the cloud. */
 .teammate-avatar-artwork:has([data-avatar-animation="thinking"]) > img {
   transform: translate(-6%, 6%) scale(0.86);
-}
-[data-avatar-animation="thinking"][data-animation-active="true"]
-  .avatar-thinking-paw {
-  animation: avatar-thinking-scratch 2.4s steps(1, end) infinite;
-  animation-delay: var(--avatar-thinking-delay);
 }
 [data-avatar-animation="thinking"][data-animation-active="true"]
   .avatar-thought-cloud {
   animation: avatar-thinking-drift 2.4s steps(1, end) infinite;
   animation-delay: var(--avatar-thinking-delay);
-}
-@keyframes avatar-thinking-scratch {
-  0%,
-  36%,
-  100% {
-    transform: translate(0, 0);
-  }
-  6%,
-  18%,
-  30% {
-    transform: translate(1px, -2px);
-  }
-  12%,
-  24% {
-    transform: translate(0, -1px);
-  }
 }
 @keyframes avatar-thinking-drift {
   0%,
@@ -168,7 +147,6 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .avatar-idle-eyes,
-  .avatar-thinking-paw,
   .avatar-thought-cloud,
   .avatar-watching-glass {
     animation: none;
