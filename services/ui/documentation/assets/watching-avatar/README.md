@@ -15,7 +15,7 @@ The images don't show a physical device, a deployed cluster or production data. 
 
 ## How they were made
 
-- **Source:** the UI at commit `c5271c7` (`services/ui` tree `ed0a8c0`), served by its Vite dev server on loopback.
+- **Source:** the UI at commit `c5271c7` (`services/ui` tree `ed0a8c0`), served by its Vite dev server on loopback. `avatar-states-desktop.png` was recaptured at commit `9c6ff6e` (`services/ui` tree `e83e60d`), when the thinking pose became the thought cloud alone; its idle and watching frames are unchanged.
 - **Browser:** Chromium headless shell 156.0.8078.4, as installed for Playwright 1.64.0.
 - **Fixture:** `testing/ui/src/conversation/fixture/teammate-activity.ts`, used by `testing/ui/src/conversation/test/monitor-watching.test.ts`.
   - Every `/v1` route is mocked, including the teammates Avery (fox, `avatar-03`) and Blake (owl, `avatar-26`) and two saved messages.
