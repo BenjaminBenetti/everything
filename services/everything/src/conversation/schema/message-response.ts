@@ -28,6 +28,10 @@ export const runtimeStatusResponse = Type.Object({
     Type.Literal("running"),
     Type.Literal("error"),
   ]),
+  mainRunning: Type.Boolean({
+    description:
+      "Whether the main conversation itself is working, including model and tool calls. Background teammates count only toward status and backgroundCount.",
+  }),
   compacting: Type.Boolean(),
   compactionStartedAt: Type.Union(
     [Type.String({ format: "date-time" }), Type.Null()],
@@ -38,6 +42,11 @@ export const runtimeStatusResponse = Type.Object({
   ),
   typing: Type.Boolean(),
   backgroundCount: Type.Integer({ minimum: 0 }),
+  monitorCount: Type.Integer({
+    minimum: 0,
+    description:
+      "Monitors the teammate or its background teammates started whose commands are still running. Only the count is reported.",
+  }),
   sessionId: Type.Union([Type.String(), Type.Null()]),
   runId: Type.Union([Type.String(), Type.Null()]),
   error: Type.Union([Type.String(), Type.Null()]),

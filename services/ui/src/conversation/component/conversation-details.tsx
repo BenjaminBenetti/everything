@@ -3,17 +3,26 @@ import { ArrowLeft, Info } from "lucide-react";
 import { Link } from "react-router-dom";
 import type { Agent } from "@everything/agent-contracts";
 import { IconButton } from "@everything/ui/button";
-import { TeammateAvatar } from "../../agent/component/teammate-avatar.js";
+import {
+  mainActivityStatus,
+  type MainActivity,
+} from "../model/main-activity.js";
 import { ConversationTeammateCard } from "./conversation-teammate-card.js";
+import { TeammatePresence } from "./teammate-presence.js";
 import { ConversationWorkspacesCard } from "./conversation-workspaces-card.js";
 
-/** Keep details beside desktop messages and behind an info button on smaller screens. */
+/**
+ * Keep details beside desktop messages and behind an info button on smaller screens. Every visible
+ * avatar of the main teammate shows its activity, and screen readers hear one status for both layouts.
+ */
 export function ConversationDetails({
   agent,
+  activity,
   backgroundCount,
   onEdit,
 }: {
   agent: Agent;
+  activity: MainActivity;
   backgroundCount: number;
   onEdit: () => void;
 }) {
@@ -21,6 +30,9 @@ export function ConversationDetails({
   const [expanded, setExpanded] = useState(false);
   return (
     <div className="chat-sidebar" data-expanded={expanded}>
+      <p className="sr-only" role="status">
+        {mainActivityStatus(agent.name, activity)}
+      </p>
       <header className="chat-mobile-header">
         <Link
           to="/team"
@@ -29,7 +41,7 @@ export function ConversationDetails({
         >
           <ArrowLeft aria-hidden="true" />
         </Link>
-        <TeammateAvatar avatarId={agent.avatarId} small />
+        <TeammatePresence agent={agent} activity={activity} small />
         <div className="chat-mobile-identity">
           <h1 title={agent.name}>{agent.name}</h1>
           {backgroundCount > 0 && (
@@ -59,6 +71,7 @@ export function ConversationDetails({
       <div id={panelId} className="chat-sidebar-panel">
         <ConversationTeammateCard
           agent={agent}
+          activity={activity}
           backgroundCount={backgroundCount}
           onEdit={onEdit}
         />

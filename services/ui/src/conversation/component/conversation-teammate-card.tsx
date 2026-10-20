@@ -1,17 +1,23 @@
 import type { Agent } from "@everything/agent-contracts";
 import { IconButton } from "@everything/ui/button";
 import { Pencil } from "lucide-react";
-import { TeammateAvatar } from "../../agent/component/teammate-avatar.js";
+import type { MainActivity } from "../model/main-activity.js";
+import { TeammatePresence } from "./teammate-presence.js";
 import { effortLabels } from "../../agent/model/inference-options.js";
 import { providerOptions } from "../../provider/model/provider-options.js";
 
-/** Show teammate details with an animated background indicator only while its count is positive. */
+/**
+ * Show teammate details with an animated background indicator only while its count is positive; the
+ * avatar blinks at rest, thinks while the main teammate works, and watches while only monitors run.
+ */
 export function ConversationTeammateCard({
   agent,
+  activity,
   backgroundCount,
   onEdit,
 }: {
   agent: Agent;
+  activity: MainActivity;
   backgroundCount: number;
   onEdit: () => void;
 }) {
@@ -21,11 +27,7 @@ export function ConversationTeammateCard({
       aria-label={`${agent.name} teammate info`}
     >
       <div className="chat-teammate-identity">
-        <TeammateAvatar
-          avatarId={agent.avatarId}
-          animation="idle"
-          animationSeed={agent.id}
-        />
+        <TeammatePresence agent={agent} activity={activity} resting="idle" />
         <h1>{agent.name}</h1>
         <IconButton label={`Edit ${agent.name}`} onClick={onEdit}>
           <Pencil aria-hidden="true" />

@@ -19,9 +19,11 @@ tests {
     expect(res.status).to.equal(200);
     expect(res.body).to.deep.equal({
       status: "idle",
+      mainRunning: false,
       compacting: false,
       compactionStartedAt: null,
       backgroundCount: 0,
+      monitorCount: 0,
       typing: false,
       sessionId: null,
       runId: null,

@@ -167,6 +167,86 @@ test("forks return immediately, work concurrently, and wake an idle main session
   assert.ok([...f.children.values()].every((child) => child.state().disposed));
 });
 
+test("main work is reported apart from forks through results, queued input, failure, and Stop", async () => {
+  const f = fixture();
+  const runtime = new AgentRuntime(f.family);
+  /** Read only the fields that separate main and background activity. */
+  const activity = () => {
+    const { status, mainRunning, backgroundCount } = runtime.status;
+    return { status, mainRunning, backgroundCount };
+  };
+  const child = await f.tools.fork("Research");
+  const worker = f.children.get(child.id)!;
+  assert.deepEqual(
+    activity(),
+    { status: "running", mainRunning: false, backgroundCount: 1 },
+    "a fork alone never makes main look busy",
+  );
+  runtime.start("Plan the launch");
+  assert.deepEqual(activity(), {
+    status: "running",
+    mainRunning: true,
+    backgroundCount: 1,
+  });
+  f.main.finish();
+  await settle();
+  assert.deepEqual(activity(), {
+    status: "running",
+    mainRunning: false,
+    backgroundCount: 1,
+  });
+  worker.finish("Research result");
+  await settle();
+  assert.match(f.main.prompts.at(-1)!, /Research result/);
+  assert.equal(activity().mainRunning, true, "the result woke main");
+  f.main.finish();
+  await settle();
+  f.advance(10_000);
+  assert.deepEqual(activity(), {
+    status: "idle",
+    mainRunning: false,
+    backgroundCount: 0,
+  });
+
+  runtime.start("Keep main busy");
+  f.tools.send(child.id, "Another pass");
+  worker.finish("Second result");
+  await settle();
+  await runtime.stop("turn");
+  assert.equal(f.family.background.running, true);
+  assert.equal(
+    activity().mainRunning,
+    false,
+    "a result held for the next user turn isn't work yet",
+  );
+  runtime.start("Try again");
+  f.main.fail();
+  await settle();
+  assert.match(
+    f.main.prompts.at(-1)!,
+    /Second result/,
+    "the held result still runs after the failed turn",
+  );
+  assert.equal(activity().mainRunning, true);
+  f.main.fail();
+  await settle();
+  assert.deepEqual(activity(), {
+    status: "error",
+    mainRunning: false,
+    backgroundCount: 1,
+  });
+
+  runtime.start("One more");
+  f.tools.send(child.id, "Keep going");
+  await runtime.stop();
+  assert.deepEqual(activity(), {
+    status: "idle",
+    mainRunning: false,
+    backgroundCount: 0,
+  });
+  await runtime.close();
+});
+
 test("API work queues messages without interrupting main, and can resume after the whole family stops", async () => {
   const f = fixture();
   const mainTurn = f.family.prompt("Keep main working");

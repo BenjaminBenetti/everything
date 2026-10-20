@@ -9,7 +9,9 @@
 }
 .avatar-animation,
 .avatar-idle-eyes,
-.avatar-typing-scene {
+.avatar-typing-scene,
+.avatar-thinking-scene,
+.avatar-watching-scene {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -98,8 +100,77 @@
     opacity: 0;
   }
 }
+/* ===========================================
+   Thinking: a paw on the chin under a thought cloud
+   =========================================== */
+/* Matches avatarThinkingArtwork, which places each paw on the moved artwork. */
+.teammate-avatar-artwork:has([data-avatar-animation="thinking"]) > img {
+  transform: translate(-6%, 6%) scale(0.86);
+}
+[data-avatar-animation="thinking"][data-animation-active="true"]
+  .avatar-thinking-paw {
+  animation: avatar-thinking-scratch 2.4s steps(1, end) infinite;
+  animation-delay: var(--avatar-thinking-delay);
+}
+[data-avatar-animation="thinking"][data-animation-active="true"]
+  .avatar-thought-cloud {
+  animation: avatar-thinking-drift 2.4s steps(1, end) infinite;
+  animation-delay: var(--avatar-thinking-delay);
+}
+@keyframes avatar-thinking-scratch {
+  0%,
+  36%,
+  100% {
+    transform: translate(0, 0);
+  }
+  6%,
+  18%,
+  30% {
+    transform: translate(1px, -2px);
+  }
+  12%,
+  24% {
+    transform: translate(0, -1px);
+  }
+}
+@keyframes avatar-thinking-drift {
+  0%,
+  49% {
+    transform: translateY(0);
+  }
+  50%,
+  100% {
+    transform: translateY(-2px);
+  }
+}
+/* ===========================================
+   Watching: lowered eyes on a magnifying glass below the chin
+   =========================================== */
+[data-avatar-animation="watching"][data-animation-active="true"]
+  .avatar-watching-glass {
+  animation: avatar-watching-scan 3.2s steps(1, end) infinite;
+  animation-delay: var(--avatar-watching-delay);
+}
+@keyframes avatar-watching-scan {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  25% {
+    transform: translate(-2px, 0);
+  }
+  50% {
+    transform: translate(0, 1px);
+  }
+  75% {
+    transform: translate(2px, 0);
+  }
+}
 @media (prefers-reduced-motion: reduce) {
-  .avatar-idle-eyes {
+  .avatar-idle-eyes,
+  .avatar-thinking-paw,
+  .avatar-thought-cloud,
+  .avatar-watching-glass {
     animation: none;
   }
 }

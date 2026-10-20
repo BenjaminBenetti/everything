@@ -40,6 +40,12 @@ export interface MonitorOperations {
   stop(scope: MonitorScope, id: string): Promise<MonitorResult>;
 }
 
+/** What a teammate's runtime status shows about its monitors: how many, never commands or output. */
+export interface MonitorActivity {
+  /** Count `scope`'s monitors whose commands are still running; a finished one stops counting before its event is delivered. */
+  runningCount(scope: MonitorScope): number;
+}
+
 /** Lifecycle hooks for the conversation coordinator and process shutdown. */
 export interface MonitorLifecycle {
   /**

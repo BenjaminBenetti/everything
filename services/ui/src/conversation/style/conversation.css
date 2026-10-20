@@ -63,6 +63,39 @@
   align-items: center;
   gap: 10px;
 }
+/* The main teammate's avatar: a stable wrapper whose trigger is focusable only while watching monitors. */
+.teammate-presence {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+}
+.teammate-presence-trigger {
+  display: inline-flex;
+  border-radius: 8px;
+}
+.teammate-presence-trigger[tabindex] {
+  cursor: help;
+}
+.teammate-presence-trigger:focus-visible {
+  outline: 2px solid var(--text-accent);
+  outline-offset: 2px;
+}
+.teammate-presence-tooltip {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 3;
+  width: max-content;
+  max-width: min(220px, calc(100vw - 32px));
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: var(--surface-panel);
+  color: var(--text-primary);
+  font-size: 11px;
+  line-height: 1.5;
+  box-shadow: 0 4px 16px var(--shadow-color);
+}
 .chat-teammate-card .teammate-avatar {
   width: 56px;
   height: 56px;
@@ -477,8 +510,10 @@
   .chat-mobile-back {
     display: none;
   }
-  .chat-mobile-header > .teammate-avatar {
+  .chat-mobile-header > .teammate-presence {
     flex: 0 0 32px;
+  }
+  .chat-mobile-header .teammate-avatar {
     width: 32px;
     height: 32px;
     margin: 0;

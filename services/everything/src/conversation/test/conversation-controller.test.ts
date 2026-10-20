@@ -61,10 +61,12 @@ test("accepts a visible message and acknowledges its run", async (context) => {
   assert.deepEqual(calls, [`send:owner:${agentId}:hello`]);
 });
 
-test("runtime responses preserve the server compaction timestamp", async (context) => {
+test("runtime responses preserve main activity, the monitor count, and the server compaction timestamp", async (context) => {
   const runtime: RuntimeStatus = {
     ...unloadedRuntimeStatus,
     status: "running",
+    mainRunning: true,
+    monitorCount: 3,
     compacting: true,
     compactionStartedAt: "2026-10-16T04:00:00.000Z",
   };

@@ -25,7 +25,10 @@ export interface MessageReceipt {
 
 /** Safe execution status; runtime identifiers never represent user-selectable conversations. */
 export interface RuntimeStatus {
+  /** The whole teammate, including background teammates; `mainRunning` isolates the main session. */
   readonly status: "idle" | "running" | "error";
+  /** Whether the main session itself is working, including model and tool calls; excludes background teammates. */
+  readonly mainRunning: boolean;
   readonly compacting: boolean;
   /** Start of the current compaction, or null when no compaction is active. */
   readonly compactionStartedAt: string | null;
@@ -33,6 +36,8 @@ export interface RuntimeStatus {
   readonly typing: boolean;
   /** Background teammates running now or idle for less than ten seconds; excludes the main session. */
   readonly backgroundCount: number;
+  /** Monitors this teammate or its background teammates started whose commands are still running. */
+  readonly monitorCount: number;
   readonly sessionId: string | null;
   readonly runId: string | null;
   readonly error: string | null;
