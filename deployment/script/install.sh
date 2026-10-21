@@ -7,6 +7,15 @@
 # itself, and offers to create the first user while Keycloak has none. It needs
 # Helm 3.8 or newer, kubectl, and a kubectl context selecting the target cluster. It runs on Bash 3.2,
 # as macOS ships.
+#
+# A script that prepares the cluster itself, such as install-k3s.sh, can preset some answers:
+#   EVERYTHING_VERSION          the version offered by default
+#   EVERYTHING_SETTINGS_FILE    the settings file offered by default
+#   EVERYTHING_PRESET_SETTINGS  a values file in the settings file's format whose settings, and whose
+#                               `# namespace:` line, fill in what the settings lack, so the installer
+#                               does not ask for them; it also leaves DNS to that script
+#   EVERYTHING_RESULT_FILE      a file the installer writes `declined` to when the person chooses not to
+#                               install or upgrade, so that script tells this apart from a failure
 set -euo pipefail
 
 # The version installed by default; the release workflow sets it in the copy it publishes. Empty
@@ -31,6 +40,7 @@ path_separator=$'\037'
 
 # Answers and working state, set as the installer runs.
 settings_file="" reuse=false settings_changed=false version="" namespace=""
+preset=${EVERYTHING_PRESET_SETTINGS:-}
 work="" package="" chart_dir="" entries="" context="" first_install=false section=""
 new_username="" new_password="" first_user=""
 
@@ -282,7 +292,7 @@ chart_disks() {
 # ---------------------------------------------------------------------------------------------------
 
 choose_settings_file() {
-  ask settings_file "Settings file, kept for later upgrades" "$default_settings_file"
+  ask settings_file "Settings file, kept for later upgrades" "${EVERYTHING_SETTINGS_FILE:-$default_settings_file}"
   reuse=false
   if [ -f "$settings_file" ]; then
     if confirm "Use the saved settings in $settings_file?" Y; then
@@ -322,9 +332,29 @@ load_settings() {
     flatten_values "$settings_file" > "$entries"
     namespace=$(sed -n 's/^# namespace: *//p' "$settings_file" | head -n 1)
   fi
+  if [ -n "$preset" ]; then apply_preset; fi
   if [ -z "$namespace" ]; then
     begin_section "Cluster settings"
     ask_namespace
+  fi
+}
+
+# Add the preset's settings the saved ones lack, and its namespace when they name none.
+apply_preset() {
+  [ -f "$preset" ] && [ -r "$preset" ] || fail "Cannot read the preset settings in $preset."
+  flatten_values "$preset" > "$work/preset"
+  # FILENAME, not NR == FNR, tells the files apart when no settings are saved yet.
+  awk -F '\t' 'FILENAME == ARGV[1] { saved[$1] = 1; next } !($1 in saved)' "$entries" "$work/preset" \
+    > "$work/preset.new"
+  if [ -s "$work/preset.new" ]; then
+    cat "$work/preset.new" >> "$entries"
+    settings_changed=true
+  fi
+  if [ -z "$namespace" ]; then
+    namespace=$(sed -n 's/^# namespace: *//p' "$preset" | head -n 1)
+    if [ -n "$namespace" ] && [[ ! $namespace =~ $namespace_pattern ]]; then
+      fail "The preset settings name an invalid namespace: $namespace."
+    fi
   fi
 }
 
@@ -573,6 +603,7 @@ install_release() {
   say ""
   if ! confirm "$action with kubectl context $context?" Y; then
     say "Nothing installed. Run the installer again to reuse $settings_file."
+    if [ -n "${EVERYTHING_RESULT_FILE:-}" ]; then echo declined > "$EVERYTHING_RESULT_FILE"; fi
     exit 0
   fi
   # The release's namespace admits Everything's privileged Docker sidecar; the chart creates the
@@ -691,12 +722,20 @@ print_next_steps() {
   say ""
   if [ "$first_install" = true ]; then
     say "Everything $version is installed in namespace $namespace."
-    say "  Point DNS for $app_host, $(setting global externalArtifactHostname), and"
-    say "  $(setting global externalRegistryHostname) at your ingress controller."
+    # A preset comes from a script that also makes the hostnames resolve.
+    if [ -z "$preset" ]; then
+      say "  Point DNS for $app_host, $(setting global externalArtifactHostname), and"
+      say "  $(setting global externalRegistryHostname) at your ingress controller."
+    fi
   else
     say "Everything is upgraded to $version in namespace $namespace."
   fi
-  say "  Watch its pods: kubectl -n $namespace get pods -w"
+  # A preset's caller gives kubectl its own kubeconfig, which the command names.
+  if [ -n "$preset" ] && [ -n "${KUBECONFIG:-}" ]; then
+    say "  Watch its pods: KUBECONFIG=$KUBECONFIG kubectl -n $namespace get pods -w"
+  else
+    say "  Watch its pods: kubectl -n $namespace get pods -w"
+  fi
   if [ -n "$first_user" ]; then
     say "  Sign in at https://$app_host as $first_user."
   else

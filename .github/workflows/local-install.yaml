@@ -1,0 +1,145 @@
+# Run the local installer on a fresh GitHub-hosted runner, as a person would on their own Linux
+# computer, and check the result end to end: trusted HTTPS in curl, OpenSSL, and Chrome, sign-in, the
+# artifact host, loopback-only serving, an image push through the Docker sidecar Fleet builds with, a
+# pull by the node, fleetd's Go trust of the registry, a rerun, and removing the trust. It runs the
+# installers from this commit with the newest published release's chart and images, and only
+# synthetic credentials.
+name: Local install
+
+on:
+  pull_request:
+    paths:
+      - deployment/script/install.sh
+      - deployment/script/install-k3s.sh
+      - testing/installer/**
+      - .github/workflows/local-install.yaml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: local-install-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  install:
+    name: Install on ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Chrome publishes no Linux build for ARM64, so the browser check runs on x86-64 only.
+          - { arch: x86-64, runner: ubuntu-24.04, goarch: amd64, browser: true }
+          - {
+              arch: ARM64,
+              runner: ubuntu-24.04-arm,
+              goarch: arm64,
+              browser: false,
+            }
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Prepare the runner
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends expect attr acl
+          # An extended attribute and an ACL on the hosts file, which replacing it must keep.
+          sudo setfattr -n user.everything-smoke -v kept /etc/hosts
+          sudo setfacl -m u:nobody:r /etc/hosts
+          stat -c '%u:%g:%a' /etc/hosts > "$RUNNER_TEMP/hosts.metadata"
+          stat -c %i /etc/hosts > "$RUNNER_TEMP/hosts.inode"
+          # A kubeconfig for another cluster, which the installer must leave as it is.
+          mkdir -p ~/.kube
+          printf '%s\n' 'apiVersion: v1' 'kind: Config' 'current-context: remote' \
+            'contexts: [{name: remote, context: {cluster: remote, user: remote}}]' \
+            'clusters: [{name: remote, cluster: {server: "https://remote.invalid:6443"}}]' \
+            'users: [{name: remote, user: {}}]' > ~/.kube/config
+          sha256sum ~/.kube/config > "$RUNNER_TEMP/kubeconfig.sha256"
+          # Another authority in the system store, which removing the local trust must keep.
+          openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 1 \
+            -subj "/CN=Unrelated test authority" -keyout /dev/null -out "$RUNNER_TEMP/unrelated.crt"
+          sudo cp "$RUNNER_TEMP/unrelated.crt" /usr/local/share/ca-certificates/mkcert-rootCA.crt
+          sudo update-ca-certificates
+          echo "SMOKE_USERNAME=smoke-owner" >> "$GITHUB_ENV"
+          password=$(openssl rand -hex 16)
+          echo "::add-mask::$password"
+          echo "SMOKE_PASSWORD=$password" >> "$GITHUB_ENV"
+          echo "EVERYTHING_VERSION=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName)" >> "$GITHUB_ENV"
+      - name: Build the registry check
+        run: |
+          docker run --rm -v "$PWD/testing/installer/src/local/smoke/registry-check:/src:ro" \
+            -v "$RUNNER_TEMP:/out" -w /src -e CGO_ENABLED=0 -e GOARCH=${{ matrix.goarch }} \
+            -e GOCACHE=/tmp/cache docker.io/library/golang:1.25-alpine go build -o /out/registry-check .
+      - name: Install
+        run: |
+          expect testing/installer/src/local/smoke/install-local.exp \
+            deployment/script/install-k3s.sh --installer deployment/script/install.sh
+      - name: Check the installation
+        run: bash testing/installer/src/local/smoke/check-local.sh "$RUNNER_TEMP/registry-check"
+      - name: Check the hosts file was replaced with its attributes
+        run: bash testing/installer/src/local/smoke/check-hosts.sh "$RUNNER_TEMP" replaced
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        if: matrix.browser
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: matrix.browser
+        with:
+          node-version: 24
+          cache: pnpm
+      - name: Sign in with Chrome
+        if: matrix.browser
+        run: |
+          pnpm install --frozen-lockfile --filter @everything/installer-tests
+          pnpm --filter @everything/installer-tests test:local-browser
+      - name: Rerun the installer
+        run: |
+          before=$(stat -c %Y /usr/local/bin/k3s)
+          expect testing/installer/src/local/smoke/install-local.exp \
+            deployment/script/install-k3s.sh --installer deployment/script/install.sh
+          [ "$(stat -c %Y /usr/local/bin/k3s)" = "$before" ] || { echo "k3s was reinstalled"; exit 1; }
+          [ "$(grep -c 'BEGIN Everything local installer' /etc/hosts)" = 1 ]
+          curl --fail --silent --show-error --output /dev/null https://everything.internal/health/ready
+          sha256sum --check "$RUNNER_TEMP/kubeconfig.sha256"
+      - name: Remove the local trust
+        run: |
+          expect -c 'set timeout 120; spawn bash deployment/script/install-k3s.sh --remove-trust; expect eof; lassign [wait] p s o status; exit $status'
+          if curl --silent --output /dev/null --resolve everything.internal:443:127.0.0.1 https://everything.internal/; then
+            echo "The certificate is still trusted"
+            exit 1
+          fi
+          # Bash's -e ignores negated commands, so each absence fails explicitly.
+          if grep -q 'Everything local installer' /etc/hosts; then exit 1; fi
+          if compgen -G '/usr/local/share/ca-certificates/everything-local-ca-*'; then exit 1; fi
+          certutil -L -d "sql:$HOME/.pki/nssdb"
+          if certutil -L -d "sql:$HOME/.pki/nssdb" | grep -q 'Everything local CA'; then exit 1; fi
+          [ -f /usr/local/share/ca-certificates/mkcert-rootCA.crt ]
+          grep -qF "$(sed -n 2p "$RUNNER_TEMP/unrelated.crt")" /etc/ssl/certs/ca-certificates.crt
+          if grep -qF "$(sed -n 2p ~/.local/share/everything-local/ca/ca.pem)" /etc/ssl/certs/ca-certificates.crt; then
+            echo "The system bundle still holds the local authority"
+            exit 1
+          fi
+          bash testing/installer/src/local/smoke/check-hosts.sh "$RUNNER_TEMP" removed
+      - name: Remove the local trust again
+        run: |
+          # A rerun with nothing left to remove succeeds and says so.
+          expect -c 'set timeout 120; spawn bash deployment/script/install-k3s.sh --remove-trust; expect { "no longer trusted on this computer" {} timeout { exit 1 } eof { exit 1 } }; expect eof; lassign [wait] p s o status; exit $status'
+          bash testing/installer/src/local/smoke/check-hosts.sh "$RUNNER_TEMP" removed
+      - name: Diagnostics
+        if: failure() || cancelled()
+        run: |
+          ps -eo pid,ppid,etime,cmd --forest | grep -v -i password | grep -B2 -A6 install-k3s || true
+          export KUBECONFIG=~/.local/share/everything-local/kubeconfig
+          kubectl get nodes,pods -A -o wide || true
+          kubectl get events -A --sort-by=.lastTimestamp | tail -n 100 || true
+          kubectl -n kube-system logs deployment/traefik --tail=100 || true
+          kubectl -n everything describe pods | grep -v -i -E 'password|secret' | tail -n 200 || true
+          sudo journalctl -u k3s --no-pager | tail -n 200 || true
