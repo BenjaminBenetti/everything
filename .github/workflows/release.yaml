@@ -1,5 +1,5 @@
 # Publish a release when a semantic version tag such as v1.2.3 or v1.2.3-rc.1 is pushed: every image
-# the chart builds, the chart as an OCI artifact, and a GitHub release with the installer attached. Images and the chart share the
+# the chart builds, the chart as an OCI artifact, and a GitHub release with the installers attached. Images and the chart share the
 # version without its `v`, which the packaged chart also uses as its appVersion and default image tag.
 name: Release
 
@@ -150,21 +150,23 @@ jobs:
         run: |
           helm registry login "${REGISTRY%%/*}" --username "$GITHUB_ACTOR" --password-stdin <<< "$GH_TOKEN"
           helm push "$PACKAGE" "oci://$REGISTRY/charts"
-      # The published installer installs this release unless told otherwise.
+      # The published installer installs this release unless told otherwise, and the local installer
+      # runs that installer, checked against its SHA-256.
       - id: installer
-        name: Set the installer's default version
+        name: Set the installers' release
         run: |
-          installer="$RUNNER_TEMP/install.sh"
-          sed "s/^release_version=\"\"\$/release_version=\"$VERSION\"/" deployment/script/install.sh \
-            > "$installer"
-          # Fail if the line the installer reads its default version from has changed.
-          grep -qx "release_version=\"$VERSION\"" "$installer"
-          echo "path=$installer" >> "$GITHUB_OUTPUT"
+          mkdir "$RUNNER_TEMP/installers"
+          bash deployment/script/release-installers.sh "$VERSION" "$RUNNER_TEMP/installers"
+          {
+            echo "path=$RUNNER_TEMP/installers/install.sh"
+            echo "local-path=$RUNNER_TEMP/installers/install-k3s.sh"
+          } >> "$GITHUB_OUTPUT"
       - name: Create the GitHub release
         env:
           CHART: ${{ steps.chart.outputs.name }}
           PACKAGE: ${{ steps.chart.outputs.package }}
           INSTALLER: ${{ steps.installer.outputs.path }}
+          LOCAL_INSTALLER: ${{ steps.installer.outputs.local-path }}
           PRERELEASE: ${{ needs.plan.outputs.prerelease }}
           PLATFORMS: ${{ needs.plan.outputs.platforms }}
           IMAGES: ${{ needs.plan.outputs.images }}
@@ -191,6 +193,18 @@ jobs:
             --install --namespace everything --values values.prod.yaml --values <credentials file>
           \`\`\`
 
+          ### Install on this Linux computer
+
+          To try Everything on one Linux computer without a cluster, run the local installer as yourself
+          in a terminal there. It explains what it changes as root and asks first, installs k3s, runs
+          this version's installer, and serves Everything at https://everything.internal on 127.0.0.1
+          only, with a local certificate authority your system and browsers trust. It needs systemd,
+          sudo, an x86-64 or ARM64 computer with 8 GB of memory and 20 GB of disk, and Internet access:
+
+          \`\`\`sh
+          curl -fsSL https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME/install-k3s.sh | bash
+          \`\`\`
+
           ## Images
 
           Built for ${PLATFORMS//,/ and }:
@@ -200,5 +214,5 @@ jobs:
           prerelease=()
           if [ "$PRERELEASE" = true ]; then prerelease=(--prerelease); fi
           # GitHub's generated notes, listing the changes since the previous release, follow these.
-          gh release create "$GITHUB_REF_NAME" "$PACKAGE" "$INSTALLER" --verify-tag --title "$GITHUB_REF_NAME" \
+          gh release create "$GITHUB_REF_NAME" "$PACKAGE" "$INSTALLER" "$LOCAL_INSTALLER" --verify-tag --title "$GITHUB_REF_NAME" \
             --notes-file "$RUNNER_TEMP/notes.md" --generate-notes "${prerelease[@]}"

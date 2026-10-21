@@ -1,0 +1,35 @@
+#!/usr/bin/expect -f
+# Answer install-k3s.sh's questions as a person installing on their own computer would: agree to the
+# plan, keep every default, and create the first user from SMOKE_USERNAME and SMOKE_PASSWORD. A
+# question about anything the local installer should have answered itself, such as a hostname,
+# ingress class, certificate issuer, storage class, or namespace, fails the run.
+#   install-local.exp <install-k3s.sh> [arguments...]
+set timeout 2700
+log_user 1
+set username $env(SMOKE_USERNAME)
+set password $env(SMOKE_PASSWORD)
+spawn bash {*}$argv
+expect {
+  -re {Continue\? \[y/N\]: $} { send "y\r"; exp_continue }
+  -re {Hostname[^\n]*: $} { puts "\nSMOKE: asked for a hostname"; exit 3 }
+  -re {ingress class[^\n]*: $} { puts "\nSMOKE: asked for an ingress class"; exit 3 }
+  -re {ClusterIssuer[^\n]*: $} { puts "\nSMOKE: asked for a certificate issuer"; exit 3 }
+  -re {storage class[^\n]*: $} { puts "\nSMOKE: asked for a storage class"; exit 3 }
+  -re {Namespace to install into[^\n]*: $} { puts "\nSMOKE: asked for a namespace"; exit 3 }
+  -re {Settings file, kept for later upgrades \[[^\n]*\]: $} { send "\r"; exp_continue }
+  -re {Use the saved settings in [^\n]*\? \[Y/n\]: $} { send "\r"; exp_continue }
+  -re {Version to install \[[^\n]*\]: $} { send "\r"; exp_continue }
+  -re {\(Enter to generate one\): $} { send "\r"; exp_continue }
+  -re {Image registry username \[[^\n]*\]: $} { send "\r"; exp_continue }
+  -re {\(PVC [^\n]*\) \[[^\n]*\]: $} { send "\r"; exp_continue }
+  -re {with kubectl context everything-local\? \[Y/n\]: $} { send "\r"; exp_continue }
+  -re {Create the first user now\? \[Y/n\]: $} { send "\r"; exp_continue }
+  -re {Username: $} { send "$username\r"; exp_continue }
+  -re {Password \(at least 8 characters\): $} { send "$password\r"; exp_continue }
+  -re {Password again: $} { send "$password\r"; exp_continue }
+  -re {\[[yY]/[nN]\]: $} { puts "\nSMOKE: unexpected question"; exit 3 }
+  timeout { puts "\nSMOKE: timed out"; exit 4 }
+  eof
+}
+lassign [wait] pid spawn_id os_error status
+exit $status
