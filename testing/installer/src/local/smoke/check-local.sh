@@ -52,13 +52,15 @@ kc -n everything exec everything-0 -c docker -- nslookup images.everything.inter
   grep -qF "$traefik" || fail "the registry's name does not lead to Traefik in pods"
 
 step "Push through the Docker sidecar Fleet builds with"
+# The sidecar serves its engine only on the socket it shares with Everything's container.
+docker_host=DOCKER_HOST=unix:///run/docker-socket/docker.sock
 settings=$state/everything-values.yaml
 username=$(yq -r '.secrets."registry-credentials".username' "$settings")
-kc -n everything exec -i everything-0 -c docker -- docker login images.everything.internal --username "$username" \
+kc -n everything exec -i everything-0 -c docker -- env "$docker_host" docker login images.everything.internal --username "$username" \
   --password-stdin < <(yq -r '.secrets."registry-credentials".password' "$settings")
-kc -n everything exec everything-0 -c docker -- docker pull --quiet docker.io/library/busybox:1.37.0
-kc -n everything exec everything-0 -c docker -- docker tag docker.io/library/busybox:1.37.0 images.everything.internal/smoke/busybox:1
-kc -n everything exec everything-0 -c docker -- docker push --quiet images.everything.internal/smoke/busybox:1
+kc -n everything exec everything-0 -c docker -- env "$docker_host" docker pull --quiet docker.io/library/busybox:1.37.0
+kc -n everything exec everything-0 -c docker -- env "$docker_host" docker tag docker.io/library/busybox:1.37.0 images.everything.internal/smoke/busybox:1
+kc -n everything exec everything-0 -c docker -- env "$docker_host" docker push --quiet images.everything.internal/smoke/busybox:1
 
 step "The node pulls from the registry"
 kc create namespace everything-smoke --dry-run=client -o yaml | kc apply -f -
