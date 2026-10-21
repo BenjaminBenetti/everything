@@ -14,6 +14,8 @@
 #   EVERYTHING_PRESET_SETTINGS  a values file in the settings file's format whose settings, and whose
 #                               `# namespace:` line, fill in what the settings lack, so the installer
 #                               does not ask for them; it also leaves DNS to that script
+#   EVERYTHING_RESULT_FILE      a file the installer writes `declined` to when the person chooses not to
+#                               install or upgrade, so that script tells this apart from a failure
 set -euo pipefail
 
 # The version installed by default; the release workflow sets it in the copy it publishes. Empty
@@ -601,6 +603,7 @@ install_release() {
   say ""
   if ! confirm "$action with kubectl context $context?" Y; then
     say "Nothing installed. Run the installer again to reuse $settings_file."
+    if [ -n "${EVERYTHING_RESULT_FILE:-}" ]; then echo declined > "$EVERYTHING_RESULT_FILE"; fi
     exit 0
   fi
   # The release's namespace admits Everything's privileged Docker sidecar; the chart creates the

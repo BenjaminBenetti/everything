@@ -41,7 +41,7 @@ jobs:
         with:
           version: v4.3.0
       # Voice input's decoder tests run the real FFmpeg, as the Everything image does.
-      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg attr
       - run: pnpm install --frozen-lockfile
       - run: pnpm format:check
       - run: pnpm build

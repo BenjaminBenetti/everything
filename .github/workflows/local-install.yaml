@@ -52,7 +52,12 @@ jobs:
       - name: Prepare the runner
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends expect
+          sudo apt-get install -y --no-install-recommends expect attr acl
+          # An extended attribute and an ACL on the hosts file, which replacing it must keep.
+          sudo setfattr -n user.everything-smoke -v kept /etc/hosts
+          sudo setfacl -m u:nobody:r /etc/hosts
+          stat -c '%u:%g:%a' /etc/hosts > "$RUNNER_TEMP/hosts.metadata"
+          stat -c %i /etc/hosts > "$RUNNER_TEMP/hosts.inode"
           # A kubeconfig for another cluster, which the installer must leave as it is.
           mkdir -p ~/.kube
           printf '%s\n' 'apiVersion: v1' 'kind: Config' 'current-context: remote' \
@@ -81,6 +86,8 @@ jobs:
             deployment/script/install-k3s.sh --installer deployment/script/install.sh
       - name: Check the installation
         run: bash testing/installer/src/local/smoke/check-local.sh "$RUNNER_TEMP/registry-check"
+      - name: Check the hosts file was replaced with its attributes
+        run: bash testing/installer/src/local/smoke/check-hosts.sh "$RUNNER_TEMP" replaced
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
         if: matrix.browser
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -104,7 +111,7 @@ jobs:
           sha256sum --check "$RUNNER_TEMP/kubeconfig.sha256"
       - name: Remove the local trust
         run: |
-          expect -c 'spawn bash deployment/script/install-k3s.sh --remove-trust; expect eof; lassign [wait] p s o status; exit $status'
+          expect -c 'set timeout 120; spawn bash deployment/script/install-k3s.sh --remove-trust; expect eof; lassign [wait] p s o status; exit $status'
           if curl --silent --output /dev/null --resolve everything.internal:443:127.0.0.1 https://everything.internal/; then
             echo "The certificate is still trusted"
             exit 1
@@ -116,6 +123,16 @@ jobs:
           if certutil -L -d "sql:$HOME/.pki/nssdb" | grep -q 'Everything local CA'; then exit 1; fi
           [ -f /usr/local/share/ca-certificates/mkcert-rootCA.crt ]
           grep -qF "$(sed -n 2p "$RUNNER_TEMP/unrelated.crt")" /etc/ssl/certs/ca-certificates.crt
+          if grep -qF "$(sed -n 2p ~/.local/share/everything-local/ca/ca.pem)" /etc/ssl/certs/ca-certificates.crt; then
+            echo "The system bundle still holds the local authority"
+            exit 1
+          fi
+          bash testing/installer/src/local/smoke/check-hosts.sh "$RUNNER_TEMP" removed
+      - name: Remove the local trust again
+        run: |
+          # A rerun with nothing left to remove succeeds and says so.
+          expect -c 'set timeout 120; spawn bash deployment/script/install-k3s.sh --remove-trust; expect { "no longer trusted on this computer" {} timeout { exit 1 } eof { exit 1 } }; expect eof; lassign [wait] p s o status; exit $status'
+          bash testing/installer/src/local/smoke/check-hosts.sh "$RUNNER_TEMP" removed
       - name: Diagnostics
         if: failure() || cancelled()
         run: |

@@ -284,6 +284,10 @@ describe("a fresh installation", () => {
           "cmp",
           "test",
           "cp",
+          "mktemp",
+          "sync",
+          "chmod",
+          "mv",
           "env",
           "update-ca-certificates",
           "cat",
@@ -627,13 +631,19 @@ describe("a fresh installation", () => {
 });
 
 describe("failures", () => {
-  test("refuses a download whose digest differs, and cleans up", async () => {
+  test("refuses a download whose digest differs, before changing anything as root", async () => {
     host.prepareScript(undefined, { k3s_install_sha256: "0".repeat(64) });
+    const hosts = host.read(join(host.root, "etc/hosts"));
     const result = await install();
     assert.equal(result.status, 1, result.output);
     assert.match(result.output, /not the expected 0{64}; it was not used/);
-    assert.match(result.output, /stopped while starting k3s/);
-    assert.ok(!host.rootCommands().some((command) => command.includes("sh")));
+    assert.match(result.output, /stopped while installing tools/);
+    assert.deepEqual(host.rootCommands(), []);
+    assert.equal(host.read(join(host.root, "etc/hosts")), hosts);
+    assert.deepEqual(
+      readdirSync(join(host.root, "usr/local/share/ca-certificates")),
+      [],
+    );
     assert.deepEqual(readdirSync(host.temp), []);
   });
 
@@ -673,10 +683,28 @@ describe("failures", () => {
     assert.match(result.output, /stopped while installing Everything/);
   });
 
-  test("leaves without error when the installer installed nothing", async () => {
-    const result = await install({ env: { FAKE_HELM_STATUS: "1" } });
+  test("leaves without error when the person declined to install", async () => {
+    const result = await install({
+      env: { FAKE_INSTALLER_DECLINE: "1", FAKE_HELM_STATUS: "1" },
+    });
     assert.equal(result.status, 0, result.output);
-    assert.match(result.output, /Everything is not installed; rerun/);
+    assert.match(result.output, /was not installed or upgraded, as you chose/);
+    assert.ok(
+      !host
+        .calls()
+        .some((call) => call.name === "helm" && call.args[0] === "status"),
+    );
+  });
+
+  test("fails when Helm cannot find the release after the installer succeeded", async () => {
+    const result = await install({ env: { FAKE_HELM_STATUS: "7" } });
+    assert.equal(result.status, 1, result.output);
+    assert.match(
+      result.output,
+      /Helm could not find its release: Error: Kubernetes cluster unreachable: connection refused/,
+    );
+    assert.match(result.output, /stopped while installing Everything/);
+    assert.doesNotMatch(result.output, /Everything is running/);
   });
 
   test("fails when a name does not answer with a trusted certificate", async () => {
@@ -768,7 +796,7 @@ describe("review fixes", () => {
     );
     const result = await install();
     assert.equal(result.status, 1);
-    assert.match(result.output, /unfinished Everything block/);
+    assert.match(result.output, /Everything block without its END line/);
   });
 
   test("checks the installer before changing anything as root", async () => {
@@ -821,8 +849,9 @@ describe("reruns", () => {
           (call) => call.name === "systemctl" && call.args[0] === "restart",
         ),
     );
+    // The system store is refreshed on every run, so a refresh an earlier run lost is repeated.
     assert.ok(
-      !host.calls().some((call) => call.name === "update-ca-certificates"),
+      host.calls().some((call) => call.name === "update-ca-certificates"),
     );
     const backups = readdirSync(join(host.root, "etc")).filter((name) =>
       name.startsWith("hosts.everything-local-"),

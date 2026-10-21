@@ -52,6 +52,7 @@ const realTools = [
   "sleep",
   "sort",
   "stat",
+  "sync",
   "tail",
   "tar",
   "tee",
@@ -107,9 +108,19 @@ esac`,
   -un) echo tester ;;
   *) /usr/bin/id "$@" ;;
 esac`,
+  // FAKE_SUDO_FAIL is a pattern for root commands that fail, after sending FAKE_SUDO_SIGNAL, if
+  // set, to the installer, as if it were interrupted there. Before root commands matching
+  // FAKE_SUDO_HOOK, it runs FAKE_SUDO_HOOK_RUN, as another program would meanwhile.
   sudo: `log_call sudo "$@"
 if [ "\${1:-}" = -v ]; then exit "\${FAKE_SUDO_STATUS:-0}"; fi
+if [ "\${1:-}" = -n ]; then shift; fi
 if [ "\${1:-}" = -- ]; then shift; fi
+if [ -n "\${FAKE_SUDO_HOOK:-}" ] && [[ "$*" == $FAKE_SUDO_HOOK ]]; then eval "$FAKE_SUDO_HOOK_RUN"; fi
+if [ -n "\${FAKE_SUDO_FAIL:-}" ] && [[ "$*" == $FAKE_SUDO_FAIL ]]; then
+  echo "fake sudo: $1 failed" >&2
+  if [ -n "\${FAKE_SUDO_SIGNAL:-}" ]; then kill -"$FAKE_SUDO_SIGNAL" "$PPID"; fi
+  exit 1
+fi
 exec "$@"`,
   systemctl: `log_call systemctl "$@"
 case "$*" in
@@ -169,8 +180,13 @@ esac`,
   helm: `log_call helm "$@"
 case "$*" in
   "version --template {{.Version}}") [ -n "\${FAKE_HELM_VERSION:-v3.14.0}" ] && echo "\${FAKE_HELM_VERSION:-v3.14.0}" || exit 1 ;;
-  status*) exit "\${FAKE_HELM_STATUS:-0}" ;;
+  status*)
+    if [ "\${FAKE_HELM_STATUS:-0}" != 0 ]; then echo "Error: Kubernetes cluster unreachable: connection refused" >&2; fi
+    exit "\${FAKE_HELM_STATUS:-0}"
+    ;;
 esac`,
+  // FAKE_CERTUTIL_FAIL_DELETE names a nickname certutil cannot delete, as when a browser holds
+  // its database.
   certutil: `log_call certutil "$@"
 database="" nickname="" action=""
 while [ $# -gt 0 ]; do
@@ -186,15 +202,30 @@ list=$database/nicknames
 case $action in
   -N) touch "$database/cert9.db" "$list" ;;
   -A) echo "$nickname" >> "$list" ;;
-  -D) grep -vxF "$nickname" "$list" > "$list.next" || true; mv "$list.next" "$list" ;;
+  -D)
+    if [ "$nickname" = "\${FAKE_CERTUTIL_FAIL_DELETE:-}" ]; then echo "certutil: database is locked" >&2; exit 255; fi
+    grep -vxF "$nickname" "$list" > "$list.next" || true; mv "$list.next" "$list"
+    ;;
   -L)
     if [ -n "$nickname" ]; then grep -qxF "$nickname" "$list" 2> /dev/null; exit; fi
     printf 'Certificate Nickname                                         Trust Attributes\\n\\n'
-    while IFS= read -r name; do printf '%-60s C,,   \\n' "$name"; done < "$list"
+    if [ -f "$list" ]; then
+      while IFS= read -r name; do printf '%-60s C,,   \\n' "$name"; done < "$list"
+    fi
     ;;
 esac`,
-  "update-ca-certificates": `log_call update-ca-certificates "$@"`,
-  "update-ca-trust": `log_call update-ca-trust "$@"`,
+  // The store tools compile their anchors into the bundle TLS clients read. FAKE_TRUST_FAIL makes
+  // them fail, and FAKE_TRUST_STALE succeed without compiling, leaving the bundle as it was.
+  "update-ca-certificates": `log_call update-ca-certificates "$@"
+if [ -n "\${FAKE_TRUST_FAIL:-}" ]; then echo "update-ca-certificates: failed" >&2; exit 1; fi
+if [ -n "\${FAKE_TRUST_STALE:-}" ]; then exit 0; fi
+mkdir -p "$FAKE_ROOT/etc/ssl/certs"
+cat "$FAKE_ROOT"/usr/local/share/ca-certificates/*.crt > "$FAKE_ROOT/etc/ssl/certs/ca-certificates.crt" 2> /dev/null || true`,
+  "update-ca-trust": `log_call update-ca-trust "$@"
+if [ -n "\${FAKE_TRUST_FAIL:-}" ]; then echo "update-ca-trust: failed" >&2; exit 1; fi
+if [ -n "\${FAKE_TRUST_STALE:-}" ]; then exit 0; fi
+mkdir -p "$FAKE_ROOT/etc/pki/ca-trust/extracted/pem"
+cat "$FAKE_ROOT"/etc/pki/ca-trust/source/anchors/*.pem > "$FAKE_ROOT/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem" 2> /dev/null || true`,
   "apt-get": `log_call apt-get "$@"
 for package in "$@"; do
   case $package in libnss3-tools) cp "$FAKE_BIN/certutil.off" "$FAKE_BIN/certutil" ;; esac
@@ -366,6 +397,7 @@ export class FakeHost {
       TERM: "dumb",
       LANG: "C",
       FAKE_BIN: this.bin,
+      FAKE_ROOT: this.root,
       FAKE_LOG: this.log,
       FAKE_APPLIED: this.applied,
       FAKE_DOWNLOADS: this.downloads,
@@ -444,6 +476,7 @@ env | grep -E '^(KUBECONFIG|EVERYTHING_[A-Z_]+|PATH)=' | sort > "$FAKE_INSTALLER
 if [ -n "\${EVERYTHING_PRESET_SETTINGS:-}" ]; then cp "$EVERYTHING_PRESET_SETTINGS" "$FAKE_INSTALLER_LOG.preset"; fi
 read -r answer < /dev/tty
 echo "installer read: $answer" >&2
+if [ -n "\${FAKE_INSTALLER_DECLINE:-}" ]; then echo declined > "$EVERYTHING_RESULT_FILE"; fi
 exit "\${FAKE_INSTALLER_STATUS:-0}"
 `,
       { mode: 0o755 },

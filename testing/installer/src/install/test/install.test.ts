@@ -212,6 +212,33 @@ describe("install.sh", () => {
     );
   });
 
+  test("tells its caller when the person declines to install", async () => {
+    const result = join(host.directory, "result");
+    const preset = join(host.directory, "preset.yaml");
+    writeFileSync(
+      preset,
+      "# namespace: local\nglobal:\n  externalHostname: 'everything.internal'\n  externalArtifactHostname: 'artifacts.everything.internal'\n  externalRegistryHostname: 'images.everything.internal'\n  ingress:\n    className: 'traefik'\n    tlsSecretName: 'everything-local-tls'\n  storageClassName: 'local-path'\n",
+    );
+    const env = {
+      EVERYTHING_PRESET_SETTINGS: preset,
+      EVERYTHING_SETTINGS_FILE: settings,
+      EVERYTHING_RESULT_FILE: result,
+    };
+    writeFileSync(result, "");
+    let run = await runInstaller(["", "", "", "", "n"], env);
+    assert.equal(run.status, 0, run.output);
+    assert.match(run.output, /Nothing installed/);
+    assert.equal(readFileSync(result, "utf8"), "declined\n");
+    assert.doesNotMatch(host.read(host.log), /helm upgrade/);
+
+    // Installing leaves the file empty; only declining writes it.
+    writeFileSync(result, "");
+    run = await runInstaller(["", "", "", "y"], env);
+    assert.equal(run.status, 0, run.output);
+    assert.match(host.read(host.log), /helm upgrade/);
+    assert.equal(readFileSync(result, "utf8"), "");
+  });
+
   test("refuses a preset it cannot read", async () => {
     const result = await runInstaller([settings, ""], {
       EVERYTHING_PRESET_SETTINGS: join(host.directory, "missing.yaml"),

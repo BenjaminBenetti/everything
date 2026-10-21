@@ -60,6 +60,8 @@ ca_nickname_prefix="Everything local CA"
 work="" phase="" installer="" arch="" run_as_root=false trust_style="" package_manager=""
 packages=() k3s_state="" k3s_restart=false kubeconfig="" helm_bin="" kubectl_bin="" ca_fingerprint=""
 state_dir="" ca_dir="" tls_dir="" bin_dir="" finished=false
+# A root-owned copy beside a file it will replace, which an interrupted run removes.
+root_staged=""
 
 # ---------------------------------------------------------------------------------------------------
 # Terminal: prompts read the terminal on descriptor 3, because curl's output is the shell's input.
@@ -135,6 +137,24 @@ download() {
     fail "$url has SHA-256 $actual, not the expected $expected; it was not used."
 }
 
+# stage_root_file <source> <destination>: copy a file as root into a new file beside the destination,
+# on its filesystem, so commit_root_file can rename it into place in one step.
+stage_root_file() {
+  root_staged=$(as_root mktemp "${2%/*}/.${2##*/}.everything-local.XXXXXX") ||
+    fail "Could not create a file beside $2; it was not changed."
+  if ! as_root cp -- "$1" "$root_staged" || ! as_root sync -- "$root_staged"; then
+    fail "Could not write a new copy of $2; it was not changed."
+  fi
+}
+
+# commit_root_file <destination>: rename the staged copy over the destination, which readers then see
+# whole, never partly written.
+commit_root_file() {
+  as_root mv -fT -- "$root_staged" "$1" ||
+    fail "Could not replace $1, so it was not changed. A file that is immutable (chattr +i) or mounted over cannot be replaced; change it by hand."
+  root_staged=""
+}
+
 # put_root_file <mode> <source> <destination>: install a file as root; fail on a symlink, and
 # succeed only when the destination changed. Root compares them, since k3s's folders are private.
 put_root_file() {
@@ -142,8 +162,13 @@ put_root_file() {
   if as_root test -L "$destination"; then fail "$destination is a symbolic link; the installer will not write through it."; fi
   if as_root cmp -s "$2" "$destination"; then return 1; fi
   # Callers test the result, which turns off -e here, so a failed write stops the installer itself.
-  as_root install -d -m 0755 "$(dirname "$destination")" || fail "Could not create $(dirname "$destination")."
-  as_root install -m "$1" "$2" "$destination" || fail "Could not write $destination."
+  # Only a missing folder is created; an existing one keeps its owner, mode, and labels.
+  if ! as_root test -d "${destination%/*}"; then
+    as_root install -d -m 0755 "${destination%/*}" || fail "Could not create ${destination%/*}."
+  fi
+  stage_root_file "$2" "$destination"
+  as_root chmod "$1" "$root_staged" || fail "Could not write $destination."
+  commit_root_file "$destination"
 }
 
 # private_dir <path>: a directory only this user can read, refusing symlinks and others' folders.
@@ -209,7 +234,7 @@ check_user() {
 
 check_tools() {
   local tool
-  for tool in curl sha256sum tar awk sed grep cmp install stat mktemp df ss timeout base64; do
+  for tool in curl sha256sum tar awk sed grep cmp install stat mktemp sync df ss timeout base64; do
     command -v "$tool" > /dev/null || fail "$tool is required; install it with your package manager and rerun."
   done
   if command -v apt-get > /dev/null; then
@@ -287,14 +312,59 @@ check_ports() {
   fi
 }
 
-# This computer's hosts file must be a plain file that maps the local names nowhere else.
-check_hosts() {
-  local hosts=$system_root/etc/hosts name
-  if [ -L "$hosts" ]; then fail "/etc/hosts is a symbolic link; the installer will not write through it."; fi
-  [ -f "$hosts" ] || fail "/etc/hosts is missing."
-  if [ "$(grep -cxF "$hosts_begin" "$hosts" || true)" != "$(grep -cxF "$hosts_end" "$hosts" || true)" ]; then
-    fail "/etc/hosts has an unfinished Everything block; remove its lines and rerun the installer."
+# hosts_problem: why the installer must leave this computer's hosts file alone, or nothing. It
+# changes only a plain file with no Everything block, or one complete block of the local names.
+hosts_problem() {
+  local hosts=$system_root/etc/hosts problem
+  if [ -L "$hosts" ]; then
+    echo "/etc/hosts is a symbolic link; the installer will not write through it."
+    return
   fi
+  if [ ! -f "$hosts" ]; then
+    echo "/etc/hosts is missing."
+    return
+  fi
+  if ! problem=$(hosts_block_problem < "$hosts"); then
+    echo "/etc/hosts cannot be read."
+    return
+  fi
+  if [ -n "$problem" ]; then
+    echo "/etc/hosts has $problem, so the installer will not change it. Delete the lines from \"$hosts_begin\" to \"$hosts_end\" by hand, keeping your own entries, and rerun the installer."
+  fi
+}
+
+# hosts_block_problem: read a hosts file and describe what is wrong with its Everything block, if
+# anything. Lines between the markers may only map the local names, since removing the block
+# deletes them.
+hosts_block_problem() {
+  awk -v begin="$hosts_begin" -v end="$hosts_end" -v names="$app_host $artifact_host $registry_host" '
+    BEGIN { count = split(names, list, " "); for (i = 1; i <= count; i++) ours[list[i]] = 1 }
+    # Misplaced markers are reported before other entries inside a block they leave open.
+    function bad(why) { if (marker == "") marker = why " on line " NR }
+    function foreign(why) { if (entry == "") entry = why " on line " NR }
+    $0 == begin {
+      if (inside) bad("a second BEGIN line inside the Everything block")
+      else if (blocks) bad("a second Everything block")
+      inside = 1; blocks++; opened = NR; next
+    }
+    $0 == end { if (!inside) bad("an END line outside an Everything block"); inside = 0; next }
+    /^[ \t]*#[ \t]*(BEGIN|END)[ \t]+Everything local installer/ { bad("an edited BEGIN or END line"); next }
+    inside && !/^[ \t]*$/ {
+      if (NF < 2) foreign("an entry other than the local names inside the Everything block")
+      for (i = 2; i <= NF; i++) if (!($i in ours)) { foreign("an entry for " $i " inside the Everything block"); break }
+    }
+    END {
+      if (marker == "" && inside) marker = "an Everything block without its END line, from line " opened
+      if (marker != "") print marker
+      else if (entry != "") print entry
+    }'
+}
+
+# This computer's hosts file must be one the installer can change, mapping the local names nowhere else.
+check_hosts() {
+  local hosts=$system_root/etc/hosts name problem
+  problem=$(hosts_problem)
+  [ -z "$problem" ] || fail "$problem"
   for name in "$app_host" "$artifact_host" "$registry_host"; do
     if strip_hosts_block < "$hosts" | awk -v name="$name" '!/^[ \t]*#/ { for (i = 2; i <= NF; i++) if ($i == name) found = 1 } END { exit !found }'; then
       fail "/etc/hosts already maps $name; remove that line and rerun the installer."
@@ -495,6 +565,47 @@ update_system_trust() {
   fi
 }
 
+# The bundle the system store compiles from its anchors, which TLS clients read.
+system_trust_bundle() {
+  if [ "$trust_style" = pki ]; then
+    echo "$system_root/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem"
+  else
+    echo "$system_root/etc/ssl/certs/ca-certificates.crt"
+  fi
+}
+
+# pem_bodies <file>: each PEM certificate's base64 body on one line, however it was wrapped.
+pem_bodies() {
+  awk '/^-----BEGIN CERTIFICATE-----/ { body = ""; inside = 1; next }
+    /^-----END CERTIFICATE-----/ { if (inside) print body; inside = 0; next }
+    inside { gsub(/[ \t\r]/, ""); body = body $0 }' "$1"
+}
+
+# Whether the system's compiled bundle holds this authority, so TLS clients trust it now.
+bundle_trusts_authority() {
+  local bundle body bodies
+  bundle=$(system_trust_bundle)
+  body=$(pem_bodies "$ca_dir/ca.pem")
+  [ -n "$body" ] && [ -f "$bundle" ] || return 1
+  bodies=$(pem_bodies "$bundle")
+  grep -qxF "$body" <<< "$bodies"
+}
+
+# Whether the system's compiled bundle holds any authority this installer made, by the
+# organization in its subject, which an earlier authority whose files are gone shares.
+bundle_trusts_any_local_authority() {
+  local bundle body
+  bundle=$(system_trust_bundle)
+  [ -f "$bundle" ] || return 1
+  while IFS= read -r body; do
+    # Counting reads all of the certificate, so the pipe never stops early.
+    if [ -n "$body" ] && [ "$(base64 -d <<< "$body" 2> /dev/null | grep -caF "Everything local installer")" != 0 ]; then
+      return 0
+    fi
+  done <<< "$(pem_bodies "$bundle")"
+  return 1
+}
+
 # The NSS databases of Chrome, Chromium, and Firefox profiles in this user's home folder. Chrome's
 # shared database is created when missing, as Chrome itself would on its first start.
 nss_databases() {
@@ -508,12 +619,14 @@ nss_databases() {
   done
 }
 
+# Every run refreshes the system store and checks its bundle, so a run that stopped after writing the
+# anchor but before the store took it in is finished by the next.
 trust_authority() {
-  local destination database nickname="$ca_nickname_prefix $ca_fingerprint"
-  destination=$(system_trust_file "$ca_fingerprint")
-  if put_root_file 0644 "$ca_dir/ca.pem" "$destination"; then
-    update_system_trust || fail "Could not update the system certificate store."
-  fi
+  local database nickname="$ca_nickname_prefix $ca_fingerprint"
+  put_root_file 0644 "$ca_dir/ca.pem" "$(system_trust_file "$ca_fingerprint")" || true
+  update_system_trust || fail "Could not update the system certificate store."
+  bundle_trusts_authority ||
+    fail "The system certificate store does not include the local certificate authority after updating it; see $(system_trust_bundle)."
   if [ ! -f "$HOME/.pki/nssdb/cert9.db" ]; then
     (umask 077 && mkdir -p "$HOME/.pki/nssdb")
     certutil -N -d "sql:$HOME/.pki/nssdb" --empty-password ||
@@ -527,31 +640,77 @@ trust_authority() {
   done <<< "$(nss_databases)"
 }
 
+# local_nicknames <database>: the nicknames this installer gave its authorities in a browser database.
+local_nicknames() {
+  local listing
+  listing=$(certutil -L -d "sql:$1") ||
+    fail "certutil could not read $1; close that browser and rerun the installer with --remove-trust."
+  # The listing pads each nickname to a column, followed by its trust flags.
+  awk -v prefix="$ca_nickname_prefix" 'index($0, prefix " ") == 1 && $4 ~ /^[0-9a-f]+$/ { print $1, $2, $3, $4 }' <<< "$listing" |
+    sort -u
+}
+
 # --remove-trust: only files and nicknames this installer names, so other authorities stay trusted.
+# Each step is checked where TLS clients read it, the system's compiled bundle and each browser
+# database, so a rerun finishes what a failed run started, and success is said only when done.
 remove_trust() {
-  local file database nickname changed=false
+  local file database nickname nicknames databases hosts=$system_root/etc/hosts hosts_trouble="" hosts_clean=false tries
+  databases=$(nss_databases)
+  if [ -n "$databases" ] && ! command -v certutil > /dev/null; then
+    fail "certutil is needed to remove the authority from your browsers' certificate databases; install libnss3-tools (apt-get) or nss-tools (dnf) and rerun. Nothing changed."
+  fi
+  # A hosts file without the installer's lines needs no change, whatever else it is.
+  if [ -r "$hosts" ] && ! grep -q "Everything local installer" "$hosts"; then
+    hosts_clean=true
+  elif [ -e "$hosts" ] || [ -L "$hosts" ]; then
+    hosts_trouble=$(hosts_problem)
+  else
+    hosts_clean=true
+  fi
+
+  # Copies an interrupted run staged beside the anchors go too, since dnf's store reads every file.
   for file in "$system_root"/usr/local/share/ca-certificates/everything-local-ca-*.crt \
-    "$system_root"/etc/pki/ca-trust/source/anchors/everything-local-ca-*.pem; do
-    if [ -f "$file" ]; then
-      as_root rm -f -- "$file"
-      changed=true
+    "$system_root"/etc/pki/ca-trust/source/anchors/everything-local-ca-*.pem \
+    "$system_root"/usr/local/share/ca-certificates/.everything-local-ca-*.everything-local.?????? \
+    "$system_root"/etc/pki/ca-trust/source/anchors/.everything-local-ca-*.everything-local.??????; do
+    if [ -e "$file" ] || [ -L "$file" ]; then
+      as_root rm -f -- "$file" || fail "Could not remove $file."
       say "Removed $file."
     fi
   done
-  if [ "$changed" = true ]; then update_system_trust || fail "Could not update the system certificate store."; fi
-  if command -v certutil > /dev/null; then
-    while IFS= read -r database; do
-      if [ -z "$database" ]; then continue; fi
-      # The listing pads each nickname to a column, followed by its trust flags.
-      certutil -L -d "sql:$database" 2> /dev/null |
-        awk -v prefix="$ca_nickname_prefix" 'index($0, prefix " ") == 1 && $4 ~ /^[0-9a-f]+$/ { print $1, $2, $3, $4 }' |
-        while IFS= read -r nickname; do
-          certutil -D -d "sql:$database" -n "$nickname" && say "Removed $nickname from $database."
-        done
-    done <<< "$(nss_databases)"
+  # The store is refreshed while it exists, even with no anchor left, so an earlier failed refresh
+  # cannot leave the authority in its bundle.
+  if [ -f "$(system_trust_bundle)" ]; then
+    update_system_trust || fail "Could not update the system certificate store; rerun the installer with --remove-trust."
   fi
-  write_hosts false
+  if bundle_trusts_any_local_authority; then
+    fail "The system certificate store still trusts a local certificate authority after updating it; see $(system_trust_bundle)."
+  fi
+
+  while IFS= read -r database; do
+    if [ -z "$database" ]; then continue; fi
+    nicknames=$(local_nicknames "$database")
+    while IFS= read -r nickname; do
+      if [ -z "$nickname" ]; then continue; fi
+      # A database may hold several certificates under one nickname; each deletion removes one.
+      tries=0
+      while certutil -L -d "sql:$database" -n "$nickname" > /dev/null 2>&1; do
+        tries=$((tries + 1))
+        [ "$tries" -le 10 ] || fail "certutil kept $nickname in $database after 10 deletions."
+        certutil -D -d "sql:$database" -n "$nickname" ||
+          fail "certutil could not remove $nickname from $database; close that browser and rerun the installer with --remove-trust."
+      done
+      say "Removed $nickname from $database."
+    done <<< "$nicknames"
+    nicknames=$(local_nicknames "$database")
+    [ -z "$nicknames" ] ||
+      fail "$database still trusts a local certificate authority; close that browser and rerun the installer with --remove-trust."
+  done <<< "$databases"
   say "The local certificate authority is no longer trusted on this computer."
+
+  if [ "$hosts_clean" = true ]; then return; fi
+  [ -z "$hosts_trouble" ] || fail "/etc/hosts was not changed, and may still map the local names: $hosts_trouble"
+  write_hosts false
 }
 
 # ---------------------------------------------------------------------------------------------------
@@ -563,22 +722,42 @@ strip_hosts_block() {
 }
 
 # write_hosts <true|false>: add or remove the block, keeping a dated copy of the file it replaces.
+# The new file gets the old one's owner, mode, ACLs, extended attributes, and SELinux context before
+# it is renamed into place, so an interrupted or failed write leaves the old file as it was.
 write_hosts() {
-  local hosts=$system_root/etc/hosts backup
-  if [ -L "$hosts" ]; then fail "/etc/hosts is a symbolic link; the installer will not write through it."; fi
-  strip_hosts_block < "$hosts" > "$work/hosts"
+  local hosts=$system_root/etc/hosts backup problem preserve=mode,ownership,xattr
+  problem=$(hosts_problem)
+  [ -z "$problem" ] || fail "$problem"
+  # Every later step works from this copy, and the file must still match it when replaced.
+  cp -- "$hosts" "$work/hosts.before" || fail "Cannot read /etc/hosts."
+  problem=$(hosts_block_problem < "$work/hosts.before")
+  [ -z "$problem" ] || fail "/etc/hosts has $problem, so the installer will not change it."
+  # Removing nothing leaves the file as it is, even one that lacks its last newline.
+  if [ "$1" = false ] && ! grep -qxF "$hosts_begin" "$work/hosts.before"; then return; fi
+  strip_hosts_block < "$work/hosts.before" > "$work/hosts"
   if [ "$1" = true ]; then
     printf '%s\n127.0.0.1\t%s %s %s\n%s\n' "$hosts_begin" "$app_host" "$artifact_host" "$registry_host" \
       "$hosts_end" >> "$work/hosts"
   fi
-  if cmp -s "$work/hosts" "$hosts"; then return; fi
-  backup=$hosts.everything-local-$(date +%Y%m%d%H%M%S)-$$
-  [ ! -e "$backup" ] || fail "$backup already exists."
-  as_root cp -p "$hosts" "$backup"
-  # Copying onto the file keeps its owner and mode.
-  as_root cp "$work/hosts" "$hosts"
+  if cmp -s "$work/hosts" "$work/hosts.before"; then return; fi
+  backup=$(as_root mktemp "$hosts.everything-local-$(date +%Y%m%d%H%M%S)-XXXXXX") ||
+    fail "Could not create a backup beside /etc/hosts; it was not changed."
+  as_root cp -p -- "$hosts" "$backup" || fail "Could not back up /etc/hosts to $backup; it was not changed."
+  stage_root_file "$work/hosts" "$hosts"
+  if selinux_enabled; then preserve=$preserve,context; fi
+  as_root cp --attributes-only --preserve="$preserve" -- "$hosts" "$root_staged" ||
+    fail "Could not give the new /etc/hosts the current one's owner, mode, and security attributes; it was not changed."
+  if [ "$(stat -c '%u:%g:%a' -- "$root_staged")" != "$(stat -c '%u:%g:%a' -- "$hosts")" ] ||
+    { selinux_enabled && [ "$(stat -c %C -- "$root_staged")" != "$(stat -c %C -- "$hosts")" ]; }; then
+    fail "The new /etc/hosts did not keep the current one's owner, mode, or SELinux context; it was not changed."
+  fi
+  cmp -s -- "$work/hosts.before" "$hosts" || fail "/etc/hosts changed while the installer ran, so it was not changed; rerun the installer."
+  commit_root_file "$hosts"
   say "Updated /etc/hosts; its previous contents are in $backup."
 }
+
+# Whether SELinux labels files here, so the hosts file's context must be kept too.
+selinux_enabled() { [ -e "$system_root/sys/fs/selinux/enforce" ]; }
 
 # k3s's settings: the marker that makes this k3s the installer's, the registry's certificate
 # authority, and manifests k3s applies itself: Traefik on 127.0.0.1:443, and DNS for the local names.
@@ -653,12 +832,23 @@ EOF
 # Cluster: k3s, its private kubeconfig, and readiness.
 # ---------------------------------------------------------------------------------------------------
 
+# Whether k3s's install script must run: on a fresh computer, or after a run it did not finish. The
+# script installs the binary before the service and the uninstall script, so a run it did not finish
+# leaves the binary alone.
+k3s_needs_install() {
+  [ "$k3s_state" = fresh ] || [ ! -x "$system_root/usr/local/bin/k3s" ] ||
+    [ ! -e "$system_root/etc/systemd/system/k3s.service" ] || [ ! -x "$system_root/usr/local/bin/k3s-uninstall.sh" ]
+}
+
+# k3s's install script is downloaded and checked with the other tools, before anything changes as root.
+fetch_k3s_script() {
+  if ! k3s_needs_install; then return; fi
+  say "Downloading k3s $k3s_version's install script..."
+  download "$k3s_install_url" "$work/k3s-install.sh" "$k3s_install_sha256"
+}
+
 start_k3s() {
-  # The script installs the binary before the service and the uninstall script, so a run it did not
-  # finish leaves the binary alone.
-  if [ "$k3s_state" = fresh ] || [ ! -x "$system_root/usr/local/bin/k3s" ] ||
-    [ ! -e "$system_root/etc/systemd/system/k3s.service" ] || [ ! -x "$system_root/usr/local/bin/k3s-uninstall.sh" ]; then
-    download "$k3s_install_url" "$work/k3s-install.sh" "$k3s_install_sha256"
+  if [ -f "$work/k3s-install.sh" ]; then
     say "Installing k3s $k3s_version..."
     # Only these settings reach k3s's script, even from a root shell whose K3S_URL would join
     # another cluster.
@@ -794,6 +984,8 @@ write_preset() {
   } > "$work/preset.yaml"
 }
 
+# The installer says when the person declined to install; otherwise the release must exist, and a
+# failure to find it is reported as one, not taken for a choice.
 run_installer() {
   local status=0 version=${EVERYTHING_VERSION:-}
   if [ -n "$release_version" ]; then version=$release_version; fi
@@ -801,15 +993,20 @@ run_installer() {
   say "Starting Everything's installer. Its cluster, hostnames, ingress, TLS, and storage are already"
   say "set for this computer; it asks for the rest."
   say ""
-  env KUBECONFIG="$kubeconfig" PATH="$bin_dir:$(dirname "$helm_bin"):$PATH" \
+  : > "$work/installer-result"
+  env KUBECONFIG="$kubeconfig" PATH="$bin_dir:${helm_bin%/*}:$PATH" \
     EVERYTHING_VERSION="$version" EVERYTHING_SETTINGS_FILE="$state_dir/everything-values.yaml" \
-    EVERYTHING_PRESET_SETTINGS="$work/preset.yaml" bash "$installer" < /dev/null || status=$?
+    EVERYTHING_PRESET_SETTINGS="$work/preset.yaml" EVERYTHING_RESULT_FILE="$work/installer-result" \
+    bash "$installer" < /dev/null || status=$?
   if [ "$status" -ne 0 ]; then fail "Everything's installer stopped with status $status."; fi
-  if ! "$helm_bin" status "$release" --kubeconfig "$kubeconfig" --kube-context "$context_name" \
-    --namespace "$namespace" > /dev/null 2>&1; then
-    say "Everything is not installed; rerun the installer to continue."
+  if [ "$(cat "$work/installer-result")" = declined ]; then
+    say "Everything was not installed or upgraded, as you chose; rerun the installer to continue."
     finished=true
     exit 0
+  fi
+  if ! "$helm_bin" status "$release" --kubeconfig "$kubeconfig" --kube-context "$context_name" \
+    --namespace "$namespace" > /dev/null 2> "$work/helm-status.log"; then
+    fail "Everything's installer finished, but Helm could not find its release: $(tail -n 1 "$work/helm-status.log")"
   fi
 }
 
@@ -856,6 +1053,10 @@ cleanup() {
   local status=$?
   stty echo <&3 2> /dev/null || true
   if [ -n "$work" ]; then rm -rf -- "$work"; fi
+  # A copy staged to replace a system file; the file itself is as it was.
+  if [ -n "$root_staged" ]; then
+    if [ "$run_as_root" = true ]; then rm -f -- "$root_staged"; else sudo -n -- rm -f -- "$root_staged"; fi 2> /dev/null || true
+  fi
   # Descriptor 4 is the terminal's error output, which a signal's trap may run without, inside a
   # command whose output is discarded.
   if [ "$status" -ne 0 ] && [ "$finished" = false ] && [ -n "$phase" ]; then
@@ -903,6 +1104,8 @@ main() {
   check_tools
   check_state
   if [ "$remove" = true ]; then
+    # Its own messages say what it removed and what is left; the phase message is for installing.
+    phase=""
     remove_trust
     finished=true
     return
@@ -917,9 +1120,11 @@ main() {
   phase="installing tools"
   private_dir "$state_dir"
   private_dir "$bin_dir"
-  # The installer and Helm are downloaded and checked before anything changes as root.
+  # The installer, Helm, and k3s's install script are downloaded and checked before anything changes
+  # as root.
   choose_helm
   fetch_installer
+  fetch_k3s_script
   install_packages
   phase="creating certificates"
   make_authority
