@@ -121,6 +121,9 @@ as_root() {
 
 kc() { "$kubectl_bin" --kubeconfig "$kubeconfig" --context "$context_name" "$@"; }
 
+# A cluster check that gives up on an unresponsive API server.
+kc_check() { kc --request-timeout=20s "$@"; }
+
 # download <url> <file> <sha256>: fetch to a file, never into a shell, and check its digest.
 download() {
   local url=$1 file=$2 expected=$3 actual
@@ -154,14 +157,19 @@ private_dir() {
   chmod 700 "$1"
 }
 
-# wait_until <seconds> <description> <command>...: retry a command until it succeeds or time runs out.
+# wait_until <seconds> <description> <command>...: retry a command until it succeeds or time runs
+# out, saying what it waits for once the first attempt fails.
 wait_until() {
-  local limit=$1 description=$2 deadline
+  local limit=$1 description=$2 deadline said=false
   shift 2
   deadline=$(($(date +%s) + limit))
   until "$@" > /dev/null 2>&1; do
     if [ "$(date +%s)" -ge "$deadline" ]; then
       fail "Timed out after ${limit}s waiting for $description."
+    fi
+    if [ "$said" = false ]; then
+      say "  Waiting for $description..."
+      said=true
     fi
     sleep 5
   done
@@ -658,7 +666,7 @@ write_kubeconfig() {
   (
     umask 077
     as_root cat "$source" | sed \
-      -e "s/^\( *\)name: default$/\1name: $context_name/" \
+      -e "s/^\([ -]*\)name: default$/\1name: $context_name/" \
       -e "s/^\( *\)cluster: default$/\1cluster: $context_name/" \
       -e "s/^\( *\)user: default$/\1user: $context_name/" \
       -e "s/^current-context: default$/current-context: $context_name/" > "$kubeconfig.new"
@@ -676,19 +684,29 @@ write_kubeconfig() {
   fi
 }
 
+# One deadline bounds the whole wait.
 wait_for_cluster() {
+  local deadline
+  deadline=$(($(date +%s) + cluster_timeout))
   say "Waiting for the cluster, Traefik, and DNS..."
-  wait_until "$cluster_timeout" "the Kubernetes API" kc get --raw=/readyz
-  wait_until "$cluster_timeout" "the node" kc wait --for=condition=Ready node --all --timeout=10s
-  wait_until "$cluster_timeout" "CoreDNS" kc -n kube-system rollout status deployment/coredns --timeout=10s
-  wait_until "$cluster_timeout" "the local DNS names" kc -n kube-system get configmap coredns-custom
-  wait_until "$cluster_timeout" "Traefik" kc -n kube-system rollout status deployment/traefik --timeout=10s
-  wait_until "$cluster_timeout" "Traefik's loopback port" traefik_on_loopback
+  wait_until "$(remaining "$deadline")" "the Kubernetes API" kc_check get --raw=/readyz
+  wait_until "$(remaining "$deadline")" "the node" kc_check wait --for=condition=Ready node --all --timeout=10s
+  wait_until "$(remaining "$deadline")" "CoreDNS" kc_check -n kube-system rollout status deployment/coredns --timeout=10s
+  wait_until "$(remaining "$deadline")" "the local DNS names" kc_check -n kube-system get configmap coredns-custom
+  wait_until "$(remaining "$deadline")" "Traefik" kc_check -n kube-system rollout status deployment/traefik --timeout=10s
+  wait_until "$(remaining "$deadline")" "Traefik's loopback port" traefik_on_loopback
+}
+
+# Seconds left until a deadline, at least one.
+remaining() {
+  local left=$(($1 - $(date +%s)))
+  if [ "$left" -lt 1 ]; then left=1; fi
+  echo "$left"
 }
 
 # The running Traefik publishes 443 on 127.0.0.1 alone.
 traefik_on_loopback() {
-  [ "$(kc -n kube-system get deployment traefik -o \
+  [ "$(kc_check -n kube-system get deployment traefik -o \
     'jsonpath={range .spec.template.spec.containers[*].ports[?(@.hostPort==443)]}{.hostIP}{end}')" = 127.0.0.1 ]
 }
 
@@ -774,14 +792,12 @@ run_installer() {
 }
 
 wait_for_everything() {
-  local workload deadline remaining
+  local workload deadline
   say ""
   say "Waiting for Everything to start, which takes several minutes on a new installation..."
   deadline=$(($(date +%s) + everything_timeout))
   for workload in $(kc -n "$namespace" get deployments,statefulsets -o name); do
-    remaining=$((deadline - $(date +%s)))
-    if [ "$remaining" -lt 1 ]; then remaining=1; fi
-    kc -n "$namespace" rollout status "$workload" --timeout="${remaining}s" > /dev/null ||
+    kc -n "$namespace" rollout status "$workload" --timeout="$(remaining "$deadline")s" > /dev/null ||
       fail "$workload is not ready; see: KUBECONFIG=$kubeconfig kubectl -n $namespace get pods"
   done
 }
@@ -817,10 +833,14 @@ cleanup() {
   local status=$?
   stty echo <&3 2> /dev/null || true
   if [ -n "$work" ]; then rm -rf -- "$work"; fi
+  # Descriptor 4 is the terminal's error output, which a signal's trap may run without, inside a
+  # command whose output is discarded.
   if [ "$status" -ne 0 ] && [ "$finished" = false ] && [ -n "$phase" ]; then
-    say ""
-    say "The installer stopped while $phase. What it finished is kept; fix the problem above and"
-    say "rerun it to continue. It does not remove k3s, data, or trust on failure; see --help to remove them."
+    {
+      echo ""
+      echo "The installer stopped while $phase. What it finished is kept; fix the problem above and"
+      echo "rerun it to continue. It does not remove k3s, data, or trust on failure; see --help to remove them."
+    } >&4
   fi
   return "$status"
 }
@@ -848,7 +868,7 @@ main() {
   if ! (: < /dev/tty) 2> /dev/null; then
     fail "The installer asks questions; run it from a terminal."
   fi
-  exec 3< /dev/tty
+  exec 3< /dev/tty 4>&2
   work=$(mktemp -d "${TMPDIR:-/tmp}/everything-k3s.XXXXXXXX")
   trap cleanup EXIT
   trap 'exit 130' INT

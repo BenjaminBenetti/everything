@@ -116,8 +116,9 @@ jobs:
           [ -f /usr/local/share/ca-certificates/mkcert-rootCA.crt ]
           grep -qF "$(sed -n 2p "$RUNNER_TEMP/unrelated.crt")" /etc/ssl/certs/ca-certificates.crt
       - name: Diagnostics
-        if: failure()
+        if: failure() || cancelled()
         run: |
+          ps -eo pid,ppid,etime,cmd --forest | grep -v -i password | grep -B2 -A6 install-k3s || true
           export KUBECONFIG=~/.local/share/everything-local/kubeconfig
           kubectl get nodes,pods -A -o wide || true
           kubectl get events -A --sort-by=.lastTimestamp | tail -n 100 || true

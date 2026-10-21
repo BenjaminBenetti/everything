@@ -341,7 +341,9 @@ load_settings() {
 apply_preset() {
   [ -f "$preset" ] && [ -r "$preset" ] || fail "Cannot read the preset settings in $preset."
   flatten_values "$preset" > "$work/preset"
-  awk -F '\t' 'NR == FNR { saved[$1] = 1; next } !($1 in saved)' "$entries" "$work/preset" > "$work/preset.new"
+  # FILENAME, not NR == FNR, tells the files apart when no settings are saved yet.
+  awk -F '\t' 'FILENAME == ARGV[1] { saved[$1] = 1; next } !($1 in saved)' "$entries" "$work/preset" \
+    > "$work/preset.new"
   if [ -s "$work/preset.new" ]; then
     cat "$work/preset.new" >> "$entries"
     settings_changed=true
