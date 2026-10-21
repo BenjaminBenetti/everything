@@ -190,7 +190,7 @@ case $action in
   -L)
     if [ -n "$nickname" ]; then grep -qxF "$nickname" "$list" 2> /dev/null; exit; fi
     printf 'Certificate Nickname                                         Trust Attributes\\n\\n'
-    while IFS= read -r name; do printf '%-60s C,,\\n' "$name"; done < "$list"
+    while IFS= read -r name; do printf '%-60s C,,   \\n' "$name"; done < "$list"
     ;;
 esac`,
   "update-ca-certificates": `log_call update-ca-certificates "$@"`,

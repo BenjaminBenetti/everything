@@ -112,6 +112,7 @@ jobs:
           # Bash's -e ignores negated commands, so each absence fails explicitly.
           if grep -q 'Everything local installer' /etc/hosts; then exit 1; fi
           if compgen -G '/usr/local/share/ca-certificates/everything-local-ca-*'; then exit 1; fi
+          certutil -L -d "sql:$HOME/.pki/nssdb"
           if certutil -L -d "sql:$HOME/.pki/nssdb" | grep -q 'Everything local CA'; then exit 1; fi
           [ -f /usr/local/share/ca-certificates/mkcert-rootCA.crt ]
           grep -qF "$(sed -n 2p "$RUNNER_TEMP/unrelated.crt")" /etc/ssl/certs/ca-certificates.crt

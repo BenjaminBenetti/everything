@@ -531,7 +531,9 @@ remove_trust() {
   if command -v certutil > /dev/null; then
     while IFS= read -r database; do
       if [ -z "$database" ]; then continue; fi
-      certutil -L -d "sql:$database" 2> /dev/null | sed -n "s/^\($ca_nickname_prefix [0-9a-f]*\)  *[A-Za-z,]*$/\1/p" |
+      # The listing pads each nickname to a column, followed by its trust flags.
+      certutil -L -d "sql:$database" 2> /dev/null |
+        awk -v prefix="$ca_nickname_prefix" 'index($0, prefix " ") == 1 && $4 ~ /^[0-9a-f]+$/ { print $1, $2, $3, $4 }' |
         while IFS= read -r nickname; do
           certutil -D -d "sql:$database" -n "$nickname" && say "Removed $nickname from $database."
         done
