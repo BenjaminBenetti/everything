@@ -1,19 +1,21 @@
 # Run the local installer on a fresh GitHub-hosted runner, as a person would on their own Linux
 # computer, and check the result end to end: trusted HTTPS in curl, OpenSSL, and Chrome, sign-in, the
 # artifact host, loopback-only serving, an image push through the Docker sidecar Fleet builds with, a
-# pull by the node, fleetd's Go trust of the registry, a rerun, and removing the trust. It runs the
-# installers from this commit with the newest published release's chart and images, and only
-# synthetic credentials.
+# pull by the node, fleetd's Go trust of the registry, a rerun, and removing the trust.
+# Temporary release verification: it downloads the published install-k3s.sh of the given release,
+# checks its bytes, and runs it unmodified, so it installs that release's installer, chart, and
+# images. Only synthetic credentials.
 name: Local install
 
 on:
-  pull_request:
-    paths:
-      - deployment/script/install.sh
-      - deployment/script/install-k3s.sh
-      - testing/installer/**
-      - .github/workflows/local-install.yaml
   workflow_dispatch:
+    inputs:
+      release:
+        description: Release tag whose published installers to run, such as v0.6.0
+        required: true
+      install-k3s-sha256:
+        description: Expected SHA-256 of that release's install-k3s.sh asset
+        required: true
 
 permissions:
   contents: read
@@ -45,6 +47,8 @@ jobs:
             }
     env:
       GH_TOKEN: ${{ github.token }}
+      RELEASE: ${{ inputs.release }}
+      EXPECTED_SHA256: ${{ inputs.install-k3s-sha256 }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -74,7 +78,21 @@ jobs:
           password=$(openssl rand -hex 16)
           echo "::add-mask::$password"
           echo "SMOKE_PASSWORD=$password" >> "$GITHUB_ENV"
-          echo "EVERYTHING_VERSION=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName)" >> "$GITHUB_ENV"
+      - name: Download the release's published installers
+        run: |
+          [[ $RELEASE =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Not a stable release tag: $RELEASE"; exit 1; }
+          mkdir "$RUNNER_TEMP/published"
+          gh release download "$RELEASE" --repo "$GITHUB_REPOSITORY" --dir "$RUNNER_TEMP/published" \
+            --pattern install-k3s.sh --pattern install.sh
+          cd "$RUNNER_TEMP/published"
+          sha256sum install-k3s.sh install.sh
+          echo "$EXPECTED_SHA256  install-k3s.sh" | sha256sum --check
+          version=${RELEASE#v}
+          grep -qx "release_version=\"$version\"" install-k3s.sh
+          grep -qx "release_version=\"$version\"" install.sh
+          grep -qx "installer_sha256=\"$(sha256sum install.sh | awk '{ print $1 }')\"" install-k3s.sh
+          bash -n install-k3s.sh
+          echo "LOCAL_INSTALLER=$RUNNER_TEMP/published/install-k3s.sh" >> "$GITHUB_ENV"
       - name: Build the registry check
         run: |
           docker run --rm -v "$PWD/testing/installer/src/local/smoke/registry-check:/src:ro" \
@@ -82,10 +100,24 @@ jobs:
             -e GOCACHE=/tmp/cache docker.io/library/golang:1.25-alpine go build -o /out/registry-check .
       - name: Install
         run: |
-          expect testing/installer/src/local/smoke/install-local.exp \
-            deployment/script/install-k3s.sh --installer deployment/script/install.sh
+          expect testing/installer/src/local/smoke/install-local.exp "$LOCAL_INSTALLER"
       - name: Check the installation
         run: bash testing/installer/src/local/smoke/check-local.sh "$RUNNER_TEMP/registry-check"
+      - name: Check the release's chart and images are installed
+        run: |
+          export KUBECONFIG=~/.local/share/everything-local/kubeconfig
+          version=${RELEASE#v}
+          # The installer uses the runner's Helm, or downloads its own when there is none.
+          helm=$(command -v helm || echo ~/.local/share/everything-local/bin/helm)
+          "$helm" list -A -o json | tee "$RUNNER_TEMP/helm-list.json"
+          jq -e --arg c "everything-$version" --arg v "$version" \
+            'map(select(.name == "everything")) | length == 1 and all(.chart == $c and .app_version == $v)' \
+            "$RUNNER_TEMP/helm-list.json"
+          kubectl get pods -A -o json |
+            jq -r '.items[].status | (.containerStatuses // []) + (.initContainerStatuses // []) | .[] | "\(.image) \(.imageID)"' |
+            sort -u | tee "$RUNNER_TEMP/images.txt"
+          grep -F "ghcr.io/benjaminbenetti/everything/" "$RUNNER_TEMP/images.txt" > "$RUNNER_TEMP/own-images.txt"
+          if grep -vF ":$version " "$RUNNER_TEMP/own-images.txt"; then echo "An image is not $version"; exit 1; fi
       - name: Check the hosts file was replaced with its attributes
         run: bash testing/installer/src/local/smoke/check-hosts.sh "$RUNNER_TEMP" replaced
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
@@ -104,14 +136,14 @@ jobs:
         run: |
           before=$(stat -c %Y /usr/local/bin/k3s)
           expect testing/installer/src/local/smoke/install-local.exp \
-            deployment/script/install-k3s.sh --installer deployment/script/install.sh
+            "$LOCAL_INSTALLER"
           [ "$(stat -c %Y /usr/local/bin/k3s)" = "$before" ] || { echo "k3s was reinstalled"; exit 1; }
           [ "$(grep -c 'BEGIN Everything local installer' /etc/hosts)" = 1 ]
           curl --fail --silent --show-error --output /dev/null https://everything.internal/health/ready
           sha256sum --check "$RUNNER_TEMP/kubeconfig.sha256"
       - name: Remove the local trust
         run: |
-          expect -c 'set timeout 120; spawn bash deployment/script/install-k3s.sh --remove-trust; expect eof; lassign [wait] p s o status; exit $status'
+          expect -c 'set timeout 120; spawn bash $env(LOCAL_INSTALLER) --remove-trust; expect eof; lassign [wait] p s o status; exit $status'
           if curl --silent --output /dev/null --resolve everything.internal:443:127.0.0.1 https://everything.internal/; then
             echo "The certificate is still trusted"
             exit 1
@@ -131,7 +163,7 @@ jobs:
       - name: Remove the local trust again
         run: |
           # A rerun with nothing left to remove succeeds and says so.
-          expect -c 'set timeout 120; spawn bash deployment/script/install-k3s.sh --remove-trust; expect { "no longer trusted on this computer" {} timeout { exit 1 } eof { exit 1 } }; expect eof; lassign [wait] p s o status; exit $status'
+          expect -c 'set timeout 120; spawn bash $env(LOCAL_INSTALLER) --remove-trust; expect { "no longer trusted on this computer" {} timeout { exit 1 } eof { exit 1 } }; expect eof; lassign [wait] p s o status; exit $status'
           bash testing/installer/src/local/smoke/check-hosts.sh "$RUNNER_TEMP" removed
       - name: Diagnostics
         if: failure() || cancelled()
