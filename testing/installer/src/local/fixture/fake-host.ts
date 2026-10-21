@@ -461,6 +461,8 @@ echo "fake k3s install: $INSTALL_K3S_VERSION symlink=$INSTALL_K3S_SYMLINK $*" >&
 mkdir -p "${root}/usr/local/bin" "${root}/etc/systemd/system" "${root}/etc/rancher/k3s"
 printf '#!/bin/sh\\nexit 0\\n' > "${root}/usr/local/bin/k3s"
 chmod 755 "${root}/usr/local/bin/k3s"
+printf '#!/bin/sh\\nexit 0\\n' > "${root}/usr/local/bin/k3s-uninstall.sh"
+chmod 755 "${root}/usr/local/bin/k3s-uninstall.sh"
 touch "${root}/etc/systemd/system/k3s.service"
 cat > "${root}/etc/rancher/k3s/k3s.yaml" << 'EOF'
 apiVersion: v1

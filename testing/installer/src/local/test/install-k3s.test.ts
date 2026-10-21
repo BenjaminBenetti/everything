@@ -430,6 +430,35 @@ describe("a fresh installation", () => {
         stdio: "pipe",
       }),
     );
+    // Nor can it sign for an IP address.
+    writeFileSync(`${outside}.ext`, "subjectAltName = IP:192.168.1.1\n");
+    execFileSync(
+      "openssl",
+      [
+        "x509",
+        "-req",
+        "-in",
+        `${outside}.csr`,
+        "-CA",
+        ca,
+        "-CAkey",
+        join(host.stateDirectory, "ca/ca-key.pem"),
+        "-set_serial",
+        "8",
+        "-days",
+        "1",
+        "-extfile",
+        `${outside}.ext`,
+        "-out",
+        outside,
+      ],
+      { stdio: "ignore" },
+    );
+    assert.throws(() =>
+      execFileSync("openssl", ["verify", "-CAfile", ca, outside], {
+        stdio: "pipe",
+      }),
+    );
   });
 
   test("trusts the authority system-wide and in browser databases", async () => {
@@ -695,6 +724,74 @@ describe("failures", () => {
     assert.match(result.output, /stopped while starting k3s/);
     assert.deepEqual(readdirSync(host.temp), []);
   });
+});
+
+describe("review fixes", () => {
+  test("stops when a root write fails, instead of treating it as unchanged", async () => {
+    // A sudo that refuses to install files, as a full or read-only disk would.
+    writeFileSync(
+      join(host.bin, "sudo"),
+      `#!/bin/bash\nif [ "$1" = -v ]; then exit 0; fi\nshift\nif [ "$1" = install ]; then exit 1; fi\nexec "$@"\n`,
+      { mode: 0o755 },
+    );
+    const result = await install();
+    assert.equal(result.status, 1, result.output);
+    assert.match(result.output, /Could not (create|write) /);
+    assert.ok(!existsSync(join(host.root, "usr/local/bin/k3s")));
+  });
+
+  test("reruns k3s's script after it stopped before the service", async () => {
+    await installOnce();
+    execFileSync("rm", [join(host.root, "etc/systemd/system/k3s.service")]);
+    const result = await install();
+    assert.equal(result.status, 0, result.output);
+    assert.match(result.output, /fake k3s install/);
+  });
+
+  test("keeps the caller's K3S settings from k3s's script", async () => {
+    const result = await install({
+      env: { K3S_URL: "https://elsewhere:6443", INSTALL_K3S_EXEC: "agent" },
+    });
+    assert.equal(result.status, 0, result.output);
+    const k3s = host
+      .rootCommands()
+      .find((command) => command.includes("INSTALL_K3S_SYMLINK=skip"));
+    assert.ok(k3s);
+    assert.ok(k3s.includes("-u") && k3s.includes("K3S_URL"));
+    assert.ok(k3s.includes("INSTALL_K3S_EXEC"));
+  });
+
+  test("refuses an unfinished hosts block", async () => {
+    writeFileSync(
+      join(host.root, "etc/hosts"),
+      "127.0.0.1 localhost\n# BEGIN Everything local installer (install-k3s.sh)\n10.0.0.1 keep.me\n",
+    );
+    const result = await install();
+    assert.equal(result.status, 1);
+    assert.match(result.output, /unfinished Everything block/);
+  });
+
+  test("checks the installer before changing anything as root", async () => {
+    host.removeCommand("certutil");
+    host.prepareScript(undefined, {
+      release_version: '"1.2.3"',
+      installer_sha256: '"' + "0".repeat(64) + '"',
+    });
+    const result = await host.run({ answers: ["y"] });
+    assert.equal(result.status, 1, result.output);
+    assert.match(result.output, /Could not download|it was not used/);
+    assert.deepEqual(host.rootCommands(), []);
+  });
+
+  for (const path of ["etc/kubernetes/admin.conf", "var/lib/k0s"]) {
+    test(`refuses kubeadm and k0s: /${path}`, async () => {
+      mkdirSync(join(host.root, path, ".."), { recursive: true });
+      writeFileSync(join(host.root, path), "");
+      const result = await install();
+      assert.equal(result.status, 1);
+      assert.match(result.output, /did not make/);
+    });
+  }
 });
 
 describe("reruns", () => {

@@ -727,7 +727,12 @@ print_next_steps() {
   else
     say "Everything is upgraded to $version in namespace $namespace."
   fi
-  say "  Watch its pods: kubectl -n $namespace get pods -w"
+  # A preset's caller gives kubectl its own kubeconfig, which the command names.
+  if [ -n "$preset" ] && [ -n "${KUBECONFIG:-}" ]; then
+    say "  Watch its pods: KUBECONFIG=$KUBECONFIG kubectl -n $namespace get pods -w"
+  else
+    say "  Watch its pods: kubectl -n $namespace get pods -w"
+  fi
   if [ -n "$first_user" ]; then
     say "  Sign in at https://$app_host as $first_user."
   else

@@ -141,8 +141,9 @@ put_root_file() {
   local destination=$3
   if as_root test -L "$destination"; then fail "$destination is a symbolic link; the installer will not write through it."; fi
   if as_root cmp -s "$2" "$destination"; then return 1; fi
-  as_root install -d -m 0755 "$(dirname "$destination")"
-  as_root install -m "$1" "$2" "$destination"
+  # Callers test the result, which turns off -e here, so a failed write stops the installer itself.
+  as_root install -d -m 0755 "$(dirname "$destination")" || fail "Could not create $(dirname "$destination")."
+  as_root install -m "$1" "$2" "$destination" || fail "Could not write $destination."
 }
 
 # private_dir <path>: a directory only this user can read, refusing symlinks and others' folders.
@@ -261,7 +262,8 @@ check_k3s() {
     return
   fi
   for path in /usr/local/bin/k3s /etc/systemd/system/k3s.service /etc/systemd/system/k3s-agent.service \
-    /etc/rancher/k3s /var/lib/rancher/k3s /etc/rancher/rke2 /var/lib/rancher/rke2 /snap/microk8s; do
+    /etc/rancher/k3s /var/lib/rancher/k3s /etc/rancher/rke2 /var/lib/rancher/rke2 /snap/microk8s \
+    /etc/kubernetes/admin.conf /var/lib/k0s; do
     if [ -e "$system_root$path" ]; then
       fail "Found $path from a Kubernetes installation this installer did not make. It changes only a k3s it installed; install Everything there with install.sh instead, or remove that installation first."
     fi
@@ -290,6 +292,9 @@ check_hosts() {
   local hosts=$system_root/etc/hosts name
   if [ -L "$hosts" ]; then fail "/etc/hosts is a symbolic link; the installer will not write through it."; fi
   [ -f "$hosts" ] || fail "/etc/hosts is missing."
+  if [ "$(grep -cxF "$hosts_begin" "$hosts" || true)" != "$(grep -cxF "$hosts_end" "$hosts" || true)" ]; then
+    fail "/etc/hosts has an unfinished Everything block; remove its lines and rerun the installer."
+  fi
   for name in "$app_host" "$artifact_host" "$registry_host"; do
     if strip_hosts_block < "$hosts" | awk -v name="$name" '!/^[ \t]*#/ { for (i = 2; i <= NF; i++) if ($i == name) found = 1 } END { exit !found }'; then
       fail "/etc/hosts already maps $name; remove that line and rerun the installer."
@@ -332,6 +337,10 @@ explain_plan() {
   if [ "$k3s_state" = fresh ]; then
     say "  - install k3s $k3s_version as the k3s system service, with its files under /etc/rancher/k3s"
     say "    and /var/lib/rancher/k3s, and kubectl access only through a private kubeconfig"
+    if [ "$package_manager" = dnf ]; then
+      say "  - let k3s's install script add the rancher-k3s-common package repository and install"
+      say "    container-selinux and k3s-selinux, which k3s needs under SELinux"
+    fi
   else
     say "  - update the settings of the k3s it installed earlier, restarting k3s if they change"
   fi
@@ -419,7 +428,8 @@ make_authority() {
         -subj "/O=Everything local installer/CN=$ca_nickname_prefix $(id -un)@$(uname -n)" \
         -addext "basicConstraints=critical,CA:TRUE,pathlen:0" \
         -addext "keyUsage=critical,keyCertSign,cRLSign" \
-        -addext "nameConstraints=critical,permitted;DNS:$app_host" \
+        -addext "nameConstraints=critical,permitted;DNS:$app_host,excluded;IP:0.0.0.0/0.0.0.0,excluded;IP:0:0:0:0:0:0:0:0/0:0:0:0:0:0:0:0" \
+        -addext "extendedKeyUsage=serverAuth" \
         -addext "subjectKeyIdentifier=hash" \
         -keyout "$ca_dir/ca-key.pem.new" -out "$ca_dir/ca.pem.new" 2> "$work/openssl.log"
     ) || fail "OpenSSL could not create the certificate authority: $(tail -n 1 "$work/openssl.log")"
@@ -490,7 +500,8 @@ update_system_trust() {
 nss_databases() {
   local database
   for database in "$HOME/.pki/nssdb" "$HOME/snap/chromium/current/.pki/nssdb" \
-    "$HOME"/.mozilla/firefox/*/ "$HOME"/snap/firefox/common/.mozilla/firefox/*/ \
+    "$HOME"/.mozilla/firefox/*/ "$HOME"/.config/mozilla/firefox/*/ \
+    "$HOME"/snap/firefox/common/.mozilla/firefox/*/ \
     "$HOME"/.var/app/org.mozilla.firefox/.mozilla/firefox/*/; do
     database=${database%/}
     if [ -f "$database/cert9.db" ]; then echo "$database"; fi
@@ -643,10 +654,19 @@ EOF
 # ---------------------------------------------------------------------------------------------------
 
 start_k3s() {
-  if [ "$k3s_state" = fresh ] || [ ! -x "$system_root/usr/local/bin/k3s" ]; then
+  # The script installs the binary before the service and the uninstall script, so a run it did not
+  # finish leaves the binary alone.
+  if [ "$k3s_state" = fresh ] || [ ! -x "$system_root/usr/local/bin/k3s" ] ||
+    [ ! -e "$system_root/etc/systemd/system/k3s.service" ] || [ ! -x "$system_root/usr/local/bin/k3s-uninstall.sh" ]; then
     download "$k3s_install_url" "$work/k3s-install.sh" "$k3s_install_sha256"
     say "Installing k3s $k3s_version..."
-    as_root env INSTALL_K3S_VERSION="$k3s_version" INSTALL_K3S_SYMLINK=skip \
+    # Only these settings reach k3s's script, even from a root shell whose K3S_URL would join
+    # another cluster.
+    local variable unset=()
+    for variable in $(compgen -e); do
+      case $variable in K3S_* | INSTALL_K3S_*) unset+=(-u "$variable") ;; esac
+    done
+    as_root env "${unset[@]}" INSTALL_K3S_VERSION="$k3s_version" INSTALL_K3S_SYMLINK=skip \
       timeout 900 sh "$work/k3s-install.sh" server ||
       fail "The k3s install script failed; its messages are above."
     return
@@ -828,7 +848,8 @@ print_summary() {
   fi
   say "  Cluster commands: KUBECONFIG=$kubeconfig kubectl -n $namespace get pods"
   say "  Rerun this installer to upgrade, repair, or create the first user; it keeps your settings in"
-  say "  $state_dir/everything-values.yaml."
+  say "  $state_dir/everything-values.yaml. Rerun it within a year, too: the certificate lasts 397 days"
+  say "  and is renewed by a rerun."
 }
 
 cleanup() {
@@ -894,11 +915,12 @@ main() {
   explain_plan
 
   phase="installing tools"
-  install_packages
   private_dir "$state_dir"
   private_dir "$bin_dir"
+  # The installer and Helm are downloaded and checked before anything changes as root.
   choose_helm
   fetch_installer
+  install_packages
   phase="creating certificates"
   make_authority
   make_certificate
