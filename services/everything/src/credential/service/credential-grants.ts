@@ -109,19 +109,26 @@ export class CredentialGrants {
   // Teammates
   // ===========================================
 
-  /** Resolve a teammate's requests among its owner's credentials, refusing missing or ambiguous names. */
+  /**
+   * Resolve a teammate's requests among its owner's credentials, refusing missing or ambiguous
+   * names. With `pinned`, each request resolves to the credential ID it was first authorized as,
+   * never to another credential that took its name since; a pinned one that is gone is missing.
+   */
   async resolve(
     ownerId: string,
     requests: readonly CredentialBindingRequest[],
+    pinned?: readonly string[],
   ): Promise<AppCredentialGrant[]> {
     requireCredentialVariables(requests);
+    const scope = { usage: "credential-grant", ownerId } as const;
     const grants: AppCredentialGrant[] = [];
-    for (const request of requests) {
+    for (const [index, request] of requests.entries()) {
       const name = request.name.trim();
-      const matches = await this.credentials.findByName(
-        { usage: "credential-grant", ownerId },
-        name,
-      );
+      const matches = pinned
+        ? [await this.credentials.getById(scope, pinned[index]!)].filter(
+            (credential): credential is StoredKey => !!credential,
+          )
+        : await this.credentials.findByName(scope, name);
       if (!matches.length) throw new CredentialNotFoundError(name);
       if (matches.length > 1) throw new AmbiguousCredentialNameError(name);
       const [credential] = matches as [StoredKey];
@@ -170,8 +177,9 @@ export class CredentialGrants {
 
   /**
    * Give one of the user's apps a credential the user added. Only the credential's owner gets as
-   * far as the app; its credential generation is read before the value is opened and sent with
-   * the grant, so a removal in between refuses it.
+   * far as the app. The app's credential generation is read once, before the value is opened, and
+   * sent with every attempt, including the retry after alignment, so a removal at any point after
+   * that read refuses the grant until the user attaches it again.
    */
   async attach(
     actor: KeyActor,
@@ -180,7 +188,7 @@ export class CredentialGrants {
   ): Promise<AppCredentialList> {
     if (actor.app) throw new AppCredentialAccessError();
     requireCredentialVariables([input]);
-    const attempt = async () => {
+    const owned = async () => {
       const credential = await this.credentials.getById(
         { usage: "credential-sync" },
         input.credentialId,
@@ -189,9 +197,13 @@ export class CredentialGrants {
       if (credential.ownerId !== actor.subject)
         throw new CredentialOwnerOnlyError();
       if (!credential.valueId) throw new CredentialUnavailableError();
-      const { credentialGeneration } = await this.changing(() =>
-        this.gateway.get(actor.subject, appId),
-      );
+      return credential;
+    };
+    const first = await owned();
+    const { credentialGeneration } = await this.changing(() =>
+      this.gateway.get(actor.subject, appId),
+    );
+    const send = async (credential: StoredKey) => {
       const value = await this.open(credential);
       return this.changing(() =>
         this.gateway.attachCredential(userActor(actor), appId, {
@@ -206,11 +218,11 @@ export class CredentialGrants {
     };
     let details;
     try {
-      details = await attempt();
+      details = await send(first);
     } catch (error) {
       if (!needsAlignment(error)) throw error;
-      await this.align([input.credentialId]);
-      details = await attempt();
+      await this.align([first.id]);
+      details = await send(await owned());
     }
     return { credentials: await this.named(details.credentials) };
   }

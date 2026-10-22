@@ -286,9 +286,11 @@ export class ArtifactWorkbench {
 
   /**
    * Deploy a build as the next release. Named credentials are resolved among the owner's own
-   * generic credentials and sent as grants, with the app's credential generation read before they
-   * were authorized, so a removal in between refuses them; values never appear in the result. A
-   * refusal because apps hold another value of a credential is retried once after alignment.
+   * generic credentials and sent as grants; values never appear in the result. The app and its
+   * credential generation are read once, before the grants are authorized, and pinned for the whole
+   * operation: a refusal because apps hold another value of a credential is retried once after
+   * alignment with fresh values of the same credentials, but never with fresh authority, so a
+   * removal at any point after that read refuses the deployment.
    */
   async deploy(
     context: WorkbenchContext,
@@ -303,27 +305,25 @@ export class ArtifactWorkbench {
           ...(credentials ? { credentials: [] } : {}),
         }),
       );
-    let granted: string[] = [];
+    const app = await this.gateway.get(context.ownerId, reference);
+    let granted: string[] | undefined;
     const attempt = async () => {
-      const { credentialGeneration } = await this.gateway.get(
-        context.ownerId,
-        reference,
-      );
       const grants = await this.credentials.resolve(
         context.ownerId,
         credentials,
+        granted,
       );
       granted = grants.map((grant) => grant.credentialId);
-      return this.gateway.deploy(actor, reference, {
+      return this.gateway.deploy(actor, app.id, {
         ...input,
         credentials: grants,
-        credentialGeneration,
+        credentialGeneration: app.credentialGeneration,
       });
     };
     try {
       return this.named(await attempt());
     } catch (error) {
-      if (!needsAlignment(error)) throw error;
+      if (!needsAlignment(error) || !granted) throw error;
       await this.credentials.align(granted);
       return this.named(await attempt());
     }

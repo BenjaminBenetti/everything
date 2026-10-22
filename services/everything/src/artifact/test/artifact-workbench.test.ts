@@ -236,13 +236,17 @@ test("file system failures name the path in the workspace that failed", async (c
 test("deploying resolves named credentials among the owner's own, after reading the app's generation, and returns only names and statuses", async () => {
   const deployed: unknown[] = [];
   const events: string[] = [];
+  const appId = "4b7f2d0e-3c1a-4e8b-9f6d-2a5c8e1b7d30";
   const credentialId = "11111111-1111-4111-8111-111111111111";
   const valueId = "9c0b7a52-6d0e-4f0d-9a77-0f2a3f1f6c01";
   const refusals: Error[] = [];
   const gateway = {
     get: async () => {
       events.push("generation");
-      return { credentialGeneration: 7 } as unknown as ArtifactDetails;
+      return {
+        id: appId,
+        credentialGeneration: 7,
+      } as unknown as ArtifactDetails;
     },
     deploy: async (actor: unknown, reference: string, input: unknown) => {
       if (refusals.length) throw refusals.shift();
@@ -262,8 +266,10 @@ test("deploying resolves named credentials among the owner's own, after reading 
   } as unknown as ArtifactGateway;
   const workbench = new ArtifactWorkbench(gateway, {
     ...noCredentialGrants,
-    resolve: async (ownerId, requests) => {
-      events.push(`resolve:${ownerId}:${requests.map((r) => r.name)}`);
+    resolve: async (ownerId, requests, pinned) => {
+      events.push(
+        `resolve:${ownerId}:${requests.map((r) => r.name)}${pinned ? `:${pinned}` : ""}`,
+      );
       return [
         {
           credentialId,
@@ -289,12 +295,13 @@ test("deploying resolves named credentials among the owner's own, after reading 
     build: 2,
     credentials: [{ name: "slack", env: "SLACK_BOT_TOKEN" }],
   });
-  // The generation is read before the grant is authorized, so a removal in between refuses it.
+  // The generation is read before the grant is authorized, so a removal in between refuses it,
+  // and the deployment goes to the app that was read, by its ID.
   assert.deepEqual(events, ["generation", "resolve:owner:slack"]);
   assert.deepEqual(deployed, [
     [
       { ownerId: "owner", author: { id: "agent", name: "Ada" } },
-      "bot",
+      appId,
       {
         build: 2,
         credentials: [
@@ -323,7 +330,10 @@ test("deploying resolves named credentials among the owner's own, after reading 
     [{ build: 2 }, { build: 2, credentials: [] }],
   );
 
-  // Another value at the same version is aligned once and retried; a stale generation is not.
+  // Another value at the same version is aligned once and retried with fresh values of the same
+  // credential, but with the generation read first, never a new one; a stale generation is not.
+  events.length = 0;
+  deployed.length = 0;
   refusals.push(
     new ArtifactRequestFailure(409, "CREDENTIAL_VALUE_CONFLICT", "Conflict."),
   );
@@ -334,9 +344,16 @@ test("deploying resolves named credentials among the owner's own, after reading 
     "generation",
     "resolve:owner:slack",
     `align:${credentialId}`,
-    "generation",
-    "resolve:owner:slack",
+    `resolve:owner:slack:${credentialId}`,
   ]);
+  assert.deepEqual(
+    deployed.map(
+      (call) =>
+        (call as [unknown, string, { credentialGeneration: number }])[2]
+          .credentialGeneration,
+    ),
+    [7],
+  );
   refusals.push(
     new ArtifactRequestFailure(409, "CREDENTIAL_GRANTS_CHANGED", "Changed."),
   );
