@@ -108,7 +108,9 @@ async function fixture() {
     repository,
     cipher,
     {
-      async get() {
+      async get(_ownerId, reference) {
+        if (reference !== appId)
+          throw new ArtifactRequestFailure(404, "ARTIFACT_NOT_FOUND", "None.");
         return { credentialGeneration: 5 } as unknown as ArtifactDetails;
       },
       async attachCredential(actor, reference, grant: AppCredentialGrant) {
@@ -231,13 +233,15 @@ test("users attach only credentials they added, never through an app's own token
       credentialGeneration: 5,
     },
   ]);
-  await assert.rejects(
-    grants.attach({ subject: "other-owner" }, appId, {
-      credentialId: records[0]!.id,
-      env: "TOKEN",
-    }),
-    { code: "CREDENTIAL_OWNER_ONLY" },
-  );
+  // Whether or not the app exists, someone else's credential is refused as theirs.
+  for (const app of [appId, "00000000-0000-4000-8000-000000000404"])
+    await assert.rejects(
+      grants.attach({ subject: "other-owner" }, app, {
+        credentialId: records[0]!.id,
+        env: "TOKEN",
+      }),
+      { code: "CREDENTIAL_OWNER_ONLY" },
+    );
   await assert.rejects(
     grants.attach({ subject: "owner", app: appId }, appId, {
       credentialId: records[0]!.id,

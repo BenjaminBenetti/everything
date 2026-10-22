@@ -169,8 +169,9 @@ export class CredentialGrants {
   // ===========================================
 
   /**
-   * Give one of the user's apps a credential the user added. The app's credential generation is
-   * read before the grant is authorized and sent with it, so a removal in between refuses it.
+   * Give one of the user's apps a credential the user added. Only the credential's owner gets as
+   * far as the app; its credential generation is read before the value is opened and sent with
+   * the grant, so a removal in between refuses it.
    */
   async attach(
     actor: KeyActor,
@@ -180,9 +181,6 @@ export class CredentialGrants {
     if (actor.app) throw new AppCredentialAccessError();
     requireCredentialVariables([input]);
     const attempt = async () => {
-      const { credentialGeneration } = await this.changing(() =>
-        this.gateway.get(actor.subject, appId),
-      );
       const credential = await this.credentials.getById(
         { usage: "credential-sync" },
         input.credentialId,
@@ -191,6 +189,9 @@ export class CredentialGrants {
       if (credential.ownerId !== actor.subject)
         throw new CredentialOwnerOnlyError();
       if (!credential.valueId) throw new CredentialUnavailableError();
+      const { credentialGeneration } = await this.changing(() =>
+        this.gateway.get(actor.subject, appId),
+      );
       const value = await this.open(credential);
       return this.changing(() =>
         this.gateway.attachCredential(userActor(actor), appId, {
