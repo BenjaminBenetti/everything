@@ -126,12 +126,25 @@ test(
   },
 );
 
+/** Whether PostgreSQL gave up on a transaction after its retries; the change didn't happen. */
+function serializationFailure(error: unknown): boolean {
+  return ["40001", "40P01"].includes(
+    (error as { driverError?: { code?: string } }).driverError?.code ?? "",
+  );
+}
+
 test(
   "a grant racing a revocation never survives it",
   { skip },
   async (context) => {
     const { grants, app } = await database(context);
     const scopes = await Promise.all(Array.from({ length: 4 }, () => app()));
+    const outcomes = {
+      granted: 0,
+      refused: 0,
+      gaveUp: 0,
+      revocationRetried: 0,
+    };
     for (let round = 0; round < 25; round += 1) {
       const credentialId = randomUUID();
       const results = await Promise.allSettled([
@@ -141,18 +154,33 @@ test(
         grants.revoke(credentialId),
       ]);
       for (const result of results.slice(0, -1))
-        if (result.status === "rejected")
+        if (result.status === "fulfilled") outcomes.granted += 1;
+        else if (result.reason instanceof CredentialRevokedError)
+          outcomes.refused += 1;
+        else {
           assert.ok(
-            result.reason instanceof CredentialRevokedError,
-            String(result.reason),
+            serializationFailure(result.reason),
+            `round ${round}: unexpected grant failure ${String(result.reason)}`,
           );
-      assert.equal(results.at(-1)!.status, "fulfilled");
+          outcomes.gaveUp += 1;
+        }
+      // A revocation that gave up is retried, as Everything's synchronization does.
+      const revocation = results.at(-1)!;
+      if (revocation.status === "rejected") {
+        assert.ok(
+          serializationFailure(revocation.reason),
+          String(revocation.reason),
+        );
+        outcomes.revocationRetried += 1;
+        await grants.revoke(credentialId);
+      }
       assert.deepEqual(
         await grants.list({ credentialId }),
         [],
         `round ${round}: a grant outlived its revocation`,
       );
     }
+    context.diagnostic(JSON.stringify(outcomes));
   },
 );
 
