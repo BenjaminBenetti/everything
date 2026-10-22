@@ -267,8 +267,11 @@ test("usage that couldn't be read recovers while the dialog stays open, and can 
   });
   await expect(dialog).toContainText("couldn’t be checked");
   await expect(dialog.getByRole("button", { name: "Try again" })).toBeVisible();
-  // No click, focus change, or reopen: the followed usage is retried by itself.
-  await expect(dialog).toContainText("Removing", { timeout: 15_000 });
+  // No click, focus change, or reopen: the followed usage is retried by itself, with a growing
+  // delay. The status is read from the list, since the dialog's own text mentions removing.
+  await expect(
+    dialog.getByRole("list", { name: "Apps that use it" }),
+  ).toContainText("Removing", { timeout: 15_000 });
   await expect(dialog).not.toContainText("couldn’t be checked");
 
   // While statuses change they are read again; a failure there is shown and can be retried.
@@ -370,7 +373,10 @@ for (const failure of ["unavailable", "saved"] as const)
       await expect(dialog.getByRole("alert")).toContainText(
         "may already be saved",
       );
-    await expect(dialog).toContainText("Removing");
+    // Read the status from the list: the failure message also mentions removing.
+    await expect(
+      dialog.getByRole("list", { name: "Attached credentials" }),
+    ).toContainText("Removing");
     await expect(
       dialog.getByRole("button", { name: "Remove SLACK_BOT_TOKEN" }),
     ).toHaveCount(0);
@@ -401,7 +407,9 @@ test("removing from the Keys page after a failed answer shows the refreshed stat
     .getByRole("button", { name: "Remove credential" })
     .click();
   await expect(dialog.getByRole("alert")).toContainText("may already be saved");
-  await expect(dialog).toContainText("Removing");
+  await expect(
+    dialog.getByRole("list", { name: "Apps that use it" }),
+  ).toContainText("Removing");
   await expect(dialog).toContainText("No app uses this credential", {
     timeout: 15_000,
   });
