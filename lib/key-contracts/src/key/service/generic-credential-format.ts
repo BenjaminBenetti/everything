@@ -1,7 +1,8 @@
 import { keyLimits } from "../model/key.js";
 
 /** An unpaired UTF-16 surrogate, which UTF-8 encoding would silently replace. */
-const loneSurrogate = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+const loneSurrogate =
+  /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
 
 /**
  * Accept any value a process environment can hold exactly: not blank, without a NUL character or
