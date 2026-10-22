@@ -153,3 +153,38 @@ test("log redaction replaces exact values, longest first, and leaves short value
     "a=[credential A] b=[credential B] c=abc",
   );
 });
+
+test("a stopped app's credential isn't reported stopped while a process still holds any version of it", () => {
+  const stoppedRotated = {
+    running: false,
+    bindings: [binding(2)],
+    stored: new Set([credentialSecretName(artifactId, credentialId, 2)]),
+  };
+  assert.deepEqual(
+    statuses({
+      ...stoppedRotated,
+      // The old pod is still terminating, possibly forever on an unreachable node.
+      pods: [pod([entry(1)], { terminating: true })],
+    }),
+    [["TOKEN", 2, "pending"]],
+  );
+  assert.deepEqual(
+    statuses({
+      ...stoppedRotated,
+      pods: [pod([entry(2)], { terminating: true, ready: false })],
+    }),
+    [["TOKEN", 2, "pending"]],
+    "the app is still stopping",
+  );
+  assert.deepEqual(statuses({ ...stoppedRotated, pods: [] }), [
+    ["TOKEN", 2, "stopped"],
+  ]);
+  assert.deepEqual(
+    statuses({ ...stoppedRotated, pods: [pod([entry(3, "OTHER", other)])] }),
+    [
+      ["TOKEN", 2, "stopped"],
+      ["OTHER", 3, "removing"],
+    ],
+    "another credential's holder doesn't change this one",
+  );
+});

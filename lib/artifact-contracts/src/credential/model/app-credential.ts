@@ -46,8 +46,9 @@ export function credentialEnvironmentProblem(
 /**
  * Where one app's attached credential stands, derived from its stored grant and observed processes:
  * - `applied`: every process the app runs has this value.
- * - `pending`: the app is restarting so its processes use this value.
- * - `stopped`: the app is stopped; it receives the value when it starts.
+ * - `pending`: the app is restarting so its processes use this value, or stopping while a process
+ *   still holds this or an earlier value.
+ * - `stopped`: the app is stopped and no process holds it; it receives the value when it starts.
  * - `updating`: a newer value is waiting to be delivered to the app.
  * - `missing`: the app's stored copy is missing; Everything delivers it again.
  * - `removing`: detached or deleted, but a process that received it hasn't stopped yet.

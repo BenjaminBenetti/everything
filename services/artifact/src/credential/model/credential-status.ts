@@ -60,7 +60,18 @@ export function appCredentialStates(
       )
     )
       return "missing";
-    if (!running) return "stopped";
+    // Stopped means no process holds any version of it: a pod still exiting, possibly for good on
+    // an unreachable node, keeps it pending.
+    if (!running)
+      return pods.some((pod) =>
+        pod.entries.some(
+          (entry) =>
+            entry.env === binding.env &&
+            entry.credentialId === binding.credentialId,
+        ),
+      )
+        ? "pending"
+        : "stopped";
     const holdsExactly = (pod: PodCredentials) =>
       pod.entries.some((entry) => sameEntry(entry, binding)) &&
       !pod.entries.some(
