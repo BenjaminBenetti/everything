@@ -1,0 +1,31 @@
+meta {
+  name: Reject an oversized value body
+  type: http
+  seq: 14
+}
+
+put {
+  url: {{baseUrl}}/v1/keys/{{escapedCredentialId}}/value
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+  Authorization: Bearer {{accessToken}}
+}
+
+body:json {
+  {}
+}
+
+script:pre-request {
+  req.setBody({ material: "bruno-sentinel-" + "\u0001".repeat(70000) });
+}
+
+tests {
+  test("Refuse a body past the secret routes' limit without repeating it", () => {
+    expect(res.status).to.equal(413);
+    expect(JSON.stringify(res.body)).to.not.include("bruno-sentinel");
+  });
+}

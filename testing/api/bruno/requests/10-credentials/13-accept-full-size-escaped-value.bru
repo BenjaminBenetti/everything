@@ -1,0 +1,37 @@
+meta {
+  name: Accept a full-size escaped value
+  type: http
+  seq: 13
+}
+
+post {
+  url: {{baseUrl}}/v1/keys
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+  Authorization: Bearer {{accessToken}}
+}
+
+body:json {
+  {}
+}
+
+script:pre-request {
+  // 32 KB of backslashes is a valid value whose JSON is twice as long as most routes accept.
+  req.setBody({
+    name: `bruno-escaped-${Date.now()}`,
+    type: "generic",
+    material: "\\".repeat(32768),
+  });
+}
+
+tests {
+  test("Accept a 32 KB value however JSON escapes it, answering with metadata only", () => {
+    expect(res.status).to.equal(201);
+    expect(JSON.stringify(res.body)).to.not.include("\\\\\\\\");
+    bru.setVar("escapedCredentialId", res.body.id);
+  });
+}
