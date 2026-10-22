@@ -38,21 +38,25 @@ async function database(context: {
     database: server.pathname.slice(1),
     password,
   });
-  await admin.connect();
-  await admin.query(`CREATE DATABASE ${name}`);
   const url = new URL(server);
   url.pathname = `/${name}`;
   const source: DataSource = createArtifactDatabase({
     databaseUrl: url.toString(),
     databasePassword: password,
   });
-  await source.initialize();
-  await source.runMigrations();
+  // Clean up even when a later step fails; an open connection would keep the test process alive.
+  let connected = false;
   context.after(async () => {
-    await source.destroy();
-    await admin.query(`DROP DATABASE ${name} WITH (FORCE)`);
+    if (source.isInitialized) await source.destroy();
+    if (connected)
+      await admin.query(`DROP DATABASE IF EXISTS ${name} WITH (FORCE)`);
     await admin.end();
   });
+  await admin.connect();
+  connected = true;
+  await admin.query(`CREATE DATABASE ${name}`);
+  await source.initialize();
+  await source.runMigrations();
   const artifacts = new PostgresArtifactRepository(source);
   const author = { id: "agent", name: "Ada" };
   /** A new dynamic app of an owner. */

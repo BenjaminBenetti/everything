@@ -29,9 +29,7 @@ async function database(context: {
     database: server.pathname.slice(1),
     password,
   });
-  await admin.connect();
   const name = `key_test_${randomUUID().replaceAll("-", "")}`;
-  await admin.query(`CREATE DATABASE ${name}`);
   const url = new URL(server);
   url.pathname = `/${name}`;
   const settings = { databaseUrl: url.toString(), databasePassword: password };
@@ -43,14 +41,20 @@ async function database(context: {
       (migration) => migration !== GenericCredentials1792886400000,
     ),
   } as typeof complete.options);
-  await earlier.initialize();
-  await earlier.runMigrations();
+  // Clean up even when a later step fails; an open connection would keep the test process alive.
+  let connected = false;
   context.after(async () => {
     if (earlier.isInitialized) await earlier.destroy();
     if (complete.isInitialized) await complete.destroy();
-    await admin.query(`DROP DATABASE ${name} WITH (FORCE)`);
+    if (connected)
+      await admin.query(`DROP DATABASE IF EXISTS ${name} WITH (FORCE)`);
     await admin.end();
   });
+  await admin.connect();
+  connected = true;
+  await admin.query(`CREATE DATABASE ${name}`);
+  await earlier.initialize();
+  await earlier.runMigrations();
   return { earlier, complete };
 }
 
