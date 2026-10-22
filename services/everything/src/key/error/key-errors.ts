@@ -52,7 +52,7 @@ export class AppCredentialAccessError extends ApplicationError {
     super(
       403,
       "APP_CREDENTIAL_ACCESS_FORBIDDEN",
-      "Apps can't add, change, delete, or attach credentials. Manage credentials in Everything instead.",
+      "An app's own token can't add, change, delete, or attach credentials through these endpoints. Manage credentials in Everything.",
     );
   }
 }
