@@ -1,7 +1,7 @@
-import { createContext, useContext, type ReactNode } from "react";
+import { createContext, useContext, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useSession } from "../../session/component/session-provider.js";
-import { usageFollowDelay } from "../../artifact/model/credential-presentation.js";
+import { usageFollower } from "../../artifact/model/credential-presentation.js";
 import type { KeyDirectory } from "../interface/key-directory.js";
 
 const KeyDirectoryContext = createContext<KeyDirectory | null>(null);
@@ -50,18 +50,13 @@ export function useKeys() {
 export function useCredentialUsage(id: string, follow = false) {
   const directory = useKeyDirectory();
   const { profile } = useSession();
+  const [follower] = useState(usageFollower);
   return useQuery({
     queryKey: ["keys", profile?.subject, id, "apps"],
     queryFn: ({ signal }) => directory.usage(id, signal),
     enabled: !!profile,
     staleTime: 0,
-    refetchInterval: (query) =>
-      follow &&
-      usageFollowDelay({
-        usage: query.state.data,
-        failed: query.state.status === "error",
-        failures: query.state.fetchFailureCount,
-      }),
+    refetchInterval: (query) => follow && follower(query.state),
     retry: false,
   });
 }

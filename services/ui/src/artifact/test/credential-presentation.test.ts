@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import type { SavedKey } from "@everything/key-contracts";
 import {
   appCredentialStatuses,
+  type CredentialUsage,
   type CredentialUse,
 } from "@everything/artifact-contracts/credential";
 import {
@@ -16,6 +18,7 @@ import {
   replacementProgress,
   suggestedVariable,
   usageFollowDelay,
+  usageFollower,
 } from "../model/credential-presentation.js";
 import { HttpRequestError } from "../../http/model/http-request-error.js";
 
@@ -218,4 +221,37 @@ test("a failed removal never claims nothing changed", () => {
     new HttpRequestError(404, "generic", "CREDENTIAL_NOT_ATTACHED"),
   ])
     assert.match(removalFailureMessage(error), /Removing until/);
+});
+
+test("usage that keeps failing to load is read again less and less often, and resets once it loads", async () => {
+  const client = new QueryClient();
+  let reachable = false;
+  const observer = new QueryObserver(client, {
+    queryKey: ["usage"],
+    queryFn: async () => {
+      if (!reachable) throw new Error("apps unreachable");
+      return { apps: [use("pending")], otherApps: 0 };
+    },
+    retry: false,
+  });
+  const follow = usageFollower();
+  const state = () =>
+    client.getQueryCache().find<CredentialUsage>({ queryKey: ["usage"] })!
+      .state;
+  const delays: (number | false)[] = [];
+  const read = async () => {
+    await observer.refetch();
+    delays.push(follow(state()));
+  };
+  for (let attempt = 0; attempt < 5; attempt += 1) await read();
+  // React Query's own count restarts with each fetch, so it can't grow the delay by itself.
+  assert.equal(state().fetchFailureCount, 1);
+  reachable = true;
+  await read();
+  reachable = false;
+  await read();
+  assert.deepEqual(delays, [2000, 4000, 8000, 16_000, 30_000, 2000, 2000]);
+  // Asking again for the same failed read doesn't count it twice.
+  assert.equal(follow(state()), 2000);
+  client.clear();
 });

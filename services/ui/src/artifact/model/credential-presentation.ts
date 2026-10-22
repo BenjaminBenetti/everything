@@ -52,6 +52,36 @@ export function usageFollowDelay(observation: {
   return isSettledUsage(observation.usage.apps) ? false : usagePollMs.first;
 }
 
+/** What following usage needs from one read's query state. */
+export interface UsageReadState {
+  readonly status: "pending" | "error" | "success";
+  readonly data: CredentialUsage | undefined;
+  /** How many reads have failed in total; it changes with every failure. */
+  readonly errorUpdateCount: number;
+}
+
+/**
+ * Follow one credential's usage across reads, counting consecutive failures here: React Query
+ * restarts its own failure count with every fetch, so without retries it never passes one and the
+ * delay would never grow.
+ */
+export function usageFollower(): (state: UsageReadState) => number | false {
+  let failures = 0;
+  let counted = 0;
+  return (state) => {
+    if (state.status === "success") failures = 0;
+    else if (state.status === "error" && state.errorUpdateCount !== counted) {
+      counted = state.errorUpdateCount;
+      failures += 1;
+    }
+    return usageFollowDelay({
+      usage: state.data,
+      failed: state.status === "error",
+      failures,
+    });
+  };
+}
+
 /** Generic credentials the user can attach: added by them and not being deleted, by name. */
 export function attachableCredentials(keys: readonly SavedKey[]): SavedKey[] {
   return keys
