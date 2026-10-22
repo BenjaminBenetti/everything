@@ -29,6 +29,7 @@ export const KeyEntity = new EntitySchema<StoredKey>({
     updatedAt: {
       name: "updated_at",
       type: "timestamptz",
+      default: () => "now()",
       transformer: timestampTransformer,
     },
     deletedAt: {
@@ -40,5 +41,17 @@ export const KeyEntity = new EntitySchema<StoredKey>({
   },
   indices: [
     { name: "keys_owner_created", columns: ["ownerId", "createdAt", "id"] },
+  ],
+  checks: [
+    { name: "keys_version_check", expression: "version >= 1" },
+    {
+      name: "keys_deleted_check",
+      expression:
+        "deleted_at IS NULL OR (type = 'generic' AND encrypted_material = '')",
+    },
+    {
+      name: "keys_value_id_check",
+      expression: "type <> 'generic' OR value_id IS NOT NULL",
+    },
   ],
 });
