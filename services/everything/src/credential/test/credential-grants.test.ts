@@ -301,3 +301,42 @@ test("usage shows the caller's own apps and only counts other accounts' apps", a
   });
   assert.ok(!JSON.stringify(usage).includes("secret-project"));
 });
+
+test("a value sealed with another encryption key fails closed, as after rotating the session key", async () => {
+  const otherKey = new SessionCipher(Buffer.alloc(32, 8).toString("base64"));
+  const stored = await credential(
+    "55555555-5555-4555-8555-555555555555",
+    "rotated-key",
+    "owner",
+    { encryptedMaterial: await otherKey.seal(sentinel) },
+  );
+  const sent: unknown[] = [];
+  const grants = new CredentialGrants(
+    {
+      findByName: async () => [stored],
+      getById: async () => stored,
+      list: async () => [stored],
+    },
+    cipher,
+    {
+      attachCredential: async (...args) => {
+        sent.push(args);
+        return { credentials: [] } as unknown as ArtifactDetails;
+      },
+      detachCredential: async () => assert.fail("no detach"),
+      credentialUses: async () => [],
+    },
+  );
+  await assert.rejects(
+    grants.resolve("owner", [{ name: "rotated-key", env: "TOKEN" }]),
+    { code: "CREDENTIAL_UNAVAILABLE" },
+  );
+  await assert.rejects(
+    grants.attach({ subject: "owner" }, appId, {
+      credentialId: stored.id,
+      env: "TOKEN",
+    }),
+    { code: "CREDENTIAL_UNAVAILABLE" },
+  );
+  assert.deepEqual(sent, []);
+});
