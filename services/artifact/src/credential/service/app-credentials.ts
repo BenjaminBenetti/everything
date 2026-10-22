@@ -2,6 +2,7 @@ import {
   appCredentialLimits,
   credentialEnvironmentProblem,
   type AppCredential,
+  type AppCredentialAttachment,
   type AppCredentialGrant,
 } from "@everything/artifact-contracts/credential";
 import type { ArtifactAuthor } from "@everything/artifact-contracts";
@@ -36,7 +37,13 @@ import type {
 import { appCredentialStates } from "../model/credential-status.js";
 
 /** A grant to keep, optionally with the value to store for it. */
-export type GrantChange = NewCredentialBinding & { readonly value?: string };
+export type GrantEntry = NewCredentialBinding & { readonly value?: string };
+
+/** One app's credentials and the generation its grants are at. */
+export interface AppCredentialView {
+  readonly credentials: AppCredential[];
+  readonly generation: number;
+}
 
 /** Shortest value redacted from logs; shorter ones would hide unrelated text. */
 const shortestRedactedValue = 6;
@@ -118,7 +125,7 @@ export class AppCredentials {
   constructor(
     private readonly grants: Pick<
       CredentialGrantRepository,
-      "list" | "replace" | "records"
+      "list" | "replace" | "records" | "generations"
     >,
     private readonly secrets: Pick<
       CredentialSecrets,
@@ -141,31 +148,52 @@ export class AppCredentials {
     return this.grants.list(scope);
   }
 
+  /** Store each grant's value in its version's copy, before any grant naming it is committed. */
+  async store(
+    scope: WithinArtifactScope,
+    grants: readonly AppCredentialGrant[],
+  ): Promise<void> {
+    for (const grant of grants)
+      await this.secrets.write(
+        scope.artifactId,
+        grant.credentialId,
+        grant.version,
+        grant.valueId,
+        grant.value,
+      );
+  }
+
   /**
-   * Store the values supplied, then make the grants the app's complete set. Values are written
-   * first, so a grant never names a missing copy; an unused copy is pruned by reconciliation.
+   * Store the values supplied, then make the grants the app's complete set, refused if they add a
+   * grant and the app's generation moved on since `expectedGeneration`. Copies a refused change
+   * stored are deleted at once.
    */
   async replace(
     scope: WithinArtifactScope,
-    changes: readonly GrantChange[],
+    entries: readonly GrantEntry[],
+    expectedGeneration: number | undefined,
   ): Promise<void> {
     try {
-      for (const change of changes)
-        if (change.value !== undefined)
+      for (const entry of entries)
+        if (entry.value !== undefined) {
+          if (!entry.valueId) throw new InvalidCredentialError();
           await this.secrets.write(
             scope.artifactId,
-            change.credentialId,
-            change.version,
-            change.value,
+            entry.credentialId,
+            entry.version,
+            entry.valueId,
+            entry.value,
           );
-      await this.grants.replace(
-        scope,
-        changes.map(({ credentialId, env, version }) => ({
+        }
+      await this.grants.replace(scope, {
+        bindings: entries.map(({ credentialId, env, version, valueId }) => ({
           credentialId,
           env,
           version,
+          valueId,
         })),
-      );
+        expectedGeneration,
+      });
     } catch (error) {
       // A refused grant's value, such as a revoked credential's, must not linger in the cluster.
       await this.discardUngranted(scope).catch(() => undefined);
@@ -173,13 +201,18 @@ export class AppCredentials {
     }
   }
 
-  /** Give a dynamic app one more credential, then run it with the credential. */
+  /**
+   * Give a dynamic app one more credential, then run it with the credential. The attachment names
+   * the app's credential generation it was authorized against, so one authorized before a removal
+   * is refused.
+   */
   async attach(
     ownerId: string,
     actor: ArtifactAuthor,
     reference: string,
-    grant: AppCredentialGrant,
+    attachment: AppCredentialAttachment,
   ): Promise<Artifact> {
+    const { credentialGeneration, ...grant } = attachment;
     requireValidGrants([grant]);
     const { id } = await this.lookup.resolveKind(ownerId, reference, "dynamic");
     return this.lock.run(id, async () => {
@@ -193,12 +226,15 @@ export class AppCredentials {
       requireSeparateVariables((await this.liveEnvironment(artifact)) ?? {}, [
         grant,
       ]);
-      await this.replace(scope, [...current, grant]);
+      await this.replace(scope, [...current, grant], credentialGeneration);
       return this.changed(artifact, actor);
     });
   }
 
-  /** Take one credential away from an app, replacing any process that received it. */
+  /**
+   * Take one credential away from an app, replacing any process that received it. Removing access
+   * needs no generation: it always applies, and it moves the generation on.
+   */
   async detach(
     ownerId: string,
     actor: ArtifactAuthor,
@@ -215,6 +251,7 @@ export class AppCredentials {
       await this.replace(
         scope,
         current.filter((binding) => binding.env !== env),
+        undefined,
       );
       return this.changed(artifact, actor);
     });
@@ -224,20 +261,24 @@ export class AppCredentials {
   // Status
   // ===========================================
 
-  /** Every listed app's credentials with statuses from its records, Secrets, and pods. */
+  /**
+   * Every listed app's credentials, with statuses from its records, Secrets, and pods, and the
+   * generation its grants are at.
+   */
   async states(
     artifacts: readonly Artifact[],
-  ): Promise<ReadonlyMap<string, AppCredential[]>> {
+  ): Promise<ReadonlyMap<string, AppCredentialView>> {
     const dynamic = artifacts.filter((artifact) => artifact.kind === "dynamic");
     if (!dynamic.length) return new Map();
     const owners = [...new Set(dynamic.map((artifact) => artifact.ownerId))];
     const single = dynamic.length === 1 ? dynamic[0]!.id : undefined;
-    const [bindings, stored, held] = await Promise.all([
+    const [bindings, stored, held, generations] = await Promise.all([
       Promise.all(owners.map((ownerId) => this.grants.list({ ownerId }))).then(
         (lists) => lists.flat(),
       ),
       this.secrets.stored(single),
       this.observer.heldCredentials(single),
+      this.grants.generations(dynamic.map((artifact) => artifact.id)),
     ]);
     const records = new Map(
       (
@@ -249,20 +290,23 @@ export class AppCredentials {
     return new Map(
       dynamic.map((artifact) => [
         artifact.id,
-        appCredentialStates({
-          artifactId: artifact.id,
-          running: artifact.running && artifact.liveDeployment !== null,
-          bindings: bindings.filter(
-            (binding) => binding.artifactId === artifact.id,
-          ),
-          records,
-          stored: new Set(
-            stored
-              .filter((secret) => secret.artifactId === artifact.id)
-              .map((secret) => secret.name),
-          ),
-          pods: held.get(artifact.id) ?? [],
-        }),
+        {
+          credentials: appCredentialStates({
+            artifactId: artifact.id,
+            running: artifact.running && artifact.liveDeployment !== null,
+            bindings: bindings.filter(
+              (binding) => binding.artifactId === artifact.id,
+            ),
+            records,
+            stored: new Set(
+              stored
+                .filter((secret) => secret.artifactId === artifact.id)
+                .map((secret) => secret.name),
+            ),
+            pods: held.get(artifact.id) ?? [],
+          }),
+          generation: generations.get(artifact.id) ?? 0,
+        },
       ]),
     );
   }
@@ -291,11 +335,11 @@ export class AppCredentials {
   }
 
   // ===========================================
-  // Helpers
+  // Copies
   // ===========================================
 
   /** Delete the app's stored copies that no current grant reads. */
-  private async discardUngranted(scope: WithinArtifactScope): Promise<void> {
+  async discardUngranted(scope: WithinArtifactScope): Promise<void> {
     const granted = await this.grants.list(scope);
     await this.secrets.prune(
       scope.artifactId,
@@ -311,6 +355,10 @@ export class AppCredentials {
     );
   }
 
+  // ===========================================
+  // Helpers
+  // ===========================================
+
   /** Ordinary variables of the app's live deployment, if it has one. */
   private async liveEnvironment(
     artifact: Artifact,
@@ -324,7 +372,11 @@ export class AppCredentials {
     )?.env;
   }
 
-  /** Record who changed the app and apply its grants to the running workload. */
+  /**
+   * Record who changed the app and apply its grants to the running workload. The change is already
+   * committed, so a runtime failure here is reported through the app's statuses, which show the
+   * credential pending or still being removed, and periodic reconciliation retries it.
+   */
   private async changed(
     artifact: Artifact,
     actor: ArtifactAuthor,
@@ -335,7 +387,13 @@ export class AppCredentials {
       { updatedBy: actor },
     );
     if (!updated) throw new ArtifactNotFoundError();
-    await this.reconciler.reconcile(updated);
+    await this.reconciler.reconcile(updated).catch((error: unknown) =>
+      console.error("Credential change couldn't reach the app's runtime yet", {
+        artifact: artifact.id,
+        name: (error as Error).name,
+        code: (error as { code?: unknown }).code,
+      }),
+    );
     return updated;
   }
 }

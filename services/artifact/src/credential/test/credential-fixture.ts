@@ -6,13 +6,25 @@ import type {
   ArtifactWorkload,
   WorkloadOrchestrator,
 } from "../../deployment/interface/workload-orchestrator.js";
+import type { Artifact } from "../../artifact/model/artifact.js";
+import type {
+  MemoryArtifacts,
+  MemoryDeployments,
+} from "../../artifact/test/artifact-fixture.js";
+import type {
+  ReleaseCommit,
+  ReleaseStore,
+} from "../../deployment/interface/release-store.js";
 import {
   CredentialChangedError,
+  CredentialGrantsChangedError,
   CredentialRevokedError,
+  CredentialValueConflictError,
 } from "../error/credential-errors.js";
 import type {
   CredentialGrantRepository,
   CredentialGrantScope,
+  GrantChange,
 } from "../interface/credential-grant-repository.js";
 import type {
   CredentialSecrets,
@@ -39,6 +51,7 @@ function same(a: NewCredentialBinding, b: NewCredentialBinding): boolean {
 export class MemoryCredentialGrants implements CredentialGrantRepository {
   readonly bindings: CredentialBinding[] = [];
   readonly credentialRecords = new Map<string, CredentialRecord>();
+  readonly appGenerations = new Map<string, number>();
 
   /** Whether a grant is in scope. */
   private inScope(scope: CredentialGrantScope, binding: CredentialBinding) {
@@ -69,51 +82,71 @@ export class MemoryCredentialGrants implements CredentialGrantRepository {
     );
     if (index >= 0) this.bindings.splice(index, 1);
   }
-  async replace(
-    scope: WithinArtifactScope,
-    bindings: readonly NewCredentialBinding[],
-  ) {
+  async replace(scope: WithinArtifactScope, change: GrantChange) {
     const current = await this.list(scope);
-    const added = bindings.filter(
+    const generation = this.appGenerations.get(scope.artifactId) ?? 0;
+    const added = change.bindings.filter(
       (binding) => !current.some((held) => same(held, binding)),
     );
+    const removed = current.filter(
+      (held) => !change.bindings.some((binding) => same(held, binding)),
+    );
+    if (added.length && change.expectedGeneration !== generation)
+      throw new CredentialGrantsChangedError();
     for (const binding of added) {
       const record = this.credentialRecords.get(binding.credentialId);
       if (record?.revokedAt) throw new CredentialRevokedError();
       if (record && record.version > binding.version)
         throw new CredentialChangedError();
+      if (
+        record?.valueId &&
+        record.version === binding.version &&
+        record.valueId !== binding.valueId
+      )
+        throw new CredentialValueConflictError();
     }
     for (const binding of added)
-      this.raise(binding.credentialId, binding.version);
+      this.raise(binding.credentialId, binding.version, binding.valueId);
+    if (!added.length && !removed.length) return generation;
     for (const held of current)
       this.bindings.splice(this.bindings.indexOf(held), 1);
-    for (const binding of bindings)
+    for (const binding of change.bindings)
       this.bindings.push({
         ...scope,
         ...binding,
         id: randomUUID(),
         createdAt: new Date().toISOString(),
       });
+    this.appGenerations.set(scope.artifactId, generation + 1);
+    return generation + 1;
   }
-  async recordVersion(credentialId: string, version: number) {
+  async recordVersion(credentialId: string, version: number, valueId: string) {
     const record = this.credentialRecords.get(credentialId);
     if (record?.revokedAt) throw new CredentialRevokedError();
     if (record && record.version > version) return "superseded" as const;
-    this.raise(credentialId, version);
+    if (
+      record?.version === version &&
+      record.valueId &&
+      record.valueId !== valueId
+    )
+      return "conflict" as const;
+    this.raise(credentialId, version, valueId);
     return "current" as const;
   }
   async advance(
     scope: WithinArtifactScope,
     credentialId: string,
     version: number,
+    valueId: string,
   ) {
     for (const [index, binding] of this.bindings.entries())
       if (
         this.inScope(scope, binding) &&
         binding.credentialId === credentialId &&
-        binding.version < version
+        (binding.version < version ||
+          (binding.version === version && binding.valueId === null))
       )
-        this.bindings[index] = { ...binding, version };
+        this.bindings[index] = { ...binding, version, valueId };
   }
   async revoke(credentialId: string) {
     const record = this.credentialRecords.get(credentialId);
@@ -121,6 +154,7 @@ export class MemoryCredentialGrants implements CredentialGrantRepository {
       id: credentialId,
       createdAt: record?.createdAt ?? new Date().toISOString(),
       version: record?.version ?? 1,
+      valueId: record?.valueId ?? null,
       revokedAt: record?.revokedAt ?? new Date().toISOString(),
     });
     const revoked = this.bindings.filter(
@@ -128,14 +162,23 @@ export class MemoryCredentialGrants implements CredentialGrantRepository {
     );
     for (const binding of revoked)
       this.bindings.splice(this.bindings.indexOf(binding), 1);
-    return [
-      ...new Map(
-        revoked.map(({ ownerId, artifactId }) => [
-          artifactId,
-          { ownerId, artifactId },
-        ]),
-      ).values(),
-    ];
+    const apps = new Map(
+      revoked.map(({ ownerId, artifactId }) => [
+        artifactId,
+        { ownerId, artifactId },
+      ]),
+    );
+    for (const artifactId of apps.keys())
+      this.appGenerations.set(
+        artifactId,
+        (this.appGenerations.get(artifactId) ?? 0) + 1,
+      );
+    return [...apps.values()];
+  }
+  async generations(artifactIds: readonly string[]) {
+    return new Map(
+      artifactIds.map((id) => [id, this.appGenerations.get(id) ?? 0]),
+    );
   }
   async records(credentialIds?: readonly string[]) {
     return [...this.credentialRecords.values()].filter(
@@ -143,18 +186,19 @@ export class MemoryCredentialGrants implements CredentialGrantRepository {
     );
   }
 
-  /** Raise a record's version, creating it when absent. */
-  private raise(credentialId: string, version: number) {
+  /** Raise a record's version and value, creating it when absent. */
+  private raise(credentialId: string, version: number, valueId: string | null) {
     const record = this.credentialRecords.get(credentialId);
     if (!record)
       this.credentialRecords.set(credentialId, {
         id: credentialId,
         createdAt: new Date().toISOString(),
         version,
+        valueId,
         revokedAt: null,
       });
-    else if (record.version < version)
-      this.credentialRecords.set(credentialId, { ...record, version });
+    else if (record.version < version || !record.valueId)
+      this.credentialRecords.set(credentialId, { ...record, version, valueId });
   }
 }
 
@@ -171,11 +215,22 @@ export class MemoryCredentialSecrets implements CredentialSecrets {
     artifactId: string,
     credentialId: string,
     version: number,
+    valueId: string,
     value: string,
   ) {
     if (this.failWrites) throw new Error("Secret write failed");
     const name = credentialSecretName(artifactId, credentialId, version);
-    this.secrets.set(name, { artifactId, credentialId, version, name, value });
+    const existing = this.secrets.get(name);
+    if (existing?.valueId && existing.valueId !== valueId)
+      throw new CredentialValueConflictError();
+    this.secrets.set(name, {
+      artifactId,
+      credentialId,
+      version,
+      valueId,
+      name,
+      value,
+    });
   }
   async stored(artifactId?: string) {
     return [...this.secrets.values()]
@@ -351,5 +406,84 @@ export class SimulatedCluster implements WorkloadOrchestrator {
       ready: false,
       failed: missing || this.newPodsFail,
     };
+  }
+}
+
+/** Which step of a release commit a test makes fail. */
+export type ReleaseFault = "grants" | "apiKey" | "deployment" | "artifact";
+
+/**
+ * Commits releases over the in-memory stores all or nothing, like the PostgreSQL transaction: a
+ * failure at any step restores every store as it was.
+ */
+export class MemoryReleaseStore implements ReleaseStore {
+  /** Fail at this step of the next commits. */
+  fault: ReleaseFault | undefined;
+  /** Apps whose API key was revoked by a committed release. */
+  readonly revokedKeys: string[] = [];
+
+  constructor(
+    private readonly artifacts: MemoryArtifacts,
+    private readonly deployments: MemoryDeployments,
+    private readonly grants: MemoryCredentialGrants,
+  ) {}
+
+  async commit(
+    scope: WithinArtifactScope,
+    release: ReleaseCommit,
+  ): Promise<Artifact> {
+    const saved = {
+      artifacts: new Map(this.artifacts.records),
+      deployments: [...this.deployments.records],
+      bindings: [...this.grants.bindings],
+      records: new Map(this.grants.credentialRecords),
+      generations: new Map(this.grants.appGenerations),
+      revokedKeys: [...this.revokedKeys],
+    };
+    const step = (name: ReleaseFault) => {
+      if (this.fault === name) throw new Error(`${name} failed`);
+    };
+    try {
+      if (release.grants) {
+        await this.grants.replace(scope, release.grants);
+        step("grants");
+      }
+      if (release.revokeApiKey) {
+        this.revokedKeys.push(scope.artifactId);
+        step("apiKey");
+      }
+      await this.deployments.create(scope, release.deployment);
+      step("deployment");
+      const updated = await this.artifacts.update(
+        { ownerId: scope.ownerId },
+        scope.artifactId,
+        release.changes,
+      );
+      step("artifact");
+      if (!updated) throw new Error("The artifact disappeared");
+      return updated;
+    } catch (error) {
+      this.artifacts.records.clear();
+      for (const [id, artifact] of saved.artifacts)
+        this.artifacts.records.set(id, artifact);
+      this.deployments.records.splice(
+        0,
+        this.deployments.records.length,
+        ...saved.deployments,
+      );
+      this.grants.bindings.splice(
+        0,
+        this.grants.bindings.length,
+        ...saved.bindings,
+      );
+      this.grants.credentialRecords.clear();
+      for (const [id, record] of saved.records)
+        this.grants.credentialRecords.set(id, record);
+      this.grants.appGenerations.clear();
+      for (const [id, generation] of saved.generations)
+        this.grants.appGenerations.set(id, generation);
+      this.revokedKeys.splice(0, this.revokedKeys.length, ...saved.revokedKeys);
+      throw error;
+    }
   }
 }

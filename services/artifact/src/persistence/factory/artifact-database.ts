@@ -16,8 +16,10 @@ import { StaticAppRunning1792195200000 } from "../migration/1792195200000-static
 import { AppCapabilities1792281600000 } from "../migration/1792281600000-app-capabilities.js";
 import { AppApiKeys1792368000000 } from "../migration/1792368000000-app-api-keys.js";
 import { AppCredentials1792454400000 } from "../migration/1792454400000-app-credentials.js";
+import { CredentialValues1792540800000 } from "../migration/1792540800000-credential-values.js";
 import {
   CredentialBindingEntity,
+  CredentialGenerationEntity,
   CredentialRecordEntity,
 } from "../../credential/schema/credential-entities.js";
 
@@ -60,6 +62,7 @@ export function createArtifactDatabase(
       AppApiKeyEntity,
       CredentialBindingEntity,
       CredentialRecordEntity,
+      CredentialGenerationEntity,
     ],
     migrations: [
       Artifacts1792022400000,
@@ -68,6 +71,7 @@ export function createArtifactDatabase(
       AppCapabilities1792281600000,
       AppApiKeys1792368000000,
       AppCredentials1792454400000,
+      CredentialValues1792540800000,
     ],
     migrationsTableName: "artifact_migrations",
     migrationsTransactionMode: "all",

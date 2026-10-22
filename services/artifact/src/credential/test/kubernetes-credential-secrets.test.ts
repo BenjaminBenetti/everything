@@ -7,6 +7,8 @@ import { KubernetesCredentialSecrets } from "../adapter/kubernetes-credential-se
 const artifactId = "6f1c1f6e-8c7e-4c4b-9a43-2d8b8f7c8f11";
 const credentialId = "0b6f4d4e-2a1c-4f53-8f6e-3c0f3ad1d001";
 const value = "  multi\nline $HOME `x` \\ 'q' \"dq\" ü 🔑\r\n ";
+const valueId = "9c0b7a52-6d0e-4f0d-9a77-0f2a3f1f6c01";
+const otherValueId = "9c0b7a52-6d0e-4f0d-9a77-0f2a3f1f6c02";
 
 /** A core API holding Secrets in memory, answering like the API server. */
 function fakeCore() {
@@ -46,7 +48,7 @@ function fakeCore() {
 test("each version is an immutable, labeled Secret whose bytes decode to exactly the value", async () => {
   const { core, secrets } = fakeCore();
   const store = new KubernetesCredentialSecrets({ core }, "apps");
-  await store.write(artifactId, credentialId, 3, value);
+  await store.write(artifactId, credentialId, 3, valueId, value);
   const [secret] = [...secrets.values()];
   assert.equal(
     secret!.metadata!.name,
@@ -58,6 +60,7 @@ test("each version is an immutable, labeled Secret whose bytes decode to exactly
     "everything.dev/artifact-id": artifactId,
     "everything.dev/credential-id": credentialId,
     "everything.dev/credential-version": "3",
+    "everything.dev/credential-value": valueId,
   });
   assert.equal(
     Buffer.from(secret!.data!.value!, "base64").toString("utf8"),
@@ -69,31 +72,36 @@ test("each version is an immutable, labeled Secret whose bytes decode to exactly
       artifactId,
       credentialId,
       version: 3,
+      valueId,
       name: secret!.metadata!.name!,
     },
   ]);
 });
 
-test("rewriting an existing version keeps an identical copy and replaces a different one", async () => {
+test("a version is never stored with a second value; a copy changed by hand is restored", async () => {
   const { core, secrets, calls } = fakeCore();
   const store = new KubernetesCredentialSecrets({ core }, "apps");
-  await store.write(artifactId, credentialId, 1, value);
-  await store.write(artifactId, credentialId, 1, value);
+  await store.write(artifactId, credentialId, 1, valueId, value);
+  await store.write(artifactId, credentialId, 1, valueId, value);
   assert.ok(!calls.some((call) => call.startsWith("delete:")));
-  await store.write(artifactId, credentialId, 1, "different");
-  assert.ok(calls.some((call) => call.startsWith("delete:")));
-  const [secret] = [...secrets.values()];
-  assert.equal(
-    Buffer.from(secret!.data!.value!, "base64").toString(),
-    "different",
+  await assert.rejects(
+    store.write(artifactId, credentialId, 1, otherValueId, "different"),
+    { code: "CREDENTIAL_VALUE_CONFLICT" },
   );
+  const [kept] = [...secrets.values()];
+  assert.equal(Buffer.from(kept!.data!.value!, "base64").toString(), value);
+  kept!.data!.value = Buffer.from("changed by hand").toString("base64");
+  await store.write(artifactId, credentialId, 1, valueId, value);
+  assert.ok(calls.some((call) => call.startsWith("delete:")));
+  const [restored] = [...secrets.values()];
+  assert.equal(Buffer.from(restored!.data!.value!, "base64").toString(), value);
 });
 
 test("pruning deletes an app's other versions and tolerates copies already gone", async () => {
   const { core, secrets } = fakeCore();
   const store = new KubernetesCredentialSecrets({ core }, "apps");
-  await store.write(artifactId, credentialId, 1, "one");
-  await store.write(artifactId, credentialId, 2, "two");
+  await store.write(artifactId, credentialId, 1, valueId, "one");
+  await store.write(artifactId, credentialId, 2, otherValueId, "two");
   const keep = [...secrets.keys()].find((name) => name.endsWith("-v2"))!;
   await store.prune(artifactId, new Set([keep]));
   assert.deepEqual([...secrets.keys()], [keep]);

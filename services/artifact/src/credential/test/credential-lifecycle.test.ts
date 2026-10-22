@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { test } from "node:test";
-import type { AppCredentialGrant } from "@everything/artifact-contracts/credential";
+import type {
+  AppCredentialAttachment,
+  AppCredentialGrant,
+  CredentialValueInput,
+} from "@everything/artifact-contracts/credential";
+import type { DeployInput } from "@everything/artifact-contracts";
 import { ArtifactLifecycleService } from "../../artifact/service/artifact-lifecycle-service.js";
 import { ArtifactLock } from "../../artifact/service/artifact-lock.js";
 import { ArtifactLookup } from "../../artifact/service/artifact-lookup.js";
@@ -32,6 +37,7 @@ import { CredentialDistribution } from "../service/credential-distribution.js";
 import {
   MemoryCredentialGrants,
   MemoryCredentialSecrets,
+  MemoryReleaseStore,
   SimulatedCluster,
 } from "./credential-fixture.js";
 
@@ -98,7 +104,7 @@ async function world() {
     grants,
     secrets,
   );
-  const credentials = new AppCredentials(
+  const appCredentials = new AppCredentials(
     grants,
     secrets,
     cluster,
@@ -108,17 +114,53 @@ async function world() {
     lookup,
     lock,
   );
-  const deploy = new DeploymentService(
-    artifacts,
+  /** Attach as Everything does, naming the generation read just before. */
+  const credentials = {
+    attach: async (
+      ownerId: string,
+      actor: typeof ada,
+      reference: string,
+      grant: AppCredentialGrant | AppCredentialAttachment,
+    ) =>
+      appCredentials.attach(ownerId, actor, reference, {
+        credentialGeneration: await generation(),
+        ...grant,
+      }),
+    detach: appCredentials.detach.bind(appCredentials),
+    states: appCredentials.states.bind(appCredentials),
+  };
+  const releases = new MemoryReleaseStore(artifacts, deployments, grants);
+  const deployments_ = new DeploymentService(
     deployments,
     builds,
     reconciler,
     { logs: async () => `token=${sentinel}; rotated=${rotated}` },
     lookup,
     lock,
-    { revoke: async () => {} },
-    credentials,
+    releases,
+    appCredentials,
   );
+  /** The app's grant generation now, as Everything reads it before authorizing a grant. */
+  const generation = async () =>
+    (await grants.generations([app.id])).get(app.id) ?? 0;
+  /** Deploy as Everything does, naming the generation read just before. */
+  const deploy = {
+    deploy: async (
+      ownerId: string,
+      actor: typeof ada,
+      reference: string,
+      input: DeployInput,
+    ) =>
+      deployments_.deploy(
+        ownerId,
+        actor,
+        reference,
+        input.credentials && input.credentialGeneration === undefined
+          ? { ...input, credentialGeneration: await generation() }
+          : input,
+      ),
+    logs: deployments_.logs.bind(deployments_),
+  };
   const distribution = new CredentialDistribution(
     grants,
     secrets,
@@ -135,14 +177,18 @@ async function world() {
   );
   /** The app's credential states as listings report them. */
   const states = async () =>
-    (await credentials.states([(await artifacts.getById(scope, app.id))!])).get(
-      app.id,
-    ) ?? [];
+    (await appCredentials.states([(await artifacts.getById(scope, app.id))!]))
+      .get(app.id)
+      ?.credentials.map(({ valueId: _valueId, ...state }) => state) ?? [];
   return {
     app,
+    appCredentials,
     artifacts,
     cluster,
+    deployments_,
     faults,
+    generation,
+    releases,
     credentials,
     deploy,
     deployments,
@@ -157,13 +203,41 @@ async function world() {
 }
 
 /** A grant of a credential under a variable. */
+/** A test's value identity: the same for the same credential, version, and value. */
+function valueIdOf(
+  credentialId: string,
+  version: number,
+  value: string,
+): string {
+  const hex = createHash("sha256")
+    .update(`${credentialId}@${version}:${value}`)
+    .digest("hex");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
+}
+
+/** A grant of a credential under a variable. */
 function grant(
   credentialId: string,
   env: string,
   version = 1,
   value = sentinel,
 ): AppCredentialGrant {
-  return { credentialId, env, version, value };
+  return {
+    credentialId,
+    env,
+    version,
+    valueId: valueIdOf(credentialId, version, value),
+    value,
+  };
+}
+
+/** A delivery of a credential's value at a version. */
+function delivery(
+  credentialId: string,
+  version: number,
+  value: string,
+): CredentialValueInput {
+  return { version, valueId: valueIdOf(credentialId, version, value), value };
 }
 
 /** Everything the platform recorded or applied, as text, to search for a value. */
@@ -257,10 +331,10 @@ test("a rotated value replaces old processes, reports pending until observed, an
   });
   context.cluster.settle();
 
-  const delivered = await context.distribution.deliver(slack, {
-    version: 2,
-    value: rotated,
-  });
+  const delivered = await context.distribution.deliver(
+    slack,
+    delivery(slack, 2, rotated),
+  );
   assert.equal(delivered.complete, true);
   assert.deepEqual(
     delivered.apps.map(({ env, version, status }) => [env, version, status]),
@@ -278,7 +352,7 @@ test("a rotated value replaces old processes, reports pending until observed, an
   );
 
   await assert.rejects(
-    context.distribution.deliver(slack, { version: 1, value: sentinel }),
+    context.distribution.deliver(slack, delivery(slack, 1, sentinel)),
     CredentialSupersededError,
   );
   await assert.rejects(
@@ -339,7 +413,7 @@ test("a deleted credential is revoked everywhere and can never be granted again,
     CredentialRevokedError,
   );
   await assert.rejects(
-    context.distribution.deliver(deleted, { version: 2, value: rotated }),
+    context.distribution.deliver(deleted, delivery(deleted, 2, rotated)),
     CredentialRevokedError,
   );
   assert.equal(
@@ -364,7 +438,7 @@ test("a stopped app keeps its grants and starts with the value delivered while i
   await context.lifecycle.stop(owner, ada, "planner");
   context.cluster.settle();
   assert.equal((await context.states())[0]!.status, "stopped");
-  await context.distribution.deliver(slack, { version: 2, value: rotated });
+  await context.distribution.deliver(slack, delivery(slack, 2, rotated));
   assert.equal(context.cluster.pods.length, 0, "delivery doesn't start it");
   await context.lifecycle.start(owner, ada, "planner");
   context.cluster.settle();
@@ -514,11 +588,13 @@ test("a missing copy is reported and healed by delivering the value again", asyn
     missing: true,
     held: true,
     revoked: false,
-  });
-  const healed = await context.distribution.deliver(slack, {
     version: 1,
-    value: sentinel,
+    valueId: grant(slack, "TOKEN").valueId,
   });
+  const healed = await context.distribution.deliver(
+    slack,
+    delivery(slack, 1, sentinel),
+  );
   assert.equal(healed.complete, true);
   context.cluster.settle();
   assert.equal((await context.states())[0]!.status, "applied");
@@ -592,7 +668,7 @@ test("rotation and deletion stop old holders even when provisioning fails", asyn
   });
   context.cluster.settle();
   context.faults.capabilities = true;
-  await context.distribution.deliver(slack, { version: 2, value: rotated });
+  await context.distribution.deliver(slack, delivery(slack, 2, rotated));
   assert.ok(context.cluster.pods.every((pod) => pod.terminating));
   context.cluster.settle();
   context.faults.capabilities = false;
@@ -614,4 +690,170 @@ test("rotation and deletion stop old holders even when provisioning fails", asyn
     "deleting an app stops its processes before revoking its clients",
   );
   assert.equal(context.secrets.secrets.size, 0);
+});
+
+test("a deploy or attachment authorized before a detach is refused after it, with or without basedOn; a fresh one is accepted", async () => {
+  for (const basedOn of [false, true]) {
+    const context = await world();
+    const slack = randomUUID();
+    await context.deploy.deploy(owner, ada, "planner", {
+      credentials: [grant(slack, "TOKEN")],
+    });
+    context.cluster.settle();
+    // Everything reads the generation and authorizes both changes, then they are delayed.
+    const authorizedAt = await context.generation();
+    const release = (await context.artifacts.getById(
+      context.scope,
+      context.app.id,
+    ))!.release;
+    await context.credentials.detach(owner, ada, "planner", "TOKEN");
+    context.cluster.settle();
+    await assert.rejects(
+      context.deployments_.deploy(owner, ada, "planner", {
+        credentials: [grant(slack, "TOKEN")],
+        credentialGeneration: authorizedAt,
+        ...(basedOn ? { basedOn: release } : {}),
+      }),
+      { code: "CREDENTIAL_GRANTS_CHANGED" },
+    );
+    await assert.rejects(
+      context.appCredentials.attach(owner, ada, "planner", {
+        ...grant(slack, "TOKEN"),
+        credentialGeneration: authorizedAt,
+      }),
+      { code: "CREDENTIAL_GRANTS_CHANGED" },
+    );
+    context.cluster.settle();
+    assert.ok(
+      context.cluster.environments(context.app.id).every((env) => !env.TOKEN),
+    );
+    assert.equal(context.secrets.secrets.size, 0, "refused copies deleted");
+    // Authorizing again after the removal reads the new generation and succeeds.
+    await context.deploy.deploy(owner, ada, "planner", {
+      credentials: [grant(slack, "TOKEN")],
+    });
+    context.cluster.settle();
+    assert.deepEqual(context.cluster.environments(context.app.id), [
+      { TOKEN: sentinel },
+    ]);
+  }
+});
+
+test("omitted credentials and pure removals need no generation", async () => {
+  const context = await world();
+  const slack = randomUUID();
+  await context.deploy.deploy(owner, ada, "planner", {
+    credentials: [grant(slack, "TOKEN")],
+  });
+  await context.deployments_.deploy(owner, ada, "planner", { build: 2 });
+  assert.equal(context.grants.bindings.length, 1);
+  await context.deployments_.deploy(owner, ada, "planner", {
+    credentials: [],
+  });
+  assert.equal(context.grants.bindings.length, 0);
+});
+
+test("a deployment that fails after its grants changes nothing, whichever step fails", async () => {
+  for (const fault of ["grants", "apiKey", "deployment", "artifact"] as const) {
+    const context = await world();
+    await context.deploy.deploy(owner, ada, "planner", {
+      env: { TOKEN: "ordinary" },
+      capabilities: ["api-key"],
+    });
+    context.cluster.settle();
+    const before = {
+      release: (await context.artifacts.getById(context.scope, context.app.id))!
+        .liveDeployment,
+      generation: await context.generation(),
+    };
+    context.releases.fault = fault;
+    await assert.rejects(
+      context.deploy.deploy(owner, ada, "planner", {
+        env: {},
+        capabilities: [],
+        credentials: [grant(randomUUID(), "TOKEN")],
+      }),
+      new RegExp(`${fault} failed`),
+    );
+    context.releases.fault = undefined;
+    const live = (await context.artifacts.getById(
+      context.scope,
+      context.app.id,
+    ))!;
+    assert.equal(live.liveDeployment, before.release, fault);
+    assert.deepEqual(context.grants.bindings, [], `${fault}: no grant`);
+    assert.equal(await context.generation(), before.generation, fault);
+    assert.deepEqual(context.releases.revokedKeys, [], `${fault}: key kept`);
+    assert.equal(context.secrets.secrets.size, 0, `${fault}: copy deleted`);
+    // The kept settings remain valid together: a redeploy omitting everything still works.
+    await context.deploy.deploy(owner, ada, "planner", { build: 2 });
+    context.cluster.settle();
+    assert.deepEqual(context.cluster.environments(context.app.id), [{}]);
+  }
+});
+
+test("a second value at a delivered version is refused, never reported applied, and a newer version recovers", async () => {
+  const context = await world();
+  const slack = randomUUID();
+  await context.deploy.deploy(owner, ada, "planner", {
+    credentials: [grant(slack, "TOKEN")],
+  });
+  await context.distribution.deliver(slack, delivery(slack, 2, rotated));
+  context.cluster.settle();
+  // Everything's database is restored to version 1, and the value is replaced once.
+  await assert.rejects(
+    context.distribution.deliver(slack, delivery(slack, 2, "after-restore")),
+    { code: "CREDENTIAL_VALUE_CONFLICT" },
+  );
+  await assert.rejects(
+    context.deploy.deploy(owner, ada, "planner", {
+      credentials: [
+        grant(slack, "TOKEN"),
+        grant(slack, "SECOND", 2, "after-restore"),
+      ],
+    }),
+    { code: "CREDENTIAL_VALUE_CONFLICT" },
+  );
+  context.cluster.settle();
+  assert.deepEqual(context.cluster.environments(context.app.id), [
+    { TOKEN: rotated },
+  ]);
+  // Everything saves the value past the version apps hold and delivers it.
+  const recovered = await context.distribution.deliver(
+    slack,
+    delivery(slack, 3, "after-restore"),
+  );
+  assert.equal(recovered.complete, true);
+  context.cluster.settle();
+  assert.deepEqual(context.cluster.environments(context.app.id), [
+    { TOKEN: "after-restore" },
+  ]);
+  assert.equal((await context.states())[0]!.status, "applied");
+});
+
+test("a removal whose restart fails is still saved and shown as removing, not reported as failed or done", async () => {
+  const context = await world();
+  const slack = randomUUID();
+  await context.deploy.deploy(owner, ada, "planner", {
+    credentials: [grant(slack, "TOKEN")],
+  });
+  context.cluster.settle();
+  const stop = context.cluster.stop.bind(context.cluster);
+  context.cluster.stop = async () => {
+    throw new Error("Kubernetes is unavailable");
+  };
+  await context.credentials.detach(owner, ada, "planner", "TOKEN");
+  assert.deepEqual(context.grants.bindings, []);
+  assert.deepEqual(
+    (await context.states()).map(({ env, status }) => [env, status]),
+    [["TOKEN", "removing"]],
+  );
+  await assert.rejects(
+    context.credentials.detach(owner, ada, "planner", "TOKEN"),
+    { code: "CREDENTIAL_NOT_ATTACHED" },
+  );
+  context.cluster.stop = stop;
+  await context.reconciler.reconcileAll();
+  context.cluster.settle();
+  assert.deepEqual(await context.states(), []);
 });

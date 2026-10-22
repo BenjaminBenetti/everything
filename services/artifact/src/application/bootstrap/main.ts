@@ -25,6 +25,7 @@ import { createArtifactDataDatabase } from "../../database/factory/artifact-data
 import { KubernetesWorkloads } from "../../deployment/adapter/kubernetes-workloads.js";
 import { PostgresDeploymentRepository } from "../../deployment/repository/postgres-deployment-repository.js";
 import { DeploymentService } from "../../deployment/service/deployment-service.js";
+import { PostgresReleaseStore } from "../../deployment/repository/postgres-release-store.js";
 import { WorkloadReconciler } from "../../deployment/service/workload-reconciler.js";
 import { createArtifactDatabase } from "../../persistence/factory/artifact-database.js";
 import { PostgresRevisionRepository } from "../../revision/repository/postgres-revision-repository.js";
@@ -201,14 +202,13 @@ async function main(): Promise<void> {
     ),
     builds,
     deployments: new DeploymentService(
-      artifactRepository,
       deploymentRepository,
       buildRepository,
       reconciler,
       orchestrator,
       lookup,
       lock,
-      apiKeyStore,
+      new PostgresReleaseStore(database),
       credentials,
     ),
     credentials,

@@ -77,6 +77,12 @@ export interface AppCredential {
   /** Version of the value the app's grant holds. */
   readonly version: number;
   readonly status: AppCredentialStatus;
+  /**
+   * Random identity of the value the grant holds, which the app service reports to Everything so
+   * it can tell a delivered value from a different one at the same version. Never derived from the
+   * value; Everything leaves it out of its own answers.
+   */
+  readonly valueId?: string | null;
 }
 
 /**
@@ -87,7 +93,18 @@ export interface AppCredentialGrant {
   readonly credentialId: string;
   readonly env: string;
   readonly version: number;
+  /** Random identity Everything gives each saved value; a version never carries two values. */
+  readonly valueId: string;
   readonly value: string;
+}
+
+/**
+ * A grant Everything asks the app service to add to one app, with the app's credential generation
+ * read before the grant was authorized. If the app's credentials changed since, the grant is
+ * refused, so a grant prepared before a removal can't bring the credential back.
+ */
+export interface AppCredentialAttachment extends AppCredentialGrant {
+  readonly credentialGeneration: number;
 }
 
 /** A teammate's request to give an app a credential, chosen by its name. */
@@ -105,6 +122,7 @@ export interface AttachCredentialInput {
 /** A credential's new value, delivered to every app that receives it. */
 export interface CredentialValueInput {
   readonly version: number;
+  readonly valueId: string;
   readonly value: string;
 }
 
@@ -140,6 +158,9 @@ export interface CredentialInventoryEntry {
   readonly held: boolean;
   /** Whether the app service has recorded the credential's deletion. */
   readonly revoked: boolean;
+  /** Newest version the app service has recorded, and that value's identity, or null. */
+  readonly version: number | null;
+  readonly valueId: string | null;
 }
 
 /** Every credential the app service knows of. */

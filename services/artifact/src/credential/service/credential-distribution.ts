@@ -11,7 +11,10 @@ import type { ArtifactLock } from "../../artifact/service/artifact-lock.js";
 import { credentialSecretName } from "../../cluster/model/cluster-names.js";
 import type { WorkloadOrchestrator } from "../../deployment/interface/workload-orchestrator.js";
 import type { WorkloadReconciler } from "../../deployment/service/workload-reconciler.js";
-import { CredentialSupersededError } from "../error/credential-errors.js";
+import {
+  CredentialSupersededError,
+  CredentialValueConflictError,
+} from "../error/credential-errors.js";
 import type { CredentialGrantRepository } from "../interface/credential-grant-repository.js";
 import type { CredentialSecrets } from "../interface/credential-secrets.js";
 import { appCredentialStates } from "../model/credential-status.js";
@@ -62,17 +65,22 @@ export class CredentialDistribution {
     input: CredentialValueInput,
   ): Promise<CredentialDelivery> {
     requireCredentialValue(input.value);
-    if (
-      (await this.grants.recordVersion(credentialId, input.version)) ===
-      "superseded"
-    )
-      throw new CredentialSupersededError();
+    const outcome = await this.grants.recordVersion(
+      credentialId,
+      input.version,
+      input.valueId,
+    );
+    if (outcome === "superseded") throw new CredentialSupersededError();
+    // A version already holding another value can't be reused: reporting it applied would hide the
+    // processes still running the other value. Everything saves the value as a newer version.
+    if (outcome === "conflict") throw new CredentialValueConflictError();
     const stored = new Set(
       (await this.secrets.stored()).map((secret) => secret.name),
     );
     const outdated = (await this.grants.list({ credentialId })).filter(
       (binding) =>
         binding.version < input.version ||
+        binding.valueId !== input.valueId ||
         !stored.has(
           credentialSecretName(
             binding.artifactId,
@@ -101,9 +109,15 @@ export class CredentialDistribution {
             artifact.id,
             credentialId,
             input.version,
+            input.valueId,
             input.value,
           );
-          await this.grants.advance(scope, credentialId, input.version);
+          await this.grants.advance(
+            scope,
+            credentialId,
+            input.version,
+            input.valueId,
+          );
           await this.reconciler.reconcile(artifact);
         })
         .catch((error: unknown) =>
@@ -244,6 +258,7 @@ export class CredentialDistribution {
       const granted = bindings.filter(
         (binding) => binding.credentialId === credentialId,
       );
+      const record = records.find((candidate) => candidate.id === credentialId);
       return {
         credentialId,
         oldestVersion: granted.length
@@ -260,8 +275,9 @@ export class CredentialDistribution {
             ),
         ),
         held: holders.has(credentialId),
-        revoked: !!records.find((record) => record.id === credentialId)
-          ?.revokedAt,
+        revoked: !!record?.revokedAt,
+        version: record?.version ?? null,
+        valueId: record?.valueId ?? null,
       };
     });
   }

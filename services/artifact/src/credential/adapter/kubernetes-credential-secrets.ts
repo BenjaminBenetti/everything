@@ -9,10 +9,14 @@ import {
   credentialSecretName,
   managerName,
 } from "../../cluster/model/cluster-names.js";
+import { CredentialValueConflictError } from "../error/credential-errors.js";
 import type {
   CredentialSecrets,
   StoredCredentialSecret,
 } from "../interface/credential-secrets.js";
+
+/** Label naming the identity of the value a credential Secret holds; random, never the value. */
+export const credentialValueLabel = "everything.dev/credential-value";
 
 /** Key of the value inside each credential Secret. */
 export const credentialSecretKey = "value";
@@ -36,14 +40,24 @@ export class KubernetesCredentialSecrets implements CredentialSecrets {
   // Operations
   // ===========================================
 
-  /** Create the version's Secret, verifying or replacing a copy that already exists. */
+  /**
+   * Create the version's Secret. An existing copy labeled with another value is refused, since a
+   * version never carries two values; one whose bytes differ from its own value is restored.
+   */
   async write(
     artifactId: string,
     credentialId: string,
     version: number,
+    valueId: string,
     value: string,
   ): Promise<void> {
-    const body = this.manifest(artifactId, credentialId, version, value);
+    const body = this.manifest(
+      artifactId,
+      credentialId,
+      version,
+      valueId,
+      value,
+    );
     const name = body.metadata!.name!;
     try {
       await this.clients.core.createNamespacedSecret({
@@ -58,7 +72,11 @@ export class KubernetesCredentialSecrets implements CredentialSecrets {
       name,
       namespace: this.namespace,
     });
+    const labeled = existing.metadata?.labels?.[credentialValueLabel];
+    if (labeled && labeled !== valueId)
+      throw new CredentialValueConflictError();
     if (
+      labeled === valueId &&
       existing.data?.[credentialSecretKey] === body.data![credentialSecretKey]
     )
       return;
@@ -98,7 +116,15 @@ export class KubernetesCredentialSecrets implements CredentialSecrets {
         version > 0 &&
         name &&
         !secret.metadata?.deletionTimestamp
-        ? [{ artifactId: app, credentialId, version, name }]
+        ? [
+            {
+              artifactId: app,
+              credentialId,
+              version,
+              valueId: labels[credentialValueLabel] ?? null,
+              name,
+            },
+          ]
         : [];
     });
   }
@@ -141,6 +167,7 @@ export class KubernetesCredentialSecrets implements CredentialSecrets {
     artifactId: string,
     credentialId: string,
     version: number,
+    valueId: string,
     value: string,
   ): V1Secret {
     return {
@@ -154,6 +181,7 @@ export class KubernetesCredentialSecrets implements CredentialSecrets {
           [artifactLabels.artifactId]: artifactId,
           [artifactLabels.credentialId]: credentialId,
           [artifactLabels.credentialVersion]: String(version),
+          [credentialValueLabel]: valueId,
         },
       },
       type: "Opaque",

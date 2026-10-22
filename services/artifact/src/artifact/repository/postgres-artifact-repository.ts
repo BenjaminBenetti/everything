@@ -34,7 +34,7 @@ export class PostgresArtifactRepository
   // ===========================================
 
   /** Bind the ORM repository with most-recently-updated-first listings. */
-  constructor(database: DataSource) {
+  constructor(database: Pick<DataSource, "getRepository">) {
     super(database.getRepository(ArtifactEntity), {
       order: { updatedAt: "DESC", id: "ASC" },
     });

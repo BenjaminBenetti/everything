@@ -170,6 +170,11 @@ export interface ArtifactSummary {
    * environment variable; values are never included. Always empty for static apps.
    */
   readonly credentials: readonly AppCredential[];
+  /**
+   * Increases whenever the app's credentials are granted or withdrawn. A change that adds a
+   * credential names the generation it was prepared against, and is refused if it moved on.
+   */
+  readonly credentialGeneration: number;
   /** Link that opens the artifact on the artifact host. */
   readonly url: string;
   readonly status: ArtifactStatus;
@@ -272,6 +277,11 @@ export interface DeployInput {
    * so deploying an earlier build never restores a withdrawn credential.
    */
   readonly credentials?: readonly AppCredentialGrant[];
+  /**
+   * The app's credential generation read before the credentials were authorized; required when
+   * they add a grant the app doesn't already have.
+   */
+  readonly credentialGeneration?: number;
   readonly diskGi?: number | null;
   readonly healthPath?: string | null;
   readonly basedOn?: number;

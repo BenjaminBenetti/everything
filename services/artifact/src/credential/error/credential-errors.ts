@@ -132,3 +132,27 @@ export class CredentialNotAttachedError extends ApplicationError {
     );
   }
 }
+
+/** The app's credentials changed after this grant was authorized, for example by a removal. */
+export class CredentialGrantsChangedError extends ApplicationError {
+  /** Ask the caller to check the app again before granting. */
+  constructor() {
+    super(
+      409,
+      "CREDENTIAL_GRANTS_CHANGED",
+      "This app's credentials changed after this change was prepared, for example because one was removed. Check the app's credentials, then try again.",
+    );
+  }
+}
+
+/** Everything sent a different value under a version this service already holds another value for. */
+export class CredentialValueConflictError extends ApplicationError {
+  /** Explain that Everything moves to a newer version; nothing is changed. */
+  constructor() {
+    super(
+      409,
+      "CREDENTIAL_VALUE_CONFLICT",
+      "Apps already hold a different value of this credential at this version. Everything saves it as a newer version and delivers it again.",
+    );
+  }
+}

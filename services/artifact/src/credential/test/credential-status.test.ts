@@ -29,6 +29,7 @@ function binding(version: number, env = "TOKEN"): CredentialBinding {
     credentialId,
     env,
     version,
+    valueId: null,
   };
 }
 
@@ -94,7 +95,13 @@ test("a newer delivered version, a missing copy, and a stopped app take preceden
   const records = new Map([
     [
       credentialId,
-      { id: credentialId, createdAt: "", version: 2, revokedAt: null },
+      {
+        id: credentialId,
+        createdAt: "",
+        version: 2,
+        valueId: null,
+        revokedAt: null,
+      },
     ],
   ]);
   assert.deepEqual(statuses({ records }), [["TOKEN", 1, "updating"]]);

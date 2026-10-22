@@ -13,6 +13,10 @@ import {
 } from "../../artifact/test/artifact-fixture.js";
 import type { Artifact } from "../../artifact/model/artifact.js";
 import { DeploymentService } from "../service/deployment-service.js";
+import {
+  MemoryCredentialGrants,
+  MemoryReleaseStore,
+} from "../../credential/test/credential-fixture.js";
 
 const digest = `sha256:${"a".repeat(64)}`;
 
@@ -22,8 +26,8 @@ async function fixture() {
   const builds = new MemoryBuilds();
   const deployments = new MemoryDeployments();
   const reconciled: Artifact[] = [];
-  const revoked: { release: number; recorded: number }[] = [];
-  const revocation = { fails: false };
+  const grants = new MemoryCredentialGrants();
+  const releases = new MemoryReleaseStore(artifacts, deployments, grants);
   const app = artifacts.add("dynamic", "app");
   const scope = { ownerId: owner, artifactId: app.id };
   const build = await builds.create(scope, {
@@ -40,28 +44,17 @@ async function fixture() {
     imageDigest: digest,
   });
   const service = new DeploymentService(
-    artifacts,
     deployments,
     builds,
-    { reconcile: async (artifact) => void reconciled.push(artifact) },
+    { reconcile: async (artifact: Artifact) => void reconciled.push(artifact) },
     { logs: async () => "output" },
     new ArtifactLookup(artifacts),
     new ArtifactLock(),
-    {
-      /** Record which release was live and how many deployments existed when the key was revoked. */
-      revoke: async (revokedScope) => {
-        assert.deepEqual(revokedScope, scope);
-        if (revocation.fails) throw new Error("database unavailable");
-        revoked.push({
-          release: (await artifacts.getById({ ownerId: owner }, app.id))!
-            .release,
-          recorded: deployments.records.length,
-        });
-      },
-    },
+    releases,
     {
       current: async () => [],
-      replace: async () => assert.fail("no credentials were requested"),
+      store: async () => assert.fail("no credentials were requested"),
+      discardUngranted: async () => {},
       redact: async (_artifact, text) => text,
     },
   );
@@ -77,8 +70,7 @@ async function fixture() {
     builds,
     deployments,
     reconciled,
-    revocation,
-    revoked,
+    releases,
     scope,
     service,
     lifecycle,
@@ -188,35 +180,44 @@ test("static artifacts cannot be deployed", async () => {
   });
 });
 
-test("turning the API key off revokes it before the deployment that turns it off is recorded", async () => {
-  const { deployments, revoked, scope, service } = await fixture();
+test("turning the API key off revokes it in the same commit that records the deployment", async () => {
+  const { app, deployments, releases, scope, service } = await fixture();
   await service.deploy(owner, ada, "app", { capabilities: ["api-key"] });
   await service.deploy(owner, ada, "app", { port: 3000 });
   await service.deploy(owner, ada, "app", {
     capabilities: ["api-key", "everything-api"],
   });
-  assert.deepEqual(revoked, [], "redeploys that keep the key leave it alone");
+  assert.deepEqual(
+    releases.revokedKeys,
+    [],
+    "redeploys that keep the key leave it alone",
+  );
   await service.deploy(owner, ada, "app", {
     capabilities: ["everything-api"],
   });
-  assert.deepEqual(revoked, [{ release: 3, recorded: 3 }]);
+  assert.deepEqual(releases.revokedKeys, [app.id]);
   assert.deepEqual((await deployments.findByRelease(scope, 4))?.capabilities, [
     "everything-api",
   ]);
   await service.deploy(owner, ada, "app", { capabilities: [] });
-  assert.equal(revoked.length, 1, "an app without a key has nothing to revoke");
+  assert.equal(
+    releases.revokedKeys.length,
+    1,
+    "an app without a key has nothing to revoke",
+  );
 });
 
 test("a failed revocation records no deployment, so the key stays enabled rather than revivable", async () => {
-  const { app, artifacts, deployments, reconciled, revocation, service } =
+  const { app, artifacts, deployments, reconciled, releases, service } =
     await fixture();
   await service.deploy(owner, ada, "app", { capabilities: ["api-key"] });
-  revocation.fails = true;
+  releases.fault = "apiKey";
   await assert.rejects(
     service.deploy(owner, ada, "app", { capabilities: [] }),
-    /database unavailable/,
+    /apiKey failed/,
   );
   assert.equal(deployments.records.length, 1);
+  assert.deepEqual(releases.revokedKeys, []);
   assert.equal(
     (await artifacts.getById({ ownerId: owner }, app.id))?.liveDeployment,
     1,
@@ -225,7 +226,7 @@ test("a failed revocation records no deployment, so the key stays enabled rather
 });
 
 test("rejected deployments never revoke or rotate the current key", async () => {
-  const { deployments, revoked, service } = await fixture();
+  const { deployments, releases, service } = await fixture();
   await service.deploy(owner, ada, "app", {
     capabilities: ["api-key"],
     diskGi: 2,
@@ -237,6 +238,6 @@ test("rejected deployments never revoke or rotate the current key", async () => 
     [{ capabilities: [], env: { APP_API_KEY: "mine" } }, "RESERVED_VARIABLE"],
   ] as const)
     await assert.rejects(service.deploy(owner, ada, "app", input), { code });
-  assert.deepEqual(revoked, []);
+  assert.deepEqual(releases.revokedKeys, []);
   assert.equal(deployments.records.length, 1);
 });

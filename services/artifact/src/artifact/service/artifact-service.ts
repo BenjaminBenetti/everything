@@ -89,7 +89,7 @@ export class ArtifactService {
                 { ownerId, artifactId: artifact.id },
                 artifact.liveDeployment,
               ),
-          credentials.get(artifact.id) ?? [],
+          credentials.get(artifact.id),
         ),
       ),
     );
@@ -220,7 +220,7 @@ export class ArtifactService {
       { revisions, builds, deployment },
       runtimes.get(artifact.id),
       this.artifactOrigin,
-      credentials.get(artifact.id) ?? [],
+      credentials.get(artifact.id),
     );
   }
 }

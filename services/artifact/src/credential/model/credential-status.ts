@@ -91,6 +91,7 @@ export function appCredentialStates(
       env: binding.env,
       version: binding.version,
       status: status(binding),
+      valueId: binding.valueId,
     }));
   const withdrawn = new Map<string, AppCredential>();
   for (const entry of pods.flatMap((pod) => pod.entries)) {
@@ -110,6 +111,7 @@ export function appCredentialStates(
       env: entry.env,
       version: entry.version,
       status: "removing",
+      valueId: null,
     });
   }
   return [

@@ -19,18 +19,32 @@ const env = Type.String({
 });
 
 /** A credential Everything grants to an app, with the value to store for it. */
-export const credentialGrant = Type.Object(
-  {
-    credentialId: Type.String({ format: "uuid" }),
-    env,
-    version,
-    value,
-  },
-  { additionalProperties: false },
-);
+const grantFields = {
+  credentialId: Type.String({ format: "uuid" }),
+  env,
+  version,
+  valueId: Type.String({ format: "uuid" }),
+  value,
+};
+
+/** An app's credential generation, read before the grant was authorized. */
+export const credentialGeneration = Type.Integer({ minimum: 0 });
+
+export const credentialGrant = Type.Object(grantFields, {
+  additionalProperties: false,
+});
 
 /** Validated credential grant. */
 export type CredentialGrantBody = Static<typeof credentialGrant>;
+
+/** A grant to add to one app, with the generation it was authorized against. */
+export const credentialAttachment = Type.Object(
+  { ...grantFields, credentialGeneration },
+  { additionalProperties: false },
+);
+
+/** Validated attachment. */
+export type CredentialAttachmentBody = Static<typeof credentialAttachment>;
 
 /** Every credential an app should receive, replacing its current set. */
 export const credentialGrants = Type.Array(credentialGrant, {
@@ -57,7 +71,7 @@ export type AppCredentialParams = Static<typeof appCredentialParams>;
 
 /** A credential's new value and its version. */
 export const credentialValueBody = Type.Object(
-  { version, value },
+  { version, valueId: Type.String({ format: "uuid" }), value },
   { additionalProperties: false },
 );
 

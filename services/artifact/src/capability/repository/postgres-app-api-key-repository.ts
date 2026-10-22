@@ -17,7 +17,7 @@ export class PostgresAppApiKeyRepository
   // ===========================================
 
   /** Bind the ORM repository; an app has at most one record, so listings need no order. */
-  constructor(database: DataSource) {
+  constructor(database: Pick<DataSource, "getRepository">) {
     super(database.getRepository(AppApiKeyEntity), {});
   }
 

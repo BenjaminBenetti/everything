@@ -7,9 +7,9 @@ import type { ArtifactService } from "../../artifact/service/artifact-service.js
 import { requestActor } from "../../http/handler/actor.js";
 import {
   appCredentialParams,
-  credentialGrant,
+  credentialAttachment,
   type AppCredentialParams,
-  type CredentialGrantBody,
+  type CredentialAttachmentBody,
 } from "../schema/credential-request.js";
 import type { AppCredentials } from "../service/app-credentials.js";
 
@@ -19,9 +19,9 @@ export async function appCredentialController(
   credentials: Pick<AppCredentials, "attach" | "detach">,
   artifacts: Pick<ArtifactService, "details">,
 ): Promise<void> {
-  app.post<{ Params: ArtifactParams; Body: CredentialGrantBody }>(
+  app.post<{ Params: ArtifactParams; Body: CredentialAttachmentBody }>(
     "/owners/:ownerId/artifacts/:artifact/credentials",
-    { schema: { params: artifactParams, body: credentialGrant } },
+    { schema: { params: artifactParams, body: credentialAttachment } },
     async (request) => {
       const { ownerId, artifact } = request.params;
       const changed = await credentials.attach(

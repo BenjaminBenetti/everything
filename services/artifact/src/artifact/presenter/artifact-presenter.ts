@@ -1,4 +1,4 @@
-import type { AppCredential } from "@everything/artifact-contracts/credential";
+import type { AppCredentialView } from "../../credential/service/app-credentials.js";
 import type {
   ArtifactBuild,
   ArtifactDeployment,
@@ -50,7 +50,7 @@ export function representSummary(
   observed: ArtifactRuntime | undefined,
   artifactOrigin: string,
   deployment: Pick<ArtifactDeployment, "database" | "capabilities"> | undefined,
-  credentials: readonly AppCredential[],
+  credentials: AppCredentialView | undefined,
 ): ArtifactSummary {
   return {
     id: artifact.id,
@@ -60,7 +60,9 @@ export function representSummary(
     description: artifact.description,
     database: deployment?.database ?? false,
     capabilities: deployment?.capabilities ?? [],
-    credentials: artifact.kind === "dynamic" ? credentials : [],
+    credentials:
+      artifact.kind === "dynamic" ? (credentials?.credentials ?? []) : [],
+    credentialGeneration: credentials?.generation ?? 0,
     url: `${artifactOrigin}/${artifact.slug}/`,
     status: statusOf(artifact, runtimeOf(artifact, observed)),
     release: artifact.release,
@@ -77,7 +79,7 @@ export function representDetails(
   history: ArtifactHistory,
   observed: ArtifactRuntime | undefined,
   artifactOrigin: string,
-  credentials: readonly AppCredential[],
+  credentials: AppCredentialView | undefined,
 ): ArtifactDetails {
   const deployment: ArtifactDeployment | null = history.deployment
     ? {

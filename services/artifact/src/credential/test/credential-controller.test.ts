@@ -70,7 +70,9 @@ test("credential endpoints validate requests and never repeat a value in an answ
     credentialId,
     env: "TOKEN",
     version: 1,
+    valueId: "9c0b7a52-6d0e-4f0d-9a77-0f2a3f1f6c01",
     value: "ctl-sentinel-value",
+    credentialGeneration: 0,
   };
   assert.equal(
     (
@@ -88,6 +90,8 @@ test("credential endpoints validate requests and never repeat a value in an answ
     { ...grant, env: "1BAD" },
     { ...grant, version: 0 },
     { ...grant, credentialId: "ctl-sentinel-not-a-uuid" },
+    { ...grant, valueId: "ctl-sentinel-not-a-uuid" },
+    { ...grant, credentialGeneration: -1 },
     { ...grant, extra: "ctl-sentinel" },
   ])
     assert.equal(
@@ -116,7 +120,11 @@ test("credential endpoints validate requests and never repeat a value in an answ
       await send({
         method: "PUT",
         url: `/credentials/${credentialId}/value`,
-        payload: { version: 2, value: "ctl-sentinel-rotated" },
+        payload: {
+          version: 2,
+          valueId: "9c0b7a52-6d0e-4f0d-9a77-0f2a3f1f6c02",
+          value: "ctl-sentinel-rotated",
+        },
       })
     ).statusCode,
     200,
@@ -126,7 +134,11 @@ test("credential endpoints validate requests and never repeat a value in an answ
       await send({
         method: "PUT",
         url: `/credentials/${credentialId}/value`,
-        payload: { version: 2, value: "ctl-sentinel-invalid" },
+        payload: {
+          version: 2,
+          valueId: "9c0b7a52-6d0e-4f0d-9a77-0f2a3f1f6c03",
+          value: "ctl-sentinel-invalid",
+        },
       })
     ).statusCode,
     400,

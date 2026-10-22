@@ -9,12 +9,14 @@ export interface CredentialBinding extends OwnedEntity {
   readonly credentialId: string;
   readonly env: string;
   readonly version: number;
+  /** Random identity of the stored value; null only for grants made before identities existed. */
+  readonly valueId: string | null;
 }
 
 /** A grant to store for an app; its owner and app come from the scope. */
 export type NewCredentialBinding = Pick<
   CredentialBinding,
-  "credentialId" | "env" | "version"
+  "credentialId" | "env" | "version" | "valueId"
 >;
 
 /**
@@ -24,7 +26,21 @@ export type NewCredentialBinding = Pick<
  */
 export interface CredentialRecord extends BaseEntity {
   readonly version: number;
+  /**
+   * Identity of that version's value. A version is accepted with only one value, so a pod's version
+   * annotation identifies its value exactly; null only for records made before identities existed.
+   */
+  readonly valueId: string | null;
   readonly revokedAt: string | null;
+}
+
+/**
+ * How many times an app's set of credential grants has changed. Grants that add access must name
+ * the generation they were authorized against; any change in between, such as a removal, refuses
+ * them. The record's ID is the app's ID.
+ */
+export interface CredentialGeneration extends BaseEntity {
+  readonly generation: number;
 }
 
 /** One credential a process holds: its variable, credential, and value version. */

@@ -3,6 +3,8 @@ export interface StoredCredentialSecret {
   readonly artifactId: string;
   readonly credentialId: string;
   readonly version: number;
+  /** Identity of the stored value, from the Secret's label; null for copies made before identities. */
+  readonly valueId: string | null;
   readonly name: string;
 }
 
@@ -11,11 +13,15 @@ export interface StoredCredentialSecret {
  * credential, and version. This is the only place the app service keeps a value.
  */
 export interface CredentialSecrets {
-  /** Store one version's value for an app; an existing copy with a different value is replaced. */
+  /**
+   * Store one version's value for an app. An existing copy of another value with the same version
+   * is refused; a copy whose bytes were changed by hand is restored.
+   */
   write(
     artifactId: string,
     credentialId: string,
     version: number,
+    valueId: string,
     value: string,
   ): Promise<void>;
   /** List stored copies, of one app or of every app. */
