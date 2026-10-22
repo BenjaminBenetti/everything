@@ -35,6 +35,7 @@ test("teammates get every app tool, each described for the model", () => {
       "stop_app",
       "get_app_logs",
       "view_app",
+      "list_credentials",
     ].sort(),
   );
   for (const tool of tools) {
@@ -48,7 +49,11 @@ test("teammates get every app tool, each described for the model", () => {
       ]),
       /artifact/i,
     );
-    if (tool.name !== appToolNames.create && tool.name !== appToolNames.list) {
+    if (
+      tool.name !== appToolNames.create &&
+      tool.name !== appToolNames.list &&
+      tool.name !== appToolNames.credentials
+    ) {
       const required: readonly string[] = tool.parameters.required ?? [];
       assert.ok(required.includes("app"), tool.name);
     }
@@ -116,6 +121,68 @@ test("deploy_app forwards explicit capability grants and removals, and explains 
   assert.match(tool.description, /X-Api-Key/);
   assert.match(tool.description, /APP_API_KEY/);
   assert.match(tool.description, /revokes/);
+});
+
+test("deploy_app forwards named credentials, and list_credentials reports metadata only", async () => {
+  const calls: unknown[] = [];
+  const workbench = {
+    deploy: async (_acting: WorkbenchContext, app: string, input: unknown) => {
+      calls.push([app, input]);
+      return {};
+    },
+    listCredentials: async (acting: WorkbenchContext) => {
+      assert.equal(acting, context);
+      return [
+        {
+          name: "slack-bot-token",
+          description: "Slack bot",
+          updatedAt: "2026-10-22T00:00:00.000Z",
+          apps: [{ app: "bot", env: "SLACK_BOT_TOKEN", status: "applied" }],
+        },
+      ];
+    },
+  } as unknown as ArtifactWorkbench;
+  const tools = appTools(workbench, context);
+  const deploy = tools.find((tool) => tool.name === appToolNames.deploy)!;
+  for (const credentials of [
+    [{ name: "slack-bot-token", env: "SLACK_BOT_TOKEN" }],
+    [],
+  ])
+    await deploy.execute(
+      "call",
+      { app: "bot", credentials } as never,
+      undefined,
+      undefined,
+      undefined as never,
+    );
+  assert.deepEqual(calls, [
+    [
+      "bot",
+      { credentials: [{ name: "slack-bot-token", env: "SLACK_BOT_TOKEN" }] },
+    ],
+    ["bot", { credentials: [] }],
+  ]);
+  assert.match(deploy.description, /list_credentials/);
+  assert.match(deploy.description, /pass \[\] to remove them all/);
+  assert.match(deploy.description, /KUBERNETES_/);
+  const list = tools.find((tool) => tool.name === appToolNames.credentials)!;
+  const result = await list.execute(
+    "call",
+    {} as never,
+    undefined,
+    undefined,
+    undefined as never,
+  );
+  const reported = JSON.parse((result.content[0] as { text: string }).text);
+  assert.equal(reported.credentials[0].name, "slack-bot-token");
+  assert.match(list.description, /Values are never shown/);
+  const prompt = mainAgentPrompt({
+    id: agentId,
+    name: "Ada",
+    systemPrompt: "Help.",
+  });
+  assert.ok(prompt.includes(appToolNames.credentials));
+  assert.match(prompt, /Keys page/);
 });
 
 test("tools act for the teammate and report results as text", async () => {

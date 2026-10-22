@@ -1,5 +1,8 @@
 import type { KeyOperations } from "../../key/interface/key-operations.js";
 import { keyController } from "../../key/controller/key-controller.js";
+import { credentialController } from "../../credential/controller/credential-controller.js";
+import type { CredentialGrants } from "../../credential/service/credential-grants.js";
+import type { CredentialRollouts } from "../../credential/service/credential-rollouts.js";
 import fastifyCookie from "@fastify/cookie";
 import type { SessionOperations } from "../../session/interface/session-operations.js";
 import { SessionCookie } from "../../session/handler/session-cookie.js";
@@ -72,6 +75,11 @@ export interface HttpDependencies {
   readonly publicOrigin: string;
   readonly chatGptRedirectUri: string;
   readonly keys: KeyOperations;
+  readonly credentialGrants: Pick<
+    CredentialGrants,
+    "usage" | "attach" | "detach"
+  >;
+  readonly credentialRollouts: Pick<CredentialRollouts, "deliver" | "revoke">;
   readonly providers: ProviderConnections;
   readonly models: Pick<ProviderModels, "list">;
   readonly agents: Omit<AgentCatalog, "delete">;
@@ -169,7 +177,11 @@ function protectedApi(
     });
     await identityController(scope);
     await apiDocumentationController(scope, dependencies.apiDocumentation);
-    await keyController(scope, dependencies.keys);
+    await keyController(scope, dependencies.keys, {
+      rollouts: dependencies.credentialRollouts,
+      grants: dependencies.credentialGrants,
+    });
+    await credentialController(scope, dependencies.credentialGrants);
     await providerController(scope, dependencies.providers);
     await providerModelController(scope, dependencies.models);
     await conversationController(scope, dependencies.conversations);

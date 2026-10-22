@@ -1,0 +1,251 @@
+import {
+  appCredentialLimits,
+  credentialEnvironmentProblem,
+  type AppCredential,
+  type AppCredentialGrant,
+  type AppCredentialList,
+  type AttachCredentialInput,
+  type CredentialBindingRequest,
+  type CredentialUsage,
+} from "@everything/artifact-contracts/credential";
+import type { AppCredentialStatus } from "@everything/artifact-contracts/credential";
+import type { SecretCipher } from "@everything/security/session-cipher";
+import {
+  ArtifactNotFoundError,
+  ArtifactRequestFailure,
+  ArtifactServiceUnavailableError,
+} from "../../artifact/error/artifact-errors.js";
+import type { ArtifactActor } from "../../artifact/interface/artifact-gateway.js";
+import {
+  AppCredentialAccessError,
+  CredentialOwnerOnlyError,
+  KeyNotFoundError,
+} from "../../key/error/key-errors.js";
+import type { GenericCredentialRepository } from "../../key/interface/generic-credential-repository.js";
+import type { KeyActor } from "../../key/model/key-actor.js";
+import type { StoredKey } from "../../key/model/stored-key.js";
+import {
+  AmbiguousCredentialNameError,
+  CredentialChangeRefusedError,
+  CredentialNotFoundError,
+  CredentialUnavailableError,
+  DuplicateCredentialVariableError,
+  InvalidCredentialVariableError,
+  ReservedCredentialVariableError,
+  TooManyCredentialsError,
+} from "../error/credential-errors.js";
+import type { CredentialGateway } from "../interface/credential-gateway.js";
+import { usageFor } from "../model/credential-usage.js";
+
+/** One credential a teammate can attach, with the apps of its owner that use it. */
+export interface CredentialCatalogEntry {
+  readonly name: string;
+  readonly description: string;
+  readonly updatedAt: string;
+  readonly apps: readonly {
+    readonly app: string;
+    readonly env: string;
+    readonly status: AppCredentialStatus;
+  }[];
+}
+
+/** Refuse variable names that can't hold a credential, before anything is looked up. */
+export function requireCredentialVariables(
+  requests: readonly { readonly env: string }[],
+): void {
+  if (requests.length > appCredentialLimits.count)
+    throw new TooManyCredentialsError();
+  const seen = new Set<string>();
+  for (const { env } of requests) {
+    const problem = credentialEnvironmentProblem(env);
+    if (problem === "invalid") throw new InvalidCredentialVariableError(env);
+    if (problem === "reserved") throw new ReservedCredentialVariableError(env);
+    if (seen.has(env)) throw new DuplicateCredentialVariableError(env);
+    seen.add(env);
+  }
+}
+
+/**
+ * Decide which generic credentials an app may receive and turn requests into grants. Only the
+ * account that added a credential, and that account's teammates, may give it to apps: listing a
+ * credential's metadata never implies permission to grant it. Names are resolved only among those
+ * credentials, case-insensitively, and the result is pinned to the credential's stable ID.
+ */
+export class CredentialGrants {
+  // ===========================================
+  // Construction
+  // ===========================================
+
+  /** Inject credential storage, decryption, and the app service. */
+  constructor(
+    private readonly credentials: Pick<
+      GenericCredentialRepository,
+      "findByName" | "getById" | "list"
+    >,
+    private readonly cipher: Pick<SecretCipher, "open">,
+    private readonly gateway: Pick<
+      CredentialGateway,
+      "attachCredential" | "detachCredential" | "credentialUses"
+    >,
+  ) {}
+
+  // ===========================================
+  // Teammates
+  // ===========================================
+
+  /** Resolve a teammate's requests among its owner's credentials, refusing missing or ambiguous names. */
+  async resolve(
+    ownerId: string,
+    requests: readonly CredentialBindingRequest[],
+  ): Promise<AppCredentialGrant[]> {
+    requireCredentialVariables(requests);
+    const grants: AppCredentialGrant[] = [];
+    for (const request of requests) {
+      const name = request.name.trim();
+      const matches = await this.credentials.findByName(
+        { usage: "credential-grant", ownerId },
+        name,
+      );
+      if (!matches.length) throw new CredentialNotFoundError(name);
+      if (matches.length > 1) throw new AmbiguousCredentialNameError(name);
+      const [credential] = matches as [StoredKey];
+      grants.push({
+        credentialId: credential.id,
+        env: request.env,
+        version: credential.version,
+        value: await this.open(credential),
+      });
+    }
+    return grants;
+  }
+
+  /** The credentials a teammate's owner can attach, and where that owner's apps use them. */
+  async catalog(ownerId: string): Promise<CredentialCatalogEntry[]> {
+    const credentials = await this.credentials.list({
+      usage: "credential-grant",
+      ownerId,
+    });
+    return Promise.all(
+      credentials
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map(async (credential) => ({
+          name: credential.name,
+          description: credential.description ?? "",
+          updatedAt: credential.updatedAt,
+          apps: usageFor(
+            ownerId,
+            await this.gateway.credentialUses(credential.id),
+          ).apps.map(({ slug, env, status }) => ({ app: slug, env, status })),
+        })),
+    );
+  }
+
+  // ===========================================
+  // Users
+  // ===========================================
+
+  /** Give one of the user's apps a credential the user added. */
+  async attach(
+    actor: KeyActor,
+    appId: string,
+    input: AttachCredentialInput,
+  ): Promise<AppCredentialList> {
+    if (actor.app) throw new AppCredentialAccessError();
+    requireCredentialVariables([input]);
+    const credential = await this.credentials.getById(
+      { usage: "credential-sync" },
+      input.credentialId,
+    );
+    if (!credential || credential.deletedAt) throw new KeyNotFoundError();
+    if (credential.ownerId !== actor.subject)
+      throw new CredentialOwnerOnlyError();
+    const grant: AppCredentialGrant = {
+      credentialId: credential.id,
+      env: input.env,
+      version: credential.version,
+      value: await this.open(credential),
+    };
+    const details = await this.changing(() =>
+      this.gateway.attachCredential(userActor(actor), appId, grant),
+    );
+    return { credentials: await this.named(details.credentials) };
+  }
+
+  /** Take a credential away from one of the user's apps. */
+  async detach(
+    actor: KeyActor,
+    appId: string,
+    env: string,
+  ): Promise<AppCredentialList> {
+    if (actor.app) throw new AppCredentialAccessError();
+    const details = await this.changing(() =>
+      this.gateway.detachCredential(userActor(actor), appId, env),
+    );
+    return { credentials: await this.named(details.credentials) };
+  }
+
+  /** Which of the caller's apps use a generic credential; other accounts' apps are only counted. */
+  async usage(actor: KeyActor, id: string): Promise<CredentialUsage> {
+    const credential = await this.credentials.getById(
+      { usage: "credential-sync" },
+      id,
+    );
+    if (!credential) throw new KeyNotFoundError();
+    try {
+      return usageFor(actor.subject, await this.gateway.credentialUses(id));
+    } catch {
+      throw new ArtifactServiceUnavailableError();
+    }
+  }
+
+  /** Fill in current credential names; a credential that no longer exists has none. */
+  async named(credentials: readonly AppCredential[]): Promise<AppCredential[]> {
+    if (!credentials.length) return [];
+    const names = new Map(
+      (await this.credentials.list({ usage: "credential-sync" })).map(
+        (credential) => [credential.id, credential.name],
+      ),
+    );
+    return credentials.map((credential) => ({
+      ...credential,
+      name: names.get(credential.credentialId) ?? null,
+    }));
+  }
+
+  // ===========================================
+  // Helpers
+  // ===========================================
+
+  /** Decrypt a value, failing closed without saying why. */
+  private async open(credential: StoredKey): Promise<string> {
+    try {
+      return await this.cipher.open(credential.encryptedMaterial);
+    } catch {
+      throw new CredentialUnavailableError();
+    }
+  }
+
+  /** Express the app service's refusals as this API's errors, keeping its safe messages. */
+  private async changing<T>(change: () => Promise<T>): Promise<T> {
+    try {
+      return await change();
+    } catch (error) {
+      if (error instanceof ArtifactRequestFailure) {
+        if (error.status === 404 && error.code === "ARTIFACT_NOT_FOUND")
+          throw new ArtifactNotFoundError();
+        if (error.status >= 400 && error.status < 500)
+          throw new CredentialChangeRefusedError(
+            error.status,
+            error.code,
+            error.message,
+          );
+      }
+      throw new ArtifactServiceUnavailableError();
+    }
+  }
+}
+
+/** The signed-in user acting on their own apps. */
+function userActor(actor: KeyActor): ArtifactActor {
+  return { ownerId: actor.subject, author: { id: actor.subject, name: "You" } };
+}

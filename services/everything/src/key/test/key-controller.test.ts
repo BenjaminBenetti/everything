@@ -5,6 +5,15 @@ import { keyController } from "../controller/key-controller.js";
 import type { KeyOperations } from "../interface/key-operations.js";
 import { authenticatedTestServer } from "../../http/test/test-server.js";
 
+/** Credential rollouts and usage, unused by SSH key routes. */
+const unusedCredentials = {
+  rollouts: {
+    deliver: async () => assert.fail("No delivery expected"),
+    revoke: async () => assert.fail("No revocation expected"),
+  },
+  grants: { usage: async () => assert.fail("No usage expected") },
+};
+
 test("key routes derive actor attribution from authentication and serialize metadata only", async (context) => {
   const app = authenticatedTestServer();
   context.after(() => app.close());
@@ -18,32 +27,37 @@ test("key routes derive actor attribution from authentication and serialize meta
   const operations: KeyOperations = {
     /** Simulate a careless implementation to exercise the response allowlist. */
     async list(owner) {
-      calls.push(owner);
+      calls.push(owner.subject);
       return [
         {
           ...key,
           encryptedMaterial: "secret-ciphertext",
           material: "secret-plaintext",
-          ownerId: owner,
+          ownerId: owner.subject,
         },
       ];
     },
     /** Record only inputs that pass request validation. */
     async create(owner, input) {
-      calls.push([owner, input]);
+      calls.push([owner.subject, input]);
       return key;
     },
     /** Record authenticated shared rename requests. */
     async rename(owner, id, input) {
-      calls.push([owner, id, input]);
+      calls.push([owner.subject, id, input]);
       return { ...key, name: input.name };
+    },
+    /** Value replacement is covered by the generic credential tests. */
+    async replaceValue() {
+      throw new Error("No value replacement expected");
     },
     /** Record authenticated shared deletion requests. */
     async delete(owner, id) {
-      calls.push([owner, id]);
+      calls.push([owner.subject, id]);
+      return "ssh";
     },
   };
-  await keyController(app, operations);
+  await keyController(app, operations, unusedCredentials);
   const list = await app.inject("/keys");
   assert.deepEqual(list.json(), { keys: [key] });
   const input = { name: key.name, type: "ssh", material: "uploaded-only" };

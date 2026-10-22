@@ -7,6 +7,10 @@ import { isSshKeyMaterial } from "@everything/key-contracts/ssh";
 import type { StoredKey } from "../model/stored-key.js";
 import type { KeyRepository } from "../interface/key-repository.js";
 import { KeyService } from "../service/key-service.js";
+import type { KeyActor } from "../model/key-actor.js";
+
+const owner: KeyActor = { subject: "owner" };
+const otherOwner: KeyActor = { subject: "other-owner" };
 
 const material = generateKeyPairSync("ed25519")
   .privateKey.export({ type: "pkcs8", format: "pem" })
@@ -36,12 +40,45 @@ function fixture() {
       records.set(key.id, structuredClone(key));
     },
     /** Rename a record selected within the installation. */
-    async rename(scope, id, name) {
+    async rename(scope, id, name, description) {
       const key = await this.getById(scope, id);
-      if (!key) return undefined;
-      const updated = { ...key, name };
+      if (!key || key.deletedAt) return undefined;
+      const updated = {
+        ...key,
+        name,
+        ...(description !== undefined ? { description } : {}),
+      };
       records.set(id, updated);
       return updated;
+    },
+    /** Store a new value as the next version for the creator only. */
+    async replaceMaterial(scope, id, encryptedMaterial) {
+      const key = await this.getById(scope, id);
+      if (
+        !key ||
+        key.type !== "generic" ||
+        key.deletedAt ||
+        key.ownerId !== scope.actorId
+      )
+        return undefined;
+      const updated = {
+        ...key,
+        encryptedMaterial,
+        version: key.version + 1,
+        updatedAt: new Date().toISOString(),
+      };
+      records.set(id, updated);
+      return updated;
+    },
+    /** Erase a generic credential's value and mark it deleted. */
+    async markDeleted(scope, id) {
+      const key = await this.getById(scope, id);
+      if (key?.type === "generic" && !key.deletedAt)
+        records.set(id, {
+          ...key,
+          encryptedMaterial: "",
+          deletedAt: new Date().toISOString(),
+        });
     },
     /** Missing records already satisfy deletion. */
     async delete(scope, id) {
@@ -57,14 +94,14 @@ function fixture() {
       new Map([["ssh", { accepts: isSshKeyMaterial }]]),
     );
   }
-  return { records, cipher, service };
+  return { records, cipher, service, repository };
 }
 
 test("keys encrypt before persistence, return metadata only, and survive service recreation", async () => {
   const state = fixture();
   const saved = await state
     .service()
-    .create("owner", { name: "  Development  ", type: "ssh", material });
+    .create(owner, { name: "  Development  ", type: "ssh", material });
   assert.deepEqual(Object.keys(saved).sort(), [
     "createdAt",
     "id",
@@ -75,17 +112,17 @@ test("keys encrypt before persistence, return metadata only, and survive service
   const stored = state.records.get(saved.id)!;
   assert.notEqual(stored.encryptedMaterial, material);
   assert.equal(await state.cipher.open(stored.encryptedMaterial), material);
-  assert.deepEqual(await state.service().list("owner"), [saved]);
+  assert.deepEqual(await state.service().list(owner), [saved]);
   const another = await state
     .service()
-    .create("owner", { name: "Another", type: "ssh", material });
+    .create(owner, { name: "Another", type: "ssh", material });
   assert.notEqual(
     state.records.get(another.id)!.encryptedMaterial,
     stored.encryptedMaterial,
   );
   const renamed = await state
     .service()
-    .rename("owner", saved.id, { name: "Renamed" });
+    .rename(owner, saved.id, { name: "Renamed" });
   assert.deepEqual(renamed, { ...saved, name: "Renamed" });
   assert.equal(
     state.records.get(saved.id)!.encryptedMaterial,
@@ -97,21 +134,21 @@ test("installation members share listing, renaming and deletion while creator at
   const state = fixture();
   const saved = await state
     .service()
-    .create("owner", { name: "Shared", type: "ssh", material });
+    .create(owner, { name: "Shared", type: "ssh", material });
   const service = state.service();
-  assert.deepEqual(await service.list("other-owner"), [saved]);
-  const renamed = await service.rename("other-owner", saved.id, {
+  assert.deepEqual(await service.list(otherOwner), [saved]);
+  const renamed = await service.rename(otherOwner, saved.id, {
     name: "Changed",
   });
-  assert.deepEqual(await service.list("owner"), [renamed]);
+  assert.deepEqual(await service.list(owner), [renamed]);
   assert.equal(state.records.get(saved.id)?.ownerId, "owner");
   await assert.rejects(
-    service.rename("other-owner", "missing", { name: "Changed" }),
+    service.rename(otherOwner, "missing", { name: "Changed" }),
     { code: "KEY_NOT_FOUND" },
   );
-  await service.delete("other-owner", saved.id);
-  assert.deepEqual(await service.list("owner"), []);
-  await service.delete("owner", saved.id);
+  await service.delete(otherOwner, saved.id);
+  assert.deepEqual(await service.list(owner), []);
+  await service.delete(owner, saved.id);
 });
 
 test("rejects invalid uploads without retaining plaintext or echoing it in errors", async () => {
@@ -134,7 +171,7 @@ test("rejects invalid uploads without retaining plaintext or echoing it in error
       material,
     },
   ])
-    await assert.rejects(state.service().create("owner", input), {
+    await assert.rejects(state.service().create(owner, input), {
       code: "INVALID_KEY",
     });
   assert.equal(state.records.size, 0);

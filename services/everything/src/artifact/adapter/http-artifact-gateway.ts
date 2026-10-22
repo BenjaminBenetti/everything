@@ -22,7 +22,16 @@ import type {
   StartBuildInput,
   UpdateArtifactInput,
 } from "@everything/artifact-contracts";
+import type {
+  AppCredentialGrant,
+  CredentialAppUse,
+  CredentialDelivery,
+  CredentialInventory,
+  CredentialInventoryEntry,
+  CredentialValueInput,
+} from "@everything/artifact-contracts/credential";
 import type { AccessTokenSource } from "@everything/security/client-credentials";
+import type { CredentialGateway } from "../../credential/interface/credential-gateway.js";
 import { ArtifactRequestFailure } from "../error/artifact-errors.js";
 import type {
   ArtifactActor,
@@ -54,7 +63,7 @@ const defaultTimeoutMs = 30_000;
 const transferTimeoutMs = 5 * 60_000;
 
 /** Calls the artifact service's internal API with a service-account token. */
-export class HttpArtifactGateway implements ArtifactGateway {
+export class HttpArtifactGateway implements ArtifactGateway, CredentialGateway {
   // ===========================================
   // Construction
   // ===========================================
@@ -301,12 +310,80 @@ export class HttpArtifactGateway implements ArtifactGateway {
   }
 
   // ===========================================
+  // Credentials
+  // ===========================================
+
+  /** Give an app a credential; the value travels only in this request's body. */
+  attachCredential(
+    actor: ArtifactActor,
+    reference: string,
+    grant: AppCredentialGrant,
+  ): Promise<ArtifactDetails> {
+    return this.json(`${this.artifact(actor.ownerId, reference)}/credentials`, {
+      method: "POST",
+      actor,
+      json: grant,
+    });
+  }
+
+  /** Take a credential away from an app. */
+  detachCredential(
+    actor: ArtifactActor,
+    reference: string,
+    env: string,
+  ): Promise<ArtifactDetails> {
+    return this.json(
+      `${this.artifact(actor.ownerId, reference)}/credentials/${encodeURIComponent(env)}`,
+      { method: "DELETE", actor },
+    );
+  }
+
+  /** Deliver a credential's new value to every app that has it. */
+  deliverCredential(
+    credentialId: string,
+    input: CredentialValueInput,
+  ): Promise<CredentialDelivery> {
+    return this.json(`${this.credential(credentialId)}/value`, {
+      method: "PUT",
+      json: input,
+    });
+  }
+
+  /** Revoke a deleted credential from every app. */
+  revokeCredential(credentialId: string): Promise<CredentialDelivery> {
+    return this.json(`${this.credential(credentialId)}/revocation`, {
+      method: "POST",
+    });
+  }
+
+  /** Apps that receive or still hold a credential. */
+  async credentialUses(credentialId: string): Promise<CredentialAppUse[]> {
+    const result = await this.json<{ apps: CredentialAppUse[] }>(
+      `${this.credential(credentialId)}/apps`,
+    );
+    return [...result.apps];
+  }
+
+  /** Every credential the app service knows of. */
+  async credentialInventory(): Promise<CredentialInventoryEntry[]> {
+    const result = await this.json<CredentialInventory>(
+      "/internal/v1/credentials",
+    );
+    return [...result.credentials];
+  }
+
+  // ===========================================
   // Transport
   // ===========================================
 
   /** Path of the owner's resources. */
   private owner(ownerId: string): string {
     return `/internal/v1/owners/${encodeURIComponent(ownerId)}`;
+  }
+
+  /** Path of one credential. */
+  private credential(credentialId: string): string {
+    return `/internal/v1/credentials/${encodeURIComponent(credentialId)}`;
   }
 
   /** Path of one artifact. */

@@ -23,6 +23,7 @@ import {
   ArtifactWorkbench,
   type WorkbenchContext,
 } from "../service/artifact-workbench.js";
+import { noCredentialGrants } from "../../credential/test/credential-fixture.js";
 
 /** A teammate whose workspace holds an app and its private conversation files, beside a shared folder. */
 async function teammate(context: {
@@ -105,7 +106,7 @@ test("publish, build, and checkout accept absolute paths in the workspace and th
   const teammateContext = await teammate(context);
   const { workspace, shared } = teammateContext;
   const { gateway, calls } = recordingGateway([replacing("index.html")]);
-  const workbench = new ArtifactWorkbench(gateway);
+  const workbench = new ArtifactWorkbench(gateway, noCredentialGrants);
   await workbench.build(teammateContext, "app", {
     context: `${workspace}/app`,
   });
@@ -145,7 +146,7 @@ test("publish, build, and checkout accept absolute paths in the workspace and th
 test("publish, build, and checkout refuse the private directory before using the artifact service", async (context) => {
   const teammateContext = await teammate(context);
   const { gateway, calls } = recordingGateway([replacing("chat.jsonl")]);
-  const workbench = new ArtifactWorkbench(gateway);
+  const workbench = new ArtifactWorkbench(gateway, noCredentialGrants);
   const refusals = [
     ...[".pi", `${teammateContext.workspace}/.pi`, "notes", ".pi/sessions"].map(
       (directory) => () =>
@@ -190,7 +191,7 @@ test("the workspace root is refused for every upload and checkout, before the ar
     replacing("app/server.js"),
     replacing(".pi/sessions/chat.jsonl"),
   ]);
-  const workbench = new ArtifactWorkbench(gateway);
+  const workbench = new ArtifactWorkbench(gateway, noCredentialGrants);
   const whole = /is your whole workspace/;
   await assert.rejects(
     workbench.publish(teammateContext, "site", {
@@ -219,7 +220,7 @@ test("the workspace root is refused for every upload and checkout, before the ar
 test("file system failures name the path in the workspace that failed", async (context) => {
   const teammateContext = await teammate(context);
   const { gateway } = recordingGateway([replacing("server.js/index.html")]);
-  const error = await new ArtifactWorkbench(gateway)
+  const error = await new ArtifactWorkbench(gateway, noCredentialGrants)
     .checkout(teammateContext, "site", { directory: "app", overwrite: true })
     .then(
       () => assert.fail("expected the call to fail"),
@@ -229,4 +230,82 @@ test("file system failures name the path in the workspace that failed", async (c
     error.message,
     `Couldn't use "${teammateContext.workspace}/app/server.js": file already exists.`,
   );
+});
+
+test("deploying resolves named credentials among the owner's own and returns only names and statuses", async () => {
+  const deployed: unknown[] = [];
+  const resolved: unknown[] = [];
+  const credentialId = "11111111-1111-4111-8111-111111111111";
+  const gateway = {
+    deploy: async (actor: unknown, reference: string, input: unknown) => {
+      deployed.push([actor, reference, input]);
+      return {
+        credentials: [
+          {
+            credentialId,
+            name: null,
+            env: "SLACK_BOT_TOKEN",
+            version: 1,
+            status: "pending",
+          },
+        ],
+      } as unknown as ArtifactDetails;
+    },
+  } as unknown as ArtifactGateway;
+  const workbench = new ArtifactWorkbench(gateway, {
+    ...noCredentialGrants,
+    resolve: async (ownerId, requests) => {
+      resolved.push([ownerId, requests]);
+      return [
+        {
+          credentialId,
+          env: "SLACK_BOT_TOKEN",
+          version: 1,
+          value: "wb-secret",
+        },
+      ];
+    },
+    named: async (credentials) =>
+      credentials.map((credential) => ({ ...credential, name: "slack" })),
+  });
+  const context = {
+    ownerId: "owner",
+    author: { id: "agent", name: "Ada" },
+    workspace: "/workspace/agent",
+    shared: "/workspace/shared",
+    privateDirectory: "/workspace/agent/.pi",
+  };
+  const result = await workbench.deploy(context, "bot", {
+    build: 2,
+    credentials: [{ name: "slack", env: "SLACK_BOT_TOKEN" }],
+  });
+  assert.deepEqual(resolved, [
+    ["owner", [{ name: "slack", env: "SLACK_BOT_TOKEN" }]],
+  ]);
+  assert.deepEqual(deployed, [
+    [
+      { ownerId: "owner", author: { id: "agent", name: "Ada" } },
+      "bot",
+      {
+        build: 2,
+        credentials: [
+          {
+            credentialId,
+            env: "SLACK_BOT_TOKEN",
+            version: 1,
+            value: "wb-secret",
+          },
+        ],
+      },
+    ],
+  ]);
+  assert.equal(result.credentials[0]?.name, "slack");
+  assert.ok(!JSON.stringify(result).includes("wb-secret"));
+  await workbench.deploy(context, "bot", { build: 2 });
+  assert.equal(resolved.length, 1, "omitted credentials aren't resolved");
+  assert.deepEqual(deployed.at(-1), [
+    { ownerId: "owner", author: { id: "agent", name: "Ada" } },
+    "bot",
+    { build: 2 },
+  ]);
 });
