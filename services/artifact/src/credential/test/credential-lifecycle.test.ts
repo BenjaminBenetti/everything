@@ -71,15 +71,28 @@ async function world() {
       imageDigest: digest,
     });
   }
+  /** Dependencies needed only to build a replacement, which a test can make fail. */
+  const faults = { database: false, capabilities: false };
   const reconciler = new WorkloadReconciler(
     artifacts,
     deployments,
     cluster,
-    { ensure: async () => assert.fail("no database"), remove: async () => {} },
+    {
+      ensure: async (id, password) => {
+        if (faults.database) throw new Error("PostgreSQL is unavailable");
+        return { host: "db", port: 5432, database: "data", user: id, password };
+      },
+      remove: async () => {},
+    },
     "registry.test",
     {
-      reconcile: async () => ({ secretNames: [], fingerprint: null }),
-      remove: async () => {},
+      reconcile: async () => {
+        if (faults.capabilities) throw new Error("Keycloak is unavailable");
+        return { secretNames: [], fingerprint: null };
+      },
+      remove: async () => {
+        if (faults.capabilities) throw new Error("Keycloak is unavailable");
+      },
     },
     lock,
     grants,
@@ -129,6 +142,7 @@ async function world() {
     app,
     artifacts,
     cluster,
+    faults,
     credentials,
     deploy,
     deployments,
@@ -536,4 +550,68 @@ test("deleting an app removes its credential copies", async () => {
     context.cluster.pods.every((pod) => pod.terminating),
     true,
   );
+});
+
+test("withdrawing a credential stops its holders even when the database, capabilities, or new workload can't be provisioned", async () => {
+  for (const fault of ["database", "capabilities", "apply"] as const) {
+    const context = await world();
+    const slack = randomUUID();
+    await context.deploy.deploy(owner, ada, "planner", {
+      database: true,
+      credentials: [grant(slack, "TOKEN")],
+    });
+    context.cluster.settle();
+    if (fault === "apply") context.cluster.failApply = true;
+    else context.faults[fault] = true;
+    await context.credentials
+      .detach(owner, ada, "planner", "TOKEN")
+      .catch(() => undefined);
+    assert.ok(
+      context.cluster.pods.every((pod) => pod.terminating),
+      `${fault}: the holder is stopped before anything else is provisioned`,
+    );
+    assert.deepEqual(
+      (await context.states()).map(({ env, status }) => [env, status]),
+      [["TOKEN", "removing"]],
+      `${fault}: removal stays pending until the process exits`,
+    );
+    context.cluster.settle();
+    assert.ok(
+      context.cluster.environments(context.app.id).every((env) => !env.TOKEN),
+      fault,
+    );
+    assert.equal(context.secrets.secrets.size, 0, `${fault}: copy deleted`);
+  }
+});
+
+test("rotation and deletion stop old holders even when provisioning fails", async () => {
+  const context = await world();
+  const slack = randomUUID();
+  await context.deploy.deploy(owner, ada, "planner", {
+    credentials: [grant(slack, "TOKEN")],
+  });
+  context.cluster.settle();
+  context.faults.capabilities = true;
+  await context.distribution.deliver(slack, { version: 2, value: rotated });
+  assert.ok(context.cluster.pods.every((pod) => pod.terminating));
+  context.cluster.settle();
+  context.faults.capabilities = false;
+  await context.reconciler.reconcileAll();
+  context.cluster.settle();
+  assert.deepEqual(context.cluster.environments(context.app.id), [
+    { TOKEN: rotated },
+  ]);
+
+  context.faults.capabilities = true;
+  await assert.rejects(
+    context.reconciler.remove(
+      (await context.artifacts.getById(context.scope, context.app.id))!,
+    ),
+    /Keycloak/,
+  );
+  assert.ok(
+    context.cluster.pods.every((pod) => pod.terminating),
+    "deleting an app stops its processes before revoking its clients",
+  );
+  assert.equal(context.secrets.secrets.size, 0);
 });

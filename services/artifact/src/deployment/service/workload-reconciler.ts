@@ -66,12 +66,21 @@ export class WorkloadReconciler {
         ? undefined
         : await this.deployments.findByRelease(scope, artifact.liveDeployment);
     const bindings = await this.grants.list(scope);
+    // Withdrawing access comes first and depends on nothing else: any process holding a withdrawn
+    // credential or an older value is deleted, and copies no grant reads are removed, before the
+    // database, capabilities, or new workload are provisioned, any of which may fail. A rolling
+    // update would also keep the old pod until a new one is ready, and a new one may never be.
+    const held =
+      (await this.orchestrator.heldCredentials(artifact.id)).get(artifact.id) ??
+      [];
+    if (holdsWithdrawnCredential(held, bindings))
+      await this.orchestrator.stop(artifact.id);
+    await this.credentialSecrets.prune(
+      artifact.id,
+      grantedSecrets(artifact.id, bindings),
+    );
     if (!artifact.running || !deployment) {
       await this.orchestrator.stop(artifact.id);
-      await this.credentialSecrets.prune(
-        artifact.id,
-        grantedSecrets(artifact.id, bindings),
-      );
       return;
     }
     let databaseFingerprint: string | null = null;
@@ -92,13 +101,6 @@ export class WorkloadReconciler {
       artifact,
       deployment.capabilities,
     );
-    // A rolling update keeps the old pod until a new one is ready, and a new one may never be; a
-    // process holding a withdrawn credential or an older value is therefore deleted first.
-    const held =
-      (await this.orchestrator.heldCredentials(artifact.id)).get(artifact.id) ??
-      [];
-    if (holdsWithdrawnCredential(held, bindings))
-      await this.orchestrator.stop(artifact.id);
     await this.orchestrator.apply({
       artifactId: artifact.id,
       slug: artifact.slug,
@@ -120,10 +122,6 @@ export class WorkloadReconciler {
         version,
       })),
     });
-    await this.credentialSecrets.prune(
-      artifact.id,
-      grantedSecrets(artifact.id, bindings),
-    );
   }
 
   /**
@@ -155,12 +153,17 @@ export class WorkloadReconciler {
     );
   }
 
-  /** Revoke API clients and keys, then delete the artifact's Kubernetes objects, disk, role, and schema. */
+  /**
+   * Stop the app's processes and delete its credential copies first, then revoke API clients and
+   * keys and delete its Kubernetes objects, disk, role, and schema. A failure in a later step can't
+   * leave a process holding credentials.
+   */
   async remove(artifact: Artifact): Promise<void> {
     if (artifact.kind !== "dynamic") return;
+    await this.orchestrator.stop(artifact.id);
+    await this.credentialSecrets.prune(artifact.id, new Set());
     await this.capabilities.remove(artifact);
     await this.orchestrator.remove(artifact.id);
-    await this.credentialSecrets.prune(artifact.id, new Set());
     await this.databases.remove(artifact.id);
   }
 
