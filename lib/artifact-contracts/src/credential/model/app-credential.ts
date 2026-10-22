@@ -53,12 +53,7 @@ export function credentialEnvironmentProblem(
  * - `removing`: detached or deleted, but a process that received it hasn't stopped yet.
  */
 export type AppCredentialStatus =
-  | "applied"
-  | "pending"
-  | "stopped"
-  | "updating"
-  | "missing"
-  | "removing";
+  "applied" | "pending" | "stopped" | "updating" | "missing" | "removing";
 
 /** Every status, for validation schemas. */
 export const appCredentialStatuses = [
@@ -164,4 +159,22 @@ export interface CredentialUse {
 export interface CredentialUsage {
   readonly apps: readonly CredentialUse[];
   readonly otherApps: number;
+}
+
+/**
+ * Where the apps using a credential stand after its value was replaced or it was deleted. `usage`
+ * is null when the app service couldn't be reached; Everything keeps retrying in the background.
+ */
+export interface CredentialRollout {
+  /**
+   * After a replacement, every app has the new value stored; after a deletion, no app has a grant
+   * and no process still holds it. Processes may still be restarting; see each app's status.
+   */
+  readonly complete: boolean;
+  readonly usage: CredentialUsage | null;
+}
+
+/** The credentials one app receives, after attaching or removing one. */
+export interface AppCredentialList {
+  readonly credentials: readonly AppCredential[];
 }
