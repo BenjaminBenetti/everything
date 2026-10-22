@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createAuthenticatedTransport } from "../adapter/authenticated-transport.js";
 import { HttpAgentDirectory } from "../../agent/adapter/http-agent-directory.js";
+import { HttpRequestError } from "../model/http-request-error.js";
 
 test("uses same-origin cookies without exposing tokens and sends only definition operations", async () => {
   const requests: { path: string; options: RequestInit }[] = [];
@@ -93,4 +94,26 @@ test("uploads raw bytes with their own content type under the same path and requ
       /Invalid API path/,
     );
   assert.equal(requests.length, 1);
+});
+
+test("failures keep only a well-formed error code from the body, never its message", async () => {
+  for (const [body, expected] of [
+    [{ code: "KEY_NAME_TAKEN", message: "Private details" }, "KEY_NAME_TAKEN"],
+    [{ code: "not a code with spaces" }, undefined],
+    [{ code: 42 }, undefined],
+    ["Private upstream details", undefined],
+  ] as const) {
+    const transport = createAuthenticatedTransport(async () =>
+      typeof body === "string"
+        ? new Response(body, { status: 409 })
+        : Response.json(body, { status: 409 }),
+    );
+    await assert.rejects(transport.request("/v1/keys"), (error) => {
+      assert.ok(error instanceof HttpRequestError);
+      assert.equal(error.status, 409);
+      assert.equal(error.code, expected);
+      assert.ok(!error.message.includes("Private"));
+      return true;
+    });
+  }
 });

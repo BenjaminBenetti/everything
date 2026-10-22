@@ -9,10 +9,13 @@ import { useKeys } from "../component/key-directory-provider.js";
 import { KeyCard } from "../component/key-card.js";
 import { KeyEditor } from "../component/key-editor.js";
 import { KeyDeletionDialog } from "../component/key-deletion-dialog.js";
+import { CredentialReplacementDialog } from "../component/credential-replacement-dialog.js";
+import { CredentialUsageDialog } from "../component/credential-usage-dialog.js";
 import { keyTypeLabel, keyTypeOptions } from "../model/key-formats.js";
 
 type KeyDialog =
-  { kind: "add" } | { kind: "rename" | "delete"; item: SavedKey };
+  | { kind: "add" }
+  | { kind: "rename" | "delete" | "replace" | "usage"; item: SavedKey };
 
 /** Browse and manage named keys with independent name search and type filtering. */
 export function KeysPage() {
@@ -47,7 +50,7 @@ export function KeysPage() {
     <div className="content-inner keys-page">
       <PageHeading
         title="Keys"
-        description="Manage the keys shared across this installation."
+        description="Manage the SSH keys and credentials shared across this installation."
         action={
           <Button onClick={() => open({ kind: "add" })}>
             <Plus aria-hidden="true" />
@@ -113,6 +116,8 @@ export function KeysPage() {
                   item={item}
                   onRename={() => open({ kind: "rename", item })}
                   onDelete={() => open({ kind: "delete", item })}
+                  onReplace={() => open({ kind: "replace", item })}
+                  onUsage={() => open({ kind: "usage", item })}
                 />
               ))}
               {!hasFilter && (
@@ -123,7 +128,7 @@ export function KeysPage() {
                   <Plus aria-hidden="true" />
                   <span>
                     <strong>Add a key</strong>
-                    <small>Upload a file or paste key contents</small>
+                    <small>An SSH key or a credential for your apps</small>
                   </span>
                 </button>
               )}
@@ -159,7 +164,19 @@ export function KeysPage() {
         <KeyDeletionDialog
           item={dialog.item}
           onClose={() => setDialog(null)}
-          onDeleted={() => setMessage("Key deleted.")}
+          onDeleted={setMessage}
+        />
+      )}
+      {dialog?.kind === "replace" && (
+        <CredentialReplacementDialog
+          item={dialog.item}
+          onClose={() => setDialog(null)}
+        />
+      )}
+      {dialog?.kind === "usage" && (
+        <CredentialUsageDialog
+          item={dialog.item}
+          onClose={() => setDialog(null)}
         />
       )}
     </div>

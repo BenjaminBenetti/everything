@@ -1,6 +1,7 @@
 import { createContext, useContext, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useSession } from "../../session/component/session-provider.js";
+import { isSettledUsage } from "../../artifact/model/credential-presentation.js";
 import type { KeyDirectory } from "../interface/key-directory.js";
 
 const KeyDirectoryContext = createContext<KeyDirectory | null>(null);
@@ -37,6 +38,26 @@ export function useKeys() {
     enabled: !!profile,
     staleTime: 30_000,
     refetchInterval: 5000,
+    retry: false,
+  });
+}
+
+/**
+ * Read which apps receive a generic credential while a dialog shows it. With `follow`, keep
+ * polling until every app has settled, so a restart is never reported as finished early.
+ */
+export function useCredentialUsage(id: string, follow = false) {
+  const directory = useKeyDirectory();
+  const { profile } = useSession();
+  return useQuery({
+    queryKey: ["keys", profile?.subject, id, "apps"],
+    queryFn: ({ signal }) => directory.usage(id, signal),
+    enabled: !!profile,
+    staleTime: 0,
+    refetchInterval: (query) =>
+      follow && query.state.data && !isSettledUsage(query.state.data.apps)
+        ? 2000
+        : false,
     retry: false,
   });
 }
