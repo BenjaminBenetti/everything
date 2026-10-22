@@ -7,6 +7,8 @@ export const artifactLabels = {
   artifactId: "everything.dev/artifact-id",
   slug: "everything.dev/artifact-slug",
   buildId: "everything.dev/build-id",
+  credentialId: "everything.dev/credential-id",
+  credentialVersion: "everything.dev/credential-version",
 } as const;
 
 /** A UUID without hyphens, which keeps derived names short and valid in Kubernetes and PostgreSQL. */
@@ -24,6 +26,20 @@ export function artifactResourceName(artifactId: string): string {
 /** Name of the Secret holding an artifact's database connection. */
 export function databaseSecretName(artifactId: string): string {
   return `${artifactResourceName(artifactId)}-database`;
+}
+
+/**
+ * Name of the immutable Secret holding one version of a credential for one app. Every version gets a
+ * new name, so a pod can only start with the exact version its specification names.
+ */
+export function credentialSecretName(
+  artifactId: string,
+  credentialId: string,
+  version: number,
+): string {
+  if (!Number.isSafeInteger(version) || version < 1)
+    throw new Error("Expected a credential version");
+  return `${artifactResourceName(artifactId)}-credential-${compact(credentialId)}-v${version}`;
 }
 
 /** Name of the persistent volume claim mounted at an artifact's `/data`. */

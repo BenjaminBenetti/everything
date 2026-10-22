@@ -4,6 +4,7 @@ import {
   artifactCapabilities,
   environmentNamePattern,
 } from "@everything/artifact-contracts";
+import { credentialGrants } from "../../credential/schema/credential-request.js";
 
 /** Request body deploying a build; omitted settings keep the live deployment's values. */
 export const deployBody = Type.Object(
@@ -27,6 +28,7 @@ export const deployBody = Type.Object(
         },
       ),
     ),
+    credentials: Type.Optional(credentialGrants),
     diskGi: Type.Optional(
       Type.Union([
         Type.Integer({ minimum: 1, maximum: artifactLimits.diskGi }),

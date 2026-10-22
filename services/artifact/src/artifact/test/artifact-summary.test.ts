@@ -30,6 +30,7 @@ test("summaries expose only public capability flags from the owner's current dep
     new ArtifactLookup(artifacts),
     new ArtifactLock(),
     "http://apps.test",
+    { states: async () => new Map() },
   );
   const app = artifacts.add("dynamic", "planner", {
     liveDeployment: 2,

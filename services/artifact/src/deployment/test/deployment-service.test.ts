@@ -59,6 +59,11 @@ async function fixture() {
         });
       },
     },
+    {
+      current: async () => [],
+      replace: async () => assert.fail("no credentials were requested"),
+      redact: async (_artifact, text) => text,
+    },
   );
   const lifecycle = new ArtifactLifecycleService(
     artifacts,

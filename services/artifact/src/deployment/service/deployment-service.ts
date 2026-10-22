@@ -13,6 +13,11 @@ import {
   type ArtifactLookup,
 } from "../../artifact/service/artifact-lookup.js";
 import type { AppApiKeyStore } from "../../capability/interface/app-api-key-store.js";
+import {
+  requireSeparateVariables,
+  requireValidGrants,
+  type AppCredentials,
+} from "../../credential/service/app-credentials.js";
 import { BuildNotReadyError } from "../../image/error/build-errors.js";
 import type { BuildRepository } from "../../image/interface/build-repository.js";
 import {
@@ -36,7 +41,7 @@ export class DeploymentService {
   // Construction
   // ===========================================
 
-  /** Inject storage, the reconciler, the orchestrator for logs, the per-artifact lock, and API keys. */
+  /** Inject storage, the reconciler, the orchestrator for logs, the per-artifact lock, API keys, and credentials. */
   constructor(
     private readonly artifacts: Pick<ArtifactRepository, "update">,
     private readonly deployments: DeploymentRepository,
@@ -49,13 +54,20 @@ export class DeploymentService {
     private readonly lookup: ArtifactLookup,
     private readonly lock: ArtifactLock,
     private readonly apiKeys: Pick<AppApiKeyStore, "revoke">,
+    private readonly credentials: Pick<
+      AppCredentials,
+      "current" | "replace" | "redact"
+    >,
   ) {}
 
   // ===========================================
   // Operations
   // ===========================================
 
-  /** Record a deployment of a successful build as the next release, then run it. */
+  /**
+   * Record a deployment of a successful build as the next release, then run it. Supplied credentials
+   * replace the app's grants; omitted ones keep the current grants, never an earlier release's.
+   */
   async deploy(
     ownerId: string,
     actor: ArtifactAuthor,
@@ -64,6 +76,7 @@ export class DeploymentService {
   ): Promise<Artifact> {
     for (const name of Object.keys(input.env ?? {}))
       if (reserved.has(name)) throw new ReservedVariableError(name);
+    if (input.credentials) requireValidGrants(input.credentials);
     const { id } = await this.lookup.resolveKind(ownerId, reference, "dynamic");
     return this.lock.run(id, async () => {
       const artifact = await this.lookup.resolveKind(ownerId, id, "dynamic");
@@ -83,6 +96,15 @@ export class DeploymentService {
         settings.diskGi !== artifact.diskGi
       )
         throw new DiskSizeFixedError(artifact.diskGi);
+      // Check the final environment, including grants kept from before, before changing anything.
+      requireSeparateVariables(
+        settings.env,
+        input.credentials ?? (await this.credentials.current(scope)),
+      );
+      // Grants are checked against revocations atomically and stored before the release, so a
+      // refused credential leaves the app exactly as it was.
+      if (input.credentials)
+        await this.credentials.replace(scope, input.credentials);
       const release = artifact.release + 1;
       // Revoke before recording the change: a failure leaves the key working instead of revivable.
       if (
@@ -112,7 +134,10 @@ export class DeploymentService {
     });
   }
 
-  /** Read recent output of the artifact's container. */
+  /**
+   * Read recent output of the artifact's container, hiding exact copies of its current credential
+   * values. Output the app transformed, or values it already printed elsewhere, can't be detected.
+   */
   async logs(
     ownerId: string,
     reference: string,
@@ -123,7 +148,10 @@ export class DeploymentService {
       reference,
       "dynamic",
     );
-    return this.orchestrator.logs(artifact.id, options);
+    return this.credentials.redact(
+      artifact,
+      await this.orchestrator.logs(artifact.id, options),
+    );
   }
 
   // ===========================================
