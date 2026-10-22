@@ -174,8 +174,12 @@ test("an app's credentials show names and variables, and attaching sends only an
   await expect(dialog).toContainText("SLACK_BOT_TOKEN");
   await expect(dialog).toContainText("In use");
   await expect(dialog.getByRole("note")).toContainText(
-    "only attach credentials to apps you trust",
+    "Only attach credentials to apps you trust",
   );
+  await expect(dialog.getByRole("note")).toContainText(
+    "could send it anywhere, including to its own pages",
+  );
+  await expect(dialog.getByRole("note")).not.toContainText("never given");
   await dialog
     .getByRole("combobox", { name: "Credential", exact: true })
     .click();
