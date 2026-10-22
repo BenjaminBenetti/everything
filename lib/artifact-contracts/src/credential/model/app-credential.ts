@@ -135,6 +135,8 @@ export interface CredentialAppUse {
   readonly env: string;
   readonly version: number;
   readonly status: AppCredentialStatus;
+  /** Random identity of the value the grant holds; null for a process still holding a removed one. */
+  readonly valueId?: string | null;
 }
 
 /**

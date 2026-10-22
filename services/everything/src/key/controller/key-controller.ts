@@ -12,6 +12,7 @@ import {
   keyParams,
   renameKeyBody,
   replaceKeyValueBody,
+  secretBodyLimit,
   type CreateKeyBody,
   type KeyParams,
   type RenameKeyBody,
@@ -55,6 +56,7 @@ export async function keyController(
   app.post<{ Body: CreateKeyBody }>(
     "/keys",
     {
+      bodyLimit: secretBodyLimit,
       schema: {
         summary: "Store an encrypted key or generic credential",
         description:
@@ -89,6 +91,7 @@ export async function keyController(
   app.put<{ Params: KeyParams; Body: ReplaceKeyValueBody }>(
     "/keys/:keyId/value",
     {
+      bodyLimit: secretBodyLimit,
       schema: {
         summary: "Replace a generic credential's value",
         description:

@@ -78,6 +78,7 @@ export class PostgresKeyRepository
     scope: KeyScope,
     id: string,
     encryptedMaterial: string,
+    valueId: string,
   ): Promise<StoredKey | undefined> {
     if (!id) throw new Error("A key identifier is required");
     const result = await this.orm.update(
@@ -90,6 +91,7 @@ export class PostgresKeyRepository
       },
       {
         encryptedMaterial,
+        valueId,
         version: () => "version + 1",
         updatedAt: new Date().toISOString(),
       },

@@ -1,6 +1,6 @@
 import type { ArtifactDetails } from "@everything/artifact-contracts";
 import type {
-  AppCredentialGrant,
+  AppCredentialAttachment,
   CredentialAppUse,
   CredentialDelivery,
   CredentialInventoryEntry,
@@ -14,7 +14,7 @@ export interface CredentialGateway {
   attachCredential(
     actor: ArtifactActor,
     reference: string,
-    grant: AppCredentialGrant,
+    grant: AppCredentialAttachment,
   ): Promise<ArtifactDetails>;
   /** Take a credential away from one of the owner's apps. */
   detachCredential(

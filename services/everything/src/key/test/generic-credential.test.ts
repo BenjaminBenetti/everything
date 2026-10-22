@@ -7,6 +7,7 @@ import { isSshKeyMaterial } from "@everything/key-contracts/ssh";
 import { SessionCipher } from "@everything/security/session-cipher";
 import type { CredentialRollout } from "@everything/artifact-contracts/credential";
 import { strictRequestValidation } from "../../http/config/request-validation.js";
+import { requestBodyLimit } from "../../http/config/request-limits.js";
 import { keyController } from "../controller/key-controller.js";
 import type { KeyRepository } from "../interface/key-repository.js";
 import type { KeyActor } from "../model/key-actor.js";
@@ -231,7 +232,10 @@ test("blank, NUL, unpaired-surrogate, and oversized values are refused without b
 /** The key routes over a real service, authenticated as the subject and app in test headers. */
 async function server(rollouts: CredentialRollout[] = []) {
   const keys = memoryKeys();
-  const app = Fastify({ ajv: strictRequestValidation });
+  const app = Fastify({
+    ajv: strictRequestValidation,
+    bodyLimit: requestBodyLimit,
+  });
   app.setErrorHandler(errorHandler);
   app.decorateRequest("identity", null);
   app.addHook("onRequest", async (request) => {
@@ -336,5 +340,55 @@ test("no key route ever answers with a credential value, including errors", asyn
   for (const body of bodies) {
     assert.ok(!body.includes("gc-sentinel"), body);
     assert.ok(!body.includes("encryptedMaterial"), body);
+  }
+});
+
+test("values of the full size are accepted however JSON escapes them, and larger bodies are refused without echo", async (context) => {
+  const { app, cipher, records } = await server();
+  context.after(() => app.close());
+  const full = [
+    "\\".repeat(keyLimits.materialLength),
+    '"'.repeat(keyLimits.materialLength),
+    "\u0001".repeat(keyLimits.materialLength),
+    "é".repeat(keyLimits.materialLength / 2),
+  ];
+  const created = await app.inject({
+    method: "POST",
+    url: "/keys",
+    payload: {
+      name: "escaped",
+      type: "generic",
+      description: '"'.repeat(keyLimits.descriptionLength),
+      material: full[0],
+    },
+  });
+  assert.equal(created.statusCode, 201, created.body);
+  assert.ok(JSON.stringify({ material: full[0] }).length > requestBodyLimit);
+  const id = created.json().id as string;
+  for (const material of full) {
+    const replaced = await app.inject({
+      method: "PUT",
+      url: `/keys/${id}/value`,
+      payload: { material },
+    });
+    assert.equal(replaced.statusCode, 200, replaced.body.slice(0, 200));
+    assert.equal(
+      await cipher.open(records.get(id)!.encryptedMaterial),
+      material,
+    );
+  }
+  for (const [material, status] of [
+    ["\\".repeat(keyLimits.materialLength + 1), 400],
+    ["é".repeat(keyLimits.materialLength / 2 + 1), 400],
+    ["\u0001".repeat(keyLimits.materialLength * 2), 413],
+  ] as const) {
+    const refused = await app.inject({
+      method: "PUT",
+      url: `/keys/${id}/value`,
+      payload: { material: `gc-sentinel-${material}` },
+    });
+    assert.equal(refused.statusCode, status);
+    assert.ok(!refused.body.includes("gc-sentinel"));
+    assert.ok(refused.body.length < 200);
   }
 });

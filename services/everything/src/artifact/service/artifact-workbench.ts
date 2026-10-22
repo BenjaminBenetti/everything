@@ -13,9 +13,10 @@ import type {
   DeployInput,
 } from "@everything/artifact-contracts";
 import type { CredentialBindingRequest } from "@everything/artifact-contracts/credential";
-import type {
-  CredentialCatalogEntry,
-  CredentialGrants,
+import {
+  needsAlignment,
+  type CredentialCatalogEntry,
+  type CredentialGrants,
 } from "../../credential/service/credential-grants.js";
 import type {
   ArtifactActor,
@@ -78,7 +79,7 @@ export class ArtifactWorkbench {
     private readonly gateway: ArtifactGateway,
     private readonly credentials: Pick<
       CredentialGrants,
-      "resolve" | "named" | "catalog"
+      "resolve" | "named" | "catalog" | "align"
     >,
   ) {}
 
@@ -285,26 +286,47 @@ export class ArtifactWorkbench {
 
   /**
    * Deploy a build as the next release. Named credentials are resolved among the owner's own
-   * generic credentials and sent as grants; values never appear in the result.
+   * generic credentials and sent as grants, with the app's credential generation read before they
+   * were authorized, so a removal in between refuses them; values never appear in the result. A
+   * refusal because apps hold another value of a credential is retried once after alignment.
    */
   async deploy(
     context: WorkbenchContext,
     reference: string,
     { credentials, ...input }: WorkbenchDeployInput,
   ): Promise<ArtifactDetails> {
-    return this.named(
-      await this.gateway.deploy(this.actor(context), reference, {
+    const actor = this.actor(context);
+    if (!credentials?.length)
+      return this.named(
+        await this.gateway.deploy(actor, reference, {
+          ...input,
+          ...(credentials ? { credentials: [] } : {}),
+        }),
+      );
+    let granted: string[] = [];
+    const attempt = async () => {
+      const { credentialGeneration } = await this.gateway.get(
+        context.ownerId,
+        reference,
+      );
+      const grants = await this.credentials.resolve(
+        context.ownerId,
+        credentials,
+      );
+      granted = grants.map((grant) => grant.credentialId);
+      return this.gateway.deploy(actor, reference, {
         ...input,
-        ...(credentials
-          ? {
-              credentials: await this.credentials.resolve(
-                context.ownerId,
-                credentials,
-              ),
-            }
-          : {}),
-      }),
-    );
+        credentials: grants,
+        credentialGeneration,
+      });
+    };
+    try {
+      return this.named(await attempt());
+    } catch (error) {
+      if (!needsAlignment(error)) throw error;
+      await this.credentials.align(granted);
+      return this.named(await attempt());
+    }
   }
 
   /** Stop a published app while retaining its release and data. */

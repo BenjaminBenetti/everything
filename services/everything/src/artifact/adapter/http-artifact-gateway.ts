@@ -23,7 +23,7 @@ import type {
   UpdateArtifactInput,
 } from "@everything/artifact-contracts";
 import type {
-  AppCredentialGrant,
+  AppCredentialAttachment,
   CredentialAppUse,
   CredentialDelivery,
   CredentialInventory,
@@ -317,7 +317,7 @@ export class HttpArtifactGateway implements ArtifactGateway, CredentialGateway {
   attachCredential(
     actor: ArtifactActor,
     reference: string,
-    grant: AppCredentialGrant,
+    grant: AppCredentialAttachment,
   ): Promise<ArtifactDetails> {
     return this.json(`${this.artifact(actor.ownerId, reference)}/credentials`, {
       method: "POST",

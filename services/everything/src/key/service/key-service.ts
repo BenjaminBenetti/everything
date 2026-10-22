@@ -86,6 +86,7 @@ export class KeyService implements KeyOperations {
       encryptedMaterial: await this.cipher.seal(material),
       description: generic ? validDescription(input.description ?? "") : null,
       version: 1,
+      valueId: generic ? randomUUID() : null,
       updatedAt: createdAt,
       deletedAt: null,
     };
@@ -130,6 +131,7 @@ export class KeyService implements KeyOperations {
       scopeOf(actor),
       id,
       await this.cipher.seal(input.material),
+      randomUUID(),
     );
     if (!key) throw new KeyNotFoundError();
     return keyMetadata(key, actor);

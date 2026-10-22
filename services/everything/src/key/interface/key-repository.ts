@@ -21,6 +21,7 @@ export interface KeyRepository extends Repository<StoredKey, KeyScope> {
     scope: KeyScope,
     id: string,
     encryptedMaterial: string,
+    valueId: string,
   ): Promise<StoredKey | undefined>;
   /** Mark a generic credential deleted and erase its value, keeping the record for removal from apps. */
   markDeleted(scope: KeyScope, id: string): Promise<void>;

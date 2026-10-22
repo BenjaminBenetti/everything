@@ -1,11 +1,14 @@
 import AsyncLock from "async-lock";
 import type {
   CredentialDelivery,
+  CredentialInventoryEntry,
   CredentialRollout,
 } from "@everything/artifact-contracts/credential";
 import type { SecretCipher } from "@everything/security/session-cipher";
+import { ArtifactRequestFailure } from "../../artifact/error/artifact-errors.js";
 import type { GenericCredentialRepository } from "../../key/interface/generic-credential-repository.js";
 import type { KeyActor } from "../../key/model/key-actor.js";
+import type { StoredKey } from "../../key/model/stored-key.js";
 import { CredentialUnavailableError } from "../error/credential-errors.js";
 import type { CredentialGateway } from "../interface/credential-gateway.js";
 import { usageFor } from "../model/credential-usage.js";
@@ -27,7 +30,7 @@ export class CredentialRollouts {
   constructor(
     private readonly credentials: Pick<
       GenericCredentialRepository,
-      "getById" | "list" | "purge"
+      "getById" | "list" | "purge" | "advanceVersion"
     >,
     private readonly cipher: Pick<SecretCipher, "open">,
     private readonly gateway: Pick<
@@ -48,19 +51,38 @@ export class CredentialRollouts {
   async deliver(actor: KeyActor, id: string): Promise<CredentialRollout> {
     try {
       const delivery = await this.lock.acquire(id, () =>
-        this.deliverCurrent(id),
+        this.deliverOrAlign(id),
       );
-      return delivery
-        ? {
-            complete: delivery.complete,
-            usage: usageFor(actor.subject, delivery.apps),
-          }
-        : { complete: true, usage: { apps: [], otherApps: 0 } };
+      if (!delivery)
+        return { complete: true, usage: { apps: [], otherApps: 0 } };
+      const saved = await this.credentials.getById(
+        { usage: "credential-sync" },
+        id,
+      );
+      return {
+        complete: delivery.complete,
+        usage: usageFor(
+          actor.subject,
+          delivery.apps,
+          saved && !saved.deletedAt ? saved : undefined,
+        ),
+      };
     } catch (error) {
       if (error instanceof CredentialUnavailableError) throw error;
       this.reportFailure("delivery");
       return { complete: false, usage: null };
     }
+  }
+
+  /**
+   * Make apps hold the stored value when they hold a different one at the same or a newer version,
+   * for example after Everything's database was restored: save the value past their version, then
+   * deliver it. Grants of a credential call this before retrying once.
+   */
+  async align(id: string): Promise<void> {
+    await this.lock.acquire(id, async () => {
+      if (await this.realign(id)) await this.deliverCurrent(id);
+    });
   }
 
   /**
@@ -104,14 +126,15 @@ export class CredentialRollouts {
       const entry = inventory.find(
         (candidate) => candidate.credentialId === credential.id,
       );
+      if (!entry || entry.oldestVersion === null) continue;
       if (
-        entry &&
-        entry.oldestVersion !== null &&
-        (entry.oldestVersion < credential.version || entry.missing)
+        diverged(entry, credential) ||
+        entry.oldestVersion < credential.version ||
+        entry.missing
       )
         await this.quietly("delivery", () =>
           this.lock.acquire(credential.id, () =>
-            this.deliverCurrent(credential.id),
+            this.deliverOrAlign(credential.id),
           ),
         );
     }
@@ -132,6 +155,50 @@ export class CredentialRollouts {
   // Steps
   // ===========================================
 
+  /**
+   * Deliver the stored value; when apps already hold another value at that version or a newer
+   * one, save the value past their version and deliver it once more.
+   */
+  private async deliverOrAlign(
+    id: string,
+  ): Promise<CredentialDelivery | undefined> {
+    try {
+      return await this.deliverCurrent(id);
+    } catch (error) {
+      if (
+        !(error instanceof ArtifactRequestFailure) ||
+        (error.code !== "CREDENTIAL_VALUE_CONFLICT" &&
+          error.code !== "CREDENTIAL_SUPERSEDED")
+      )
+        throw error;
+      if (!(await this.realign(id))) throw error;
+      return this.deliverCurrent(id);
+    }
+  }
+
+  /**
+   * Compare the stored version and value with the newest the app service recorded; if apps hold a
+   * newer version or another value at this one, save the stored value one version past theirs.
+   * Returns whether it moved the version.
+   */
+  private async realign(id: string): Promise<boolean> {
+    const credential = await this.credentials.getById(
+      { usage: "credential-sync" },
+      id,
+    );
+    if (!credential || credential.deletedAt || !credential.valueId)
+      return false;
+    const entry = (await this.gateway.credentialInventory()).find(
+      (candidate) => candidate.credentialId === id,
+    );
+    if (!entry || !diverged(entry, credential)) return false;
+    return this.credentials.advanceVersion(
+      id,
+      { version: credential.version, valueId: credential.valueId },
+      entry.version! + 1,
+    );
+  }
+
   /** Send the stored version and value; a credential deleted meanwhile is left to revocation. */
   private async deliverCurrent(
     id: string,
@@ -140,7 +207,8 @@ export class CredentialRollouts {
       { usage: "credential-sync" },
       id,
     );
-    if (!credential || credential.deletedAt) return undefined;
+    if (!credential || credential.deletedAt || !credential.valueId)
+      return undefined;
     let value: string;
     try {
       value = await this.cipher.open(credential.encryptedMaterial);
@@ -149,6 +217,7 @@ export class CredentialRollouts {
     }
     return this.gateway.deliverCredential(id, {
       version: credential.version,
+      valueId: credential.valueId,
       value,
     });
   }
@@ -171,4 +240,21 @@ export class CredentialRollouts {
       this.reportFailure(task);
     }
   }
+}
+
+/**
+ * Whether apps hold a value the stored one can't follow by version alone: a newer version, or
+ * another value at the same version, as after Everything's database was restored.
+ */
+function diverged(
+  entry: CredentialInventoryEntry,
+  credential: Pick<StoredKey, "version" | "valueId">,
+): boolean {
+  return (
+    entry.version !== null &&
+    (entry.version > credential.version ||
+      (entry.version === credential.version &&
+        entry.valueId !== null &&
+        entry.valueId !== credential.valueId))
+  );
 }

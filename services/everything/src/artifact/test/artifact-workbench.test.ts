@@ -24,6 +24,7 @@ import {
   type WorkbenchContext,
 } from "../service/artifact-workbench.js";
 import { noCredentialGrants } from "../../credential/test/credential-fixture.js";
+import { ArtifactRequestFailure } from "../error/artifact-errors.js";
 
 /** A teammate whose workspace holds an app and its private conversation files, beside a shared folder. */
 async function teammate(context: {
@@ -232,12 +233,19 @@ test("file system failures name the path in the workspace that failed", async (c
   );
 });
 
-test("deploying resolves named credentials among the owner's own and returns only names and statuses", async () => {
+test("deploying resolves named credentials among the owner's own, after reading the app's generation, and returns only names and statuses", async () => {
   const deployed: unknown[] = [];
-  const resolved: unknown[] = [];
+  const events: string[] = [];
   const credentialId = "11111111-1111-4111-8111-111111111111";
+  const valueId = "9c0b7a52-6d0e-4f0d-9a77-0f2a3f1f6c01";
+  const refusals: Error[] = [];
   const gateway = {
+    get: async () => {
+      events.push("generation");
+      return { credentialGeneration: 7 } as unknown as ArtifactDetails;
+    },
     deploy: async (actor: unknown, reference: string, input: unknown) => {
+      if (refusals.length) throw refusals.shift();
       deployed.push([actor, reference, input]);
       return {
         credentials: [
@@ -255,18 +263,20 @@ test("deploying resolves named credentials among the owner's own and returns onl
   const workbench = new ArtifactWorkbench(gateway, {
     ...noCredentialGrants,
     resolve: async (ownerId, requests) => {
-      resolved.push([ownerId, requests]);
+      events.push(`resolve:${ownerId}:${requests.map((r) => r.name)}`);
       return [
         {
           credentialId,
           env: "SLACK_BOT_TOKEN",
           version: 1,
+          valueId,
           value: "wb-secret",
         },
       ];
     },
     named: async (credentials) =>
       credentials.map((credential) => ({ ...credential, name: "slack" })),
+    align: async (ids) => void events.push(`align:${ids}`),
   });
   const context = {
     ownerId: "owner",
@@ -279,9 +289,8 @@ test("deploying resolves named credentials among the owner's own and returns onl
     build: 2,
     credentials: [{ name: "slack", env: "SLACK_BOT_TOKEN" }],
   });
-  assert.deepEqual(resolved, [
-    ["owner", [{ name: "slack", env: "SLACK_BOT_TOKEN" }]],
-  ]);
+  // The generation is read before the grant is authorized, so a removal in between refuses it.
+  assert.deepEqual(events, ["generation", "resolve:owner:slack"]);
   assert.deepEqual(deployed, [
     [
       { ownerId: "owner", author: { id: "agent", name: "Ada" } },
@@ -293,19 +302,48 @@ test("deploying resolves named credentials among the owner's own and returns onl
             credentialId,
             env: "SLACK_BOT_TOKEN",
             version: 1,
+            valueId,
             value: "wb-secret",
           },
         ],
+        credentialGeneration: 7,
       },
     ],
   ]);
   assert.equal(result.credentials[0]?.name, "slack");
   assert.ok(!JSON.stringify(result).includes("wb-secret"));
+
+  // Omitted credentials and an explicit [] need neither resolution nor a generation.
+  events.length = 0;
   await workbench.deploy(context, "bot", { build: 2 });
-  assert.equal(resolved.length, 1, "omitted credentials aren't resolved");
-  assert.deepEqual(deployed.at(-1), [
-    { ownerId: "owner", author: { id: "agent", name: "Ada" } },
-    "bot",
-    { build: 2 },
+  await workbench.deploy(context, "bot", { build: 2, credentials: [] });
+  assert.deepEqual(events, []);
+  assert.deepEqual(
+    deployed.slice(1).map((call) => (call as unknown[])[2]),
+    [{ build: 2 }, { build: 2, credentials: [] }],
+  );
+
+  // Another value at the same version is aligned once and retried; a stale generation is not.
+  refusals.push(
+    new ArtifactRequestFailure(409, "CREDENTIAL_VALUE_CONFLICT", "Conflict."),
+  );
+  await workbench.deploy(context, "bot", {
+    credentials: [{ name: "slack", env: "SLACK_BOT_TOKEN" }],
+  });
+  assert.deepEqual(events, [
+    "generation",
+    "resolve:owner:slack",
+    `align:${credentialId}`,
+    "generation",
+    "resolve:owner:slack",
   ]);
+  refusals.push(
+    new ArtifactRequestFailure(409, "CREDENTIAL_GRANTS_CHANGED", "Changed."),
+  );
+  await assert.rejects(
+    workbench.deploy(context, "bot", {
+      credentials: [{ name: "slack", env: "SLACK_BOT_TOKEN" }],
+    }),
+    { code: "CREDENTIAL_GRANTS_CHANGED" },
+  );
 });

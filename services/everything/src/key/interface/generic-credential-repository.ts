@@ -14,4 +14,13 @@ export interface GenericCredentialRepository extends Repository<
   findByName(scope: CredentialGrantScope, name: string): Promise<StoredKey[]>;
   /** Delete a credential's record once it is deleted and no app holds it; live ones are kept. */
   purge(id: string): Promise<void>;
+  /**
+   * Save a live credential's unchanged value under a higher version, only if its version and value
+   * identity are still those given. Returns whether it did.
+   */
+  advanceVersion(
+    id: string,
+    from: { readonly version: number; readonly valueId: string },
+    version: number,
+  ): Promise<boolean>;
 }

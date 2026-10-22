@@ -10,6 +10,11 @@ export interface StoredKey extends OwnedEntity {
   readonly description: string | null;
   /** Increases each time the value is replaced, so apps can tell a newer value from an older one. */
   readonly version: number;
+  /**
+   * Random identity of the saved value, regenerated on every replacement; never derived from the
+   * value. Apps compare it to tell a value from a different one at the same version. Null for SSH.
+   */
+  readonly valueId: string | null;
   /** When the value was last saved. */
   readonly updatedAt: string;
   /**

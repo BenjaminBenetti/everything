@@ -31,6 +31,7 @@ import {
   type ReadinessCheck,
 } from "../../health/controller/health-controller.js";
 import { strictRequestValidation } from "../../http/config/request-validation.js";
+import { requestBodyLimit } from "../../http/config/request-limits.js";
 import { errorHandler } from "@everything/errors/fastify";
 import { identityController } from "../../identity/controller/identity-controller.js";
 import { providerController } from "../../provider/controller/provider-controller.js";
@@ -108,7 +109,7 @@ export async function createHttpApplication(
   const app = Fastify({
     // Client addresses for rate limiting and logs come from the ingress's forwarded headers.
     trustProxy: true,
-    bodyLimit: 64 * 1024,
+    bodyLimit: requestBodyLimit,
     requestTimeout: 15_000,
     logger: {
       serializers: {

@@ -25,6 +25,7 @@ export const KeyEntity = new EntitySchema<StoredKey>({
       nullable: true,
     },
     version: { type: "integer", default: 1 },
+    valueId: { name: "value_id", type: "uuid", nullable: true },
     updatedAt: {
       name: "updated_at",
       type: "timestamptz",

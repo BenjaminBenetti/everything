@@ -48,6 +48,7 @@ test("database operations explicitly scope the shared installation and preserve 
     encryptedMaterial: "ciphertext",
     description: null,
     version: 1,
+    valueId: null,
     updatedAt: new Date().toISOString(),
     deletedAt: null,
   };

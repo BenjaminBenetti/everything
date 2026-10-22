@@ -66,6 +66,7 @@ function generic(name: string, ownerId = "owner"): StoredKey {
     encryptedMaterial: "ciphertext",
     description: "",
     version: 1,
+    valueId: randomUUID(),
     updatedAt: now,
     deletedAt: null,
   };
@@ -167,7 +168,12 @@ test(
 
     await Promise.all(
       Array.from({ length: 10 }, (_, index) =>
-        keys.replaceMaterial(scope, slack.id, `ciphertext-${index}`),
+        keys.replaceMaterial(
+          scope,
+          slack.id,
+          `ciphertext-${index}`,
+          randomUUID(),
+        ),
       ),
     );
     assert.equal((await keys.getById(scope, slack.id))?.version, 11);
@@ -176,6 +182,7 @@ test(
         { ...scope, actorId: "other-owner" },
         slack.id,
         "x",
+        randomUUID(),
       ),
       undefined,
     );
@@ -209,7 +216,7 @@ test(
     assert.ok(deleted?.deletedAt);
     assert.equal(await keys.rename(scope, slack.id, "renamed"), undefined);
     assert.equal(
-      await keys.replaceMaterial(scope, slack.id, "revived"),
+      await keys.replaceMaterial(scope, slack.id, "revived", randomUUID()),
       undefined,
     );
     assert.deepEqual(

@@ -170,11 +170,6 @@ async function main(): Promise<void> {
     }),
   );
   const genericCredentials = new PostgresGenericCredentialRepository(database);
-  const credentialGrants = new CredentialGrants(
-    genericCredentials,
-    new SessionCipher(config.sessionEncryptionKey),
-    artifactGateway,
-  );
   const credentialRollouts = new CredentialRollouts(
     genericCredentials,
     new SessionCipher(config.sessionEncryptionKey),
@@ -183,6 +178,12 @@ async function main(): Promise<void> {
       console.warn(
         `A credential ${task} couldn't finish; Everything will retry.`,
       ),
+  );
+  const credentialGrants = new CredentialGrants(
+    genericCredentials,
+    new SessionCipher(config.sessionEncryptionKey),
+    artifactGateway,
+    credentialRollouts,
   );
   const {
     host: fleet,

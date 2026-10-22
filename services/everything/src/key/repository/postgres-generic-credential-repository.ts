@@ -54,6 +54,28 @@ export class PostgresGenericCredentialRepository
     await this.orm.delete({ id, type: "generic", deletedAt: Not(IsNull()) });
   }
 
+  /** Compare and set in one statement, so a concurrent replacement is never overwritten. */
+  async advanceVersion(
+    id: string,
+    from: { readonly version: number; readonly valueId: string },
+    version: number,
+  ): Promise<boolean> {
+    if (!id) throw new Error("A key identifier is required");
+    if (version <= from.version)
+      throw new Error("A higher version is required");
+    const result = await this.orm.update(
+      {
+        id,
+        type: "generic",
+        deletedAt: IsNull(),
+        version: from.version,
+        valueId: from.valueId,
+      },
+      { version },
+    );
+    return !!result.affected;
+  }
+
   // ===========================================
   // Scope and projection
   // ===========================================

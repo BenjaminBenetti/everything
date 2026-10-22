@@ -34,8 +34,22 @@ import {
   ReservedCredentialVariableError,
   TooManyCredentialsError,
 } from "../error/credential-errors.js";
+import type { ArtifactGateway } from "../../artifact/interface/artifact-gateway.js";
+import type { ApplicationError } from "@everything/errors";
 import type { CredentialGateway } from "../interface/credential-gateway.js";
-import { usageFor } from "../model/credential-usage.js";
+import { effectiveStatus, usageFor } from "../model/credential-usage.js";
+import type { CredentialRollouts } from "./credential-rollouts.js";
+
+/** Refusals after which aligning the credential with what apps hold, and retrying once, can help. */
+const alignable = new Set(["CREDENTIAL_VALUE_CONFLICT", "CREDENTIAL_CHANGED"]);
+
+/** Whether a refusal means apps hold another value of the credential, or a newer one. */
+export function needsAlignment(error: unknown): boolean {
+  const code =
+    (error as Partial<ApplicationError> | null)?.code ??
+    (error as { code?: unknown } | null)?.code;
+  return typeof code === "string" && alignable.has(code);
+}
 
 /** One credential a teammate can attach, with the apps of its owner that use it. */
 export interface CredentialCatalogEntry {
@@ -86,7 +100,9 @@ export class CredentialGrants {
     private readonly gateway: Pick<
       CredentialGateway,
       "attachCredential" | "detachCredential" | "credentialUses"
-    >,
+    > &
+      Pick<ArtifactGateway, "get">,
+    private readonly aligner: Pick<CredentialRollouts, "align">,
   ) {}
 
   // ===========================================
@@ -109,10 +125,12 @@ export class CredentialGrants {
       if (!matches.length) throw new CredentialNotFoundError(name);
       if (matches.length > 1) throw new AmbiguousCredentialNameError(name);
       const [credential] = matches as [StoredKey];
+      if (!credential.valueId) throw new CredentialUnavailableError();
       grants.push({
         credentialId: credential.id,
         env: request.env,
         version: credential.version,
+        valueId: credential.valueId,
         value: await this.open(credential),
       });
     }
@@ -135,16 +153,25 @@ export class CredentialGrants {
           apps: usageFor(
             ownerId,
             await this.gateway.credentialUses(credential.id),
+            credential,
           ).apps.map(({ slug, env, status }) => ({ app: slug, env, status })),
         })),
     );
+  }
+
+  /** Make apps hold each credential's saved value before a refused grant of it is retried. */
+  async align(credentialIds: readonly string[]): Promise<void> {
+    for (const id of new Set(credentialIds)) await this.aligner.align(id);
   }
 
   // ===========================================
   // Users
   // ===========================================
 
-  /** Give one of the user's apps a credential the user added. */
+  /**
+   * Give one of the user's apps a credential the user added. The app's credential generation is
+   * read before the grant is authorized and sent with it, so a removal in between refuses it.
+   */
   async attach(
     actor: KeyActor,
     appId: string,
@@ -152,22 +179,38 @@ export class CredentialGrants {
   ): Promise<AppCredentialList> {
     if (actor.app) throw new AppCredentialAccessError();
     requireCredentialVariables([input]);
-    const credential = await this.credentials.getById(
-      { usage: "credential-sync" },
-      input.credentialId,
-    );
-    if (!credential || credential.deletedAt) throw new KeyNotFoundError();
-    if (credential.ownerId !== actor.subject)
-      throw new CredentialOwnerOnlyError();
-    const grant: AppCredentialGrant = {
-      credentialId: credential.id,
-      env: input.env,
-      version: credential.version,
-      value: await this.open(credential),
+    const attempt = async () => {
+      const { credentialGeneration } = await this.changing(() =>
+        this.gateway.get(actor.subject, appId),
+      );
+      const credential = await this.credentials.getById(
+        { usage: "credential-sync" },
+        input.credentialId,
+      );
+      if (!credential || credential.deletedAt) throw new KeyNotFoundError();
+      if (credential.ownerId !== actor.subject)
+        throw new CredentialOwnerOnlyError();
+      if (!credential.valueId) throw new CredentialUnavailableError();
+      const value = await this.open(credential);
+      return this.changing(() =>
+        this.gateway.attachCredential(userActor(actor), appId, {
+          credentialId: credential.id,
+          env: input.env,
+          version: credential.version,
+          valueId: credential.valueId!,
+          value,
+          credentialGeneration,
+        }),
+      );
     };
-    const details = await this.changing(() =>
-      this.gateway.attachCredential(userActor(actor), appId, grant),
-    );
+    let details;
+    try {
+      details = await attempt();
+    } catch (error) {
+      if (!needsAlignment(error)) throw error;
+      await this.align([input.credentialId]);
+      details = await attempt();
+    }
     return { credentials: await this.named(details.credentials) };
   }
 
@@ -192,24 +235,38 @@ export class CredentialGrants {
     );
     if (!credential) throw new KeyNotFoundError();
     try {
-      return usageFor(actor.subject, await this.gateway.credentialUses(id));
+      return usageFor(
+        actor.subject,
+        await this.gateway.credentialUses(id),
+        credential.deletedAt ? undefined : credential,
+      );
     } catch {
       throw new ArtifactServiceUnavailableError();
     }
   }
 
-  /** Fill in current credential names; a credential that no longer exists has none. */
+  /**
+   * Fill in current credential names; a credential that no longer exists has none. A grant that
+   * doesn't hold the saved version and value is shown updating, and value identities stay internal.
+   */
   async named(credentials: readonly AppCredential[]): Promise<AppCredential[]> {
     if (!credentials.length) return [];
-    const names = new Map(
+    const stored = new Map(
       (await this.credentials.list({ usage: "credential-sync" })).map(
-        (credential) => [credential.id, credential.name],
+        (credential) => [credential.id, credential],
       ),
     );
-    return credentials.map((credential) => ({
-      ...credential,
-      name: names.get(credential.credentialId) ?? null,
-    }));
+    return credentials.map(({ valueId, ...credential }) => {
+      const saved = stored.get(credential.credentialId);
+      return {
+        ...credential,
+        name: saved?.name ?? null,
+        status: effectiveStatus(
+          { ...credential, valueId: valueId ?? null },
+          saved && !saved.deletedAt ? saved : undefined,
+        ),
+      };
+    });
   }
 
   // ===========================================

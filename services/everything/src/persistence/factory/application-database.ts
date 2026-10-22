@@ -22,6 +22,7 @@ import { AgentInteractions1792540800000 } from "../migration/1792540800000-agent
 import { UpdateHistory1792627200000 } from "../migration/1792627200000-update-history.js";
 import { GeneralSettingsTeammateOrder1792800000000 } from "../migration/1792800000000-general-settings-teammate-order.js";
 import { GenericCredentials1792886400000 } from "../migration/1792886400000-generic-credentials.js";
+import { CredentialValueIds1792972800000 } from "../migration/1792972800000-credential-value-ids.js";
 
 /** Connection settings for the service's own PostgreSQL database. */
 export interface DatabaseConnectionSettings {
@@ -70,6 +71,7 @@ export function createApplicationDatabase(
       Keys1792713600000,
       GeneralSettingsTeammateOrder1792800000000,
       GenericCredentials1792886400000,
+      CredentialValueIds1792972800000,
     ],
     migrationsTableName: "everything_migrations",
     migrationsTransactionMode: "all",

@@ -127,6 +127,7 @@ test("browser endpoints list artifacts and open them, hiding artifact service de
     database: false,
     capabilities: [],
     credentials: [],
+    credentialGeneration: 0,
     url: "http://artifacts.test/for-owner",
     status: "live" as const,
     release: 1,
@@ -161,7 +162,9 @@ test("browser endpoints list artifacts and open them, hiding artifact service de
   context.after(() => app.close());
   await artifactController(app, library);
   const listed = await app.inject({ url: "/artifacts" });
-  assert.deepEqual(listed.json(), { artifacts: [summary] });
+  // The credential generation is internal; the public listing leaves it out.
+  const { credentialGeneration: _generation, ...publicSummary } = summary;
+  assert.deepEqual(listed.json(), { artifacts: [publicSummary] });
   const opened = await app.inject({
     method: "POST",
     url: "/artifact-views",
@@ -265,11 +268,19 @@ test("credential calls reach the app service's credential endpoints, with a valu
   );
   const actor = { ownerId: "owner", author: { id: "owner", name: "You" } };
   const credentialId = "11111111-1111-4111-8111-111111111111";
-  const grant = { credentialId, env: "TOKEN", version: 2, value: "gw-value" };
+  const grant = {
+    credentialId,
+    env: "TOKEN",
+    version: 2,
+    valueId: "9c0b7a52-6d0e-4f0d-9a77-0f2a3f1f6c01",
+    value: "gw-value",
+    credentialGeneration: 4,
+  };
   await gateway.attachCredential(actor, "bot", grant);
   await gateway.detachCredential(actor, "bot", "TOKEN");
   await gateway.deliverCredential(credentialId, {
     version: 3,
+    valueId: "9c0b7a52-6d0e-4f0d-9a77-0f2a3f1f6c02",
     value: "gw-new",
   });
   await gateway.revokeCredential(credentialId);
@@ -291,7 +302,11 @@ test("credential calls reach the app service's credential endpoints, with a valu
       [
         "PUT",
         `http://artifact:8081/internal/v1/credentials/${credentialId}/value`,
-        JSON.stringify({ version: 3, value: "gw-new" }),
+        JSON.stringify({
+          version: 3,
+          valueId: "9c0b7a52-6d0e-4f0d-9a77-0f2a3f1f6c02",
+          value: "gw-new",
+        }),
       ],
       [
         "POST",

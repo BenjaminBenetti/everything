@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { test } from "node:test";
 import type { ArtifactDetails } from "@everything/artifact-contracts";
 import type {
@@ -32,6 +33,7 @@ async function credential(
     encryptedMaterial: await cipher.seal(sentinel),
     description: null,
     version: 3,
+    valueId: randomUUID(),
     deletedAt: null,
     ...changes,
   };
@@ -101,29 +103,38 @@ async function fixture() {
   const refusals: Error[] = [];
   const details = (credentials: ArtifactDetails["credentials"]) =>
     ({ credentials }) as ArtifactDetails;
-  const grants = new CredentialGrants(repository, cipher, {
-    async attachCredential(actor, reference, grant: AppCredentialGrant) {
-      if (refusals.length) throw refusals.shift();
-      attached.push([actor, reference, grant]);
-      return details([
-        {
-          credentialId: grant.credentialId,
-          name: null,
-          env: grant.env,
-          version: grant.version,
-          status: "pending",
-        },
-      ]);
+  const aligned: string[] = [];
+  const grants = new CredentialGrants(
+    repository,
+    cipher,
+    {
+      async get() {
+        return { credentialGeneration: 5 } as unknown as ArtifactDetails;
+      },
+      async attachCredential(actor, reference, grant: AppCredentialGrant) {
+        if (refusals.length) throw refusals.shift();
+        attached.push([actor, reference, grant]);
+        return details([
+          {
+            credentialId: grant.credentialId,
+            name: null,
+            env: grant.env,
+            version: grant.version,
+            status: "pending",
+          },
+        ]);
+      },
+      async detachCredential(actor, reference, env) {
+        attached.push([actor, reference, env]);
+        return details([]);
+      },
+      async credentialUses() {
+        return uses;
+      },
     },
-    async detachCredential(actor, reference, env) {
-      attached.push([actor, reference, env]);
-      return details([]);
-    },
-    async credentialUses() {
-      return uses;
-    },
-  });
-  return { attached, grants, records, refusals, uses };
+    { align: async (id) => void aligned.push(id) },
+  );
+  return { aligned, attached, grants, records, refusals, uses };
 }
 
 test("teammates' named requests resolve, case-insensitively, among their owner's credentials to stable IDs", async () => {
@@ -136,6 +147,7 @@ test("teammates' named requests resolve, case-insensitively, among their owner's
       credentialId: records[0]!.id,
       env: "SLACK_BOT_TOKEN",
       version: 3,
+      valueId: records[0]!.valueId,
       value: sentinel,
     },
   ]);
@@ -214,7 +226,9 @@ test("users attach only credentials they added, never through an app's own token
       credentialId: records[0]!.id,
       env: "SLACK_BOT_TOKEN",
       version: 3,
+      valueId: records[0]!.valueId,
       value: sentinel,
+      credentialGeneration: 5,
     },
   ]);
   await assert.rejects(
@@ -319,6 +333,8 @@ test("a value sealed with another encryption key fails closed, as after rotating
     },
     cipher,
     {
+      get: async () =>
+        ({ credentialGeneration: 0 }) as unknown as ArtifactDetails,
       attachCredential: async (...args) => {
         sent.push(args);
         return { credentials: [] } as unknown as ArtifactDetails;
@@ -326,6 +342,7 @@ test("a value sealed with another encryption key fails closed, as after rotating
       detachCredential: async () => assert.fail("no detach"),
       credentialUses: async () => [],
     },
+    { align: async () => assert.fail("no alignment") },
   );
   await assert.rejects(
     grants.resolve("owner", [{ name: "rotated-key", env: "TOKEN" }]),
@@ -339,4 +356,67 @@ test("a value sealed with another encryption key fails closed, as after rotating
     { code: "CREDENTIAL_UNAVAILABLE" },
   );
   assert.deepEqual(sent, []);
+});
+
+test("a grant refused because apps hold another value is aligned and retried once", async () => {
+  const { aligned, attached, grants, records, refusals } = await fixture();
+  refusals.push(
+    new ArtifactRequestFailure(409, "CREDENTIAL_VALUE_CONFLICT", "Conflict."),
+  );
+  await grants.attach({ subject: "owner" }, appId, {
+    credentialId: records[0]!.id,
+    env: "TOKEN",
+  });
+  assert.deepEqual(aligned, [records[0]!.id]);
+  assert.equal(attached.length, 1);
+  refusals.push(
+    new ArtifactRequestFailure(409, "CREDENTIAL_GRANTS_CHANGED", "Changed."),
+  );
+  await assert.rejects(
+    grants.attach({ subject: "owner" }, appId, {
+      credentialId: records[0]!.id,
+      env: "TOKEN",
+    }),
+    { code: "CREDENTIAL_GRANTS_CHANGED" },
+  );
+  assert.deepEqual(
+    aligned,
+    [records[0]!.id],
+    "a stale generation isn't retried",
+  );
+});
+
+test("an app is shown updating until it holds the saved version and value, and value identities stay internal", async () => {
+  const { grants, records } = await fixture();
+  const saved = records[0]!;
+  const state = (
+    version: number,
+    valueId: string | null,
+    status: "applied" | "removing" | "stopped",
+  ) => ({
+    credentialId: saved.id,
+    name: null,
+    env: "TOKEN",
+    version,
+    status,
+    valueId,
+  });
+  const named = await grants.named([
+    state(3, saved.valueId, "applied"),
+    state(2, randomUUID(), "applied"),
+    state(3, randomUUID(), "applied"),
+    state(4, randomUUID(), "stopped"),
+    state(1, null, "removing"),
+  ]);
+  assert.deepEqual(
+    named.map(({ version, status }) => [version, status]),
+    [
+      [3, "applied"],
+      [2, "updating"],
+      [3, "updating"],
+      [4, "updating"],
+      [1, "removing"],
+    ],
+  );
+  assert.ok(named.every((credential) => !("valueId" in credential)));
 });
