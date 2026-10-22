@@ -122,7 +122,7 @@ export class AppCredentials {
     >,
     private readonly secrets: Pick<
       CredentialSecrets,
-      "write" | "stored" | "read"
+      "write" | "stored" | "read" | "prune"
     >,
     private readonly observer: Pick<WorkloadOrchestrator, "heldCredentials">,
     private readonly artifacts: Pick<ArtifactRepository, "update">,
@@ -149,22 +149,28 @@ export class AppCredentials {
     scope: WithinArtifactScope,
     changes: readonly GrantChange[],
   ): Promise<void> {
-    for (const change of changes)
-      if (change.value !== undefined)
-        await this.secrets.write(
-          scope.artifactId,
-          change.credentialId,
-          change.version,
-          change.value,
-        );
-    await this.grants.replace(
-      scope,
-      changes.map(({ credentialId, env, version }) => ({
-        credentialId,
-        env,
-        version,
-      })),
-    );
+    try {
+      for (const change of changes)
+        if (change.value !== undefined)
+          await this.secrets.write(
+            scope.artifactId,
+            change.credentialId,
+            change.version,
+            change.value,
+          );
+      await this.grants.replace(
+        scope,
+        changes.map(({ credentialId, env, version }) => ({
+          credentialId,
+          env,
+          version,
+        })),
+      );
+    } catch (error) {
+      // A refused grant's value, such as a revoked credential's, must not linger in the cluster.
+      await this.discardUngranted(scope).catch(() => undefined);
+      throw error;
+    }
   }
 
   /** Give a dynamic app one more credential, then run it with the credential. */
@@ -287,6 +293,23 @@ export class AppCredentials {
   // ===========================================
   // Helpers
   // ===========================================
+
+  /** Delete the app's stored copies that no current grant reads. */
+  private async discardUngranted(scope: WithinArtifactScope): Promise<void> {
+    const granted = await this.grants.list(scope);
+    await this.secrets.prune(
+      scope.artifactId,
+      new Set(
+        granted.map((binding) =>
+          credentialSecretName(
+            scope.artifactId,
+            binding.credentialId,
+            binding.version,
+          ),
+        ),
+      ),
+    );
+  }
 
   /** Ordinary variables of the app's live deployment, if it has one. */
   private async liveEnvironment(

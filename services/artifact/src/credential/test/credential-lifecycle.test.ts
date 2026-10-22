@@ -328,6 +328,11 @@ test("a deleted credential is revoked everywhere and can never be granted again,
     context.distribution.deliver(deleted, { version: 2, value: rotated }),
     CredentialRevokedError,
   );
+  assert.equal(
+    context.secrets.secrets.size,
+    0,
+    "the refused value isn't left in the cluster",
+  );
   // A new credential with the old name has a new ID; rolling back never attaches it.
   await context.deploy.deploy(owner, ada, "planner", { build: 1 });
   context.cluster.settle();
