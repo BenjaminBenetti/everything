@@ -1,15 +1,16 @@
 import { useId, useState, type FormEvent } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import type { SavedKey } from "@everything/key-contracts";
 import { isGenericCredentialValue } from "@everything/key-contracts/generic";
-import type { CredentialRollout } from "@everything/artifact-contracts/credential";
 import { Button } from "@everything/ui/button";
 import { Dialog } from "@everything/ui/dialog";
 import { useSession } from "../../session/component/session-provider.js";
 import {
   credentialFailureMessage,
-  replacementOutcome,
+  replacementProgress,
 } from "../../artifact/model/credential-presentation.js";
+import type { KeyValueReplacement } from "../interface/key-directory.js";
+import { useWriteOnlySubmission } from "../hook/use-write-only-submission.js";
 import {
   useCredentialUsage,
   useKeyDirectory,
@@ -19,8 +20,9 @@ import { KeyMaterialField } from "./key-material-field.js";
 import { keyFormats } from "../model/key-formats.js";
 
 /**
- * Replace a generic credential's value: warn which apps restart, send the new value once, forget
- * it, and then follow each app's restart until it settles.
+ * Replace a generic credential's value: warn which apps restart, send the new value once, erase
+ * it, and then follow each app's restart until it settles. The value lives only in this dialog's
+ * submission, never in a shared cache.
  */
 export function CredentialReplacementDialog({
   item,
@@ -29,52 +31,58 @@ export function CredentialReplacementDialog({
   item: SavedKey;
   onClose: () => void;
 }) {
-  const [material, setMaterial] = useState("");
   const [reading, setReading] = useState(false);
   const [validation, setValidation] = useState("");
-  const [rollout, setRollout] = useState<CredentialRollout | null>(null);
+  /** When the latest attempt started; usage read before then says nothing about the new value. */
+  const [submittedAt, setSubmittedAt] = useState(0);
   const formId = useId();
   const directory = useKeyDirectory();
   const cache = useQueryClient();
   const { profile } = useSession();
-  const usage = useCredentialUsage(item.id, rollout !== null);
-  const replace = useMutation({
-    // The value is read from this dialog's state, so it never becomes a cached mutation variable.
-    mutationFn: () => directory.replaceValue(item.id, { material }),
-    onSuccess: async (result) => {
-      setMaterial("");
-      setRollout(result.rollout);
-      await Promise.all([
-        cache.invalidateQueries({ queryKey: ["keys", profile?.subject] }),
-        cache.invalidateQueries({ queryKey: ["artifacts", profile?.subject] }),
-      ]);
-    },
-  });
-  const busy = replace.isPending || reading;
+  const submission = useWriteOnlySubmission<KeyValueReplacement>();
+  const saved =
+    submission.state.status === "succeeded"
+      ? submission.state.result
+      : undefined;
+  const failure =
+    submission.state.status === "failed" ? submission.state.error : undefined;
+  const usage = useCredentialUsage(item.id, saved !== undefined);
+  const latest =
+    usage.data && usage.dataUpdatedAt >= submittedAt ? usage.data : undefined;
+  const saving = submission.state.status === "pending";
+  const busy = saving || reading;
 
-  /** Forget the draft whenever the dialog closes. */
+  /** Erase the draft whenever the dialog closes. */
   function close(): void {
-    setMaterial("");
+    submission.close();
     onClose();
   }
 
   /** Check the value locally, then send it once. */
-  function submit(event: FormEvent<HTMLFormElement>): void {
+  async function submit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
     if (busy) return;
-    if (!isGenericCredentialValue(material)) {
+    if (!isGenericCredentialValue(submission.draft)) {
       setValidation(keyFormats.generic.submitMessage);
       return;
     }
     setValidation("");
-    replace.mutate();
+    setSubmittedAt(Date.now());
+    const outcome = await submission.submit((material) =>
+      directory.replaceValue(item.id, { material }),
+    );
+    if (outcome.status !== "succeeded") return;
+    await Promise.all([
+      cache.invalidateQueries({ queryKey: ["keys", profile?.subject] }),
+      cache.invalidateQueries({ queryKey: ["artifacts", profile?.subject] }),
+    ]);
   }
 
-  if (rollout)
+  if (saved)
     return (
       <Dialog
         title="Value replaced"
-        description={replacementOutcome(rollout)}
+        description={replacementProgress(saved.rollout, latest)}
         onClose={close}
         className="credential-dialog"
         footer={
@@ -83,14 +91,18 @@ export function CredentialReplacementDialog({
           </div>
         }
       >
-        {rollout.usage && (
-          <div className="credential-dialog-section" aria-live="polite">
-            <CredentialUsageList
-              usage={usage}
-              empty="No app uses this credential yet."
-            />
-          </div>
-        )}
+        <div className="credential-dialog-section" aria-live="polite">
+          <CredentialUsageList
+            usage={{
+              data: latest,
+              isPending: !latest && !usage.isError,
+              isError: usage.isError,
+              isFetching: usage.isFetching,
+            }}
+            empty="No app uses this credential yet."
+            onRetry={() => void usage.refetch()}
+          />
+        </div>
       </Dialog>
     );
 
@@ -109,14 +121,18 @@ export function CredentialReplacementDialog({
           <Button
             form={formId}
             type="submit"
-            disabled={busy || !material.trim()}
+            disabled={busy || !submission.draft.trim()}
           >
-            {replace.isPending ? "Saving…" : "Replace value"}
+            {saving ? "Saving…" : "Replace value"}
           </Button>
         </div>
       }
     >
-      <form id={formId} onSubmit={submit} aria-busy={busy}>
+      <form
+        id={formId}
+        onSubmit={(event) => void submit(event)}
+        aria-busy={busy}
+      >
         <div className="credential-dialog-section">
           <p className="credential-notice">
             Saving restarts these apps so they use the new value:
@@ -124,14 +140,15 @@ export function CredentialReplacementDialog({
           <CredentialUsageList
             usage={usage}
             empty="No app uses this credential yet, so nothing restarts."
+            onRetry={() => void usage.refetch()}
           />
         </div>
         <KeyMaterialField
           type="generic"
-          value={material}
-          disabled={replace.isPending}
+          value={submission.draft}
+          disabled={saving}
           onChange={(value) => {
-            setMaterial(value);
+            submission.edit(value);
             setValidation("");
           }}
           onFileName={() => {}}
@@ -140,9 +157,9 @@ export function CredentialReplacementDialog({
         <p className="key-storage-note">
           The new value is encrypted when saved and won’t be shown again.
         </p>
-        {(validation || replace.isError) && (
+        {(validation || failure !== undefined) && (
           <p className="form-error" role="alert">
-            {validation || credentialFailureMessage(replace.error)}
+            {validation || credentialFailureMessage(failure)}
           </p>
         )}
       </form>

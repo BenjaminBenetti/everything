@@ -4,6 +4,7 @@ import {
   credentialEnvironmentProblem,
   type AppCredentialStatus,
   type CredentialRollout,
+  type CredentialUsage,
   type CredentialUse,
 } from "@everything/artifact-contracts/credential";
 import { HttpRequestError } from "../../http/model/http-request-error.js";
@@ -28,6 +29,27 @@ export function isSettledCredential(status: AppCredentialStatus): boolean {
 /** Whether every listed app has settled, so status polling can stop. */
 export function isSettledUsage(apps: readonly CredentialUse[]): boolean {
   return apps.every((app) => isSettledCredential(app.status));
+}
+
+/** Fastest and slowest follow-up polls while usage is unknown or still changing. */
+const usagePollMs = { first: 2000, longest: 30_000 } as const;
+
+/**
+ * How long to wait before reading a followed credential's usage again, or false to stop. Usage that
+ * couldn't be read is never treated as settled: it is retried with a doubling delay, and usage
+ * that is still changing is read again shortly.
+ */
+export function usageFollowDelay(observation: {
+  readonly usage: CredentialUsage | undefined;
+  readonly failed: boolean;
+  readonly failures: number;
+}): number | false {
+  if (observation.failed || !observation.usage)
+    return Math.min(
+      usagePollMs.longest,
+      usagePollMs.first * 2 ** Math.max(0, observation.failures - 1),
+    );
+  return isSettledUsage(observation.usage.apps) ? false : usagePollMs.first;
 }
 
 /** Generic credentials the user can attach: added by them and not being deleted, by name. */
@@ -97,10 +119,24 @@ export function credentialFailureMessage(error: unknown): string {
     const known = error.code && failureMessages[error.code];
     if (known) return known;
     if (error.status === 403)
-      return "You can’t change this credential. Only the account that added it can replace its value or attach it to apps, and apps can’t manage credentials themselves.";
+      return "You can’t change this credential. Only the account that added it can replace its value or attach it to apps.";
     return error.message;
   }
   return "We couldn’t complete that request. Please try again.";
+}
+
+/**
+ * Explain a failed removal truthfully: the change may already be saved even though the request
+ * failed, and the app keeps the value until its old process stops, so the refreshed statuses are
+ * what to trust.
+ */
+export function removalFailureMessage(error: unknown): string {
+  if (
+    error instanceof HttpRequestError &&
+    error.code === "CREDENTIAL_NOT_ATTACHED"
+  )
+    return "That credential was already removed from the app. It shows as Removing until the app has stopped using it.";
+  return "We couldn’t confirm the removal, but it may already be saved. Check the statuses here: the credential shows as Removing until the app has stopped using it, and disappears once it’s gone.";
 }
 
 /** A short, truthful sentence about a credential's apps after it was deleted. */
@@ -115,13 +151,23 @@ export function deletionOutcome(
   return `Credential deleted. It’s still being removed from ${pending} ${pending === 1 ? "app" : "apps"}, and Everything keeps trying until no app has it.`;
 }
 
-/** A short, truthful sentence about a credential's apps after its value was replaced. */
-export function replacementOutcome(rollout: CredentialRollout): string {
-  if (!rollout.usage)
-    return "Value saved. Everything couldn’t reach your apps yet; it delivers the new value as soon as it can.";
-  const apps = rollout.usage.apps.length + rollout.usage.otherApps;
-  if (apps === 0) return "Value saved. No app uses this credential yet.";
-  if (rollout.complete && isSettledUsage(rollout.usage.apps))
-    return "Value saved. Every app now uses the new value.";
-  return "Value saved. Apps are restarting to use the new value.";
+/**
+ * A short, truthful sentence about a credential's apps after its value was replaced. The saved
+ * value is a fact from the replacement; where apps stand comes from the latest observation, which
+ * replaces the replacement's first answer as soon as one is available.
+ */
+export function replacementProgress(
+  rollout: CredentialRollout,
+  latest: CredentialUsage | undefined,
+): string {
+  const usage = latest ?? rollout.usage;
+  if (!usage)
+    return "Saved. Everything couldn’t reach your apps yet and keeps trying.";
+  if (usage.apps.length + usage.otherApps === 0)
+    return "Saved. No app uses this credential yet.";
+  if (usage.apps.every((app) => app.status === "applied"))
+    return "Saved. All apps use the new value.";
+  if (isSettledUsage(usage.apps))
+    return "Saved. Running apps use the new value, and stopped apps get it when they start.";
+  return "Saved. Apps are restarting to use the new value; their statuses update below.";
 }

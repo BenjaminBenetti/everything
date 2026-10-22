@@ -16,6 +16,7 @@ import {
   credentialFailureMessage,
   credentialStatusLabels,
   credentialVariableMessage,
+  removalFailureMessage,
   suggestedVariable,
 } from "../model/credential-presentation.js";
 import { useArtifactLibrary } from "./artifact-library-provider.js";
@@ -36,6 +37,7 @@ export function AppCredentialsDialog({
   const [env, setEnv] = useState("");
   const [touched, setTouched] = useState(false);
   const [removing, setRemoving] = useState<AppCredential | null>(null);
+  const [removalFailure, setRemovalFailure] = useState("");
   const library = useArtifactLibrary();
   const keys = useKeys();
   const cache = useQueryClient();
@@ -66,7 +68,10 @@ export function AppCredentialsDialog({
   const detach = useMutation({
     mutationFn: (credential: AppCredential) =>
       library.detachCredential(artifact.id, credential.env),
-    onSuccess: async () => {
+    onSuccess: () => setRemovalFailure(""),
+    // A failed answer doesn't mean nothing changed: the removal may already be saved.
+    onError: (error) => setRemovalFailure(removalFailureMessage(error)),
+    onSettled: async () => {
       setRemoving(null);
       await refresh();
     },
@@ -109,6 +114,11 @@ export function AppCredentialsDialog({
       >
         <div className="credential-dialog-section" aria-live="polite">
           <h3 className="credential-heading">Attached</h3>
+          {removalFailure && (
+            <p className="form-error" role="alert">
+              {removalFailure}
+            </p>
+          )}
           {attached.length ? (
             <ul className="credential-usage" aria-label="Attached credentials">
               {attached.map((credential) => (
@@ -132,6 +142,7 @@ export function AppCredentialsDialog({
                           "",
                         );
                         detach.reset();
+                        setRemovalFailure("");
                         setRemoving(credential);
                       }}
                     >
@@ -209,10 +220,10 @@ export function AppCredentialsDialog({
             </p>
           )}
           <p className="credential-notice" role="note">
-            Attaching gives this app’s backend the credential’s value. Its code
-            can read the value and send it anywhere, so only attach credentials
-            to apps you trust. The value is never given to the app’s pages in
-            the browser.
+            Attaching gives this app’s backend the credential’s value.
+            Everything puts the value only in the backend’s environment, but the
+            app’s code can read it and could send it anywhere, including to its
+            own pages. Only attach credentials to apps you trust.
           </p>
           {full && (
             <p className="muted">
@@ -234,9 +245,6 @@ export function AppCredentialsDialog({
           confirmLabel="Remove credential"
           pendingLabel="Removing…"
           pending={detach.isPending}
-          {...(detach.isError
-            ? { error: credentialFailureMessage(detach.error) }
-            : {})}
           onCancel={() => {
             if (!detach.isPending) setRemoving(null);
           }}

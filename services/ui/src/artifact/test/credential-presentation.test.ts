@@ -12,8 +12,10 @@ import {
   credentialVariableMessage,
   deletionOutcome,
   isSettledUsage,
-  replacementOutcome,
+  removalFailureMessage,
+  replacementProgress,
   suggestedVariable,
+  usageFollowDelay,
 } from "../model/credential-presentation.js";
 import { HttpRequestError } from "../../http/model/http-request-error.js";
 
@@ -112,23 +114,41 @@ test("failures are described from the error code only, never the server's text",
 test("outcomes never claim an app is done while it is still restarting or unreachable", () => {
   assert.equal(isSettledUsage([use("applied"), use("stopped")]), true);
   assert.equal(isSettledUsage([use("applied"), use("pending")]), false);
+  const unreachable = { complete: false, usage: null } as const;
   assert.match(
-    replacementOutcome({
-      complete: true,
-      usage: { apps: [use("pending")], otherApps: 0 },
-    }),
+    replacementProgress(unreachable, undefined),
+    /^Saved\. Everything couldn’t reach your apps yet/,
+  );
+  // A later observation replaces the replacement's first answer, in both directions.
+  assert.match(
+    replacementProgress(unreachable, { apps: [use("pending")], otherApps: 0 }),
+    /^Saved\. Apps are restarting/,
+  );
+  assert.match(
+    replacementProgress(unreachable, { apps: [use("updating")], otherApps: 0 }),
+    /^Saved\. Apps are restarting/,
+  );
+  assert.equal(
+    replacementProgress(unreachable, { apps: [use("applied")], otherApps: 0 }),
+    "Saved. All apps use the new value.",
+  );
+  assert.match(
+    replacementProgress(
+      { complete: true, usage: { apps: [use("applied")], otherApps: 0 } },
+      { apps: [use("applied"), use("removing")], otherApps: 0 },
+    ),
     /restarting/,
   );
   assert.match(
-    replacementOutcome({
-      complete: true,
-      usage: { apps: [use("applied")], otherApps: 0 },
+    replacementProgress(unreachable, {
+      apps: [use("applied"), use("stopped")],
+      otherApps: 0,
     }),
-    /Every app now uses/,
+    /stopped apps get it when they start/,
   );
   assert.match(
-    replacementOutcome({ complete: false, usage: null }),
-    /couldn’t reach your apps/,
+    replacementProgress(unreachable, { apps: [], otherApps: 0 }),
+    /No app uses/,
   );
   assert.match(
     deletionOutcome({ complete: true, usage: { apps: [], otherApps: 0 } }),
@@ -145,4 +165,57 @@ test("outcomes never claim an app is done while it is still restarting or unreac
     deletionOutcome({ complete: false, usage: null }),
     /keeps trying/,
   );
+});
+
+test("followed usage is retried with a growing delay while unknown, and never treated as settled", () => {
+  const settled = { apps: [use("applied")], otherApps: 0 };
+  const changing = { apps: [use("removing")], otherApps: 0 };
+  assert.equal(
+    usageFollowDelay({ usage: undefined, failed: true, failures: 1 }),
+    2000,
+  );
+  assert.equal(
+    usageFollowDelay({ usage: undefined, failed: true, failures: 3 }),
+    8000,
+  );
+  assert.equal(
+    usageFollowDelay({ usage: undefined, failed: true, failures: 20 }),
+    30_000,
+  );
+  assert.equal(
+    usageFollowDelay({ usage: undefined, failed: false, failures: 0 }),
+    2000,
+  );
+  assert.equal(
+    usageFollowDelay({ usage: settled, failed: true, failures: 2 }),
+    4000,
+    "settled data that can no longer be refreshed is retried",
+  );
+  assert.equal(
+    usageFollowDelay({ usage: changing, failed: false, failures: 0 }),
+    2000,
+  );
+  assert.equal(
+    usageFollowDelay({ usage: settled, failed: false, failures: 0 }),
+    false,
+  );
+});
+
+test("a failed removal never claims nothing changed", () => {
+  for (const error of [
+    new HttpRequestError(503, "generic", "ARTIFACTS_UNAVAILABLE"),
+    new Error("network"),
+  ])
+    assert.match(removalFailureMessage(error), /may already be saved/);
+  assert.match(
+    removalFailureMessage(
+      new HttpRequestError(404, "generic", "CREDENTIAL_NOT_ATTACHED"),
+    ),
+    /already removed/,
+  );
+  for (const error of [
+    new HttpRequestError(503, "generic"),
+    new HttpRequestError(404, "generic", "CREDENTIAL_NOT_ATTACHED"),
+  ])
+    assert.match(removalFailureMessage(error), /Removing until/);
 });

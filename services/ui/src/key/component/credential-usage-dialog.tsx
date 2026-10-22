@@ -7,7 +7,7 @@ import { ConfirmationDialog } from "@everything/ui/confirmation-dialog";
 import { Dialog } from "@everything/ui/dialog";
 import { useSession } from "../../session/component/session-provider.js";
 import { useArtifactLibrary } from "../../artifact/component/artifact-library-provider.js";
-import { credentialFailureMessage } from "../../artifact/model/credential-presentation.js";
+import { removalFailureMessage } from "../../artifact/model/credential-presentation.js";
 import { useCredentialUsage } from "./key-directory-provider.js";
 import { CredentialUsageList } from "./credential-usage-list.js";
 
@@ -20,6 +20,7 @@ export function CredentialUsageDialog({
   onClose: () => void;
 }) {
   const [removing, setRemoving] = useState<CredentialUse | null>(null);
+  const [failure, setFailure] = useState("");
   const usage = useCredentialUsage(item.id, true);
   const library = useArtifactLibrary();
   const cache = useQueryClient();
@@ -27,7 +28,10 @@ export function CredentialUsageDialog({
   const detach = useMutation({
     mutationFn: (use: CredentialUse) =>
       library.detachCredential(use.appId, use.env),
-    onSuccess: async () => {
+    onSuccess: () => setFailure(""),
+    // A failed answer doesn't mean nothing changed: the removal may already be saved.
+    onError: (error) => setFailure(removalFailureMessage(error)),
+    onSettled: async () => {
       setRemoving(null);
       await Promise.all([
         cache.invalidateQueries({ queryKey: ["keys", profile?.subject] }),
@@ -49,9 +53,15 @@ export function CredentialUsageDialog({
         }
       >
         <div className="credential-dialog-section" aria-live="polite">
+          {failure && (
+            <p className="form-error" role="alert">
+              {failure}
+            </p>
+          )}
           <CredentialUsageList
             usage={usage}
             empty="No app uses this credential. Attach it to an app from Apps."
+            onRetry={() => void usage.refetch()}
             {...(item.status ? {} : { onRemove: setRemoving })}
           />
         </div>
@@ -63,17 +73,14 @@ export function CredentialUsageDialog({
           confirmLabel="Remove credential"
           pendingLabel="Removing…"
           pending={detach.isPending}
-          {...(detach.isError
-            ? { error: credentialFailureMessage(detach.error) }
-            : {})}
           onCancel={() => {
-            if (!detach.isPending) {
-              detach.reset();
-              setRemoving(null);
-            }
+            if (!detach.isPending) setRemoving(null);
           }}
           onConfirm={() => {
-            if (!detach.isPending) detach.mutate(removing);
+            if (!detach.isPending) {
+              setFailure("");
+              detach.mutate(removing);
+            }
           }}
         />
       )}

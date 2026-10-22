@@ -353,6 +353,11 @@
   padding: 0;
   list-style: none;
 }
+.credential-usage-error {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+}
 .credential-usage li {
   display: flex;
   align-items: center;

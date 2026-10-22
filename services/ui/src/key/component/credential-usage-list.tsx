@@ -10,6 +10,7 @@ export interface UsageState {
   readonly data?: CredentialUsage | undefined;
   readonly isPending: boolean;
   readonly isError: boolean;
+  readonly isFetching?: boolean;
 }
 
 /**
@@ -20,14 +21,17 @@ export function CredentialUsageList({
   usage,
   empty,
   onRemove,
+  onRetry,
 }: {
   usage: UsageState;
   /** Shown when no app receives the credential. */
   empty: string;
   /** Offer to take the credential away from one app. */
   onRemove?: (use: CredentialUse) => void;
+  /** Read usage again after it couldn't be checked. */
+  onRetry?: () => void;
 }) {
-  if (usage.isPending)
+  if (usage.isPending && !usage.isError)
     return (
       <p className="muted" role="status">
         Checking which apps use it…
@@ -35,11 +39,40 @@ export function CredentialUsageList({
     );
   if (usage.isError || !usage.data)
     return (
-      <p className="form-error" role="alert">
-        Apps that use it couldn’t be checked right now. Try again in a moment.
-      </p>
+      <div className="credential-usage-error" role="alert">
+        <p className="form-error">
+          {usage.data
+            ? "The latest app statuses couldn’t be checked. Everything keeps trying; the list below may be out of date."
+            : "Apps that use it couldn’t be checked right now. Everything keeps trying."}
+        </p>
+        {onRetry && (
+          <Button variant="light" disabled={usage.isFetching} onClick={onRetry}>
+            {usage.isFetching ? "Checking…" : "Try again"}
+          </Button>
+        )}
+        {usage.data && <UsageEntries usage={usage.data} empty={empty} />}
+      </div>
     );
-  const { apps, otherApps } = usage.data;
+  return (
+    <UsageEntries
+      usage={usage.data}
+      empty={empty}
+      {...(onRemove ? { onRemove } : {})}
+    />
+  );
+}
+
+/** The apps in one observation of a credential's usage. */
+function UsageEntries({
+  usage,
+  empty,
+  onRemove,
+}: {
+  usage: CredentialUsage;
+  empty: string;
+  onRemove?: (use: CredentialUse) => void;
+}) {
+  const { apps, otherApps } = usage;
   if (!apps.length && !otherApps) return <p className="muted">{empty}</p>;
   return (
     <>

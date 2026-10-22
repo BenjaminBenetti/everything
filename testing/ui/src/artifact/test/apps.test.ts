@@ -246,7 +246,10 @@ test("creator and capability icons explain apps without opening them", async ({
   for (const [label, description] of [
     ["Dynamic app", "Dynamic app: runs a backend service."],
     ["Database", "Database: stores app data in PostgreSQL."],
-    ["Everything API", "API: can call the Everything API."],
+    [
+      "Everything API",
+      "API: acts as you through the Everything API. It can ask your teammates to do things, including changing apps and their credentials.",
+    ],
   ] as const) {
     const icon = card.getByRole("img", { name: label, exact: true });
     if (info.project.name === "phone") await icon.tap();

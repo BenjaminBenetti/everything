@@ -69,7 +69,7 @@ export function ArtifactMetadata({
         {artifact.capabilities.includes("everything-api") && (
           <ArtifactIndicator
             label="Everything API"
-            description="API: can call the Everything API."
+            description="API: acts as you through the Everything API. It can ask your teammates to do things, including changing apps and their credentials."
           >
             <Cable aria-hidden="true" />
           </ArtifactIndicator>
