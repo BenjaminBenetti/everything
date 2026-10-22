@@ -516,7 +516,9 @@ test("the whole card and keyboard open apps while pause and play never open a ta
   state.holdAction = true;
   await card.getByRole("button", { name: "Stop Planner", exact: true }).click();
   await expect(card.getByText("Stopping…", { exact: true })).toBeVisible();
-  await expect(card.getByRole("button")).toBeDisabled();
+  // Every control on the card, including Credentials, waits for the pending action.
+  for (const control of await card.getByRole("button").all())
+    await expect(control).toBeDisabled();
   await expect(card.getByRole("link")).toHaveCount(0);
   await expect.poll(() => !!state.release).toBe(true);
   state.holdAction = false;

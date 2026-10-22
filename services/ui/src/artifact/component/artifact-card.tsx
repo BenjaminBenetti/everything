@@ -81,7 +81,7 @@ export function ArtifactCard({
           {artifact.kind === "dynamic" && (
             <IconButton
               label={`Credentials for ${artifact.title}`}
-              disabled={unavailable}
+              disabled={!canControl}
               onClick={(event) => {
                 event.currentTarget.setAttribute("data-dialog-return", "");
                 setManagingCredentials(true);
