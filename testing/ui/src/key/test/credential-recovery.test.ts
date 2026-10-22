@@ -14,10 +14,11 @@ const credentialId = "11111111-1111-4111-8111-111111111111";
 const appId = "00000000-0000-4000-8000-000000000001";
 const credentialName = "slack-bot-token";
 
-/** One scripted answer. */
+/** One scripted answer, optionally held until a promise settles. */
 interface Answer {
   readonly status: number;
   readonly json: unknown;
+  readonly after?: Promise<unknown>;
 }
 
 /** Answers given in order; the last one repeats. */
@@ -33,6 +34,7 @@ class Script {
   async answer(route: Route): Promise<void> {
     const answer = this.answers[Math.min(this.calls, this.answers.length - 1)]!;
     this.calls++;
+    await answer.after;
     await route.fulfill({ status: answer.status, json: answer.json });
   }
 
@@ -246,10 +248,105 @@ test("a value that failed to save, or saved, isn't kept in the page's memory onc
     .getByRole("dialog", { name: "Replace value" })
     .getByRole("button", { name: "Replace value" })
     .click();
-  await expect(
-    page.getByRole("dialog", { name: "Value replaced" }),
-  ).toBeVisible();
+  const result = page.getByRole("dialog", { name: "Value replaced" });
+  await expect(result).toBeVisible();
   expect(await heapHolds(page, saved)).toBe(false);
+  await result.getByRole("button", { name: "Done" }).click();
+  await expect(result).toHaveCount(0);
+
+  // Adding successfully: the dialog closes once the key is saved.
+  const created = sentinel();
+  state.create.then({
+    status: 201,
+    json: {
+      id: "22222222-2222-4222-8222-222222222222",
+      name: "added-token",
+      type: "generic",
+      description: "",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      owned: true,
+    },
+  });
+  await page.getByRole("button", { name: "Add key", exact: true }).click();
+  await add.getByRole("textbox", { name: "Key name" }).fill("added-token");
+  await add.getByRole("combobox", { name: "Key type", exact: true }).click();
+  await page
+    .getByRole("option", { name: "Generic credential", exact: true })
+    .click();
+  await add.getByRole("textbox", { name: "Value" }).fill(created);
+  await add.getByRole("button", { name: "Add key", exact: true }).click();
+  await expect(add).toHaveCount(0);
+  expect(state.create.calls).toBe(3);
+  expect(await heapHolds(page, created)).toBe(false);
+});
+
+test("usage read before a replacement was saved never shows the new value as in use", async ({
+  page,
+  context,
+}) => {
+  const state = await prepare(context);
+  let answerRead = () => {};
+  let answerSave = () => {};
+  // The form's usage read describes the old value but is answered only after the save started;
+  // every read after the save fails until apps can be reached again.
+  state.usage = new Script(
+    {
+      ...usage("applied"),
+      after: new Promise<void>((resolve) => (answerRead = resolve)),
+    },
+    unavailable,
+  );
+  state.replace = new Script({
+    status: 200,
+    json: {
+      key: {
+        id: credentialId,
+        name: credentialName,
+        type: "generic",
+        description: "",
+        createdAt: "2026-10-20T00:00:00.000Z",
+        updatedAt: new Date().toISOString(),
+        owned: true,
+      },
+      rollout: { complete: false, usage: null },
+    },
+    after: new Promise<void>((resolve) => (answerSave = resolve)),
+  });
+  await page.goto("/keys");
+  await page
+    .getByRole("button", { name: `Replace value of ${credentialName}` })
+    .click();
+  const replace = page.getByRole("dialog", { name: "Replace value" });
+  await expect(replace).toContainText("Checking which apps use it");
+  await replace.getByRole("textbox", { name: "Value" }).fill(sentinel());
+  await replace.getByRole("button", { name: "Replace value" }).click();
+  await expect(replace.getByRole("button", { name: "Saving…" })).toBeVisible();
+  // The old read arrives while the save is still on its way.
+  answerRead();
+  await expect(
+    replace.getByRole("list", { name: "Apps that use it" }),
+  ).toContainText("In use");
+  answerSave();
+  const result = page.getByRole("dialog", { name: "Value replaced" });
+  await expect(result).toBeVisible();
+  // The save's own answer couldn't reach apps, and no read after it has succeeded.
+  await expect.poll(() => state.usage.calls).toBeGreaterThanOrEqual(2);
+  await expect(result).toContainText("couldn’t be checked");
+  await expect(result).toContainText(
+    "Saved. Everything couldn’t reach your apps yet and keeps trying.",
+  );
+  await expect(result).not.toContainText("In use");
+  await expect(result).not.toContainText("All apps use the new value");
+
+  // Once apps can be reached, reads after the save show them catching up.
+  state.usage.then(usage("pending"), usage("applied"));
+  await expect(
+    result.getByRole("list", { name: "Apps that use it" }),
+  ).toContainText("Restarting", { timeout: 15_000 });
+  await expect(result).toContainText("Saved. All apps use the new value.", {
+    timeout: 15_000,
+  });
 });
 
 test("usage that couldn't be read recovers while the dialog stays open, and can be retried", async ({

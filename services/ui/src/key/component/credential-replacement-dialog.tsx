@@ -19,10 +19,14 @@ import { CredentialUsageList } from "./credential-usage-list.js";
 import { KeyMaterialField } from "./key-material-field.js";
 import { keyFormats } from "../model/key-formats.js";
 
+/** Gives each replacement attempt its own usage observation within this page. */
+let attempts = 0;
+
 /**
  * Replace a generic credential's value: warn which apps restart, send the new value once, erase
  * it, and then follow each app's restart until it settles. The value lives only in this dialog's
- * submission, never in a shared cache.
+ * submission, never in a shared cache. After a save, only usage read for that save counts, so a
+ * read that started before it can't report the new value as in use.
  */
 export function CredentialReplacementDialog({
   item,
@@ -33,8 +37,8 @@ export function CredentialReplacementDialog({
 }) {
   const [reading, setReading] = useState(false);
   const [validation, setValidation] = useState("");
-  /** When the latest attempt started; usage read before then says nothing about the new value. */
-  const [submittedAt, setSubmittedAt] = useState(0);
+  /** The latest attempt's usage observation; it is read only once that attempt is saved. */
+  const [observation, setObservation] = useState("");
   const formId = useId();
   const directory = useKeyDirectory();
   const cache = useQueryClient();
@@ -46,9 +50,12 @@ export function CredentialReplacementDialog({
       : undefined;
   const failure =
     submission.state.status === "failed" ? submission.state.error : undefined;
-  const usage = useCredentialUsage(item.id, saved !== undefined);
-  const latest =
-    usage.data && usage.dataUpdatedAt >= submittedAt ? usage.data : undefined;
+  const usage = useCredentialUsage(
+    item.id,
+    saved !== undefined,
+    saved ? observation : undefined,
+  );
+  const latest = saved ? usage.data : undefined;
   const saving = submission.state.status === "pending";
   const busy = saving || reading;
 
@@ -67,7 +74,7 @@ export function CredentialReplacementDialog({
       return;
     }
     setValidation("");
-    setSubmittedAt(Date.now());
+    setObservation(`replacement-${(attempts += 1)}`);
     const outcome = await submission.submit((material) =>
       directory.replaceValue(item.id, { material }),
     );
@@ -93,12 +100,7 @@ export function CredentialReplacementDialog({
       >
         <div className="credential-dialog-section" aria-live="polite">
           <CredentialUsageList
-            usage={{
-              data: latest,
-              isPending: !latest && !usage.isError,
-              isError: usage.isError,
-              isFetching: usage.isFetching,
-            }}
+            usage={usage}
             empty="No app uses this credential yet."
             onRetry={() => void usage.refetch()}
           />

@@ -45,14 +45,26 @@ export function useKeys() {
 /**
  * Read which apps receive a generic credential while a dialog shows it. With `follow`, keep
  * polling until every app has settled, so a restart is never reported as finished early, and keep
- * retrying with a growing delay while usage can't be read.
+ * retrying with a growing delay while usage can't be read. With `observation`, reads go to a query
+ * of their own, so only reads started for that observation count: a read that began earlier, such
+ * as one from before a replacement was saved, can never answer it.
  */
-export function useCredentialUsage(id: string, follow = false) {
+export function useCredentialUsage(
+  id: string,
+  follow = false,
+  observation?: string,
+) {
   const directory = useKeyDirectory();
   const { profile } = useSession();
   const [follower] = useState(usageFollower);
   return useQuery({
-    queryKey: ["keys", profile?.subject, id, "apps"],
+    queryKey: [
+      "keys",
+      profile?.subject,
+      id,
+      "apps",
+      ...(observation ? [observation] : []),
+    ],
     queryFn: ({ signal }) => directory.usage(id, signal),
     enabled: !!profile,
     staleTime: 0,
