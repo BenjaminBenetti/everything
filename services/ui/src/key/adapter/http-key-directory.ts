@@ -1,11 +1,19 @@
 import type {
   CreateKeyInput,
   RenameKeyInput,
+  ReplaceKeyValueInput,
   SavedKey,
   KeyList,
 } from "@everything/key-contracts";
+import type {
+  CredentialRollout,
+  CredentialUsage,
+} from "@everything/artifact-contracts/credential";
 import type { JsonTransport } from "../../http/interface/json-transport.js";
-import type { KeyDirectory } from "../interface/key-directory.js";
+import type {
+  KeyDirectory,
+  KeyValueReplacement,
+} from "../interface/key-directory.js";
 
 /** Map key operations to the authenticated API using shared transport policy. */
 export class HttpKeyDirectory implements KeyDirectory {
@@ -37,18 +45,47 @@ export class HttpKeyDirectory implements KeyDirectory {
     });
   }
 
-  /** Change only the key's display name. */
+  /** Change only the key's display name, and a generic credential's description. */
   rename(id: string, input: RenameKeyInput): Promise<SavedKey> {
-    return this.transport.request(`/v1/keys/${encodeURIComponent(id)}`, {
+    return this.transport.request(this.path(id), {
       method: "PATCH",
       body: JSON.stringify(input),
     });
   }
 
-  /** Delete through the owner's protected endpoint. */
-  delete(id: string): Promise<void> {
-    return this.transport.request(`/v1/keys/${encodeURIComponent(id)}`, {
-      method: "DELETE",
+  /** Send a new value once; the answer carries metadata and app statuses only. */
+  replaceValue(
+    id: string,
+    input: ReplaceKeyValueInput,
+  ): Promise<KeyValueReplacement> {
+    return this.transport.request(`${this.path(id)}/value`, {
+      method: "PUT",
+      body: JSON.stringify(input),
     });
+  }
+
+  /** Delete through the protected endpoint; SSH keys answer without a body. */
+  async delete(id: string): Promise<CredentialRollout | undefined> {
+    const result = await this.transport.request<
+      { readonly rollout: CredentialRollout } | undefined
+    >(this.path(id), { method: "DELETE" });
+    return result?.rollout;
+  }
+
+  /** Read which of the user's apps receive the credential. */
+  usage(id: string, signal?: AbortSignal): Promise<CredentialUsage> {
+    return this.transport.request(
+      `${this.path(id)}/apps`,
+      signal ? { signal } : {},
+    );
+  }
+
+  // ===========================================
+  // Paths
+  // ===========================================
+
+  /** Path of one key. */
+  private path(id: string): string {
+    return `/v1/keys/${encodeURIComponent(id)}`;
   }
 }

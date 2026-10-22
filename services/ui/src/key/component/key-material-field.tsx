@@ -32,7 +32,7 @@ export function KeyMaterialField({
     if (!file) return;
     setFileError("");
     if (file.size > keyLimits.materialLength) {
-      setFileError("Choose a key file smaller than 32 KB.");
+      setFileError(`${format.fileAction} smaller than 32 KB.`);
       return;
     }
     setReading(true);
@@ -62,19 +62,19 @@ export function KeyMaterialField({
       <label className={`key-upload ${disabled || reading ? "disabled" : ""}`}>
         <Upload aria-hidden="true" />
         <span>
-          <strong>{reading ? "Reading key…" : "Choose a key file"}</strong>
+          <strong>{reading ? "Reading file…" : format.fileAction}</strong>
           <small>{fileName || "Up to 32 KB"}</small>
         </span>
         <input
           className="sr-only"
           type="file"
-          aria-label="Key file"
+          aria-label={format.fileLabel}
           disabled={disabled || reading}
           onChange={(event) => void upload(event)}
         />
       </label>
       <label className="field">
-        Key contents
+        {format.contentLabel}
         <textarea
           rows={6}
           value={value}

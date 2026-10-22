@@ -4,6 +4,10 @@ import type {
   ArtifactSummary,
   ArtifactView,
 } from "@everything/artifact-contracts";
+import type {
+  AppCredentialList,
+  AttachCredentialInput,
+} from "@everything/artifact-contracts/credential";
 import type { JsonTransport } from "../../http/interface/json-transport.js";
 import type { ArtifactLibrary } from "../interface/artifact-library.js";
 
@@ -68,6 +72,25 @@ export class HttpArtifactLibrary implements ArtifactLibrary {
       signal ? { signal } : {},
     );
     return result.apiKey;
+  }
+
+  /** Attach a credential by ID; the answer lists metadata and statuses only. */
+  attachCredential(
+    id: string,
+    input: AttachCredentialInput,
+  ): Promise<AppCredentialList> {
+    return this.transport.request(
+      `/v1/artifacts/${encodeURIComponent(id)}/credentials`,
+      { method: "POST", body: JSON.stringify(input) },
+    );
+  }
+
+  /** Remove the credential attached under a variable. */
+  detachCredential(id: string, env: string): Promise<AppCredentialList> {
+    return this.transport.request(
+      `/v1/artifacts/${encodeURIComponent(id)}/credentials/${encodeURIComponent(env)}`,
+      { method: "DELETE" },
+    );
   }
 
   /** Permanently remove a stopped or unpublished app. */
