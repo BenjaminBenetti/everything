@@ -228,6 +228,7 @@ export class CredentialDistribution {
             env: state.env,
             version: state.version,
             status: state.status,
+            valueId: state.valueId ?? null,
           })),
       )
       .sort(

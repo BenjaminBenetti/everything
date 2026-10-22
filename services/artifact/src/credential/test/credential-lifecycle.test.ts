@@ -202,7 +202,6 @@ async function world() {
   };
 }
 
-/** A grant of a credential under a variable. */
 /** A test's value identity: the same for the same credential, version, and value. */
 function valueIdOf(
   credentialId: string,
@@ -818,6 +817,11 @@ test("a second value at a delivered version is refused, never reported applied, 
   assert.deepEqual(context.cluster.environments(context.app.id), [
     { TOKEN: rotated },
   ]);
+  // Usage names the value apps hold, so Everything never shows its restored value as in use.
+  assert.deepEqual(
+    (await context.distribution.uses(slack)).map((use) => use.valueId),
+    [valueIdOf(slack, 2, rotated)],
+  );
   // Everything saves the value past the version apps hold and delivers it.
   const recovered = await context.distribution.deliver(
     slack,
