@@ -1,0 +1,22 @@
+meta {
+  name: Confirm the credential is gone
+  type: http
+  seq: 12
+}
+
+get {
+  url: {{baseUrl}}/v1/keys
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+tests {
+  test("A fully removed credential is no longer listed", () => {
+    expect(res.status).to.equal(200);
+    expect(res.body.keys.some((key) => key.id === bru.getVar("credentialId"))).to.equal(false);
+  });
+}

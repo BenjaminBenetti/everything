@@ -1,0 +1,30 @@
+meta {
+  name: Reject attaching another account's credential
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{baseUrl}}/v1/artifacts/89bb2d67-090d-405a-84f8-880d9231c9c2/credentials
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+  Authorization: Bearer {{outsiderToken}}
+}
+
+body:json {
+  {
+    "credentialId": "{{credentialId}}",
+    "env": "BRUNO_TOKEN"
+  }
+}
+
+tests {
+  test("Seeing a credential's metadata never allows granting it to an app", () => {
+    expect(res.status).to.equal(403);
+    expect(res.body.code).to.equal("CREDENTIAL_OWNER_ONLY");
+  });
+}
