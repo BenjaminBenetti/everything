@@ -842,7 +842,7 @@ services:
     # One copy owns its data directory and metadata database.
     workload: StatefulSet
     rolloutWave: 0
-    upstreamImage: public.ecr.aws/zinclabs/openobserve:v1.1.2@sha256:4a154849432f75c4fb024de32fe34163c02406c905dab22bf8d213d2e3386392
+    upstreamImage: docker.io/openobserve/openobserve:v1.1.2@sha256:4a154849432f75c4fb024de32fe34163c02406c905dab22bf8d213d2e3386392
     terminationGracePeriodSeconds: 30
     env:
       ZO_HTTP_PORT: "5080"

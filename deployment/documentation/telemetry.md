@@ -43,7 +43,7 @@ Records are made safe in the process, before export:
 
 ## Deployment
 
-`services.openobserve` in [values.yaml](../helm/values.yaml) runs OpenObserve’s published image unchanged (`public.ecr.aws/zinclabs/openobserve:v1.1.2`, pinned by digest, published for `linux/amd64` and `linux/arm64`), as one StatefulSet replica in local mode: SQLite metadata and Parquet files on its `openobserve-data` claim. It runs as user 1000 with a read-only root filesystem and no capabilities, has a ClusterIP Service on port 5080, and no Ingress.
+`services.openobserve` in [values.yaml](../helm/values.yaml) runs OpenObserve’s published image unchanged (`docker.io/openobserve/openobserve:v1.1.2`, pinned by digest, published for `linux/amd64` and `linux/arm64`; the same digest is on OpenObserve’s other registries), as one StatefulSet replica in local mode: SQLite metadata and Parquet files on its `openobserve-data` claim. It runs as user 1000 with a read-only root filesystem and no capabilities, has a ClusterIP Service on port 5080, and no Ingress.
 
 | Setting | Default | Meaning |
 | --- | --- | --- |

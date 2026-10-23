@@ -57,8 +57,20 @@ image=$(cat "$work/image")
 memory=$(cat "$work/memory")
 retention=$(cat "$work/retention")
 
+# Public registries throttle shared CI addresses, so pulls are retried with a pause.
+retry() {
+  local attempt
+  for attempt in 1 2 3 4; do
+    if "$@"; then return 0; fi
+    if [ "$attempt" = 4 ]; then return 1; fi
+    echo "Retrying in $((attempt * 20)) seconds: $*" >&2
+    sleep $((attempt * 20))
+  done
+}
+
 # The installers support amd64 and arm64 nodes, so the pinned image must exist for both.
-manifest=$(docker buildx imagetools inspect --raw "$image")
+manifest=$(retry docker buildx imagetools inspect --raw "$image")
+retry docker pull --quiet "$image" > /dev/null
 for platform in amd64 arm64; do
   if ! grep -q "\"architecture\": *\"$platform\"" <<< "$manifest"; then
     echo "$image is not published for linux/$platform." >&2

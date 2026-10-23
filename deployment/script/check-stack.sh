@@ -53,8 +53,8 @@ if [[ $gateway_image != *":${fleet_version#v}@sha256:"* ]]; then
 fi
 # Telemetry storage runs OpenObserve's published image unchanged, pinned by digest so every node of
 # either architecture runs the same build; deployment/script/test-telemetry.sh checks both platforms.
-openobserve_image=$(sed -n 's/^    upstreamImage: \(public.ecr.aws\/zinclabs\/openobserve:.*\)/\1/p' "$chart/values.yaml")
-if [[ ! $openobserve_image =~ ^public\.ecr\.aws/zinclabs/openobserve:v[0-9.]+@sha256:[0-9a-f]{64}$ ]]; then
+openobserve_image=$(sed -n 's/^    upstreamImage: \(docker.io\/openobserve\/openobserve:.*\)/\1/p' "$chart/values.yaml")
+if [[ ! $openobserve_image =~ ^docker\.io/openobserve/openobserve:v[0-9.]+@sha256:[0-9a-f]{64}$ ]]; then
   echo "services.openobserve must run OpenObserve's published image pinned by digest: $openobserve_image" >&2
   exit 1
 fi

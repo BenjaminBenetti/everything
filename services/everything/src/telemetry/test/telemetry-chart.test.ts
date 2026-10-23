@@ -80,7 +80,7 @@ test("OpenObserve runs pinned, non-root, inside the cluster only, with seven day
   const { container, pod } = openobserve;
   assert.match(
     container.image,
-    /^public\.ecr\.aws\/zinclabs\/openobserve:v[0-9.]+@sha256:[0-9a-f]{64}$/,
+    /^docker\.io\/openobserve\/openobserve:v[0-9.]+@sha256:[0-9a-f]{64}$/,
   );
   const settings = environment(container);
   assert.equal(settings.ZO_COMPACT_DATA_RETENTION_DAYS, "7");
