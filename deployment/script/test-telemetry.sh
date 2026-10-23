@@ -3,8 +3,9 @@
 # its pinned image, every setting the chart renders, its CPU and memory limits, a non-root user, and a
 # read-only root filesystem. Checks that the image is published for amd64 and arm64, runs the
 # export, query API, owner isolation, restart, and retention tests, and with --browser the Telemetry
-# page in Chromium against the same storage. Reports the container's peak memory. Never touches a
-# cluster; the container and its data are removed afterward.
+# page in Chromium against the same storage, with error text withheld, as by default, and recorded.
+# Reports the container's peak memory. Never touches a cluster; the container and its data are
+# removed afterward.
 #
 #   bash deployment/script/test-telemetry.sh [--browser]
 set -euo pipefail
@@ -115,25 +116,36 @@ export TELEMETRY_E2E_URL="$url"
 export TELEMETRY_E2E_PASSWORD_FILE="$work/password"
 export TELEMETRY_E2E_CONTAINER="$name"
 export TELEMETRY_E2E_RETENTION_DAYS="$retention"
+# Error text is withheld by default; the owner scenario runs again with it recorded.
 (cd services/everything && node --import tsx --test src/telemetry/test/openobserve.test.ts)
+(cd services/everything && TELEMETRY_E2E_INCLUDE_ERROR_TEXT=true \
+  node --import tsx --test --test-name-pattern 'model failures exported' src/telemetry/test/openobserve.test.ts)
 
 if $browser; then
-  stream="browser_e2e_$$"
-  (
-    cd services/everything
-    TELEMETRY_URL="$url" TELEMETRY_PASSWORD_FILE="$work/password" TELEMETRY_STREAM="$stream" \
-      TELEMETRY_READ_SAMPLE_RATIO=1 TELEMETRY_E2E_GATEWAY_PORT=18182 TELEMETRY_E2E_ORIGIN=http://localhost:5183 \
-      exec node --import tsx --import ./src/telemetry/bootstrap/instrumentation.ts src/telemetry/test/e2e-gateway.ts
-  ) > "$work/gateway.log" 2>&1 &
-  gateway_pid=$!
-  for attempt in {1..120}; do
-    if grep -q '^ready ' "$work/gateway.log"; then break; fi
-    if ! kill -0 "$gateway_pid" 2> /dev/null || [ "$attempt" = 120 ]; then cat "$work/gateway.log" >&2; echo "The gateway did not start." >&2; exit 1; fi
-    sleep 1
+  for include_error_text in false true; do
+    stream="browser_e2e_$$_$include_error_text"
+    (
+      cd services/everything
+      TELEMETRY_URL="$url" TELEMETRY_PASSWORD_FILE="$work/password" TELEMETRY_STREAM="$stream" \
+        TELEMETRY_INCLUDE_ERROR_TEXT="$include_error_text" \
+        TELEMETRY_READ_SAMPLE_RATIO=1 TELEMETRY_E2E_GATEWAY_PORT=18182 TELEMETRY_E2E_ORIGIN=http://localhost:5183 \
+        exec node --import tsx --import ./src/telemetry/bootstrap/instrumentation.ts src/telemetry/test/e2e-gateway.ts
+    ) > "$work/gateway.log" 2>&1 &
+    gateway_pid=$!
+    for attempt in {1..120}; do
+      if grep -q '^ready ' "$work/gateway.log"; then break; fi
+      if ! kill -0 "$gateway_pid" 2> /dev/null || [ "$attempt" = 120 ]; then cat "$work/gateway.log" >&2; echo "The gateway did not start." >&2; exit 1; fi
+      sleep 1
+    done
+    other_trace=$(sed -n 's/^ready .* other-trace \([0-9a-f]*\)$/\1/p' "$work/gateway.log")
+    if [ "$include_error_text" = true ]; then error_text=included; else error_text=withheld; fi
+    echo "The Telemetry page with error text $error_text:"
+    UI_API_ORIGIN=http://127.0.0.1:18182 TELEMETRY_E2E_OTHER_TRACE="$other_trace" TELEMETRY_E2E_ERROR_TEXT="$error_text" \
+      pnpm --filter @everything/ui-tests test:telemetry-e2e
+    kill "$gateway_pid" 2> /dev/null || true
+    wait "$gateway_pid" 2> /dev/null || true
+    gateway_pid=
   done
-  other_trace=$(sed -n 's/^ready .* other-trace \([0-9a-f]*\)$/\1/p' "$work/gateway.log")
-  UI_API_ORIGIN=http://127.0.0.1:18182 TELEMETRY_E2E_OTHER_TRACE="$other_trace" \
-    pnpm --filter @everything/ui-tests test:telemetry-e2e
 fi
 
 echo "Peak OpenObserve memory during the tests: $(cat "$work/peak" 2> /dev/null || echo unknown) MiB of ${memory}."

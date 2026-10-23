@@ -6,6 +6,7 @@ import type {
   TelemetryRecordSummary,
 } from "@everything/telemetry-contracts";
 import { Button, IconButton } from "@everything/ui/button";
+import { HttpRequestError } from "../../http/model/http-request-error.js";
 import {
   useTelemetryEvent,
   useTelemetryTrace,
@@ -33,17 +34,20 @@ function providerName(provider: string | null): string | null {
 /**
  * The selected record's diagnosis: what happened in plain words with the next step, the codes,
  * status, and IDs that identify it, the teammate it concerns, and the trace it belongs to. It is
- * fetched by ID, so it stays open while the list refreshes or loads more records.
+ * fetched by ID, so it stays open while the list refreshes or loads more records. While
+ * `watching`, a trace whose work may still be finishing is checked again for records that arrive.
  */
 export function TelemetryDetailPanel({
   record,
   teammates,
+  watching,
   onSelect,
   onClose,
 }: {
   record: TelemetryRecordSummary;
   teammates:
     readonly { readonly id: string; readonly name: string }[] | undefined;
+  watching: boolean;
   onSelect: (record: TelemetryRecordSummary) => void;
   onClose: () => void;
 }) {
@@ -51,7 +55,9 @@ export function TelemetryDetailPanel({
   const event = useTelemetryEvent(
     record.source === "events" ? record.id : undefined,
   );
-  const trace = useTelemetryTrace(record.traceId);
+  const trace = useTelemetryTrace(record.traceId, record.time, watching);
+  const traceMissing =
+    trace.error instanceof HttpRequestError && trace.error.status === 404;
   const detail: TelemetryRecordSummary & Partial<TelemetryEvent> =
     event.data ?? record;
   const cause = describeCause(detail.category, detail.code);
@@ -154,36 +160,72 @@ export function TelemetryDetailPanel({
           <Fact key={fact.key} label={fact.label} value={fact.value} />
         ))}
       </dl>
-      {detail.message && (
+      {detail.message ? (
         <section
           className="telemetry-message"
           aria-labelledby="telemetry-message-heading"
         >
           <h3 id="telemetry-message-heading">What the error said</h3>
           <p className="telemetry-muted">
-            Credentials and query strings are removed before it’s stored.
+            Credentials and query strings are removed before it’s stored. It can
+            still quote what was sent, such as part of a prompt.
           </p>
           <pre>{detail.message}</pre>
         </section>
+      ) : (
+        detail.textWithheld && (
+          <section
+            className="telemetry-message"
+            aria-labelledby="telemetry-message-heading"
+          >
+            <h3 id="telemetry-message-heading">Error text withheld</h3>
+            <p className="telemetry-muted">
+              This installation doesn’t record what errors say, because it can
+              quote what was sent, such as part of a prompt. The cause and codes
+              above come from the error’s structured details. Whoever manages
+              the installation can turn on error text; the deployment guide
+              explains how.
+            </p>
+          </section>
+        )
       )}
       {record.traceId &&
         (trace.isPending ? (
           <p className="telemetry-muted" role="status">
             Loading trace…
           </p>
-        ) : trace.isError ? (
+        ) : !trace.data && traceMissing ? (
           <p className="telemetry-muted">
             No other records you can see belong to this trace.
           </p>
+        ) : !trace.data ? (
+          <div className="status-panel" role="alert">
+            <p>The trace couldn’t be loaded. {trace.error?.message}</p>
+            <Button variant="light" onClick={() => void trace.refetch()}>
+              Try again
+            </Button>
+          </div>
         ) : (
-          <TraceTimeline
-            trace={trace.data}
-            highlightSpanId={
-              record.source === "spans" ? record.id : record.spanId
-            }
-            selectedEventId={record.source === "events" ? record.id : null}
-            onSelectEvent={onSelect}
-          />
+          <>
+            {trace.isError && (
+              <div className="telemetry-notice telemetry-stale" role="alert">
+                <span>
+                  The trace couldn’t be updated; it’s shown as last loaded.
+                </span>
+                <Button variant="light" onClick={() => void trace.refetch()}>
+                  Try again
+                </Button>
+              </div>
+            )}
+            <TraceTimeline
+              trace={trace.data}
+              highlightSpanId={
+                record.source === "spans" ? record.id : record.spanId
+              }
+              selectedEventId={record.source === "events" ? record.id : null}
+              onSelectEvent={onSelect}
+            />
+          </>
         ))}
     </aside>
   );

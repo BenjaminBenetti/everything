@@ -90,6 +90,12 @@ export function TraceTimeline({
                           <dd>{span.statusMessage}</dd>
                         </>
                       )}
+                      {span.textWithheld && (
+                        <>
+                          <dt>Error text</dt>
+                          <dd>Withheld by this installation’s setting</dd>
+                        </>
+                      )}
                       {span.httpStatus !== null && (
                         <>
                           <dt>HTTP status</dt>

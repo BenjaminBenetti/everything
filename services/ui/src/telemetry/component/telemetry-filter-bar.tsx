@@ -57,6 +57,7 @@ export function TelemetryFilterBar({
   teammates,
   live,
   error,
+  refreshing,
   onChange,
   onRefresh,
   onClear,
@@ -66,6 +67,8 @@ export function TelemetryFilterBar({
   teammates: readonly { readonly id: string; readonly name: string }[];
   live: boolean;
   error: string | null;
+  /** A refresh is loading while the current records stay shown. */
+  refreshing: boolean;
   onChange: (next: Partial<TelemetryFilters>) => void;
   onRefresh: () => void;
   onClear: () => void;
@@ -244,8 +247,11 @@ export function TelemetryFilterBar({
           onChange={onLiveChange}
           className="telemetry-live"
         />
-        <Button variant="light" type="submit">
-          <RefreshCw aria-hidden="true" />
+        <Button variant="light" type="submit" aria-busy={refreshing}>
+          <RefreshCw
+            aria-hidden="true"
+            className={refreshing ? "telemetry-refreshing" : undefined}
+          />
           Refresh
         </Button>
         <Button variant="text" type="button" onClick={onClear}>

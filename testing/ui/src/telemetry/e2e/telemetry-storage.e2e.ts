@@ -4,10 +4,17 @@ import { fileURLToPath } from "node:url";
 /** The teammate the gateway's real turns ran as, for both owners. */
 const agentId = "0b6a3c4e-5f1d-4e2a-8c9b-7d6e5f4a3b2c";
 
-/** Where screenshots of the real page are kept as evidence. */
+/** Whether the gateway records error text, as TELEMETRY_INCLUDE_ERROR_TEXT sets it there. */
+const errorText =
+  process.env.TELEMETRY_E2E_ERROR_TEXT === "included" ? "included" : "withheld";
+
+/**
+ * Where screenshots of the real page are kept as evidence, outside Playwright's output directory,
+ * which each run clears, so both error-text runs keep theirs.
+ */
 const evidence = fileURLToPath(
   new URL(
-    "../../../../../.local/ui-test-results/telemetry-e2e/",
+    "../../../../../.local/ui-test-results/telemetry-e2e-evidence/",
     import.meta.url,
   ),
 );
@@ -86,7 +93,7 @@ test("a real model failure travels from Everything's runtime through OpenObserve
   // Owner B's server error exists in the same storage but is never listed for owner A.
   await expect(table.getByText("server_error")).toHaveCount(0);
   await page.screenshot({
-    path: `${evidence}telemetry-errors.png`,
+    path: `${evidence}telemetry-errors-${errorText}.png`,
     fullPage: true,
   });
 
@@ -110,9 +117,17 @@ test("a real model failure travels from Everything's runtime through OpenObserve
         .locator("dt", { hasText: new RegExp(`^${label}$`) })
         .locator("+ dd"),
     ).toHaveText(value);
-  await expect(
-    detail.getByText("Rate limit reached for requests per minute"),
-  ).toBeVisible();
+  if (errorText === "included")
+    await expect(
+      detail.getByText("Rate limit reached for requests per minute"),
+    ).toBeVisible();
+  else {
+    // The provider's wording never reached storage; the page says so instead of showing nothing.
+    await expect(
+      detail.getByRole("heading", { name: "Error text withheld" }),
+    ).toBeVisible();
+    await expect(detail.getByText(/Rate limit reached/)).toHaveCount(0);
+  }
   const spans = detail.getByRole("list", { name: "Spans, in tree order" });
   await expect(
     spans.getByRole("button", { name: /Teammate turn/ }),
@@ -124,7 +139,7 @@ test("a real model failure travels from Everything's runtime through OpenObserve
     spans.getByRole("button", { name: /Provider request to model\.test/ }),
   ).toBeVisible();
   await page.screenshot({
-    path: `${evidence}telemetry-detail.png`,
+    path: `${evidence}telemetry-detail-${errorText}.png`,
     fullPage: true,
   });
 
@@ -136,7 +151,7 @@ test("a real model failure travels from Everything's runtime through OpenObserve
     table.getByRole("button", { name: /Provider request to model\.test/ }),
   ).toBeVisible();
   await page.screenshot({
-    path: `${evidence}telemetry-spans.png`,
+    path: `${evidence}telemetry-spans-${errorText}.png`,
     fullPage: true,
   });
 

@@ -21,6 +21,7 @@ import {
 import { formatTime } from "../model/telemetry-presentation.js";
 import {
   useNewerRecords,
+  useRefreshTelemetryRecord,
   useTelemetryRecords,
   useTelemetryStatus,
 } from "./telemetry-client-provider.js";
@@ -28,22 +29,26 @@ import { TelemetryDetailPanel } from "./telemetry-detail-panel.js";
 import { TelemetryFilterBar } from "./telemetry-filter-bar.js";
 import { TelemetryRecordTable } from "./telemetry-record-table.js";
 
-/** Filters applied to the list, fixed when applied so loading more never shifts the range. */
+/**
+ * Filters applied to the list, fixed when applied so loading more never shifts the range. Each
+ * refresh is a new generation, so it reloads even a fixed range whose query is unchanged.
+ */
 interface AppliedFilters {
   readonly view: TelemetrySource;
   readonly query?: TelemetryQuery;
   readonly error?: string;
+  readonly generation: number;
 }
 
 /** Text filters wait for typing to pause before they apply. */
 const typingDelayMs = 400;
 
-/** The filters as the list applies them now. */
-function apply(filters: TelemetryFilters): AppliedFilters {
+/** The filters as the list applies them now, in `generation`. */
+function apply(filters: TelemetryFilters, generation = 0): AppliedFilters {
   const result = telemetryQuery(filters, Date.now());
   return "query" in result
-    ? { view: filters.view, query: result.query }
-    : { view: filters.view, error: result.error };
+    ? { view: filters.view, query: result.query, generation }
+    : { view: filters.view, error: result.error, generation };
 }
 
 /**
@@ -60,8 +65,14 @@ export function TelemetryExplorer() {
   const [live, setLive] = useState(true);
   const typing = useRef<number | undefined>(undefined);
   const opener = useRef<HTMLElement | null>(null);
+  const resultsHeading = useRef<HTMLHeadingElement>(null);
+  const refreshRecord = useRefreshTelemetryRecord();
   const available = status.data?.state === "available";
-  const records = useTelemetryRecords(applied.view, applied.query);
+  const records = useTelemetryRecords(
+    applied.view,
+    applied.query,
+    applied.generation,
+  );
   const list = records.data?.pages.flatMap((page) => page.records) ?? [];
   const shown = new Set(list.map((record) => record.id));
   const newer = useNewerRecords(
@@ -90,16 +101,27 @@ export function TelemetryExplorer() {
     ].some((key) => key in patch);
     if (typed)
       typing.current = window.setTimeout(
-        () => setApplied(apply(next)),
+        () => setApplied((current) => apply(next, current.generation)),
         typingDelayMs,
       );
-    else setApplied(apply(next));
+    else setApplied(apply(next, applied.generation));
   }
 
-  /** Reapply the filters up to now, keeping the open record. */
+  /**
+   * Reload the list from its newest page, with a rolling range brought up to now, and the open
+   * record's details and trace, which stay open. Even a fixed range is fetched again, since records
+   * from its period can arrive after it was first loaded.
+   */
   function refresh(): void {
     window.clearTimeout(typing.current);
-    setApplied(apply(filters));
+    setApplied((current) => apply(filters, current.generation + 1));
+    refreshRecord(selected);
+  }
+
+  /** Show the newer records, moving focus from the announcement, which goes away, to the list. */
+  function showNewer(): void {
+    refresh();
+    resultsHeading.current?.focus();
   }
 
   /** Open a record's details, remembering the row to return focus to. */
@@ -163,6 +185,7 @@ export function TelemetryExplorer() {
         teammates={agents.data ?? []}
         live={live}
         error={applied.error ?? null}
+        refreshing={records.isPlaceholderData}
         onChange={change}
         onRefresh={refresh}
         onClear={() => change(clearedFilters(filters))}
@@ -172,9 +195,15 @@ export function TelemetryExplorer() {
         <section
           className="telemetry-results"
           aria-labelledby="telemetry-results-heading"
+          aria-busy={records.isPlaceholderData}
         >
           <div className="list-tools">
-            <h2 className="section-label" id="telemetry-results-heading">
+            <h2
+              className="section-label"
+              id="telemetry-results-heading"
+              ref={resultsHeading}
+              tabIndex={-1}
+            >
               {applied.view === "events" ? "Events" : "Spans"}{" "}
               <span>
                 {records.isSuccess
@@ -197,7 +226,7 @@ export function TelemetryExplorer() {
                   : `${newCount}${newCount >= 100 ? "+" : ""} newer records`}{" "}
                 match these filters.
               </span>
-              <Button variant="light" onClick={refresh}>
+              <Button variant="light" onClick={showNewer}>
                 Show newer records
               </Button>
             </div>
@@ -272,6 +301,7 @@ export function TelemetryExplorer() {
             key={`${selected.source}:${selected.id}`}
             record={selected}
             teammates={agents.data}
+            watching={live}
             onSelect={select}
             onClose={close}
           />

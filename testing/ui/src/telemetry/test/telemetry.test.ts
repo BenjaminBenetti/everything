@@ -1,10 +1,44 @@
 import { expect, test } from "@playwright/test";
+import type { Page } from "@playwright/test";
 import {
   record,
   teammate,
   telemetryWorkspace,
+  trace,
   traceId,
 } from "../fixture/telemetry-workspace.js";
+
+/** A failed request that a later load finds, newer than the fixture's model failure. */
+const laterFailure = record({
+  id: "99999999-8888-4777-8666-555555555555",
+  time: "2026-10-23T11:59:30.000Z",
+  title: "Request failed",
+  type: "http",
+  name: "http.request.failed",
+  category: null,
+  code: "INTERNAL_ERROR",
+  httpStatus: 500,
+  model: null,
+});
+
+/** Open the model failure's details and return the panel and its span list. */
+async function openFailure(page: Page) {
+  await page.getByRole("button", { name: /Model request failed/ }).click();
+  const detail = page.getByRole("complementary", {
+    name: "Model request failed",
+  });
+  await expect(detail).toBeVisible();
+  return {
+    detail,
+    spans: detail.getByRole("list", { name: "Spans, in tree order" }),
+  };
+}
+
+/** Requests the page made for the shared trace. */
+function traceRequests(requests: readonly URL[]): number {
+  return requests.filter((url) => url.pathname.endsWith(`/traces/${traceId}`))
+    .length;
+}
 
 // Each project runs its own layout's tests; see playwright.telemetry.config.ts.
 test.describe("desktop", { tag: "@desktop" }, () => {
@@ -180,6 +214,9 @@ test.describe("desktop", { tag: "@desktop" }, () => {
     await expect(
       detail.getByText("Rate limit reached for requests per minute"),
     ).toBeVisible();
+    await expect(
+      detail.getByText(/can still quote what was sent/),
+    ).toBeVisible();
 
     const spans = detail.getByRole("list", { name: "Spans, in tree order" });
     await expect(spans.getByRole("button")).toHaveText([
@@ -277,6 +314,197 @@ test.describe("desktop", { tag: "@desktop" }, () => {
     await expect(detail).toBeVisible();
   });
 
+  test("Refresh reloads an unchanged custom range, keeping the open record and focus", async ({
+    page,
+    context,
+  }) => {
+    const workspace = await telemetryWorkspace(context);
+    await page.goto("/telemetry");
+    await page.getByRole("combobox", { name: "Time range" }).click();
+    await page.getByRole("option", { name: "Custom range" }).click();
+    await page.getByLabel("From", { exact: true }).fill("2026-10-23T11:00");
+    await page.getByLabel("To", { exact: true }).fill("2026-10-23T12:00");
+    const to = await page.evaluate(() =>
+      new Date("2026-10-23T12:00").toISOString(),
+    );
+    const fixedRange = () =>
+      workspace.requests.filter(
+        (url) =>
+          url.pathname === "/v1/telemetry/events" &&
+          url.searchParams.get("to") === to,
+      );
+    await expect.poll(() => fixedRange().length).toBe(1);
+    const { detail } = await openFailure(page);
+
+    // A record from the range is exported after the range was first loaded.
+    workspace.eventPages.set("", {
+      records: [laterFailure, record()],
+      nextCursor: null,
+    });
+    const refresh = page.getByRole("button", { name: "Refresh" });
+    await refresh.click();
+    await expect.poll(() => fixedRange().length).toBe(2);
+    const [first, second] = fixedRange();
+    expect(second!.search).toBe(first!.search);
+    await expect(page.locator(".telemetry-row-button")).toHaveText([
+      /Request failed/,
+      /Model request failed/,
+    ]);
+    await expect(detail).toBeVisible();
+    await expect(refresh).toBeFocused();
+  });
+
+  test("an open trace fills in as the rest of its work arrives, then stops checking", async ({
+    page,
+    context,
+  }) => {
+    const workspace = await telemetryWorkspace(context);
+    // The failure is exported before its prompt and turn have ended.
+    workspace.trace = {
+      ...trace,
+      spans: trace.spans.slice(2),
+      events: trace.events.slice(0, 1),
+    };
+    await page.clock.install({ time: new Date("2026-10-23T11:58:20.000Z") });
+    await page.goto("/telemetry");
+    const { detail, spans } = await openFailure(page);
+    await expect(spans.getByRole("button")).toHaveText([
+      /Provider request to api\.anthropic\.com/,
+    ]);
+    workspace.trace = trace;
+    await page.clock.fastForward(6_000);
+    await expect(spans.getByRole("button")).toHaveText([
+      /Teammate turn/,
+      /Model prompt/,
+      /Provider request to api\.anthropic\.com/,
+    ]);
+    await expect(
+      detail.getByRole("button", { name: /Teammate turn failed/ }),
+    ).toBeVisible();
+    const checks = traceRequests(workspace.requests);
+    await page.clock.fastForward(60_000);
+    expect(
+      traceRequests(workspace.requests),
+      "a trace with its root span is complete and no longer checked",
+    ).toBe(checks);
+    await expect(detail).toBeVisible();
+  });
+
+  test("Refresh and Show newer records update the open trace after it has been open a while", async ({
+    page,
+    context,
+  }) => {
+    const workspace = await telemetryWorkspace(context);
+    // The turn has ended, but its provider request's span is in a later export batch.
+    workspace.trace = { ...trace, spans: trace.spans.slice(0, 2) };
+    await page.clock.install({ time: new Date("2026-10-23T11:58:20.000Z") });
+    await page.goto("/telemetry");
+    const { detail, spans } = await openFailure(page);
+    await expect(spans.getByRole("button")).toHaveCount(2);
+    workspace.trace = { ...trace, events: trace.events.slice(0, 1) };
+    await page.clock.fastForward(45_000);
+    await expect(spans.getByRole("button")).toHaveCount(2);
+
+    const loads = traceRequests(workspace.requests);
+    await page.getByRole("button", { name: "Refresh" }).click();
+    await expect.poll(() => traceRequests(workspace.requests)).toBe(loads + 1);
+    await expect(spans.getByRole("button")).toHaveCount(3);
+    await expect(detail).toBeVisible();
+    await expect(
+      detail.getByRole("button", { name: /Teammate turn failed/ }),
+    ).toBeHidden();
+
+    workspace.trace = trace;
+    workspace.eventPages.set("", {
+      records: [laterFailure, record()],
+      nextCursor: null,
+    });
+    await page.clock.fastForward(16_000);
+    await page.getByRole("button", { name: "Show newer records" }).click();
+    await expect(
+      detail.getByRole("button", { name: /Teammate turn failed/ }),
+    ).toBeVisible();
+    await expect(page.locator(".telemetry-row-button").first()).toContainText(
+      "Request failed",
+    );
+    await expect(
+      page.getByRole("heading", { level: 2, name: /^Events/ }),
+    ).toBeFocused();
+    await expect(detail).toBeVisible();
+  });
+
+  test("a trace that couldn't load says so and can be retried", async ({
+    page,
+    context,
+  }) => {
+    const workspace = await telemetryWorkspace(context);
+    workspace.traceStatus = 503;
+    await page.goto("/telemetry");
+    const { detail, spans } = await openFailure(page);
+    await expect(detail.getByRole("alert")).toContainText(
+      "The trace couldn’t be loaded. Telemetry storage isn’t responding.",
+    );
+    await expect(
+      detail.getByText("No other records you can see belong to this trace."),
+    ).toBeHidden();
+    workspace.traceStatus = 200;
+    await detail.getByRole("button", { name: "Try again" }).click();
+    await expect(spans.getByRole("button")).toHaveCount(3);
+    await expect(detail.getByRole("alert")).toBeHidden();
+  });
+
+  test("a trace with nothing else the owner can see says so", async ({
+    page,
+    context,
+  }) => {
+    const workspace = await telemetryWorkspace(context);
+    workspace.eventPages.set("", {
+      records: [record({ traceId: "0af7651916cd43dd8448eb211c80319c" })],
+      nextCursor: null,
+    });
+    await page.goto("/telemetry");
+    const { detail } = await openFailure(page);
+    await expect(
+      detail.getByText("No other records you can see belong to this trace."),
+    ).toBeVisible();
+    await expect(detail.getByRole("alert")).toBeHidden();
+  });
+
+  test("error text an installation withholds is labelled, not silently missing", async ({
+    page,
+    context,
+  }) => {
+    const workspace = await telemetryWorkspace(context);
+    workspace.status.errorText = "withheld";
+    workspace.eventDetail = { message: null, textWithheld: true };
+    const [turn, prompt, provider] = trace.spans as Record<string, unknown>[];
+    workspace.trace = {
+      ...trace,
+      spans: [
+        turn,
+        prompt,
+        { ...provider, statusMessage: "HTTP 429", textWithheld: true },
+      ],
+    };
+    await page.goto("/telemetry");
+    const { detail, spans } = await openFailure(page);
+    await expect(
+      detail.getByRole("heading", { name: "Error text withheld" }),
+    ).toBeVisible();
+    await expect(
+      detail.getByText(/doesn’t record what errors say/),
+    ).toBeVisible();
+    await expect(
+      detail.getByRole("heading", { name: "What the error said" }),
+    ).toBeHidden();
+    await expect(detail.getByText("rate_limit_error")).toBeVisible();
+    await spans.getByRole("button", { name: /Provider request/ }).click();
+    await expect(
+      detail.getByText("Withheld by this installation’s setting"),
+    ).toBeVisible();
+    await expect(detail.getByText("HTTP 429", { exact: true })).toBeVisible();
+  });
+
   test("older records load below the ones already shown", async ({
     page,
     context,
@@ -338,6 +566,7 @@ test.describe("desktop", { tag: "@desktop" }, () => {
     workspace.status = {
       state: "unavailable",
       retentionDays: 7,
+      errorText: "withheld",
       export: {
         lastSuccessAt: null,
         lastFailureAt: "2026-10-23T11:00:00.000Z",
@@ -363,7 +592,12 @@ test.describe("desktop", { tag: "@desktop" }, () => {
         .getByRole("button", { name: "Try again" }),
     ).toBeVisible();
 
-    workspace.status = { state: "disabled", retentionDays: 7, export: null };
+    workspace.status = {
+      state: "disabled",
+      retentionDays: 7,
+      errorText: "withheld",
+      export: null,
+    };
     await page.reload();
     await expect(
       page.getByRole("heading", { name: "Telemetry is turned off" }),

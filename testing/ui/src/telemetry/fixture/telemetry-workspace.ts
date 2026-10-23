@@ -67,6 +67,7 @@ function span(
     startTime: start,
     statusMessage:
       severity === "error" ? "Model request failed: rate_limit" : null,
+    textWithheld: false,
     details:
       name === "provider.request"
         ? [{ key: "server_address", label: "Host", value: "api.anthropic.com" }]
@@ -125,12 +126,28 @@ export const trace = {
 
 /** Server-side state the tests observe and control. */
 export interface TelemetryWorkspace {
-  status: { state: string; retentionDays: number; export: unknown };
+  status: {
+    state: string;
+    retentionDays: number;
+    errorText: string;
+    export: unknown;
+  };
   /** Pages returned for event listings, by cursor; the first page has no cursor. */
   eventPages: Map<string, { records: unknown[]; nextCursor: string | null }>;
   spanRecords: unknown[];
   /** Status for listings; 200 returns pages. */
   listStatus: number;
+  /** What the shared trace holds so far; its records can arrive over time. */
+  trace: {
+    traceId: string;
+    spans: unknown[];
+    events: unknown[];
+    truncated: boolean;
+  };
+  /** Status for trace requests; 200 returns `trace`. */
+  traceStatus: number;
+  /** An event's diagnosis beyond its list entry, such as its error text. */
+  eventDetail: Record<string, unknown>;
   /** Telemetry requests the page made, in order. */
   readonly requests: URL[];
 }
@@ -143,10 +160,21 @@ export async function telemetryWorkspace(
   context: BrowserContext,
 ): Promise<TelemetryWorkspace> {
   const state: TelemetryWorkspace = {
-    status: { state: "available", retentionDays: 7, export: null },
+    status: {
+      state: "available",
+      retentionDays: 7,
+      errorText: "included",
+      export: null,
+    },
     eventPages: new Map([["", { records: [record()], nextCursor: null }]]),
     spanRecords: trace.spans,
     listStatus: 200,
+    trace,
+    traceStatus: 200,
+    eventDetail: {
+      message: "Rate limit reached for requests per minute",
+      textWithheld: false,
+    },
     requests: [],
   };
   await context.route("**/v1/**", (route) =>
@@ -205,24 +233,32 @@ function telemetryResponse(
     to: url.searchParams.get("to") ?? "2026-10-23T12:00:00.000Z",
   };
   if (url.pathname === "/v1/telemetry/status") return { json: state.status };
-  if (url.pathname.startsWith("/v1/telemetry/traces/"))
-    return url.pathname.endsWith(traceId)
-      ? { json: trace }
+  if (url.pathname.startsWith("/v1/telemetry/traces/")) {
+    if (!url.pathname.endsWith(traceId))
+      return {
+        status: 404,
+        json: { code: "TELEMETRY_NOT_FOUND", message: "Not available." },
+      };
+    return state.traceStatus === 200
+      ? { json: state.trace }
       : {
-          status: 404,
-          json: { code: "TELEMETRY_NOT_FOUND", message: "Not available." },
+          status: state.traceStatus,
+          json: {
+            code: "TELEMETRY_UNAVAILABLE",
+            message: "Telemetry storage isn’t responding right now.",
+          },
         };
+  }
   if (url.pathname.startsWith("/v1/telemetry/events/")) {
     const id = url.pathname.split("/").pop();
     const found = [...state.eventPages.values()]
       .flatMap((page) => page.records as { id: string }[])
-      .concat(trace.events)
+      .concat(state.trace.events as { id: string }[])
       .find((entry) => entry.id === id);
     return found
       ? {
           json: {
             ...found,
-            message: "Rate limit reached for requests per minute",
             requestId: "req_011CUrateLimit",
             sessionId: "6b0f2d1e-3c4a-4b5c-8d6e-7f8091a2b3c4",
             runId: "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
@@ -235,6 +271,7 @@ function telemetryResponse(
                 value: "20",
               },
             ],
+            ...state.eventDetail,
           },
         }
       : {

@@ -438,3 +438,23 @@
 .telemetry-desktop-required {
   padding-top: 40px;
 }
+.telemetry-refreshing {
+  animation: telemetry-refresh-spin 1s linear infinite;
+}
+@keyframes telemetry-refresh-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .telemetry-refreshing {
+    animation: none;
+  }
+}
+.telemetry-stale {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 0;
+}
