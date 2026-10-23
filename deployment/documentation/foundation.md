@@ -206,7 +206,7 @@ After authentication, each folder creates the agents it needs and deletes them a
 | POST | `/v1/agents/:agentId/interrupt` | Abort generation and await in-flight tools. |
 | GET | `/v1/artifacts` | Artifacts shared by the caller's teammates, with status, link, and authors. |
 | POST | `/v1/artifact-views` | Exchange `{ "slug": "...", "path": "/optional" }` for a one-time `url` that opens the artifact on the artifact host. |
-| GET | `/v1/telemetry/status` | Whether telemetry is turned off, available, or unavailable, its retention, and this process's export health. |
+| GET | `/v1/telemetry/status` | Whether telemetry is turned off, available, or unavailable, its retention, whether error text is recorded or withheld, and this process's export health. |
 | GET | `/v1/telemetry/events` | The caller's events, newest first: `from`, `to`, `type`, `severity`, `outcome`, `agentId`, `provider`, `model`, `correlationId`, `search`, `cursor`, and `limit` filter and page them. |
 | GET | `/v1/telemetry/events/:eventId` | One of the caller's events with its diagnosis. |
 | GET | `/v1/telemetry/spans` | The caller's spans, with the same filters. |
@@ -446,7 +446,7 @@ Host trust is unchanged. `files/ssh` supplies the shared known_hosts, which name
 
 ## Telemetry
 
-The Telemetry page searches model and provider errors, requests, dependency calls, and teammate work that Everything records with OpenTelemetry and keeps in a single OpenObserve node for `telemetry.retentionDays` (seven) days. Each owner sees only their own records, through Everything's API; OpenObserve has no Ingress, no web UI, and makes no connections outside the cluster. See [Telemetry](telemetry.md) for what is and isn't recorded, redaction, access control, configuration, resources, and tests.
+The Telemetry page searches model and provider errors, requests, dependency calls, and teammate work that Everything records with OpenTelemetry and keeps in a single OpenObserve node for `telemetry.retentionDays` (seven) days. Each owner sees only their own records, through Everything's API; OpenObserve has no Ingress, no web UI, and makes no connections outside the cluster. The text of error messages, which can quote prompts, is withheld unless `telemetry.includeErrorText` is `true`. See [Telemetry](telemetry.md) for what is and isn't recorded, redaction, access control, configuration, resources, and tests.
 
 ## Validation
 

@@ -121,12 +121,14 @@ function classify(span: Span): {
   };
 }
 
-/** Whether a failed span was cancelled, such as a request aborted with a reason of its own. */
+/**
+ * Whether a failed span was cancelled, by its error's type. Its message is never consulted: errors
+ * such as PostgreSQL's "current transaction is aborted" are failures, not cancellations.
+ */
 function aborted(span: Span): boolean {
   if (span.status.code !== SpanStatusCode.ERROR) return false;
   return (
     span.attributes["error.type"] === "AbortError" ||
-    /\babort/i.test(span.status.message ?? "") ||
     span.events.some(
       (event) =>
         event.name === "exception" &&

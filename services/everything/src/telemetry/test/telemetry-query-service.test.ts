@@ -73,9 +73,13 @@ function eventRow(
 }
 
 /** A query service over the fake backend, retaining seven days. */
-function service(search: TelemetrySearch | null, enabled = true) {
+function service(
+  search: TelemetrySearch | null,
+  enabled = true,
+  includeErrorText = false,
+) {
   return new TelemetryQueryService(
-    { enabled, retentionDays: 7 },
+    { enabled, retentionDays: 7, includeErrorText },
     search ? { search, stream: "everything" } : null,
     () => ({
       lastSuccessAt: null,
@@ -173,8 +177,13 @@ test("turned-off and unreachable telemetry give helpful errors and status", asyn
   assert.deepEqual(await service(null, false).status(), {
     state: "disabled",
     retentionDays: 7,
+    errorText: "withheld",
     export: null,
   });
+  assert.equal(
+    (await service(null, true, true).status()).errorText,
+    "included",
+  );
   await assert.rejects(service(null, false).events("owner-a", {}), {
     code: "TELEMETRY_DISABLED",
   });
@@ -246,4 +255,26 @@ test("a filter on a column the cached schema lacks is checked against fresh colu
   assert.equal(reads, 2);
   assert.equal(queries.length, 1);
   assert.match(queries[0]!, /everything_provider = 'anthropic'/);
+});
+
+test("details say when a record's error text was withheld", async () => {
+  const eventId = "44444444-4444-4444-8444-444444444444";
+  const withheld = backend(() => [
+    { ...eventRow("owner-a", eventId, 2), everything_text_withheld: true },
+  ]);
+  const hidden = await service(withheld.search).event("owner-a", eventId);
+  assert.equal(hidden.textWithheld, true);
+  assert.equal(hidden.message, null);
+  const recorded = backend(() => [
+    {
+      ...eventRow("owner-a", eventId, 1),
+      everything_message: "Rate limit reached",
+    },
+  ]);
+  const shown = await service(recorded.search, true, true).event(
+    "owner-a",
+    eventId,
+  );
+  assert.equal(shown.textWithheld, false);
+  assert.equal(shown.message, "Rate limit reached");
 });

@@ -24,7 +24,7 @@ import {
   telemetrySpans,
 } from "../../telemetry/model/telemetry-attributes.js";
 import type { TelemetryScope } from "../../telemetry/model/telemetry-scope.js";
-import { redactText } from "../../telemetry/service/telemetry-redactor.js";
+import { safeIdentifier } from "../../telemetry/service/telemetry-redactor.js";
 
 /** An event a Pi session reports while it works. */
 type PiSessionEvent = Parameters<Parameters<PiSession["subscribe"]>[0]>[0];
@@ -37,9 +37,6 @@ export type PromptTelemetryScope = TelemetryScope & {
   readonly sessionKind: "main" | "fork";
 };
 
-/** Longest compaction failure excerpt kept. */
-const compactionMessageLimit = 300;
-
 /** One running prompt's span, diagnostics, and open child spans. */
 interface RunningPrompt {
   readonly span: Span;
@@ -48,13 +45,17 @@ interface RunningPrompt {
   readonly tools: Map<string, Span>;
   compaction: Span | undefined;
   readonly recorded: WeakSet<object>;
+  /** A failed response has been diagnosed, and the span's status names its category. */
+  diagnosed: boolean;
 }
 
 /**
  * Telemetry for one Pi session's prompts: a span per prompt, with child spans for tool calls and
  * context compaction, and durable events for model and compaction failures captured from Pi's own
  * messages before the session reduces them to a generic error. Prompts, responses, thinking, and
- * tool arguments or results are never recorded; tools are named, timed, and marked failed only.
+ * tool arguments or results are not recorded; tools are named, timed, and marked failed only. A
+ * failure's error text, which can quote what was sent, is exported only if the installation
+ * records error text.
  */
 export class PiPromptTelemetry {
   // ===========================================
@@ -93,13 +94,15 @@ export class PiPromptTelemetry {
         work,
       );
     } catch (error) {
-      failTelemetrySpan(
-        prompt.span,
-        error,
-        error instanceof Error && error.name === "AbortError"
-          ? "cancelled"
-          : "failure",
-      );
+      // The diagnosed failure's status explains the prompt better than the error reporting it.
+      if (!prompt.diagnosed)
+        failTelemetrySpan(
+          prompt.span,
+          error,
+          error instanceof Error && error.name === "AbortError"
+            ? "cancelled"
+            : "failure",
+        );
       throw error;
     } finally {
       try {
@@ -136,6 +139,7 @@ export class PiPromptTelemetry {
       tools: new Map(),
       compaction: undefined,
       recorded: new WeakSet(),
+      diagnosed: false,
     };
   }
 
@@ -168,7 +172,9 @@ export class PiPromptTelemetry {
               {
                 attributes: {
                   [attribute.type]: "tool",
-                  [attribute.tool]: redactText(event.toolName, 128),
+                  // The model names the tool, so only a well-formed name is kept.
+                  [attribute.tool]:
+                    safeIdentifier(event.toolName, 128) ?? "unknown",
                 },
               },
               prompt.context,
@@ -251,9 +257,18 @@ export class PiPromptTelemetry {
         span ? withSpan(prompt.context, span) : prompt.context,
       );
     } else if (event.errorMessage) {
-      const message = redactText(event.errorMessage, compactionMessageLimit);
-      span?.setStatus({ code: SpanStatusCode.ERROR, message });
+      const failure = classifyModelFailure({
+        stopReason: "error",
+        errorMessage: event.errorMessage,
+      });
+      span?.setStatus({
+        code: SpanStatusCode.ERROR,
+        message: "Context compaction failed",
+      });
       span?.setAttribute(attribute.outcome, "failure");
+      // Error text, exported only if the installation records it.
+      if (failure.message)
+        span?.setAttribute(attribute.message, failure.message);
       recordTelemetryEvent(
         {
           name: telemetryEvents.compactionFailed,
@@ -261,11 +276,12 @@ export class PiPromptTelemetry {
           type: "turn",
           severity: "error",
           outcome: "failure",
-          category: classifyModelFailure({
-            stopReason: "error",
-            errorMessage: event.errorMessage,
-          }).category,
-          message,
+          category: failure.category,
+          ...(failure.code ? { code: failure.code } : {}),
+          ...(failure.httpStatus !== undefined
+            ? { httpStatus: failure.httpStatus }
+            : {}),
+          ...(failure.message ? { message: failure.message } : {}),
           attributes,
         },
         span ? withSpan(prompt.context, span) : prompt.context,
@@ -293,11 +309,13 @@ export class PiPromptTelemetry {
       ...(speed?.failure ? { speedFailure: speed.failure } : {}),
     });
     const cancelled = failure.category === "cancelled";
-    if (!cancelled)
+    if (!cancelled) {
+      prompt.diagnosed = true;
       prompt.span.setStatus({
         code: SpanStatusCode.ERROR,
         message: `Model request failed: ${failure.category}`,
       });
+    }
     recordTelemetryEvent(
       {
         name: cancelled

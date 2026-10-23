@@ -71,7 +71,8 @@ export function activeTelemetry(): TelemetryRuntime | undefined {
  * Start tracing and event export to the configured backend, once per process, before the modules
  * it instruments are loaded. Export is bounded and asynchronous: a slow or unreachable backend fills
  * fixed-size queues whose overflow is counted and dropped, and never delays or fails the
- * application's work. Without a backend nothing is started and the API's calls do nothing.
+ * application's work. Error text is exported only if the settings record it. Without a backend
+ * nothing is started and the API's calls do nothing.
  */
 export function startTelemetry(
   settings: TelemetrySettings,
@@ -96,12 +97,14 @@ export function startTelemetry(
     "service.name": "everything",
     "service.version": settings.serviceVersion,
   });
+  const policy = { includeErrorText: settings.includeErrorText };
   const contextManager = new AsyncLocalStorageContextManager().enable();
   context.setGlobalContextManager(contextManager);
   const spans = new BatchSpanProcessor({
     exporter: new RedactingSpanExporter(
       options.spanExporter ?? traceExporter(backend!),
       health,
+      policy,
     ),
     maxQueueSize: queueSize,
     maxExportBatchSize: Math.min(256, queueSize),
@@ -138,6 +141,7 @@ export function startTelemetry(
         exporter: new RedactingLogExporter(
           options.logExporter ?? logExporter(backend!),
           health,
+          policy,
         ),
         maxQueueSize: Math.min(1024, queueSize),
         maxExportBatchSize: Math.min(128, queueSize),

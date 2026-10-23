@@ -149,6 +149,10 @@ telemetry:
   # Days of history OpenObserve keeps. Its compactor deletes older data within a few hours of it
   # expiring. OpenObserve accepts 3 or more days; Everything allows up to 30.
   retentionDays: 7
+  # Record the text of provider, SDK, and library error messages, redacted and cut to 400
+  # characters. Off by default: such text can quote prompts and other private text, which redaction
+  # cannot reliably recognize. Categories, codes, statuses, and request IDs are recorded either way.
+  includeErrorText: false
 
 # Volumes mounted by more than one service, such as files one service writes and another serves.
 # Each becomes a claim named after its key, kept on uninstall; services mount it with `sharedVolume`.
@@ -453,6 +457,7 @@ services:
       TELEMETRY_USERNAME: everything@telemetry.local
       TELEMETRY_PASSWORD_FILE: /var/run/secrets/telemetry/password
       TELEMETRY_RETENTION_DAYS: "{{ .Values.telemetry.retentionDays }}"
+      TELEMETRY_INCLUDE_ERROR_TEXT: "{{ .Values.telemetry.includeErrorText }}"
       TELEMETRY_SERVICE_VERSION: "{{ .Chart.AppVersion }}"
     apiAccess:
       "{{ .Release.Namespace }}":

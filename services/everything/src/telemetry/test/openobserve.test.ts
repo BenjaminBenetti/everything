@@ -14,12 +14,18 @@ import { failure, settled, teammate } from "./runtime-fixtures.js";
 /**
  * Everything's export pipeline, OpenObserve, and the owner-scoped query API end to end. Run by
  * deployment/script/test-telemetry.sh against a disposable OpenObserve container; skipped otherwise.
+ * Error text is withheld unless TELEMETRY_E2E_INCLUDE_ERROR_TEXT is `true`.
  *
  *   TELEMETRY_E2E_URL=http://127.0.0.1:… TELEMETRY_E2E_PASSWORD_FILE=/path [TELEMETRY_E2E_CONTAINER=name]
  */
 const url = process.env.TELEMETRY_E2E_URL;
 const passwordFile = process.env.TELEMETRY_E2E_PASSWORD_FILE;
 const container = process.env.TELEMETRY_E2E_CONTAINER;
+const includeErrorText =
+  process.env.TELEMETRY_E2E_INCLUDE_ERROR_TEXT === "true";
+
+/** Natural-language text a provider's error quotes from the request; no credential shape. */
+const privateText = "The private launch date is next Tuesday";
 const skip =
   url && passwordFile
     ? false
@@ -36,6 +42,7 @@ const settings = skip
         process.env.TELEMETRY_E2E_USERNAME ?? "everything@telemetry.local",
       TELEMETRY_STREAM: stream,
       TELEMETRY_RETENTION_DAYS: process.env.TELEMETRY_E2E_RETENTION_DAYS ?? "7",
+      TELEMETRY_INCLUDE_ERROR_TEXT: String(includeErrorText),
     });
 const runtime = settings
   ? startTelemetry(settings, { instrument: false, batchDelayMs: 200 })
@@ -89,7 +96,7 @@ test(
           429,
           {
             error: {
-              message: "Rate limit reached for requests",
+              message: `Rate limit reached for requests while reading: ${privateText}`,
               type: "rate_limit_exceeded",
             },
           },
@@ -124,6 +131,21 @@ test(
         (fact) => fact.label === "Retry after" && fact.value === "20",
       ),
     );
+    assert.equal(
+      (await reader!.status()).errorText,
+      includeErrorText ? "included" : "withheld",
+    );
+    if (includeErrorText) {
+      assert.equal(
+        detail.message,
+        `Rate limit reached for requests while reading: ${privateText}`,
+        "recorded error text can quote the request, as the setting warns",
+      );
+      assert.equal(detail.textWithheld, false);
+    } else {
+      assert.equal(detail.message, null);
+      assert.equal(detail.textWithheld, true);
+    }
 
     const trace = await eventually(async () => {
       const found = await reader!.trace("owner-a", event.traceId!);
@@ -139,6 +161,31 @@ test(
     const turn = trace.spans.find((span) => span.name === "teammate.turn")!;
     const prompt = trace.spans.find((span) => span.name === "teammate.prompt")!;
     assert.equal(prompt.parentSpanId, turn.id);
+    const request = trace.spans.find(
+      (span) => span.name === "provider.request",
+    )!;
+    assert.equal(request.statusMessage, "HTTP 429");
+    assert.equal(request.textWithheld, !includeErrorText);
+
+    // What storage holds, read directly rather than through the API's presentation.
+    const window = {
+      start: (Date.now() - 3_600_000) * 1000,
+      end: (Date.now() + 60_000) * 1000,
+    };
+    const stored = JSON.stringify(
+      await Promise.all(
+        (["logs", "traces"] as const).map((type) =>
+          search!.search(type, `SELECT * FROM "${stream}"`, window, 500),
+        ),
+      ),
+    );
+    assert.equal(
+      stored.includes(privateText),
+      includeErrorText,
+      includeErrorText
+        ? "recorded error text is stored"
+        : "withheld error text never reaches storage",
+    );
 
     const byRun = await reader!.events("owner-a", {
       severity: "info",

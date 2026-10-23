@@ -143,6 +143,11 @@ test("Everything reaches OpenObserve with the same retention and reads its passw
   );
   assert.equal(settings.TELEMETRY_RETENTION_DAYS, "7");
   assert.equal(
+    settings.TELEMETRY_INCLUDE_ERROR_TEXT,
+    "false",
+    "error text is withheld unless the installation opts in",
+  );
+  assert.equal(
     settings.TELEMETRY_PASSWORD_FILE,
     "/var/run/secrets/telemetry/password",
   );
@@ -179,7 +184,7 @@ test("Everything reaches OpenObserve with the same retention and reads its passw
   );
 });
 
-test("retention follows one setting, is bounded, and turning OpenObserve off turns telemetry off", async () => {
+test("retention and error text each follow one setting, are validated, and turning OpenObserve off turns telemetry off", async () => {
   const fortnight = await render("telemetry.retentionDays=14");
   assert.equal(
     environment(workload(fortnight, "openobserve")!.container)
@@ -196,6 +201,17 @@ test("retention follows one setting, is bounded, and turning OpenObserve off tur
       render(`telemetry.retentionDays=${days}`),
       /retentionDays/,
     );
+  assert.equal(
+    environment(
+      workload(await render("telemetry.includeErrorText=true"), "everything")!
+        .container,
+    ).TELEMETRY_INCLUDE_ERROR_TEXT,
+    "true",
+  );
+  await assert.rejects(
+    render("telemetry.includeErrorText=yes"),
+    /includeErrorText/,
+  );
   const off = await render("services.openobserve.enabled=false");
   assert.equal(workload(off, "openobserve"), undefined);
   assert.equal(

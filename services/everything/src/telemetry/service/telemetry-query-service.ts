@@ -88,6 +88,8 @@ export class TelemetryQueryService implements TelemetryReader {
     private readonly settings: {
       readonly enabled: boolean;
       readonly retentionDays: number;
+      /** Whether error text is recorded; withheld unless set. */
+      readonly includeErrorText?: boolean;
     },
     private readonly backend: TelemetryBackend | null,
     private readonly exportHealth: () => TelemetryExportHealth | null = () =>
@@ -103,17 +105,19 @@ export class TelemetryQueryService implements TelemetryReader {
   // Operations
   // ===========================================
 
-  /** Turned off, answering, or not answering, with this process's export health. */
+  /** Turned off, answering, or not answering, with the error-text setting and this process's export health. */
   async status(): Promise<TelemetryStatus> {
     const retentionDays = this.settings.retentionDays;
+    const errorText = this.settings.includeErrorText ? "included" : "withheld";
     if (!this.settings.enabled)
-      return { state: "disabled", retentionDays, export: null };
+      return { state: "disabled", retentionDays, errorText, export: null };
     const available = this.backend
       ? await this.available(this.backend.search)
       : false;
     return {
       state: available ? "available" : "unavailable",
       retentionDays,
+      errorText,
       export: this.exportHealth(),
     };
   }

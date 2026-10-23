@@ -7,6 +7,7 @@ import {
 } from "../model/telemetry-attributes.js";
 import {
   bindRequestOwner,
+  failTelemetrySpan,
   recordTelemetryEvent,
   startTelemetrySpan,
   withTelemetryScope,
@@ -110,6 +111,10 @@ test("only allowlisted, redacted attributes and span events leave the process", 
       "db.query.text": "SELECT secret_column",
       "db.operation.name": "SELECT",
       "url.full": "https://api.test/v1/models?api_key=url-secret",
+      "http.url":
+        "https://gateway.test/v1/sk-proj-pathsecretabcdefghijkl/messages?debug=1",
+      "url.path": "/v1/sk%2Dproj%2Dencodedsecretabcdefghij/messages",
+      "http.target": "/v1/sk%252Dproj%252Dtwiceencodedsecretabc/messages?x=1",
       "http.request.header.authorization": "Bearer header-secret",
       "user_agent.original": "agent-secret",
       "client.address": "203.0.113.9",
@@ -141,11 +146,20 @@ test("only allowlisted, redacted attributes and span events leave the process", 
     "stack-secret",
     "payload-secret",
     "status-secret",
+    "pathsecretabcdefghijkl",
+    "encodedsecretabcdefghij",
+    "twiceencodedsecretabc",
   ])
     assert.ok(!text.includes(secret), `${secret} leaked`);
   const [work] = exported.spans;
   assert.equal(work?.attributes["db.operation.name"], "SELECT");
   assert.equal(work?.attributes["url.full"], "https://api.test/v1/models");
+  assert.equal(
+    work?.attributes["http.url"],
+    "https://gateway.test/v1/[redacted]/messages",
+  );
+  assert.equal(work?.attributes["url.path"], "/v1/[redacted]/messages");
+  assert.equal(work?.attributes["http.target"], "/v1/[redacted]/messages");
   assert.deepEqual(
     work?.events.map((event) => event.name),
     ["exception"],
@@ -186,13 +200,19 @@ test("events carry their scope and trace, with nested error causes redacted", as
   assert.equal(event.attributes[attribute.agentId], "agent-1");
   assert.equal(event.attributes[attribute.runId], "run-1");
   assert.equal(event.attributes[attribute.sessionId], "session-1");
-  assert.match(
-    String(event.attributes[attribute.message]),
-    /turn failed ← provider said/,
+  assert.equal(event.attributes[attribute.code], "TURN_FAILED");
+  assert.equal(event.attributes[attribute.errorType], "Error");
+  assert.match(String(event.attributes[attribute.stack]), /^at /);
+  assert.equal(
+    event.attributes[attribute.message],
+    undefined,
+    "error text is withheld by default",
   );
+  assert.equal(event.attributes[attribute.textWithheld], true);
   assert.equal(event.attributes[attribute.eventId]?.toString().length, 36);
   const text = exportedText(exported);
   assert.ok(!text.includes("nested-secret-token"));
+  assert.ok(!text.includes("provider said"));
   assert.ok(!text.includes("reason-secret"));
 });
 
@@ -233,6 +253,60 @@ test("a quick, successful read is kept when a span inside it failed", async () =
     "GET /v1/test",
     "query",
   ]);
+});
+
+test("an error whose message mentions aborting is still an error", async () => {
+  telemetry.reset();
+  const read = request("POST");
+  const query = tracer.startSpan(
+    "pg.query:UPDATE everything",
+    { kind: SpanKind.CLIENT },
+    read.context,
+  );
+  query.setAttribute("db.system.name", "postgresql");
+  query.setAttribute("error.type", "25P02");
+  query.recordException(
+    Object.assign(
+      new Error(
+        "current transaction is aborted, commands ignored until end of transaction block",
+      ),
+      { code: "25P02" },
+    ),
+  );
+  query.setStatus({
+    code: SpanStatusCode.ERROR,
+    message:
+      "current transaction is aborted, commands ignored until end of transaction block",
+  });
+  query.end();
+  read.span.end();
+  const { spans } = await telemetry.collect();
+  const exported = spans.find((span) => span.name.startsWith("pg.query"));
+  assert.equal(exported?.attributes[attribute.outcome], "failure");
+  assert.equal(exported?.attributes[attribute.severity], "error");
+});
+
+test("a cancellation recorded as such, or failing with an AbortError, is not an error", async () => {
+  telemetry.reset();
+  const stopped = startTelemetrySpan("provider", {
+    scope: { ownerId: "owner-a" },
+  });
+  failTelemetrySpan(stopped.span, undefined, "cancelled");
+  stopped.span.end();
+  const aborted = tracer.startSpan("request", { kind: SpanKind.CLIENT });
+  aborted.recordException(
+    Object.assign(new Error("The user stopped the reply"), {
+      name: "AbortError",
+    }),
+  );
+  aborted.setStatus({ code: SpanStatusCode.ERROR, message: "Stopped" });
+  aborted.end();
+  const { spans } = await telemetry.collect();
+  for (const name of ["provider", "request"]) {
+    const span = spans.find((exported) => exported.name === name);
+    assert.equal(span?.attributes[attribute.outcome], "cancelled", name);
+    assert.equal(span?.attributes[attribute.severity], "info", name);
+  }
 });
 
 test("an aborted request is a cancellation, not an error", async () => {

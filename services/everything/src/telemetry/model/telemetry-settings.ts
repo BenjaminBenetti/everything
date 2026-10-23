@@ -26,4 +26,11 @@ export interface TelemetrySettings {
   readonly readSampleRatio: number;
   /** Version reported as the service's, such as the chart's app version. */
   readonly serviceVersion: string;
+  /**
+   * Record the text of provider, SDK, and library error messages, redacted and bounded. Off by
+   * default: such text can quote what was sent, such as part of a prompt, which no redaction can
+   * reliably recognize. Structured facts, such as categories, codes, statuses, and request IDs, are
+   * recorded either way.
+   */
+  readonly includeErrorText: boolean;
 }

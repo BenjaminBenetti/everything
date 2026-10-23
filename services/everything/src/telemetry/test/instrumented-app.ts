@@ -30,6 +30,7 @@ app.get("/v1/quiet", async () => ({ status: "ok" }));
 app.get("/v1/agents/:agentId/fail", async () => {
   throw new Error(
     "Lookup failed with password=hunter2 for postgresql://admin:dbsecret@postgres/everything",
+    { cause: new Error(`Provider said: ${process.env.FAILURE_TEXT}`) },
   );
 });
 app.post("/v1/work", async () => {
@@ -38,6 +39,23 @@ app.post("/v1/work", async () => {
       `${process.env.DEPENDENCY_URL}/resource?api_key=sk-dependency-secret-123`,
     )
   ).text();
+  // A gateway whose base path holds a key, as written and percent-encoded.
+  for (const path of [
+    "/v1/sk-proj-pathsecretabcdefghijkl/messages?debug=1",
+    "/v1/sk%2Dproj%2Dencodedpathsecretabcd/messages",
+  ])
+    await (await fetch(`${process.env.DEPENDENCY_URL}${path}`)).text();
+  // A call the fetch instrumentation records as failed, with a message the caller chose.
+  const stalled = new AbortController();
+  const call = fetch(`${process.env.DEPENDENCY_URL}/stall`, {
+    signal: stalled.signal,
+  });
+  setTimeout(
+    () =>
+      stalled.abort(new Error(`Upstream said: ${process.env.FAILURE_TEXT}`)),
+    100,
+  );
+  await call.catch(() => {});
   const client = new Client({
     host: "127.0.0.1",
     port: Number(process.env.CLOSED_PORT),

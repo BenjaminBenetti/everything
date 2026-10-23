@@ -240,13 +240,17 @@
     "telemetry": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["retentionDays"],
+      "required": ["retentionDays", "includeErrorText"],
       "properties": {
         "retentionDays": {
           "type": "integer",
           "minimum": 3,
           "maximum": 30,
           "description": "Days of telemetry history OpenObserve keeps; Everything limits searches to the same period."
+        },
+        "includeErrorText": {
+          "type": "boolean",
+          "description": "Record the redacted text of provider, SDK, and library error messages, which can quote prompts and other private text. Off by default; structured diagnostics are recorded either way."
         }
       }
     },

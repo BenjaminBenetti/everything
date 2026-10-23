@@ -56,6 +56,10 @@ export interface ModelFailure {
   readonly requestId?: string;
   /** Whether sending the message again later may succeed without changing anything. */
   readonly retryable: boolean;
-  /** A redacted, bounded excerpt of the provider's explanation. */
+  /**
+   * A redacted, bounded excerpt of the provider's or SDK's own error message, never other fields
+   * of an error body. It can still quote what was sent, so it is exported only when the
+   * installation records error text.
+   */
   readonly message?: string;
 }

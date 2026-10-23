@@ -63,6 +63,7 @@ function span(
     parentSpanId,
     kind: "internal",
     statusMessage: null,
+    textWithheld: false,
     details: [],
     events: [],
   };

@@ -88,19 +88,47 @@ export function truncate(value: string, limit: number): string {
   );
 }
 
-/** A URL without user information, query string, or fragment, which can carry credentials. */
+/**
+ * A URL without user information, query string, or fragment, which can carry credentials, and with
+ * credentials in its host or path redacted, such as a key in a gateway's base path.
+ */
 export function redactUrl(value: string, limit = 512): string {
   try {
     const url = new URL(value);
-    return truncate(`${url.protocol}//${url.host}${url.pathname}`, limit);
+    return redactText(
+      `${url.protocol}//${url.host}${decodedPath(url.pathname)}`,
+      limit,
+    );
   } catch {
-    return redactText(value.split(/[?#]/, 1)[0] ?? "", limit);
+    return redactPath(value, limit);
   }
 }
 
-/** A path without its query string or fragment. */
+/** A path without its query string or fragment, with credentials redacted. */
 export function redactPath(value: string, limit = 512): string {
-  return redactText(value.split(/[?#]/, 1)[0] ?? "", limit);
+  return redactText(decodedPath(value.split(/[?#]/, 1)[0] ?? ""), limit);
+}
+
+/** Percent-encoded ASCII characters, which can spell a credential the patterns would not see. */
+const encodedAscii = /%([0-7][0-9A-Fa-f])/g;
+
+/** Most times a path is decoded, for a credential encoded more than once. */
+const decodePasses = 3;
+
+/**
+ * A path with its percent-encoded ASCII characters decoded, so encoding cannot hide a credential
+ * from redaction. A decoded `?` or `#` stays encoded, so the path never reads as a query string.
+ */
+function decodedPath(path: string): string {
+  let current = path;
+  for (let pass = 0; pass < decodePasses; pass++) {
+    const next = current.replace(encodedAscii, (_match, hex: string) =>
+      String.fromCharCode(Number.parseInt(hex, 16)),
+    );
+    if (next === current) break;
+    current = next;
+  }
+  return current.replaceAll("?", "%3F").replaceAll("#", "%23");
 }
 
 /** A short identifier, such as an error code or request ID, or undefined when it is anything else. */
@@ -123,9 +151,9 @@ export interface ErrorDescription {
   readonly type?: string;
   readonly code?: string;
   readonly status?: number;
-  /** The redacted, bounded message, followed by those of its causes. */
+  /** The redacted, bounded message, followed by those of its causes; error text. */
   readonly message?: string;
-  /** The innermost frames of the call stack, without the message the first line repeats. */
+  /** The innermost frames of the call stack, as code locations without the message. */
   readonly stack?: string;
 }
 
@@ -138,9 +166,17 @@ const errorLimits = {
 } as const;
 
 /**
+ * A call-stack line naming a function and where its code is, such as
+ * `at main (file:///app/build/main.js:10:5)`.
+ */
+const stackFrame =
+  /^at (?:[\w$.<>[\] -]{1,200} \()?(?:file:\/\/|node:|\/|<anonymous>|native\b)[^\s()]{0,500}\)?$/;
+
+/**
  * Describe a thrown value from its class name, code, status, message, causes, and stack frames
  * only, each redacted and bounded. Response bodies, headers, request options, and any other
- * properties an SDK attaches are never read.
+ * properties an SDK attaches are never read. The message and those of its causes are error text,
+ * which is exported only if the installation records it; the frames are code locations only.
  */
 export function describeError(error: unknown): ErrorDescription {
   if (!(error instanceof Error))
@@ -174,11 +210,14 @@ export function describeError(error: unknown): ErrorDescription {
   const message = messages.length
     ? redactText(messages.join(" ← "), errorLimits.message)
     : undefined;
-  const frames = (error.stack ?? "")
+  // The stack starts with the message, which may run over several lines; only frames are kept.
+  const header = `${error.name}: ${error.message}`;
+  const trace = error.stack ?? "";
+  const frames = (trace.startsWith(header) ? trace.slice(header.length) : trace)
     .split("\n")
-    .filter((line) => /^\s+at /.test(line))
-    .slice(0, errorLimits.frames)
-    .map((line) => line.trim());
+    .map((line) => line.trim())
+    .filter((line) => stackFrame.test(line))
+    .slice(0, errorLimits.frames);
   const stack = frames.length
     ? redactText(frames.join("\n"), errorLimits.stack)
     : undefined;

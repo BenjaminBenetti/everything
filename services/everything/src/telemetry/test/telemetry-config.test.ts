@@ -21,6 +21,7 @@ test("without a URL telemetry is off", () => {
     retentionDays: 7,
     readSampleRatio: 0.05,
     serviceVersion: "development",
+    includeErrorText: false,
   });
 });
 
@@ -31,6 +32,7 @@ test("the backend is configured from the environment and its password file", () 
       TELEMETRY_RETENTION_DAYS: "7",
       TELEMETRY_READ_SAMPLE_RATIO: "0.1",
       TELEMETRY_SERVICE_VERSION: "1.2.3",
+      TELEMETRY_INCLUDE_ERROR_TEXT: "true",
     },
     secret("Ot1-derived\n"),
   );
@@ -39,6 +41,7 @@ test("the backend is configured from the environment and its password file", () 
     retentionDays: 7,
     readSampleRatio: 0.1,
     serviceVersion: "1.2.3",
+    includeErrorText: true,
     backend: {
       url: "http://openobserve.everything.svc.cluster.local:5080",
       organization: "default",
@@ -71,6 +74,10 @@ test("retention is bounded and malformed settings never stop Everything from sta
     { TELEMETRY_URL: "http://user:password@openobserve:5080" },
     { TELEMETRY_URL: "http://openobserve:5080/?token=x" },
     { TELEMETRY_URL: "http://openobserve:5080", TELEMETRY_STREAM: "Bad Name" },
+    {
+      TELEMETRY_URL: "http://openobserve:5080",
+      TELEMETRY_INCLUDE_ERROR_TEXT: "maybe",
+    },
   ]) {
     assert.throws(() => loadTelemetrySettings(environment, secret("x")));
     const settings = loadTelemetrySettingsOrUnavailable(
@@ -79,5 +86,23 @@ test("retention is bounded and malformed settings never stop Everything from sta
     );
     assert.equal(settings.enabled, true);
     assert.equal(settings.backend, null);
+    assert.equal(settings.includeErrorText, false, "error text stays withheld");
+  }
+});
+
+test("error text is withheld unless the setting is exactly true", () => {
+  for (const [value, expected] of [
+    [undefined, false],
+    ["false", false],
+    ["true", true],
+  ] as const) {
+    const settings = loadTelemetrySettings(
+      {
+        TELEMETRY_URL: "http://openobserve:5080",
+        ...(value !== undefined ? { TELEMETRY_INCLUDE_ERROR_TEXT: value } : {}),
+      },
+      secret("x"),
+    );
+    assert.equal(settings.includeErrorText, expected);
   }
 });

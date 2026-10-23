@@ -103,6 +103,7 @@ export function eventDetail(row: TelemetryRow): TelemetryEvent {
   return {
     ...eventSummary(row),
     message: text(row, telemetryColumn(attribute.message)),
+    textWithheld: flag(row, telemetryColumn(attribute.textWithheld)) === true,
     requestId: text(row, telemetryColumn(attribute.requestId)),
     sessionId: text(row, telemetryColumn(attribute.sessionId)),
     runId: text(row, telemetryColumn(attribute.runId)),
@@ -134,6 +135,7 @@ export function spanRecord(row: TelemetryRow): TelemetrySpan {
     kind,
     parentSpanId: text(row, "reference_parent_span_id"),
     statusMessage: text(row, "status_message"),
+    textWithheld: flag(row, telemetryColumn(attribute.textWithheld)) === true,
     details: details(row, spanDetails),
     events: spanEvents(row.events),
   };

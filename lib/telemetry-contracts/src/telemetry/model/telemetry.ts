@@ -59,12 +59,22 @@ export const telemetryTimeRanges = [
 export type TelemetryTimeRange = (typeof telemetryTimeRanges)[number]["id"];
 
 /**
+ * Whether the text of provider, SDK, and library error messages is recorded. Withheld by default,
+ * since such text can quote what was sent; categories, codes, statuses, and request IDs are
+ * recorded either way.
+ */
+export const telemetryErrorTextPolicies = ["withheld", "included"] as const;
+export type TelemetryErrorText = (typeof telemetryErrorTextPolicies)[number];
+
+/**
  * Whether telemetry is turned off for the installation, reachable, or turned on but not answering.
  * Export health counts what this process could not send, without exposing the backend's address.
  */
 export interface TelemetryStatus {
   readonly state: "disabled" | "available" | "unavailable";
   readonly retentionDays: number;
+  /** Whether error text is recorded from now on; each record says whether its own was withheld. */
+  readonly errorText: TelemetryErrorText;
   readonly export: TelemetryExportHealth | null;
 }
 
@@ -143,8 +153,13 @@ export interface TelemetryDetail {
 
 /** One event with its diagnosis: cause, codes, provider and request context, and correlation. */
 export interface TelemetryEvent extends TelemetryRecordSummary {
-  /** A redacted, truncated excerpt of the underlying error, when one was recorded. */
+  /**
+   * A redacted, truncated excerpt of the underlying error's message, when the installation records
+   * error text. It can quote what was sent.
+   */
   readonly message: string | null;
+  /** The error's text was left out because the installation does not record error text. */
+  readonly textWithheld: boolean;
   readonly requestId: string | null;
   readonly sessionId: string | null;
   readonly runId: string | null;
@@ -164,7 +179,10 @@ export interface TelemetrySpan extends TelemetryRecordSummary {
   readonly parentSpanId: string | null;
   readonly kind: "server" | "client" | "internal" | "producer" | "consumer";
   readonly startTime: string;
+  /** Everything's own status text, or the error's when the installation records error text. */
   readonly statusMessage: string | null;
+  /** The span's error text was left out because the installation does not record error text. */
+  readonly textWithheld: boolean;
   readonly details: TelemetryDetail[];
   readonly events: TelemetrySpanEvent[];
 }

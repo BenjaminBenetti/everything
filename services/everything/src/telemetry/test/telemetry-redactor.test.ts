@@ -78,6 +78,51 @@ test("URLs and paths lose credentials, query strings, and fragments", () => {
   assert.equal(redactPath("/v1/keys?token=secret"), "/v1/keys");
 });
 
+test("credentials in URL paths are redacted, including percent-encoded ones", () => {
+  assert.equal(
+    redactUrl(
+      "https://gateway.example/v1/sk-proj-abcdefghijklmnopqrstuvwx/messages?debug=1",
+    ),
+    "https://gateway.example/v1/[redacted]/messages",
+  );
+  for (const encoded of [
+    "sk%2Dproj%2Dabcdefghijklmnopqrstuvwx",
+    "sk%252Dproj%252Dabcdefghijklmnopqrstuvwx",
+    "%73%6B-proj-abcdefghijklmnopqrstuvwx",
+  ]) {
+    assert.equal(
+      redactUrl(`https://gateway.example/v1/${encoded}/messages`),
+      "https://gateway.example/v1/[redacted]/messages",
+      encoded,
+    );
+    assert.equal(
+      redactPath(`/v1/${encoded}/messages?x=1`),
+      "/v1/[redacted]/messages",
+      encoded,
+    );
+  }
+  assert.equal(
+    redactUrl("https://gateway.example/v1/Bearer%20abcdefghijklmnop"),
+    "https://gateway.example/v1/Bearer [redacted]",
+  );
+  assert.equal(
+    redactUrl(
+      "https://api.test/v1/agents/0b6a3c4e-5f1d-4e2a-8c9b-7d6e5f4a3b2c/messages",
+    ),
+    "https://api.test/v1/agents/0b6a3c4e-5f1d-4e2a-8c9b-7d6e5f4a3b2c/messages",
+    "identifiers are kept",
+  );
+  assert.equal(
+    redactUrl("https://api.test/a%3Fb/c%23d/%E2%9C%93"),
+    "https://api.test/a%3Fb/c%23d/%E2%9C%93",
+    "a decoded path never gains a query string or fragment",
+  );
+  assert.equal(
+    redactUrl("not a url /v1/sk-abcdefgh?x=1"),
+    "not a url /v1/[redacted]",
+  );
+});
+
 test("identifiers must be short and plain", () => {
   assert.equal(safeIdentifier("req_011CU1x2y3"), "req_011CU1x2y3");
   assert.equal(safeIdentifier(429), "429");
@@ -130,6 +175,16 @@ test("errors are described by class, code, status, redacted messages of nested c
     !description.stack?.includes("request failed"),
     "the stack omits the message line",
   );
+});
+
+test("a stack keeps code locations only, even when the message has lines like frames", () => {
+  const description = describeError(
+    new Error("failed\n    at private (/the launch date is Tuesday)\nmore"),
+  );
+  assert.ok(description.stack);
+  for (const frame of description.stack.split("\n"))
+    assert.match(frame, /^at .*:\d+:\d+\)?$/);
+  assert.ok(!description.stack.includes("launch date"));
 });
 
 test("non-errors are described safely", () => {

@@ -16,12 +16,15 @@ export interface ExportedTelemetry {
 
 /**
  * Start the process's telemetry with in-memory exporters behind the same redacting exporters,
- * processors, and filters production uses. Node runs each test file in its own process, so each
- * file starts it once.
+ * processors, and filters production uses, withholding error text unless `includeErrorText`. Node
+ * runs each test file in its own process, so each file starts it once.
  */
-export function startInMemoryTelemetry(
-  options: Omit<TelemetryRuntimeOptions, "spanExporter" | "logExporter"> = {},
-) {
+export function startInMemoryTelemetry({
+  includeErrorText = false,
+  ...options
+}: Omit<TelemetryRuntimeOptions, "spanExporter" | "logExporter"> & {
+  readonly includeErrorText?: boolean;
+} = {}) {
   const spans = new InMemorySpanExporter();
   const events = new InMemoryLogRecordExporter();
   const runtime = startTelemetry(
@@ -31,6 +34,7 @@ export function startInMemoryTelemetry(
       retentionDays: 7,
       readSampleRatio: 0,
       serviceVersion: "test",
+      includeErrorText,
     },
     {
       instrument: false,

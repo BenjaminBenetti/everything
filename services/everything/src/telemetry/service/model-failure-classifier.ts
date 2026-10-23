@@ -100,6 +100,10 @@ export interface ProviderErrorBody {
  * Diagnose a failed model request from Pi's error message and the provider's last response. SDKs
  * put the status first and the provider's JSON body after it, as in `429 {"type":"error",...}`;
  * stream failures after a successful response carry only the body or a transport message.
+ *
+ * The excerpt kept is only an error's own message: the `message` of a JSON error body, or an SDK or
+ * transport message such as `Connection error.`. Other body fields, a body without a message, and
+ * a non-JSON response body are never kept, since they can echo the request.
  */
 export function classifyModelFailure(input: ModelFailureInput): ModelFailure {
   const raw = input.errorMessage ?? "";
@@ -112,14 +116,20 @@ export function classifyModelFailure(input: ModelFailureInput): ModelFailure {
   const status = parsedStatus ?? response?.status;
   const code =
     safeIdentifier(body.code, 64) ?? safeIdentifier(response?.errorType, 64);
+  // Text without JSON is the SDK's own message, unless it follows a status as a response body.
+  const plain = remainder.includes("{")
+    ? undefined
+    : remainder.trim() || undefined;
   const explanation =
-    body.message ?? (remainder.trim() || undefined) ?? response?.errorMessage;
+    body.message ??
+    (parsedStatus === undefined ? plain : undefined) ??
+    response?.errorMessage;
   // Wording is matched in a bounded prefix, so classifying never depends on the text's length.
   const category = categorize(
     input,
     status,
     code,
-    (explanation ?? "").slice(0, classificationLimit),
+    (explanation ?? plain ?? "").slice(0, classificationLimit),
   );
   const message = explanation
     ? redactText(explanation, modelFailureMessageLimit)

@@ -43,6 +43,11 @@ export const telemetryEnvironmentSchema = Type.Object({
     maximum: 60_000,
     default: 10_000,
   }),
+  /**
+   * Record the redacted text of provider and error messages, which can quote prompts and other
+   * private text. Off by default; structured diagnostics are recorded either way.
+   */
+  TELEMETRY_INCLUDE_ERROR_TEXT: Type.Boolean({ default: false }),
   TELEMETRY_SERVICE_VERSION: Type.String({
     pattern: "^[0-9A-Za-z][0-9A-Za-z.+_-]{0,63}$",
     default: "development",

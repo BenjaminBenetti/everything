@@ -54,6 +54,7 @@ const spanFields = {
   ),
   startTime: Type.String({ format: "date-time" }),
   statusMessage: nullableString,
+  textWithheld: Type.Boolean(),
   details: Type.Array(telemetryDetail),
   events: Type.Array(
     Type.Object({
@@ -75,6 +76,7 @@ export const telemetryStatusResponse = Type.Object({
     Type.Literal("unavailable"),
   ]),
   retentionDays: Type.Integer(),
+  errorText: Type.Union([Type.Literal("withheld"), Type.Literal("included")]),
   export: Type.Union([
     Type.Object({
       lastSuccessAt: Type.Union([
@@ -112,6 +114,7 @@ export const telemetrySpanPageResponse = pageOf(Type.Object(spanFields));
 export const telemetryEventResponse = Type.Object({
   ...summaryFields,
   message: nullableString,
+  textWithheld: Type.Boolean(),
   requestId: nullableString,
   sessionId: nullableString,
   runId: nullableString,

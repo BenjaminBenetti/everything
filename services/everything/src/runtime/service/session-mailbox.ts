@@ -1,7 +1,10 @@
+import { AsyncLocalStorage } from "node:async_hooks";
+import { context } from "@opentelemetry/api";
 import type {
   ForkableSession,
   SessionFork,
 } from "../interface/session-forks.js";
+import { withoutRun } from "../../telemetry/service/telemetry-recorder.js";
 
 /** Capture the completed turn before another queued message changes the live session state. */
 interface TurnOutcome {
@@ -19,6 +22,8 @@ export type TurnKind = "user" | "private";
 interface PendingTurn {
   readonly text: string;
   readonly kind: TurnKind;
+  /** Run work in the async context the turn was submitted in, whenever the queue reaches it. */
+  readonly restore: <R>(work: () => R) => R;
   readonly resolve: (outcome: TurnOutcome | undefined) => void;
   readonly reject: (error: unknown) => void;
 }
@@ -55,13 +60,18 @@ export class SessionMailbox {
   // Message delivery
   // ===========================================
 
-  /** Queue a turn; a user turn's prompts take priority over pending private messages. */
+  /**
+   * Queue a turn; a user turn's prompts take priority over pending private messages. The turn runs
+   * in the async context it was submitted in, so it is traced as its sender's work rather than as
+   * whatever turn was running when the queue reached it.
+   */
   submit(
     text: string,
     kind: TurnKind = "private",
   ): Promise<TurnOutcome | undefined> {
+    const restore = AsyncLocalStorage.snapshot();
     const result = new Promise<TurnOutcome | undefined>((resolve, reject) => {
-      const turn = { text, kind, resolve, reject };
+      const turn = { text, kind, restore, resolve, reject };
       if (kind === "user") this.queue.unshift(turn);
       else this.queue.push(turn);
     });
@@ -118,7 +128,7 @@ export class SessionMailbox {
       const turn = this.queue.shift()!;
       this.phase = "running";
       try {
-        await this.session.prompt(turn.text);
+        await this.prompt(turn);
         this.phase = "idle";
         turn.resolve({
           text: this.session.lastResponse,
@@ -130,6 +140,18 @@ export class SessionMailbox {
       }
     }
     this.draining = false;
+  }
+
+  /**
+   * Prompt the session in the turn's submitted context. A private message is never part of its
+   * sender's run, even when a user turn sent it, so its prompt starts a trace of its own.
+   */
+  private prompt(turn: PendingTurn): Promise<void> {
+    return turn.restore(() =>
+      turn.kind === "private"
+        ? context.with(withoutRun(), () => this.session.prompt(turn.text))
+        : this.session.prompt(turn.text),
+    );
   }
 
   /** Resolve cancelled queued turns, of one kind or all, without running them or leaving callers waiting forever. */

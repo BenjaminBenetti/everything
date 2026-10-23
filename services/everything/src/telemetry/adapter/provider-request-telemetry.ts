@@ -7,7 +7,10 @@ import {
 } from "../model/telemetry-attributes.js";
 import type { TelemetryScope } from "../model/telemetry-scope.js";
 import { providerErrorBody } from "../service/model-failure-classifier.js";
-import { promptDiagnostics } from "../service/prompt-diagnostics.js";
+import {
+  promptDiagnostics,
+  type ProviderAttempt,
+} from "../service/prompt-diagnostics.js";
 import {
   failTelemetrySpan,
   startTelemetrySpan,
@@ -38,9 +41,10 @@ const errorMessageLimit = 300;
 /**
  * Time each HTTP attempt of a model request as a `provider.request` span, recording its status,
  * the provider's request ID, a `Retry-After` value, and, for an error response, the provider's
- * error code and a redacted excerpt of its message. Request and response contents are never
- * recorded. The enclosing prompt's diagnostics receive each response, so a failure that ends the
- * prompt later can be explained. The response passed back is unchanged and unread.
+ * error code and a redacted excerpt of its error message, which is exported only if the
+ * installation records error text. Request and response contents are not recorded. The enclosing
+ * prompt's diagnostics receive each response, so a failure that ends the prompt later can be
+ * explained. The response passed back is unchanged and unread.
  */
 export function observeProviderRequests(
   fetcher: typeof fetch,
@@ -49,16 +53,16 @@ export function observeProviderRequests(
   return async (input, init) => {
     let started: ReturnType<typeof startTelemetrySpan>;
     let diagnostics: ReturnType<typeof promptDiagnostics>;
-    let attempt: number;
+    let attempt: ProviderAttempt | undefined;
     try {
       diagnostics = promptDiagnostics();
-      attempt = diagnostics?.nextAttempt() ?? 1;
+      attempt = diagnostics?.nextAttempt();
       started = startTelemetrySpan(telemetrySpans.providerRequest, {
         kind: SpanKind.CLIENT,
         scope,
         attributes: {
           [attribute.type]: "model",
-          [attribute.attempt]: attempt,
+          [attribute.attempt]: attempt?.number ?? 1,
           ...(requestTarget(input) ?? {}),
         },
       });
@@ -79,7 +83,7 @@ export function observeProviderRequests(
       throw error;
     }
     try {
-      const record = await responseRecord(response, attempt);
+      const record = await responseRecord(response, attempt?.number ?? 1);
       span.setAttributes({
         [attribute.httpStatus]: record.status,
         ...(record.requestId
@@ -89,13 +93,17 @@ export function observeProviderRequests(
           ? { [attribute.retryAfter]: record.retryAfter }
           : {}),
         ...(record.errorType ? { [attribute.code]: record.errorType } : {}),
+        // Error text, exported only if the installation records it.
+        ...(record.errorMessage
+          ? { [attribute.message]: record.errorMessage }
+          : {}),
       });
       if (!response.ok)
         span.setStatus({
           code: SpanStatusCode.ERROR,
-          message: record.errorMessage ?? `HTTP ${record.status}`,
+          message: `HTTP ${record.status}`,
         });
-      diagnostics?.record(record);
+      if (attempt) diagnostics?.record(attempt, record);
     } catch {
       // Recording never changes the response the SDK receives.
     } finally {
@@ -122,7 +130,10 @@ function requestTarget(
   }
 }
 
-/** A response's status and headers, and for an error its provider code and message excerpt. */
+/**
+ * A response's status and headers, and for an error its provider code and an excerpt of its error
+ * message only; the body's other fields are not kept.
+ */
 async function responseRecord(
   response: Response,
   attempt: number,

@@ -33,6 +33,8 @@ export const telemetryAttributes = {
   retryAfter: "everything.retry_after",
   speed: "everything.speed",
   willRetry: "everything.will_retry",
+  /** Set on records whose error text was left out because the installation does not record it. */
+  textWithheld: "everything.text_withheld",
   httpMethod: "http.request.method",
   httpRoute: "http.route",
   httpStatus: "http.response.status_code",

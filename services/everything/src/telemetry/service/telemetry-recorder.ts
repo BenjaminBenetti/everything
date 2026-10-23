@@ -77,6 +77,17 @@ export function withTelemetryScope(
   );
 }
 
+/**
+ * A context for work that is not part of the enclosing run, such as a private message a turn sent:
+ * its scope keeps the owner and teammate but not the run.
+ */
+export function withoutRun(current: Context = context.active()): Context {
+  const scope = telemetryScope(current);
+  if (!scope?.runId) return current;
+  const { runId: _runId, ...rest } = scope;
+  return current.setValue(scopeKey, rest);
+}
+
 /** A scope as record attributes. */
 export function scopeAttributes(scope: TelemetryScope): Attributes {
   const entries: [string, string | undefined][] = [

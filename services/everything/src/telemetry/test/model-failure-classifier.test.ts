@@ -111,3 +111,50 @@ test("provider explanations are redacted and bounded", () => {
   assert.ok(!failure.message?.includes("abcdefghijklmnop"));
   assert.ok((failure.message?.length ?? 0) <= 300);
 });
+
+test("only an error's own message is kept, never the rest of a provider's error body", () => {
+  const input = "The private launch date is next Tuesday";
+  const withoutMessage = classifyModelFailure({
+    stopReason: "error",
+    errorMessage: `400 ${JSON.stringify({ error: { type: "invalid_request_error", input } })}`,
+  });
+  assert.deepEqual(withoutMessage, {
+    category: "invalid_request",
+    retryable: false,
+    code: "invalid_request_error",
+    httpStatus: 400,
+  });
+  const quoted = classifyModelFailure({
+    stopReason: "error",
+    errorMessage: `400 ${JSON.stringify({ error: { message: "Rejected", type: "invalid_request_error", input } })}`,
+  });
+  assert.equal(quoted.message, "Rejected");
+  const unparsable = classifyModelFailure({
+    stopReason: "error",
+    errorMessage: `400 {"error":{"message":"${input}`,
+  });
+  assert.equal(unparsable.message, undefined);
+  const page = classifyModelFailure({
+    stopReason: "error",
+    errorMessage: `502 <html><body>Bad gateway for ${input}</body></html>`,
+  });
+  assert.equal(page.category, "unavailable");
+  assert.equal(page.message, undefined, "a non-JSON response body is not kept");
+  const transport = classifyModelFailure({
+    stopReason: "error",
+    errorMessage: "Connection error.",
+  });
+  assert.equal(transport.category, "network");
+  assert.equal(transport.message, "Connection error.");
+});
+
+test("words in a provider's echoed input never decide a failure's category", () => {
+  const failure = classifyModelFailure({
+    stopReason: "error",
+    errorMessage: JSON.stringify({
+      error: { input: "Explain the rate limit and quota on our API" },
+    }),
+  });
+  assert.equal(failure.category, "unknown");
+  assert.equal(failure.message, undefined);
+});

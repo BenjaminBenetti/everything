@@ -20,6 +20,8 @@ import { FileSystemWorkspaces } from "../../workspace/service/file-system-worksp
 export interface ProviderCall {
   readonly attempt: number;
   readonly signal: AbortSignal | undefined;
+  /** The request's JSON body, so a test can tell which session is asking. */
+  readonly body: string;
 }
 
 /** A Chat Completions stream: each event as an SSE data line, then the end marker unless `open`. */
@@ -78,7 +80,11 @@ export async function teammate(
     },
     capabilities,
     async (_input, init) =>
-      respond({ attempt: ++attempt, signal: init?.signal ?? undefined }),
+      respond({
+        attempt: ++attempt,
+        signal: init?.signal ?? undefined,
+        body: typeof init?.body === "string" ? init.body : "",
+      }),
   );
   const factory = new PiSessionFactory(
     inference,
@@ -102,15 +108,19 @@ export async function teammate(
     },
     createdAt: "",
   };
-  const session = await factory.create(definition, async () => {});
+  // Replies the teammate delivers with its send-message tool, as the conversation records them.
+  let delivered = 0;
+  const session = await factory.create(definition, async () => {
+    delivered++;
+  });
   context.after(async () => {
     await session.abort();
     await session.dispose();
   });
-  const runtime = new AgentRuntime(new ReplyingAgentSession(session, () => 0), {
-    ownerId: definition.ownerId,
-    agentId: definition.id,
-  });
+  const runtime = new AgentRuntime(
+    new ReplyingAgentSession(session, () => delivered),
+    { ownerId: definition.ownerId, agentId: definition.id },
+  );
   return { runtime, definition, session };
 }
 

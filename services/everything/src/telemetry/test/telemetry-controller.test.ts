@@ -26,7 +26,12 @@ function reader() {
   const telemetry: TelemetryReader = {
     async status() {
       calls.push({ operation: "status" });
-      return { state: "available", retentionDays: 7, export: null };
+      return {
+        state: "available",
+        retentionDays: 7,
+        errorText: "withheld",
+        export: null,
+      };
     },
     async events(ownerId, query) {
       calls.push({ operation: "events", ownerId, query });
@@ -137,7 +142,7 @@ test("missing and inaccessible records share one response", async () => {
   );
 });
 
-test("status reports state and retention", async () => {
+test("status reports state, retention, and whether error text is recorded", async () => {
   const { app } = await server();
   const response = await app.inject({
     method: "GET",
@@ -147,6 +152,7 @@ test("status reports state and retention", async () => {
   assert.deepEqual(response.json(), {
     state: "available",
     retentionDays: 7,
+    errorText: "withheld",
     export: null,
   });
 });

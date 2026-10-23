@@ -27,6 +27,7 @@ export function loadTelemetrySettings(
     retentionDays: settings.TELEMETRY_RETENTION_DAYS,
     readSampleRatio: settings.TELEMETRY_READ_SAMPLE_RATIO,
     serviceVersion: settings.TELEMETRY_SERVICE_VERSION,
+    includeErrorText: settings.TELEMETRY_INCLUDE_ERROR_TEXT,
   };
   if (!settings.TELEMETRY_URL)
     return { ...common, enabled: false, backend: null };
@@ -67,6 +68,7 @@ export function loadTelemetrySettingsOrUnavailable(
       retentionDays: 7,
       readSampleRatio: 0,
       serviceVersion: "unknown",
+      includeErrorText: false,
     };
   }
 }

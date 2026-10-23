@@ -28,14 +28,24 @@ async function closedPort(): Promise<number> {
   return port;
 }
 
-/** An HTTP dependency the app calls with `fetch`. */
+/**
+ * Natural-language text an error could quote from a request. It is no credential shape, so only
+ * withholding error text keeps it out of telemetry.
+ */
+const privateText = "The private launch date is next Tuesday";
+
+/** An HTTP dependency the app calls with `fetch`; `/stall` never answers. */
 async function dependency(context: TestContext): Promise<string> {
-  const server: Server = createServer((_request, response) =>
-    response.end("ok"),
-  );
+  const server: Server = createServer((request, response) => {
+    if (request.url !== "/stall") response.end("ok");
+  });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   context.after(
-    () => new Promise<void>((resolve) => server.close(() => resolve())),
+    () =>
+      new Promise<void>((resolve) => {
+        server.closeAllConnections();
+        server.close(() => resolve());
+      }),
   );
   return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 }
@@ -70,6 +80,7 @@ async function instrumentedApp(
         TELEMETRY_READ_SAMPLE_RATIO: "0",
         TELEMETRY_TIMEOUT_MS: "1000",
         CLOSED_PORT: String(await closedPort()),
+        FAILURE_TEXT: privateText,
         ...environment,
       },
     },
@@ -114,12 +125,35 @@ function named(spans: readonly ReceivedSpan[], name: string): ReceivedSpan[] {
   return spans.filter((span) => span.name === name);
 }
 
-test("the preload instruments incoming requests, fetch, and PostgreSQL in a real process, exporting only redacted, owned records", async (context) => {
+/** Secrets the app's requests, errors, and dependency calls carry, none of which may be exported. */
+const secrets = [
+  "hunter2",
+  "dbsecret",
+  "query-secret",
+  "sk-dependency-secret-123",
+  "sk-sql-secret-456",
+  "pg-password-secret",
+  "secret_column",
+  "Ot1-test-password",
+  "pathsecretabcdefghijkl",
+  "encodedpathsecretabcd",
+];
+
+/**
+ * Run the instrumented app against an OTLP receiver with `environment`, make a failing request and
+ * a mutation that calls dependencies, and return what it exported.
+ */
+async function exercise(
+  context: TestContext,
+  environment: Record<string, string> = {},
+) {
   const receiver = await startOtlpReceiver();
   context.after(() => receiver.close());
+  const dependencyUrl = await dependency(context);
   const app = await instrumentedApp(context, {
     TELEMETRY_URL: receiver.url,
-    DEPENDENCY_URL: await dependency(context),
+    DEPENDENCY_URL: dependencyUrl,
+    ...environment,
   });
   await fetch(`${app.url}/health/live`);
   await fetch(`${app.url}/v1/quiet`);
@@ -137,19 +171,60 @@ test("the preload instruments incoming requests, fetch, and PostgreSQL in a real
   );
   const { code } = await app.stop();
   assert.equal(code, 0);
-
   const exported = receiver.bodies.join("\n");
-  for (const secret of [
-    "hunter2",
-    "dbsecret",
-    "query-secret",
-    "sk-dependency-secret-123",
-    "sk-sql-secret-456",
-    "pg-password-secret",
-    "secret_column",
-    "Ot1-test-password",
-  ])
+  for (const secret of secrets)
     assert.ok(!exported.includes(secret), `${secret} must not be exported`);
+
+  const [failure] = named(receiver.spans, "GET /v1/agents/:agentId/fail");
+  assert.ok(failure, "the failed request's server span is exported");
+  const [event] = receiver.logs.filter(
+    (log) => log.attributes[attribute.event] === "http.request.failed",
+  );
+  assert.ok(event, "the failure is recorded as an event");
+  const [work] = named(receiver.spans, "POST /v1/work");
+  assert.ok(work, "the mutation's server span is exported");
+  const children = receiver.spans.filter(
+    (span) => span.parentSpanId === work.spanId,
+  );
+  const outgoing = children.filter(
+    (span) => span.kind === kinds.client && span.attributes["url.full"],
+  );
+  const stalled = outgoing.find((span) =>
+    String(span.attributes["url.full"]).endsWith("/stall"),
+  );
+  assert.ok(stalled, "the failed dependency call is exported");
+  return {
+    receiver,
+    exported,
+    dependencyUrl,
+    failure,
+    event,
+    work,
+    children,
+    outgoing,
+    stalled,
+  };
+}
+
+test("the preload instruments incoming requests, fetch, and PostgreSQL in a real process, exporting only redacted, owned records without error text", async (context) => {
+  const {
+    receiver,
+    exported,
+    dependencyUrl,
+    failure,
+    event,
+    work,
+    children,
+    outgoing,
+    stalled,
+  } = await exercise(context);
+  for (const text of [
+    privateText,
+    "Lookup failed",
+    "Provider said",
+    "Upstream said",
+  ])
+    assert.ok(!exported.includes(text), `${text} is error text, withheld`);
   assert.ok(
     receiver.headers.every(
       (headers) =>
@@ -171,8 +246,6 @@ test("the preload instruments incoming requests, fetch, and PostgreSQL in a real
     "quick successful reads are dropped at a zero sampling ratio",
   );
 
-  const [failure] = named(receiver.spans, "GET /v1/agents/:agentId/fail");
-  assert.ok(failure, "the failed request's server span is exported");
   assert.equal(failure.kind, kinds.server);
   assert.equal(
     failure.attributes[attribute.httpRoute],
@@ -184,17 +257,13 @@ test("the preload instruments incoming requests, fetch, and PostgreSQL in a real
     "0b6a3c4e-5f1d-4e2a-8c9b-7d6e5f4a3b2c",
   );
   assert.equal(failure.attributes[attribute.severity], "error");
+  assert.equal(failure.attributes[attribute.textWithheld], true);
   assert.equal(failure.status.code, 2);
+  assert.equal(failure.status.message, undefined);
   const exception = failure.events.find((event) => event.name === "exception");
-  assert.match(
-    String(exception?.attributes["exception.message"]),
-    /password=\[redacted\]/,
-  );
+  assert.equal(exception?.attributes["exception.type"], "Error");
+  assert.equal(exception?.attributes["exception.message"], undefined);
 
-  const [event] = receiver.logs.filter(
-    (log) => log.attributes[attribute.event] === "http.request.failed",
-  );
-  assert.ok(event, "the failure is recorded as an event");
   assert.equal(
     event.traceId,
     failure.traceId,
@@ -203,19 +272,37 @@ test("the preload instruments incoming requests, fetch, and PostgreSQL in a real
   assert.equal(event.attributes[attribute.ownerId], "owner-a");
   assert.equal(event.attributes[attribute.code], "INTERNAL_ERROR");
   assert.equal(event.attributes[attribute.httpStatus], 500);
-  assert.match(String(event.attributes[attribute.message]), /Lookup failed/);
+  assert.equal(event.attributes[attribute.errorType], "Error");
+  assert.match(
+    String(event.attributes[attribute.stack]),
+    /^at .*instrumented-app\.ts:\d+:\d+\)?/,
+    "the failure's code location is kept",
+  );
+  assert.equal(event.attributes[attribute.message], undefined);
+  assert.equal(event.attributes[attribute.textWithheld], true);
 
-  const [work] = named(receiver.spans, "POST /v1/work");
-  assert.ok(work, "the mutation's server span is exported");
-  const children = receiver.spans.filter(
-    (span) => span.parentSpanId === work.spanId,
+  assert.deepEqual(
+    outgoing.map((span) => span.attributes["url.full"]).sort(),
+    [
+      `${dependencyUrl}/resource`,
+      `${dependencyUrl}/stall`,
+      `${dependencyUrl}/v1/[redacted]/messages`,
+      `${dependencyUrl}/v1/[redacted]/messages`,
+    ],
+    "fetch is instrumented beneath the request, with credentials in paths redacted",
   );
-  const outgoing = children.find(
-    (span) => span.kind === kinds.client && span.attributes["url.full"],
+  for (const span of outgoing)
+    assert.equal(span.attributes[attribute.ownerId], "owner-a");
+  assert.equal(stalled.status.code, 2, "the failed call is an error");
+  assert.equal(stalled.status.message, undefined);
+  assert.equal(stalled.attributes[attribute.severity], "error");
+  assert.equal(stalled.attributes[attribute.textWithheld], true);
+  assert.equal(
+    stalled.events.find((event) => event.name === "exception")?.attributes[
+      "exception.type"
+    ],
+    "Error",
   );
-  assert.ok(outgoing, "fetch is instrumented beneath the request");
-  assert.match(String(outgoing.attributes["url.full"]), /\/resource$/);
-  assert.equal(outgoing.attributes[attribute.ownerId], "owner-a");
   const query = children.find(
     (span) => span.attributes["db.system"] ?? span.attributes["db.system.name"],
   );
@@ -223,6 +310,29 @@ test("the preload instruments incoming requests, fetch, and PostgreSQL in a real
   assert.equal(query.attributes["db.statement"], undefined);
   assert.equal(query.attributes["db.query.text"], undefined);
   assert.equal(query.attributes[attribute.ownerId], "owner-a");
+  assert.equal(work.attributes[attribute.ownerId], "owner-a");
+});
+
+test("with error text recorded, the preload exports it redacted and bounded, and still redacts credentials", async (context) => {
+  const { exported, failure, event, stalled, outgoing, dependencyUrl } =
+    await exercise(context, { TELEMETRY_INCLUDE_ERROR_TEXT: "true" });
+  const exception = failure.events.find((event) => event.name === "exception");
+  const message = String(exception?.attributes["exception.message"]);
+  assert.match(message, /Lookup failed with password=\[redacted\]/);
+  assert.match(message, new RegExp(`Provider said: ${privateText}`));
+  assert.ok(message.length <= 400);
+  assert.equal(failure.attributes[attribute.textWithheld], undefined);
+  assert.match(String(event.attributes[attribute.message]), /^Lookup failed/);
+  assert.equal(event.attributes[attribute.textWithheld], undefined);
+  assert.equal(stalled.status.message, `Upstream said: ${privateText}`);
+  assert.ok(
+    outgoing.some(
+      (span) =>
+        span.attributes["url.full"] ===
+        `${dependencyUrl}/v1/[redacted]/messages`,
+    ),
+  );
+  assert.ok(exported.includes(privateText), "error text is recorded");
 });
 
 test("with telemetry off nothing is exported and the app is unaffected", async (context) => {
