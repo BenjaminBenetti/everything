@@ -1,0 +1,22 @@
+{
+  "name": "@everything/telemetry-contracts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "files": [
+    "build"
+  ],
+  "exports": {
+    ".": {
+      "types": "./build/telemetry/model/telemetry.d.ts",
+      "default": "./build/telemetry/model/telemetry.js"
+    }
+  },
+  "scripts": {
+    "build": "rm -rf build && tsc -p tsconfig.build.json",
+    "check": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "typescript": "7.0.2"
+  }
+}

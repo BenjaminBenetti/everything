@@ -165,6 +165,7 @@ export class ConversationService
     });
     const runtime = new AgentRuntime(
       new ReplyingAgentSession(session, () => delivered),
+      { ownerId: agent.ownerId, agentId: agent.id },
     );
     this.runtimes.set(agent.id, runtime);
     this.runtimeDefinitions.set(agent.id, definition);

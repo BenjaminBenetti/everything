@@ -4,6 +4,7 @@ import {
   replyDeliveryPrompt,
 } from "../prompt/reply-delivery-prompt.js";
 import { sendMessageToolName } from "../model/message-delivery.js";
+import { ReplyNotDeliveredError } from "../error/runtime-errors.js";
 
 /** Require deliberate delivery for user turns without treating private model text as a reply. */
 export class ReplyingAgentSession implements AgentSession {
@@ -75,7 +76,7 @@ export class ReplyingAgentSession implements AgentSession {
     if (this.deliveredCount() === before) {
       await this.session.prompt(replyDeliveryPrompt);
       if (!this.stopped && this.deliveredCount() === before)
-        throw new Error("The teammate did not deliver a reply");
+        throw new ReplyNotDeliveredError();
     } else if (this.session.lastToolName !== sendMessageToolName)
       await this.session.prompt(outcomeDeliveryPrompt);
   }

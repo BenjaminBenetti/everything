@@ -20,6 +20,8 @@ import type { ProviderId } from "@everything/provider-contracts";
 import { fastModeModel } from "../model/fast-mode-support.js";
 import { speedProtocols } from "./speed-protocols.js";
 import { SpeedRequest } from "./speed-request.js";
+import { observeProviderRequests } from "../../telemetry/adapter/provider-request-telemetry.js";
+import { promptDiagnostics } from "../../telemetry/service/prompt-diagnostics.js";
 
 /** Adapt owner-scoped connections to Pi without writing decrypted credentials to workspace files. */
 export class PiInferenceRuntimeFactory implements InferenceRuntimeFactory {
@@ -78,6 +80,8 @@ export class PiInferenceRuntimeFactory implements InferenceRuntimeFactory {
       /** Resolve only the saved owner's credentials, including renewed OAuth grants and disconnects. */
       streamSimple: (selected, context, options) =>
         lazyStream(selected, async () => {
+          // Each model request's attempts and responses are diagnosed on their own.
+          promptDiagnostics()?.beginRequest();
           const current = await this.connections.access(
             ownerId,
             selection.provider,
@@ -90,12 +94,22 @@ export class PiInferenceRuntimeFactory implements InferenceRuntimeFactory {
             ...selected,
             baseUrl: this.address(selection.provider, current.baseUrl),
           };
-          /** Do not invent authentication for keyless local servers or follow credential-bearing redirects. */
-          const transport: typeof fetch = (input, init) => {
-            const headers = new Headers(init?.headers);
-            if (!key) headers.delete("authorization");
-            return providerFetch(this.fetcher)(input, { ...init, headers });
-          };
+          /**
+           * Do not invent authentication for keyless local servers or follow credential-bearing
+           * redirects. Each attempt is timed for the owner's telemetry, without its contents.
+           */
+          const transport: typeof fetch = observeProviderRequests(
+            (input, init) => {
+              const headers = new Headers(init?.headers);
+              if (!key) headers.delete("authorization");
+              return providerFetch(this.fetcher)(input, { ...init, headers });
+            },
+            {
+              ownerId,
+              provider: selection.provider,
+              model: selection.model,
+            },
+          );
           const speed = protocol && new SpeedRequest(protocol, fast);
           const requestOptions = {
             ...(speed ? speed.options(options) : options),

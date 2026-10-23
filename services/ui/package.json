@@ -28,6 +28,7 @@
     "@everything/provider-contracts": "workspace:*",
     "@everything/security": "workspace:*",
     "@everything/settings-contracts": "workspace:*",
+    "@everything/telemetry-contracts": "workspace:*",
     "@everything/ui": "workspace:*",
     "@everything/update-contracts": "workspace:*",
     "@everything/upgrade-contracts": "workspace:*",

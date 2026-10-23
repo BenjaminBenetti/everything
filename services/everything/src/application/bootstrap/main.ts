@@ -81,6 +81,12 @@ import {
   recentWorkspaceListing,
 } from "../../workspace/service/workspace-activity.js";
 import { createVoiceRuntime } from "../../voice/factory/voice-runtime.js";
+import { createTelemetryReader } from "../../telemetry/factory/telemetry-reader.js";
+import { activeTelemetry } from "../../telemetry/factory/telemetry-runtime.js";
+import {
+  recordWarning,
+  reportWarning,
+} from "../../telemetry/service/diagnostic-warnings.js";
 
 /** Assemble concrete adapters once at the process boundary and own their lifecycle. */
 async function main(): Promise<void> {
@@ -112,7 +118,7 @@ async function main(): Promise<void> {
       fleetClients: fleetHome(config.fleet.home).sshAgentRelay,
     },
     () =>
-      console.warn("SSH keys could not synchronize; Everything will retry."),
+      reportWarning("SSH keys could not synchronize; Everything will retry."),
   );
   await ssh.start();
   const providers = new ProviderConnectionService(
@@ -149,9 +155,12 @@ async function main(): Promise<void> {
     }),
     workspaceFiles,
     (agentId) =>
-      console.warn("Teammate workspace reconciliation failed; it will retry.", {
-        agentId,
-      }),
+      reportWarning(
+        "Teammate workspace reconciliation failed; it will retry.",
+        {
+          agentId,
+        },
+      ),
   );
   const artifactGateway = new HttpArtifactGateway(
     {
@@ -174,7 +183,7 @@ async function main(): Promise<void> {
     config.fleet,
     config.agentsDirectory,
     (error) =>
-      console.warn("Fleet failed; Everything will retry.", {
+      reportWarning("Fleet failed; Everything will retry.", {
         reason: error instanceof Error ? error.message : "unknown",
       }),
     { ...process.env, SSH_AUTH_SOCK: sshAgentHostSocket },
@@ -211,10 +220,9 @@ async function main(): Promise<void> {
       wakeup: (scope, input, signal) => subagents.wakeup(scope, input, signal),
     },
     (failure) =>
-      console.warn(
-        "A monitor's completion event could not be delivered.",
-        failure,
-      ),
+      reportWarning("A monitor's completion event could not be delivered.", {
+        ...failure,
+      }),
   );
   const conversations = new ConversationService(
     agents,
@@ -241,7 +249,7 @@ async function main(): Promise<void> {
     new PiSubagentArchives(workspaces),
   );
   const voice = await createVoiceRuntime(config.voice, agents, (message) =>
-    console.warn(message),
+    reportWarning(message),
   );
   const app = await createHttpApplication({
     apiDocumentation,
@@ -279,6 +287,7 @@ async function main(): Promise<void> {
     workspaceActivity,
     voice: voice.uploads,
     voiceStreams: voice.streams,
+    telemetry: createTelemetryReader(config.telemetry),
     verifier,
     sessions: new SessionService(
       new PostgresSessionRepository(database),
@@ -296,18 +305,22 @@ async function main(): Promise<void> {
     updates,
     new ModelUpdateSummarizer(inference),
     generalSettings,
-    () =>
-      app.log.warn(
-        "An update summary could not complete; the update's source remains available.",
-      ),
+    () => {
+      const message =
+        "An update summary could not complete; the update's source remains available.";
+      app.log.warn(message);
+      recordWarning(message);
+    },
   );
   const providerChecks = new ProviderCheckScheduler(
     new PostgresProviderCheckRepository(database),
     providers,
-    () =>
-      app.log.warn(
-        "Automatic provider checks could not complete; scheduling will retry.",
-      ),
+    () => {
+      const message =
+        "Automatic provider checks could not complete; scheduling will retry.";
+      app.log.warn(message);
+      recordWarning(message);
+    },
   );
   // Waiting on the speech services would hold shutdown open, so transcriptions and streams stop first.
   app.addHook("preClose", async () => voice.close());
@@ -321,6 +334,8 @@ async function main(): Promise<void> {
     await fleet.close();
     await ssh.close();
     await database.destroy();
+    // Last, so what shutting down recorded is exported too, within the export deadline.
+    await activeTelemetry()?.shutdown();
   });
   closeOnTermination(app);
   await app.listen({ host: "0.0.0.0", port: config.port });

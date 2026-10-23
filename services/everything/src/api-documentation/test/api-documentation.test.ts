@@ -13,6 +13,7 @@ import { registerApiDocumentation } from "../adapter/fastify-api-documentation.j
 import { ApiDocumentationService } from "../service/api-documentation-service.js";
 import { apiDocumentationTool } from "../tool/api-documentation-tool.js";
 import { apiDocumentationToolName } from "../model/api-documentation.js";
+import { TelemetryQueryService } from "../../telemetry/service/telemetry-query-service.js";
 
 /** Any business-operation invocation while producing docs fails immediately. */
 function unusedOperations<T>(): T {
@@ -57,6 +58,10 @@ function dependencies(
     workspaceActivity: unusedOperations(),
     voice: unusedOperations(),
     voiceStreams: unusedOperations(),
+    telemetry: new TelemetryQueryService(
+      { enabled: false, retentionDays: 7 },
+      null,
+    ),
     readiness: async () => {},
   };
 }
