@@ -102,8 +102,9 @@ export interface ProviderErrorBody {
  * stream failures after a successful response carry only the body or a transport message.
  *
  * The excerpt kept is only an error's own message: the `message` of a JSON error body, or an SDK or
- * transport message such as `Connection error.`. Other body fields, a body without a message, and
- * a non-JSON response body are never kept, since they can echo the request.
+ * transport message such as `Connection error.`. Other body fields, a body without a message, any
+ * other serialized JSON such as an array or a JSON string, and a non-JSON response body are never
+ * kept, since they can echo the request; nor is their wording used to choose a category.
  */
 export function classifyModelFailure(input: ModelFailureInput): ModelFailure {
   const raw = input.errorMessage ?? "";
@@ -116,8 +117,8 @@ export function classifyModelFailure(input: ModelFailureInput): ModelFailure {
   const status = parsedStatus ?? response?.status;
   const code =
     safeIdentifier(body.code, 64) ?? safeIdentifier(response?.errorType, 64);
-  // Text without JSON is the SDK's own message, unless it follows a status as a response body.
-  const plain = remainder.includes("{")
+  // Plain text is the SDK's own message, unless it follows a status as a response body.
+  const plain = serializedBody(remainder)
     ? undefined
     : remainder.trim() || undefined;
   const explanation =
@@ -144,6 +145,23 @@ export function classifyModelFailure(input: ModelFailureInput): ModelFailure {
     ...(requestId !== undefined ? { requestId } : {}),
     ...(message ? { message } : {}),
   };
+}
+
+/**
+ * Whether error text is a serialized body rather than an SDK's or transport's own message: any
+ * JSON, such as an object, an array, or a JSON string, including a truncated one, or markup. An
+ * SDK reports a body this way when its error is not an object with a message, as for a stream
+ * chunk whose `error` is an array or a string.
+ */
+function serializedBody(text: string): boolean {
+  const trimmed = text.trim();
+  if (trimmed.includes("{") || /^["[<]/.test(trimmed)) return true;
+  try {
+    JSON.parse(trimmed);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** Prefer a cancellation or refused Fast request, then the provider's code, status, and wording. */

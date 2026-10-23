@@ -158,3 +158,52 @@ test("words in a provider's echoed input never decide a failure's category", () 
   assert.equal(failure.category, "unknown");
   assert.equal(failure.message, undefined);
 });
+
+test("serialized JSON that isn't an object with a message is never taken for an SDK's own message", () => {
+  const privateText = "The private launch date is next Tuesday";
+  for (const errorMessage of [
+    JSON.stringify([privateText]),
+    JSON.stringify(privateText),
+    `[{"error":{"message":"${privateText}`,
+    `"${privateText}`,
+    JSON.stringify([`rate limit ${privateText}`]),
+    `<html><body>${privateText}</body></html>`,
+    "null",
+  ]) {
+    const failure = classifyModelFailure({ stopReason: "error", errorMessage });
+    assert.equal(failure.message, undefined, errorMessage);
+    assert.equal(
+      failure.category,
+      "unknown",
+      `its wording doesn't choose a category: ${errorMessage}`,
+    );
+  }
+  // An error's own message is kept, even when it quotes JSON, as is a plain transport message.
+  assert.equal(
+    classifyModelFailure({
+      stopReason: "error",
+      errorMessage: JSON.stringify({
+        error: { message: 'Rejected ["list"]', type: "invalid_request_error" },
+      }),
+    }).message,
+    'Rejected ["list"]',
+  );
+  for (const errorMessage of ["Connection error.", "fetch failed"]) {
+    const failure = classifyModelFailure({ stopReason: "error", errorMessage });
+    assert.equal(failure.message, errorMessage);
+    assert.equal(failure.category, "network");
+  }
+  // Structured facts still come from the provider's last response.
+  const diagnosed = classifyModelFailure({
+    stopReason: "error",
+    errorMessage: JSON.stringify([privateText]),
+    lastResponse: {
+      attempt: 1,
+      status: 200,
+      requestId: "req_stream_ok",
+    },
+  });
+  assert.equal(diagnosed.httpStatus, 200);
+  assert.equal(diagnosed.requestId, "req_stream_ok");
+  assert.equal(diagnosed.message, undefined);
+});

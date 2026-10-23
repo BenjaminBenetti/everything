@@ -123,6 +123,41 @@ test("credentials in URL paths are redacted, including percent-encoded ones", ()
   );
 });
 
+test("an encoded ? or # in a path never hides the credential after it", () => {
+  const key = "sk-proj-abcdefghijklmnopqrstuvwx";
+  for (const separator of ["%3F", "%23", "%253F", "%2523", "%3f"]) {
+    const shown = separator.toUpperCase().endsWith("3F") ? "%3F" : "%23";
+    assert.equal(
+      redactUrl(`https://gateway.example/v1/${separator}${key}`),
+      `https://gateway.example/v1/${shown}[redacted]`,
+      separator,
+    );
+    assert.equal(
+      redactPath(`/v1/${separator}${key}`),
+      `/v1/${shown}[redacted]`,
+      separator,
+    );
+    assert.equal(
+      redactPath(`/v1/${separator}${key}/x`),
+      `/v1/${shown}[redacted]/x`,
+      separator,
+    );
+  }
+  for (const value of [
+    `https://gateway.example/v1/%3F${key}`,
+    "https://api.test/a%3Fb/c%23d/%E2%9C%93",
+    "https://api.test/v1/agents/0b6a3c4e-5f1d-4e2a-8c9b-7d6e5f4a3b2c/messages",
+  ])
+    assert.equal(
+      redactUrl(redactUrl(value)),
+      redactUrl(value),
+      `idempotent: ${value}`,
+    );
+  const long = redactPath(`/${"%3Fsegment".repeat(200)}`, 120);
+  assert.ok(long.length <= 120, "an encoded path stays within its limit");
+  assert.ok(!long.includes("?") && !long.includes("#"));
+});
+
 test("identifiers must be short and plain", () => {
   assert.equal(safeIdentifier("req_011CU1x2y3"), "req_011CU1x2y3");
   assert.equal(safeIdentifier(429), "429");

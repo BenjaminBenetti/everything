@@ -48,9 +48,14 @@ const url: Sanitizer = (value) =>
 const path: Sanitizer = (value) =>
   typeof value === "string" ? redactPath(value) : undefined;
 
-/** A short identifier only. */
-const identifier: Sanitizer = (value) =>
-  safeIdentifier(value, 128) ?? scalar(value);
+/**
+ * A short identifier only, with any credential it spells redacted: a well-formed identifier, such
+ * as a tool name a model chose or a gateway's host, can still be a key.
+ */
+const identifier: Sanitizer = (value) => {
+  const valid = safeIdentifier(value, 128);
+  return valid === undefined ? scalar(value) : redactText(valid, 128);
+};
 
 /**
  * Attributes holding the text of error messages from providers, SDKs, libraries, and thrown

@@ -6,6 +6,7 @@ import {
   telemetrySpans,
 } from "../model/telemetry-attributes.js";
 import type { TelemetryScope } from "../model/telemetry-scope.js";
+import { telemetryStatuses } from "../model/telemetry-statuses.js";
 import { providerErrorBody } from "../service/model-failure-classifier.js";
 import {
   promptDiagnostics,
@@ -101,7 +102,7 @@ export function observeProviderRequests(
       if (!response.ok)
         span.setStatus({
           code: SpanStatusCode.ERROR,
-          message: `HTTP ${record.status}`,
+          message: telemetryStatuses.httpFailed(record.status),
         });
       if (attempt) diagnostics?.record(attempt, record);
     } catch {

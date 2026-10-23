@@ -24,6 +24,7 @@ import {
   telemetrySpans,
 } from "../../telemetry/model/telemetry-attributes.js";
 import type { TelemetryScope } from "../../telemetry/model/telemetry-scope.js";
+import { telemetryStatuses } from "../../telemetry/model/telemetry-statuses.js";
 import { safeIdentifier } from "../../telemetry/service/telemetry-redactor.js";
 
 /** An event a Pi session reports while it works. */
@@ -263,7 +264,7 @@ export class PiPromptTelemetry {
       });
       span?.setStatus({
         code: SpanStatusCode.ERROR,
-        message: "Context compaction failed",
+        message: telemetryStatuses.compactionFailed,
       });
       span?.setAttribute(attribute.outcome, "failure");
       // Error text, exported only if the installation records it.
@@ -313,7 +314,7 @@ export class PiPromptTelemetry {
       prompt.diagnosed = true;
       prompt.span.setStatus({
         code: SpanStatusCode.ERROR,
-        message: `Model request failed: ${failure.category}`,
+        message: telemetryStatuses.modelFailed(failure.category),
       });
     }
     recordTelemetryEvent(

@@ -39,10 +39,12 @@ app.post("/v1/work", async () => {
       `${process.env.DEPENDENCY_URL}/resource?api_key=sk-dependency-secret-123`,
     )
   ).text();
-  // A gateway whose base path holds a key, as written and percent-encoded.
+  // A gateway whose base path holds a key: as written, percent-encoded, and after an encoded ? or #.
   for (const path of [
     "/v1/sk-proj-pathsecretabcdefghijkl/messages?debug=1",
     "/v1/sk%2Dproj%2Dencodedpathsecretabcd/messages",
+    "/v1/%3Fsk-proj-questionmarkkeyabcdefgh",
+    "/v1/%23sk-proj-hashmarkkeyabcdefghijk",
   ])
     await (await fetch(`${process.env.DEPENDENCY_URL}${path}`)).text();
   // A call the fetch instrumentation records as failed, with a message the caller chose.

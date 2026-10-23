@@ -93,7 +93,7 @@ export function TraceTimeline({
                       {span.textWithheld && (
                         <>
                           <dt>Error text</dt>
-                          <dd>Withheld by this installation’s setting</dd>
+                          <dd>Withheld when this was recorded</dd>
                         </>
                       )}
                       {span.httpStatus !== null && (

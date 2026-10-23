@@ -36,6 +36,40 @@ export function sse(events: unknown[], open = false): Response {
   });
 }
 
+/** One streamed assistant reply: text, or a call to `tool`. */
+export function reply(text: string, tool?: { name: string; input: unknown }) {
+  return sse([
+    {
+      id: "completion",
+      object: "chat.completion.chunk",
+      created: 1,
+      model: "o3-mini",
+      choices: [
+        {
+          index: 0,
+          delta: tool
+            ? {
+                role: "assistant",
+                tool_calls: [
+                  {
+                    index: 0,
+                    id: `call-${tool.name}`,
+                    type: "function",
+                    function: {
+                      name: tool.name,
+                      arguments: JSON.stringify(tool.input),
+                    },
+                  },
+                ],
+              }
+            : { role: "assistant", content: text },
+          finish_reason: tool ? "tool_calls" : "stop",
+        },
+      ],
+    },
+  ]);
+}
+
 /** A JSON error response with the given status, body, and headers. */
 export function failure(
   status: number,

@@ -9,8 +9,10 @@ import { truncationMarker } from "../service/telemetry-redactor.js";
 import {
   canaries,
   embeddedSecret,
+  lookalikeStatus,
   recordErrorText,
   requestIds,
+  toolKey,
 } from "./error-text-fixtures.js";
 import {
   eventsNamed,
@@ -42,14 +44,33 @@ test("with error text recorded, only errors' own messages are exported, redacted
   const exported = await telemetry.collect();
   const text = exportedText(exported);
   assert.ok(!text.includes(embeddedSecret), "credentials are always redacted");
+  assert.ok(!text.includes(toolKey), "a key-shaped tool name is redacted");
   assert.ok(
     !text.includes(canaries.input),
     "a provider error body's other fields are never kept, even without a message",
   );
+  for (const serialized of [canaries.streamArray, canaries.streamString])
+    assert.ok(
+      !text.includes(serialized),
+      "a stream error's array or string is never taken for its message",
+    );
   for (const value of errorTexts(exported))
     assert.ok(value.length <= 400, `error text is bounded: ${value.length}`);
 
-  const models = eventsNamed(exported, telemetryEvents.modelFailed);
+  const failures = eventsNamed(exported, telemetryEvents.modelFailed);
+  assert.equal(failures.length, 4, "two 400s and two stream errors");
+  const streams = failures.filter(
+    (model) => model.attributes[attribute.requestId] === requestIds.stream,
+  );
+  assert.equal(streams.length, 2);
+  for (const stream of streams) {
+    assert.equal(stream.attributes[attribute.category], "unknown");
+    assert.equal(stream.attributes[attribute.httpStatus], 200);
+    assert.equal(stream.attributes[attribute.message], undefined);
+  }
+  const models = failures.filter(
+    (model) => model.attributes[attribute.httpStatus] === 400,
+  );
   const quoting = models.find(
     (model) => model.attributes[attribute.requestId] === requestIds.canonical,
   );
@@ -73,7 +94,9 @@ test("with error text recorded, only errors' own messages are exported, redacted
     assert.equal(model.attributes[attribute.httpStatus], 400);
     assert.equal(model.attributes[attribute.attempts], 1);
   }
-  const requests = spansNamed(exported, telemetrySpans.providerRequest);
+  const requests = spansNamed(exported, telemetrySpans.providerRequest).filter(
+    (span) => span.attributes[attribute.httpStatus] === 400,
+  );
   assert.ok(
     requests.some((span) =>
       String(span.attributes[attribute.message]).includes(canaries.canonical),
@@ -95,6 +118,14 @@ test("with error text recorded, only errors' own messages are exported, redacted
     library?.events[0]?.attributes?.["exception.message"],
     canaries.library,
   );
+  // Recorded text that imitates Everything's own status is kept as the error text it is.
+  for (const name of ["GET", "lookup"]) {
+    const imitating = exported.spans.find((span) => span.name === name);
+    assert.equal(imitating?.status.message, lookalikeStatus, name);
+  }
+
+  const [tool] = spansNamed(exported, telemetrySpans.tool);
+  assert.equal(tool?.attributes[attribute.tool], "[redacted]");
 
   const [requestFailed] = eventsNamed(exported, telemetryEvents.requestFailed);
   assert.equal(

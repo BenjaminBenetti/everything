@@ -9,7 +9,7 @@ import { startTelemetry } from "../factory/telemetry-runtime.js";
 import { telemetryEvents } from "../model/telemetry-attributes.js";
 import { recordWarning } from "../service/diagnostic-warnings.js";
 import { TelemetryQueryService } from "../service/telemetry-query-service.js";
-import { failure, settled, teammate } from "./runtime-fixtures.js";
+import { failure, reply, settled, teammate } from "./runtime-fixtures.js";
 
 /**
  * Everything's export pipeline, OpenObserve, and the owner-scoped query API end to end. Run by
@@ -26,6 +26,9 @@ const includeErrorText =
 
 /** Natural-language text a provider's error quotes from the request; no credential shape. */
 const privateText = "The private launch date is next Tuesday";
+
+/** A tool name a model made up in the shape of a key, which never reaches storage in either mode. */
+const toolKey = "sk-proj-storedtoolnameabcdefgh";
 const skip =
   url && passwordFile
     ? false
@@ -89,19 +92,22 @@ test(
   "model failures exported by Everything are searchable through the owner-scoped API, with their trace",
   { skip },
   async (context) => {
+    // Owner A's model first calls a tool that doesn't exist, named like a key, then is rate limited.
     const a = await teammate(
       context,
-      () =>
-        failure(
-          429,
-          {
-            error: {
-              message: `Rate limit reached for requests while reading: ${privateText}`,
-              type: "rate_limit_exceeded",
-            },
-          },
-          { "x-request-id": "req_e2e_owner_a", "retry-after": "20" },
-        ),
+      ({ attempt }) =>
+        attempt === 1
+          ? reply("", { name: toolKey, input: {} })
+          : failure(
+              429,
+              {
+                error: {
+                  message: `Rate limit reached for requests while reading: ${privateText}`,
+                  type: "rate_limit_exceeded",
+                },
+              },
+              { "x-request-id": "req_e2e_owner_a", "retry-after": "20" },
+            ),
       "owner-a",
     );
     const b = await teammate(
@@ -149,11 +155,20 @@ test(
 
     const trace = await eventually(async () => {
       const found = await reader!.trace("owner-a", event.traceId!);
-      return found.spans.length >= 3 ? found : undefined;
+      return found.spans.length >= 5 ? found : undefined;
     }, "owner-a's trace");
     assert.deepEqual(
       new Set(trace.spans.map((span) => span.name)),
-      new Set(["teammate.turn", "teammate.prompt", "provider.request"]),
+      new Set([
+        "teammate.turn",
+        "teammate.prompt",
+        "provider.request",
+        "teammate.tool",
+      ]),
+    );
+    assert.equal(
+      trace.spans.find((span) => span.name === "teammate.tool")!.title,
+      "Tool: [redacted]",
     );
     assert.ok(
       trace.events.some((record) => record.name === telemetryEvents.turnFailed),
@@ -162,7 +177,7 @@ test(
     const prompt = trace.spans.find((span) => span.name === "teammate.prompt")!;
     assert.equal(prompt.parentSpanId, turn.id);
     const request = trace.spans.find(
-      (span) => span.name === "provider.request",
+      (span) => span.name === "provider.request" && span.httpStatus === 429,
     )!;
     assert.equal(request.statusMessage, "HTTP 429");
     assert.equal(request.textWithheld, !includeErrorText);
@@ -186,6 +201,7 @@ test(
         ? "recorded error text is stored"
         : "withheld error text never reaches storage",
     );
+    assert.ok(!stored.includes(toolKey), "a key-shaped name never does");
 
     const byRun = await reader!.events("owner-a", {
       severity: "info",

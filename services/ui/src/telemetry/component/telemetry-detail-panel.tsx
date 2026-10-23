@@ -180,11 +180,12 @@ export function TelemetryDetailPanel({
           >
             <h3 id="telemetry-message-heading">Error text withheld</h3>
             <p className="telemetry-muted">
-              This installation doesn’t record what errors say, because it can
-              quote what was sent, such as part of a prompt. The cause and codes
-              above come from the error’s structured details. Whoever manages
-              the installation can turn on error text; the deployment guide
-              explains how.
+              What this error said wasn’t recorded, because the installation was
+              withholding error text when it happened; that text can quote what
+              was sent, such as part of a prompt. The cause and codes above come
+              from the error’s structured details. Whoever manages the
+              installation can turn on error text for later records; the
+              deployment guide explains how.
             </p>
           </section>
         )

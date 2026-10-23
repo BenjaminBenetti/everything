@@ -16,23 +16,18 @@ import type { ExportHealth } from "../service/export-health.js";
 import { redactText } from "../service/telemetry-redactor.js";
 import { traceOwners, type TraceOwners } from "../service/trace-owners.js";
 import { telemetryAttributes as attribute } from "../model/telemetry-attributes.js";
+import { isFixedStatus } from "../model/telemetry-statuses.js";
 
 /** Longest span name or event summary, after redaction. */
 const nameLimit = 200;
 
 /**
- * Span status messages Everything writes itself, which hold no provider, library, or user text and
- * are exported whether or not error text is.
- */
-const ownStatusMessage =
-  /^(?:Model request failed: [a-z_]{1,40}|Context compaction failed|HTTP \d{3})$/;
-
-/**
  * Send spans with only allowlisted, redacted attributes and events, so nothing a library or SDK
  * error recorded leaves the process unless it is known to be safe. Error text, in status messages
- * and exception events, is left out unless `policy` records it. Spans that ended before their
- * request was authenticated, such as the session lookup, receive its owner here, since batches are
- * exported after the request has been. Batch outcomes are counted.
+ * and exception events, is left out unless `policy` records it; only Everything's own fixed status
+ * messages are kept regardless. Spans that ended before their request was authenticated, such as
+ * the session lookup, receive its owner here, since batches are exported after the request has
+ * been. Batch outcomes are counted.
  */
 export class RedactingSpanExporter implements SpanExporter {
   /** Wrap the backend's exporter, attributing spans from `owners`. */
@@ -137,7 +132,7 @@ export function exportableSpan(
   }));
   const message = span.status.message;
   const keepMessage =
-    !!message && (policy.includeErrorText || ownStatusMessage.test(message));
+    !!message && (policy.includeErrorText || isFixedStatus(message));
   const status = !message
     ? span.status
     : keepMessage

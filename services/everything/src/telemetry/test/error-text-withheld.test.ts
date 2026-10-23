@@ -9,8 +9,10 @@ import {
 import {
   canaries,
   embeddedSecret,
+  lookalikeStatus,
   recordErrorText,
   requestIds,
+  toolKey,
 } from "./error-text-fixtures.js";
 import {
   eventsNamed,
@@ -31,6 +33,8 @@ test("by default no error text reaches any exported span, span event, or event, 
     assert.ok(!text.includes(canary), `${surface} error text is withheld`);
   for (const fragment of [
     embeddedSecret,
+    toolKey,
+    lookalikeStatus,
     "Rejected prompt",
     "Context rejected",
     "Provider said",
@@ -38,8 +42,11 @@ test("by default no error text reaches any exported span, span event, or event, 
   ])
     assert.ok(!text.includes(fragment), `${fragment} is withheld`);
 
-  const models = eventsNamed(exported, telemetryEvents.modelFailed);
-  assert.equal(models.length, 2);
+  const failures = eventsNamed(exported, telemetryEvents.modelFailed);
+  assert.equal(failures.length, 4, "two 400s and two stream errors");
+  const models = failures.filter(
+    (model) => model.attributes[attribute.httpStatus] === 400,
+  );
   for (const model of models) {
     assert.equal(model.attributes[attribute.category], "invalid_request");
     assert.equal(model.attributes[attribute.code], "invalid_request_error");
@@ -64,7 +71,19 @@ test("by default no error text reaches any exported span, span event, or event, 
     "a withheld message is marked",
   );
 
-  const requests = spansNamed(exported, telemetrySpans.providerRequest);
+  const streams = failures.filter(
+    (model) => model.attributes[attribute.requestId] === requestIds.stream,
+  );
+  assert.equal(streams.length, 2);
+  for (const stream of streams) {
+    assert.equal(stream.attributes[attribute.category], "unknown");
+    assert.equal(stream.attributes[attribute.httpStatus], 200);
+    assert.equal(stream.attributes[attribute.message], undefined);
+  }
+
+  const requests = spansNamed(exported, telemetrySpans.providerRequest).filter(
+    (span) => span.status.code === SpanStatusCode.ERROR,
+  );
   assert.equal(requests.length, 2);
   for (const request of requests) {
     assert.equal(request.status.message, "HTTP 400");
@@ -101,6 +120,17 @@ test("by default no error text reaches any exported span, span event, or event, 
   assert.deepEqual(library?.events[0]?.attributes, {
     "exception.type": "Error",
   });
+  // Text imitating Everything's own status, set by a library or carried by a thrown error.
+  for (const name of ["GET", "lookup"]) {
+    const imitating = exported.spans.find((span) => span.name === name);
+    assert.deepEqual(imitating?.status, { code: SpanStatusCode.ERROR }, name);
+    assert.equal(imitating?.attributes[attribute.textWithheld], true, name);
+  }
+
+  // A tool the model made up, named like a key, is recorded without the key.
+  const [tool] = spansNamed(exported, telemetrySpans.tool);
+  assert.equal(tool?.attributes[attribute.tool], "[redacted]");
+  assert.equal(tool?.attributes[attribute.outcome], "failure");
 
   const [requestFailed] = eventsNamed(exported, telemetryEvents.requestFailed);
   assert.equal(requestFailed?.attributes[attribute.code], "INTERNAL_ERROR");

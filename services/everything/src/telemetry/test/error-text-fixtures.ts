@@ -10,7 +10,8 @@ import {
 } from "../service/telemetry-recorder.js";
 import { describeError } from "../service/telemetry-redactor.js";
 import { telemetryEvents } from "../model/telemetry-attributes.js";
-import { failure, settled, teammate } from "./runtime-fixtures.js";
+import { sendMessageToolName } from "../../runtime/model/message-delivery.js";
+import { failure, reply, settled, sse, teammate } from "./runtime-fixtures.js";
 
 /**
  * Natural-language text an error could quote from a request, one per place error text is
@@ -23,22 +24,36 @@ export const canaries = {
   library: "Payroll moves to the new bank in March",
   cause: "The candidate accepted the offer yesterday",
   warning: "The keynote reveals the blue edition",
+  /** Written as a category, after the words of Everything's own model-failure status. */
+  lookalike: "payroll_moves_to_a_new_bank_in_march",
+  /** Sent as a stream error's `error`, an array and a string rather than an object. */
+  streamArray: "The roadmap slips to the spring",
+  streamString: "The office closes for the summer",
 } as const;
+
+/** The status text that imitates Everything's own, carrying the lookalike canary. */
+export const lookalikeStatus = `Model request failed: ${canaries.lookalike}`;
+
+/** A tool name a model made up in the shape of a key, redacted in both modes. */
+export const toolKey = "sk-proj-unknowntoolnameabcdefgh";
 
 /** A credential inside a provider's error message, redacted whether or not error text is recorded. */
 export const embeddedSecret = "sk-live-canarysecret123456";
 
-/** Provider request IDs of the two failed teammate turns. */
+/** Provider request IDs of the failed teammate turns; both stream failures share the last. */
 export const requestIds = {
   canonical: "req_canonical_400",
   input: "req_input_400",
+  stream: "req_stream_ok",
 } as const;
 
 /**
  * Record every kind of error text Everything can capture, each quoting a canary: a provider's
- * error message, a provider error body with the request's input and no message, a failed context
- * compaction, a library span's exception and status, a thrown error's nested cause, and an
- * installation warning's reason. The two teammate turns run on real Pi sessions.
+ * error message, a provider error body with the request's input and no message, stream errors
+ * whose `error` is an array or a string, a failed context compaction, a library span's exception
+ * and status, a thrown error's nested cause, status text imitating Everything's own, and an
+ * installation warning's reason; and a tool call a model makes to a tool that doesn't exist, named
+ * like a key. The teammate turns run on real Pi sessions with finite provider answers.
  */
 export async function recordErrorText(test: TestContext): Promise<void> {
   const quoting = await teammate(test, () =>
@@ -64,6 +79,33 @@ export async function recordErrorText(test: TestContext): Promise<void> {
   );
   echoing.runtime.start("Hello");
   await settled(echoing.runtime);
+  for (const error of [[canaries.streamArray], canaries.streamString]) {
+    const streaming = await teammate(test, () => sse([{ error }]));
+    streaming.runtime.start("Hello");
+    await settled(streaming.runtime);
+  }
+
+  // Pi reports the made-up tool's call before finding no such tool, then the turn replies.
+  const answers = [
+    () => reply("", { name: toolKey, input: {} }),
+    () =>
+      reply("", {
+        name: sendMessageToolName,
+        input: { text: "That tool doesn’t exist." },
+      }),
+    () => reply("Done."),
+  ];
+  let answered = 0;
+  const calling = await teammate(
+    test,
+    () =>
+      answers[answered++]?.() ??
+      failure(400, {
+        error: { message: "No answer left", type: "invalid_request_error" },
+      }),
+  );
+  calling.runtime.start("Hello");
+  await settled(calling.runtime);
 
   await compactionFailure().catch(() => {});
 
@@ -77,6 +119,17 @@ export async function recordErrorText(test: TestContext): Promise<void> {
     query.recordException(new Error(canaries.library));
     query.setStatus({ code: SpanStatusCode.ERROR, message: canaries.library });
     query.end();
+    const imitating = trace
+      .getTracer("library-instrumentation")
+      .startSpan("GET", { kind: SpanKind.CLIENT });
+    imitating.setStatus({
+      code: SpanStatusCode.ERROR,
+      message: lookalikeStatus,
+    });
+    imitating.end();
+    const lookup = startTelemetrySpan("lookup");
+    failTelemetrySpan(lookup.span, new Error(lookalikeStatus));
+    lookup.span.end();
     const thrown = new Error("Lookup failed", {
       cause: new Error(`Provider said: ${canaries.cause}`),
     });

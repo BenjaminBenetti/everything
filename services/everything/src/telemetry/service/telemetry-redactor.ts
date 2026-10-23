@@ -95,8 +95,8 @@ export function truncate(value: string, limit: number): string {
 export function redactUrl(value: string, limit = 512): string {
   try {
     const url = new URL(value);
-    return redactText(
-      `${url.protocol}//${url.host}${decodedPath(url.pathname)}`,
+    return truncate(
+      `${url.protocol}//${redactText(url.host, limit)}${redactPath(url.pathname, limit)}`,
       limit,
     );
   } catch {
@@ -104,9 +104,21 @@ export function redactUrl(value: string, limit = 512): string {
   }
 }
 
-/** A path without its query string or fragment, with credentials redacted. */
+/**
+ * A path without its query string or fragment, with credentials redacted. Its percent-encoded
+ * ASCII is decoded first, so encoding cannot hide a credential, and redacted as decoded, so an
+ * encoded `?` or `#` cannot join a credential to the text before it. Those two are encoded again
+ * afterwards, so the path never reads as a query string or fragment.
+ */
 export function redactPath(value: string, limit = 512): string {
-  return redactText(decodedPath(value.split(/[?#]/, 1)[0] ?? ""), limit);
+  const redacted = redactText(
+    decodedPath(value.split(/[?#]/, 1)[0] ?? ""),
+    limit,
+  );
+  return truncate(
+    redacted.replaceAll("?", "%3F").replaceAll("#", "%23"),
+    limit,
+  );
 }
 
 /** Percent-encoded ASCII characters, which can spell a credential the patterns would not see. */
@@ -115,10 +127,7 @@ const encodedAscii = /%([0-7][0-9A-Fa-f])/g;
 /** Most times a path is decoded, for a credential encoded more than once. */
 const decodePasses = 3;
 
-/**
- * A path with its percent-encoded ASCII characters decoded, so encoding cannot hide a credential
- * from redaction. A decoded `?` or `#` stays encoded, so the path never reads as a query string.
- */
+/** A path with its percent-encoded ASCII characters decoded, up to `decodePasses` times. */
 function decodedPath(path: string): string {
   let current = path;
   for (let pass = 0; pass < decodePasses; pass++) {
@@ -128,7 +137,7 @@ function decodedPath(path: string): string {
     if (next === current) break;
     current = next;
   }
-  return current.replaceAll("?", "%3F").replaceAll("#", "%23");
+  return current;
 }
 
 /** A short identifier, such as an error code or request ID, or undefined when it is anything else. */

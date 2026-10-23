@@ -137,6 +137,8 @@ const secrets = [
   "Ot1-test-password",
   "pathsecretabcdefghijkl",
   "encodedpathsecretabcd",
+  "questionmarkkeyabcdefgh",
+  "hashmarkkeyabcdefghijk",
 ];
 
 /**
@@ -286,6 +288,8 @@ test("the preload instruments incoming requests, fetch, and PostgreSQL in a real
     [
       `${dependencyUrl}/resource`,
       `${dependencyUrl}/stall`,
+      `${dependencyUrl}/v1/%23[redacted]`,
+      `${dependencyUrl}/v1/%3F[redacted]`,
       `${dependencyUrl}/v1/[redacted]/messages`,
       `${dependencyUrl}/v1/[redacted]/messages`,
     ],
@@ -325,13 +329,17 @@ test("with error text recorded, the preload exports it redacted and bounded, and
   assert.match(String(event.attributes[attribute.message]), /^Lookup failed/);
   assert.equal(event.attributes[attribute.textWithheld], undefined);
   assert.equal(stalled.status.message, `Upstream said: ${privateText}`);
-  assert.ok(
-    outgoing.some(
-      (span) =>
-        span.attributes["url.full"] ===
-        `${dependencyUrl}/v1/[redacted]/messages`,
-    ),
-  );
+  for (const path of [
+    "/v1/[redacted]/messages",
+    "/v1/%3F[redacted]",
+    "/v1/%23[redacted]",
+  ])
+    assert.ok(
+      outgoing.some(
+        (span) => span.attributes["url.full"] === `${dependencyUrl}${path}`,
+      ),
+      path,
+    );
   assert.ok(exported.includes(privateText), "error text is recorded");
 });
 

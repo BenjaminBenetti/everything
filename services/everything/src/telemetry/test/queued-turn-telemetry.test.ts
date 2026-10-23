@@ -9,7 +9,7 @@ import {
   telemetryEvents,
   telemetrySpans,
 } from "../model/telemetry-attributes.js";
-import { failure, settled, sse, teammate } from "./runtime-fixtures.js";
+import { failure, reply, settled, teammate } from "./runtime-fixtures.js";
 import {
   eventsNamed,
   spansNamed,
@@ -29,40 +29,6 @@ interface RequestMessage {
 function answeredTool(messages: readonly RequestMessage[]): string | undefined {
   if (messages.at(-1)?.role !== "tool") return undefined;
   return messages.at(-2)?.tool_calls?.[0]?.function.name;
-}
-
-/** One streamed assistant reply: text, or a call to `tool`. */
-function reply(text: string, tool?: { name: string; input: unknown }) {
-  return sse([
-    {
-      id: "completion",
-      object: "chat.completion.chunk",
-      created: 1,
-      model: "o3-mini",
-      choices: [
-        {
-          index: 0,
-          delta: tool
-            ? {
-                role: "assistant",
-                tool_calls: [
-                  {
-                    index: 0,
-                    id: `call-${tool.name}`,
-                    type: "function",
-                    function: {
-                      name: tool.name,
-                      arguments: JSON.stringify(tool.input),
-                    },
-                  },
-                ],
-              }
-            : { role: "assistant", content: text },
-          finish_reason: tool ? "tool_calls" : "stop",
-        },
-      ],
-    },
-  ]);
 }
 
 /** Wait for `predicate`, failing rather than hanging when background work is lost. */

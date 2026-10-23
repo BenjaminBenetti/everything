@@ -492,7 +492,9 @@ test.describe("desktop", { tag: "@desktop" }, () => {
       detail.getByRole("heading", { name: "Error text withheld" }),
     ).toBeVisible();
     await expect(
-      detail.getByText(/doesn’t record what errors say/),
+      detail.getByText(
+        /wasn’t recorded, because the installation was withholding error text when it happened/,
+      ),
     ).toBeVisible();
     await expect(
       detail.getByRole("heading", { name: "What the error said" }),
@@ -500,7 +502,7 @@ test.describe("desktop", { tag: "@desktop" }, () => {
     await expect(detail.getByText("rate_limit_error")).toBeVisible();
     await spans.getByRole("button", { name: /Provider request/ }).click();
     await expect(
-      detail.getByText("Withheld by this installation’s setting"),
+      detail.getByText("Withheld when this was recorded"),
     ).toBeVisible();
     await expect(detail.getByText("HTTP 429", { exact: true })).toBeVisible();
   });
