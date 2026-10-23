@@ -7,7 +7,9 @@
     "check": "tsc -p tsconfig.json",
     "test:browser": "playwright test --config src/application/config/playwright.config.ts",
     "test:voice": "playwright test --config src/application/config/playwright.voice.config.ts",
-    "test:voice-e2e": "playwright test --config src/application/config/playwright.voice-e2e.config.ts"
+    "test:voice-e2e": "playwright test --config src/application/config/playwright.voice-e2e.config.ts",
+    "test:telemetry": "playwright test --config src/application/config/playwright.telemetry.config.ts",
+    "test:telemetry-e2e": "playwright test --config src/application/config/playwright.telemetry-e2e.config.ts"
   },
   "devDependencies": {
     "@playwright/test": "1.64.0",
