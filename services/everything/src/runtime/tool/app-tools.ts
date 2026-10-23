@@ -6,6 +6,8 @@ import {
   artifactSlugPattern,
   environmentNamePattern,
 } from "@everything/artifact-contracts";
+import { appCredentialLimits } from "@everything/artifact-contracts/credential";
+import { keyLimits } from "@everything/key-contracts";
 import {
   maximumBuildWaitSeconds,
   type ArtifactWorkbench,
@@ -28,6 +30,7 @@ export const appToolNames = {
   stop: "stop_app",
   logs: "get_app_logs",
   view: "view_app",
+  credentials: "list_credentials",
 } as const;
 
 /** An app named by slug or ID. */
@@ -328,7 +331,7 @@ export function appTools(
       name: appToolNames.deploy,
       label: "Deploy app",
       description:
-        'Run a successful build of a dynamic app as its next release; the latest successful build by default. Settings you leave out keep their current values; a first deployment uses port 8080, no variables, no database, no capabilities, and no disk. database: true gives the app its own PostgreSQL schema through DATABASE_URL and the PG* variables. capabilities: ["everything-api"] gives its backend EVERYTHING_API_URL, EVERYTHING_CLIENT_ID, EVERYTHING_CLIENT_SECRET, and EVERYTHING_TOKEN_URL. POST grant_type=client_credentials, client_id, and client_secret as form data to EVERYTHING_TOKEN_URL, then send the access_token as Authorization: Bearer to EVERYTHING_API_URL + /v1/...; this acts as the app owner. Keep credentials and tokens on the backend. Pass capabilities: [] to remove access; issued tokens expire within five minutes. capabilities: ["api-key"] lets external services such as webhooks call the app at its link by sending its key in an X-Api-Key header; the app host checks the key and removes the header, so the app doesn\'t need to. Its backend receives the key as APP_API_KEY, and the user can see it on Apps. Removing api-key revokes the key at once; adding it again creates a new key. capabilities replaces the whole list, so include every capability to keep. diskGi mounts a persistent disk at /data; its size can\'t change once created. The app also receives PORT and BASE_PATH, the app\'s /slug prefix. Requests arrive without that prefix, so serve routes from / and use BASE_PATH only to build absolute links.',
+        'Run a successful build of a dynamic app as its next release; the latest successful build by default. Settings you leave out keep their current values; a first deployment uses port 8080, no variables, no database, no capabilities, and no disk. database: true gives the app its own PostgreSQL schema through DATABASE_URL and the PG* variables. capabilities: ["everything-api"] gives its backend EVERYTHING_API_URL, EVERYTHING_CLIENT_ID, EVERYTHING_CLIENT_SECRET, and EVERYTHING_TOKEN_URL. POST grant_type=client_credentials, client_id, and client_secret as form data to EVERYTHING_TOKEN_URL, then send the access_token as Authorization: Bearer to EVERYTHING_API_URL + /v1/...; this acts as the app owner, with the owner\'s full access, including messaging teammates, who can change apps and attach credentials to them, so give it only to apps the user trusts. Keep credentials and tokens on the backend. Pass capabilities: [] to remove access; issued tokens expire within five minutes. capabilities: ["api-key"] lets external services such as webhooks call the app at its link by sending its key in an X-Api-Key header; the app host checks the key and removes the header, so the app doesn\'t need to. Its backend receives the key as APP_API_KEY, and the user can see it on Apps. Removing api-key revokes the key at once; adding it again creates a new key. capabilities replaces the whole list, so include every capability to keep. credentials gives the backend generic credentials the user saved on the Keys page, by name, each as the environment variable you choose, such as [{\"name\": \"slack-bot-token\", \"env\": \"SLACK_BOT_TOKEN\"}]; find names with list_credentials. The app keeps the credential even if it is renamed later. Attaching one lets the app\'s code read the value, so attach only what the app needs, keep it on the backend, and never print or return it. credentials replaces the whole list: omit it to keep the current ones, and pass [] to remove them all. Removing a credential restarts the app without it, and get_app lists it as removing until the old process has stopped; check get_app before telling the user it\'s gone. If the app\'s credentials changed while you were deploying, the call fails with CREDENTIAL_GRANTS_CHANGED: check the app again before retrying. Names can\'t be PORT, BASE_PATH, DATABASE_URL, APP_API_KEY, an ordinary env variable of the app, or start with EVERYTHING_, PG, or KUBERNETES_. diskGi mounts a persistent disk at /data; its size can\'t change once created. The app also receives PORT and BASE_PATH, the app\'s /slug prefix. Requests arrive without that prefix, so serve routes from / and use BASE_PATH only to build absolute links.',
       parameters: Type.Object(
         {
           app: appReference,
@@ -349,6 +352,32 @@ export function appTools(
                 maxItems: artifactCapabilities.length,
                 description:
                   "Backend services to provision. Omit to keep current capabilities; [] removes them.",
+              },
+            ),
+          ),
+          credentials: Type.Optional(
+            Type.Array(
+              Type.Object(
+                {
+                  name: Type.String({
+                    minLength: 1,
+                    maxLength: keyLimits.nameLength,
+                    description:
+                      "Name of a generic credential on the Keys page, as list_credentials shows it.",
+                  }),
+                  env: Type.String({
+                    pattern: environmentNamePattern,
+                    maxLength: appCredentialLimits.envLength,
+                    description:
+                      "Environment variable the backend reads the value from, such as SLACK_BOT_TOKEN.",
+                  }),
+                },
+                { additionalProperties: false },
+              ),
+              {
+                maxItems: appCredentialLimits.count,
+                description:
+                  "Credentials the backend receives. Omit to keep the current ones; [] removes them.",
               },
             ),
           ),
@@ -414,6 +443,18 @@ export function appTools(
           lines: parameters.lines ?? 200,
         });
         return reply(logs.text || "The app has no output yet.");
+      },
+    }),
+    defineTool({
+      name: appToolNames.credentials,
+      label: "List credentials",
+      description:
+        "List the generic credentials you can give your apps with deploy_app: each one's name, description, when its value last changed, and which apps receive it as which variable. Values are never shown, and no tool reveals them. If a credential an app needs is missing, ask the user to add it on the Keys page.",
+      parameters: Type.Object({}, { additionalProperties: false }),
+      /** List the owner's attachable credentials without values. */
+      async execute(_id, _parameters, signal) {
+        signal?.throwIfAborted();
+        return reply({ credentials: await workbench.listCredentials(context) });
       },
     }),
     defineTool({

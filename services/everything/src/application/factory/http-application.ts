@@ -1,5 +1,8 @@
 import type { KeyOperations } from "../../key/interface/key-operations.js";
 import { keyController } from "../../key/controller/key-controller.js";
+import { credentialController } from "../../credential/controller/credential-controller.js";
+import type { CredentialGrants } from "../../credential/service/credential-grants.js";
+import type { CredentialRollouts } from "../../credential/service/credential-rollouts.js";
 import fastifyCookie from "@fastify/cookie";
 import type { SessionOperations } from "../../session/interface/session-operations.js";
 import { SessionCookie } from "../../session/handler/session-cookie.js";
@@ -28,6 +31,7 @@ import {
   type ReadinessCheck,
 } from "../../health/controller/health-controller.js";
 import { strictRequestValidation } from "../../http/config/request-validation.js";
+import { requestBodyLimit } from "../../http/config/request-limits.js";
 import { errorHandler } from "@everything/errors/fastify";
 import { identityController } from "../../identity/controller/identity-controller.js";
 import { providerController } from "../../provider/controller/provider-controller.js";
@@ -72,6 +76,11 @@ export interface HttpDependencies {
   readonly publicOrigin: string;
   readonly chatGptRedirectUri: string;
   readonly keys: KeyOperations;
+  readonly credentialGrants: Pick<
+    CredentialGrants,
+    "usage" | "attach" | "detach"
+  >;
+  readonly credentialRollouts: Pick<CredentialRollouts, "deliver" | "revoke">;
   readonly providers: ProviderConnections;
   readonly models: Pick<ProviderModels, "list">;
   readonly agents: Omit<AgentCatalog, "delete">;
@@ -100,7 +109,7 @@ export async function createHttpApplication(
   const app = Fastify({
     // Client addresses for rate limiting and logs come from the ingress's forwarded headers.
     trustProxy: true,
-    bodyLimit: 64 * 1024,
+    bodyLimit: requestBodyLimit,
     requestTimeout: 15_000,
     logger: {
       serializers: {
@@ -169,7 +178,11 @@ function protectedApi(
     });
     await identityController(scope);
     await apiDocumentationController(scope, dependencies.apiDocumentation);
-    await keyController(scope, dependencies.keys);
+    await keyController(scope, dependencies.keys, {
+      rollouts: dependencies.credentialRollouts,
+      grants: dependencies.credentialGrants,
+    });
+    await credentialController(scope, dependencies.credentialGrants);
     await providerController(scope, dependencies.providers);
     await providerModelController(scope, dependencies.models);
     await conversationController(scope, dependencies.conversations);

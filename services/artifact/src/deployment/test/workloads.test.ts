@@ -20,6 +20,10 @@ import type {
 import { runtimeFromPods } from "../model/runtime-state.js";
 import { WorkloadReconciler } from "../service/workload-reconciler.js";
 import { ArtifactLock } from "../../artifact/service/artifact-lock.js";
+import {
+  MemoryCredentialGrants,
+  MemoryCredentialSecrets,
+} from "../../credential/test/credential-fixture.js";
 
 const settings = {
   namespace: "artifacts",
@@ -48,6 +52,7 @@ function workload(
     release: 4,
     databaseFingerprint: null,
     capabilities: { secretNames: [], fingerprint: null },
+    credentials: [],
   };
 }
 
@@ -196,6 +201,7 @@ function recordingOrchestrator(password?: string) {
     stop: async (id) => void calls.push(`stop:${id}`),
     remove: async (id) => void calls.push(`remove:${id}`),
     runtimes: async () => new Map<string, ArtifactRuntime>(),
+    heldCredentials: async () => new Map(),
     logs: async () => "",
     databasePassword: async () => password,
     writeDatabaseSecret: async (id, connection) =>
@@ -264,6 +270,8 @@ test("reconciling runs the live deployment by digest, reusing the stored databas
       },
     },
     new ArtifactLock(),
+    new MemoryCredentialGrants(),
+    new MemoryCredentialSecrets(),
   );
   await reconciler.reconcile(app);
   assert.deepEqual(ensured, ["a".repeat(48)]);
@@ -306,6 +314,8 @@ test("background reconciliation rechecks existence under the shared lock before 
       remove: async () => {},
     },
     new ArtifactLock(),
+    new MemoryCredentialGrants(),
+    new MemoryCredentialSecrets(),
   );
   await reconciler.reconcileAll();
 });

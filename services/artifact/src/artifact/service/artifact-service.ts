@@ -6,6 +6,7 @@ import type {
   CreateArtifactInput,
   UpdateArtifactInput,
 } from "@everything/artifact-contracts";
+import type { AppCredentials } from "../../credential/service/app-credentials.js";
 import { BuildNotFoundError } from "../../image/error/build-errors.js";
 import type { BuildRepository } from "../../image/interface/build-repository.js";
 import type { BuildService } from "../../image/service/build-service.js";
@@ -42,7 +43,7 @@ export class ArtifactService {
   // Construction
   // ===========================================
 
-  /** Inject artifact storage, history, runtime, cleanup, and the artifact host's origin. */
+  /** Inject artifact storage, history, runtime, credentials, cleanup, and the artifact host's origin. */
   constructor(
     private readonly artifacts: ArtifactRepository,
     private readonly revisions: Pick<
@@ -62,6 +63,7 @@ export class ArtifactService {
     private readonly lookup: ArtifactLookup,
     private readonly lock: ArtifactLock,
     private readonly artifactOrigin: string,
+    private readonly credentials: Pick<AppCredentials, "states">,
   ) {}
 
   // ===========================================
@@ -74,6 +76,7 @@ export class ArtifactService {
       this.artifacts.list({ ownerId }),
       this.orchestrator.runtimes(),
     ]);
+    const credentials = await this.credentials.states(artifacts);
     return Promise.all(
       artifacts.map(async (artifact) =>
         representSummary(
@@ -86,6 +89,7 @@ export class ArtifactService {
                 { ownerId, artifactId: artifact.id },
                 artifact.liveDeployment,
               ),
+          credentials.get(artifact.id),
         ),
       ),
     );
@@ -197,23 +201,26 @@ export class ArtifactService {
   /** Load history and runtime for the artifact's details. */
   private async present(artifact: Artifact): Promise<ArtifactDetails> {
     const scope = { ownerId: artifact.ownerId, artifactId: artifact.id };
-    const [revisions, builds, deployment, runtimes] = await Promise.all([
-      artifact.kind === "static"
-        ? this.revisions.history(scope, recentHistory)
-        : [],
-      artifact.kind === "dynamic"
-        ? this.builds.history(scope, recentHistory)
-        : [],
-      artifact.liveDeployment === null
-        ? undefined
-        : this.deployments.findByRelease(scope, artifact.liveDeployment),
-      artifact.kind === "dynamic" ? this.orchestrator.runtimes() : new Map(),
-    ]);
+    const [revisions, builds, deployment, runtimes, credentials] =
+      await Promise.all([
+        artifact.kind === "static"
+          ? this.revisions.history(scope, recentHistory)
+          : [],
+        artifact.kind === "dynamic"
+          ? this.builds.history(scope, recentHistory)
+          : [],
+        artifact.liveDeployment === null
+          ? undefined
+          : this.deployments.findByRelease(scope, artifact.liveDeployment),
+        artifact.kind === "dynamic" ? this.orchestrator.runtimes() : new Map(),
+        this.credentials.states([artifact]),
+      ]);
     return representDetails(
       artifact,
       { revisions, builds, deployment },
       runtimes.get(artifact.id),
       this.artifactOrigin,
+      credentials.get(artifact.id),
     );
   }
 }

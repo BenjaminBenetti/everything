@@ -11,13 +11,20 @@ import type {
   V1VolumeMount,
 } from "@kubernetes/client-node";
 import { reservedEnvironmentNames } from "@everything/artifact-contracts";
+import { credentialEnvironmentProblem } from "@everything/artifact-contracts/credential";
 import {
   artifactLabels,
   artifactResourceName,
+  credentialSecretName,
   databaseSecretName,
   diskClaimName,
   managerName,
 } from "../../cluster/model/cluster-names.js";
+import { credentialSecretKey } from "../../credential/adapter/kubernetes-credential-secrets.js";
+import {
+  credentialAnnotation,
+  formatCredentialEntries,
+} from "../../credential/model/credential-binding.js";
 import type { DatabaseConnection } from "../../database/interface/artifact-databases.js";
 import type { ArtifactWorkload } from "../interface/workload-orchestrator.js";
 
@@ -55,7 +62,22 @@ function artifactObjectLabels(
   return { ...artifactSelector(artifactId), [artifactLabels.slug]: slug };
 }
 
-/** Variables the artifact receives, with the service's own set last so they cannot be overridden. */
+/**
+ * Credentials the pod receives. Validation already refuses reserved names and names shared with
+ * ordinary variables; any that slipped through are left out rather than allowed to override.
+ */
+function grantedCredentials(workload: ArtifactWorkload) {
+  return workload.credentials.filter(
+    (credential) =>
+      !credentialEnvironmentProblem(credential.env) &&
+      !Object.hasOwn(workload.settings.env, credential.env),
+  );
+}
+
+/**
+ * Variables the artifact receives, with the service's own set last so they cannot be overridden.
+ * Credentials are references to their versions' Secrets, so values never enter the manifest.
+ */
 function environment(workload: ArtifactWorkload): V1EnvVar[] {
   return [
     ...Object.entries(workload.settings.env)
@@ -64,6 +86,19 @@ function environment(workload: ArtifactWorkload): V1EnvVar[] {
         name,
         value,
       })),
+    ...grantedCredentials(workload).map((credential) => ({
+      name: credential.env,
+      valueFrom: {
+        secretKeyRef: {
+          name: credentialSecretName(
+            workload.artifactId,
+            credential.credentialId,
+            credential.version,
+          ),
+          key: credentialSecretKey,
+        },
+      },
+    })),
     { name: "PORT", value: String(workload.settings.port) },
     { name: "BASE_PATH", value: `/${workload.slug}` },
   ];
@@ -104,6 +139,14 @@ function podTemplate(
           : {}),
         ...(workload.databaseFingerprint
           ? { "everything.dev/database-password": workload.databaseFingerprint }
+          : {}),
+        // Identifiers only: lets the service observe which credential versions each pod holds.
+        ...(grantedCredentials(workload).length
+          ? {
+              [credentialAnnotation]: formatCredentialEntries(
+                grantedCredentials(workload),
+              ),
+            }
           : {}),
       },
     },

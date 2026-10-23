@@ -25,6 +25,7 @@ import { createArtifactDataDatabase } from "../../database/factory/artifact-data
 import { KubernetesWorkloads } from "../../deployment/adapter/kubernetes-workloads.js";
 import { PostgresDeploymentRepository } from "../../deployment/repository/postgres-deployment-repository.js";
 import { DeploymentService } from "../../deployment/service/deployment-service.js";
+import { PostgresReleaseStore } from "../../deployment/repository/postgres-release-store.js";
 import { WorkloadReconciler } from "../../deployment/service/workload-reconciler.js";
 import { createArtifactDatabase } from "../../persistence/factory/artifact-database.js";
 import { PostgresRevisionRepository } from "../../revision/repository/postgres-revision-repository.js";
@@ -48,6 +49,10 @@ import { createPublicApplication } from "../factory/public-application.js";
 import { PeriodicTask } from "../service/periodic-task.js";
 
 import { ArtifactLifecycleService } from "../../artifact/service/artifact-lifecycle-service.js";
+import { KubernetesCredentialSecrets } from "../../credential/adapter/kubernetes-credential-secrets.js";
+import { PostgresCredentialGrantRepository } from "../../credential/repository/postgres-credential-grant-repository.js";
+import { AppCredentials } from "../../credential/service/app-credentials.js";
+import { CredentialDistribution } from "../../credential/service/credential-distribution.js";
 
 /** Assemble concrete adapters once at the process boundary and own their lifecycle. */
 async function main(): Promise<void> {
@@ -73,6 +78,11 @@ async function main(): Promise<void> {
   const deploymentRepository = new PostgresDeploymentRepository(database);
   const lock = new ArtifactLock();
   const lookup = new ArtifactLookup(artifactRepository);
+  const credentialGrants = new PostgresCredentialGrantRepository(database);
+  const credentialSecrets = new KubernetesCredentialSecrets(
+    clients,
+    config.cluster.artifactNamespace,
+  );
   const apiKeyStore = new HashedAppApiKeyStore(
     new PostgresAppApiKeyRepository(database),
     capabilitySecrets,
@@ -120,6 +130,18 @@ async function main(): Promise<void> {
       capabilitySecrets,
     ),
     lock,
+    credentialGrants,
+    credentialSecrets,
+  );
+  const credentials = new AppCredentials(
+    credentialGrants,
+    credentialSecrets,
+    orchestrator,
+    artifactRepository,
+    deploymentRepository,
+    reconciler,
+    lookup,
+    lock,
   );
   const builds = new BuildService(
     buildRepository,
@@ -155,6 +177,7 @@ async function main(): Promise<void> {
     lookup,
     lock,
     config.artifactOrigin,
+    credentials,
   );
 
   const internal = await createInternalApplication({
@@ -179,14 +202,23 @@ async function main(): Promise<void> {
     ),
     builds,
     deployments: new DeploymentService(
-      artifactRepository,
       deploymentRepository,
       buildRepository,
       reconciler,
       orchestrator,
       lookup,
       lock,
-      apiKeyStore,
+      new PostgresReleaseStore(database),
+      credentials,
+    ),
+    credentials,
+    distribution: new CredentialDistribution(
+      credentialGrants,
+      credentialSecrets,
+      artifactRepository,
+      orchestrator,
+      reconciler,
+      lock,
     ),
     content,
     access,

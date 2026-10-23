@@ -1,0 +1,30 @@
+meta {
+  name: Reject replacing another account's value
+  type: http
+  seq: 5
+}
+
+put {
+  url: {{baseUrl}}/v1/keys/{{credentialId}}/value
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+  Authorization: Bearer {{outsiderToken}}
+}
+
+body:json {
+  {
+    "material": "bruno-sentinel-foreign"
+  }
+}
+
+tests {
+  test("Only the account that added a credential can replace its value", () => {
+    expect(res.status).to.equal(403);
+    expect(res.body.code).to.equal("CREDENTIAL_OWNER_ONLY");
+    expect(JSON.stringify(res.body)).to.not.include("bruno-sentinel");
+  });
+}

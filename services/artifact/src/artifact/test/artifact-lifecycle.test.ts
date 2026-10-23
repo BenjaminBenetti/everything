@@ -59,12 +59,24 @@ test("published pages pause and resume without losing their published revision",
   });
   const stopped = await lifecycle.stop(owner, ada, "report");
   assert.equal(
-    representSummary(stopped, undefined, "http://apps.test", undefined).status,
+    representSummary(
+      stopped,
+      undefined,
+      "http://apps.test",
+      undefined,
+      undefined,
+    ).status,
     "stopped",
   );
   const started = await lifecycle.start(owner, ada, "report");
   assert.equal(
-    representSummary(started, undefined, "http://apps.test", undefined).status,
+    representSummary(
+      started,
+      undefined,
+      "http://apps.test",
+      undefined,
+      undefined,
+    ).status,
     "live",
   );
   assert.equal(started.liveRevision, 3);

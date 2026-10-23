@@ -1,5 +1,5 @@
 import { useId, useState } from "react";
-import { LoaderCircle, Pause, Play, Trash2 } from "lucide-react";
+import { KeySquare, LoaderCircle, Pause, Play, Trash2 } from "lucide-react";
 import { IconButton } from "@everything/ui/button";
 import { ConfirmationDialog } from "@everything/ui/confirmation-dialog";
 import type { ArtifactSummary } from "@everything/artifact-contracts";
@@ -11,6 +11,7 @@ import {
 } from "../model/artifact-presentation.js";
 import type { AppCreator } from "../model/artifact-filters.js";
 import { ArtifactMetadata } from "./artifact-metadata.js";
+import { AppCredentialsDialog } from "./app-credentials-dialog.js";
 
 const pendingLabels: Record<AppAction, string> = {
   start: "Starting…",
@@ -30,6 +31,7 @@ export function ArtifactCard({
 }) {
   const heading = useId();
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [managingCredentials, setManagingCredentials] = useState(false);
   const mutation = useAppAction(artifact, () => setConfirmDelete(false));
   const active = ["live", "running", "starting", "failing"].includes(
     artifact.status,
@@ -76,6 +78,18 @@ export function ArtifactCard({
           {statusLabel}
         </span>
         <div className="artifact-controls">
+          {artifact.kind === "dynamic" && (
+            <IconButton
+              label={`Credentials for ${artifact.title}`}
+              disabled={!canControl}
+              onClick={(event) => {
+                event.currentTarget.setAttribute("data-dialog-return", "");
+                setManagingCredentials(true);
+              }}
+            >
+              <KeySquare aria-hidden="true" />
+            </IconButton>
+          )}
           <IconButton
             label={`${mutation.isPending ? statusLabel : actionLabel} ${artifact.title}`}
             disabled={!canControl || artifact.status === "unpublished"}
@@ -112,6 +126,12 @@ export function ArtifactCard({
         <p className="form-error" role="alert">
           The app action couldn’t finish. Refresh its status and try again.
         </p>
+      )}
+      {managingCredentials && (
+        <AppCredentialsDialog
+          artifact={artifact}
+          onClose={() => setManagingCredentials(false)}
+        />
       )}
       {confirmDelete && (
         <ConfirmationDialog

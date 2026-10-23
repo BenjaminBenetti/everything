@@ -1,6 +1,7 @@
-import { createContext, useContext, type ReactNode } from "react";
+import { createContext, useContext, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useSession } from "../../session/component/session-provider.js";
+import { usageFollower } from "../../artifact/model/credential-presentation.js";
 import type { KeyDirectory } from "../interface/key-directory.js";
 
 const KeyDirectoryContext = createContext<KeyDirectory | null>(null);
@@ -37,6 +38,37 @@ export function useKeys() {
     enabled: !!profile,
     staleTime: 30_000,
     refetchInterval: 5000,
+    retry: false,
+  });
+}
+
+/**
+ * Read which apps receive a generic credential while a dialog shows it. With `follow`, keep
+ * polling until every app has settled, so a restart is never reported as finished early, and keep
+ * retrying with a growing delay while usage can't be read. With `observation`, reads go to a query
+ * of their own, so only reads started for that observation count: a read that began earlier, such
+ * as one from before a replacement was saved, can never answer it.
+ */
+export function useCredentialUsage(
+  id: string,
+  follow = false,
+  observation?: string,
+) {
+  const directory = useKeyDirectory();
+  const { profile } = useSession();
+  const [follower] = useState(usageFollower);
+  return useQuery({
+    queryKey: [
+      "keys",
+      profile?.subject,
+      id,
+      "apps",
+      ...(observation ? [observation] : []),
+    ],
+    queryFn: ({ signal }) => directory.usage(id, signal),
+    enabled: !!profile,
+    staleTime: 0,
+    refetchInterval: (query) => follow && follower(query.state),
     retry: false,
   });
 }

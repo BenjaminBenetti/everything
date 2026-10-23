@@ -23,5 +23,5 @@ export function appIdentity(
     client !== everythingAppClientId(app)
   )
     throw new Error("Invalid app identity");
-  return { subject: owner };
+  return { subject: owner, app };
 }

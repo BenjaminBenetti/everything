@@ -15,13 +15,16 @@ const claims = {
 };
 
 test("provisioned app tokens use their signed owner's scope", () => {
-  assert.deepEqual(appIdentity(identity, claims), { subject: "owner" });
+  assert.deepEqual(appIdentity(identity, claims), {
+    subject: "owner",
+    app: appId,
+  });
   assert.deepEqual(
     appIdentity(identity, {
       ...claims,
       [everythingAppClaims.owner]: "other-owner",
     }),
-    { subject: "other-owner" },
+    { subject: "other-owner", app: appId },
   );
 });
 

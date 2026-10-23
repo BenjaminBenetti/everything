@@ -1,4 +1,10 @@
-import { useId, useState, type ChangeEvent } from "react";
+import {
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ChangeEvent,
+} from "react";
 import { Upload } from "lucide-react";
 import { keyLimits, type KeyType } from "@everything/key-contracts";
 import { keyFormats } from "../model/key-formats.js";
@@ -20,7 +26,16 @@ export function KeyMaterialField({
   onReadingChange: (reading: boolean) => void;
 }) {
   const helpId = useId();
+  const contents = useRef<HTMLTextAreaElement>(null);
   const [reading, setReading] = useState(false);
+  // React remembers a field's last value on the element itself, and a removed element can outlive
+  // the dialog; overwrite it on unmount so the secret can't outlive the form with it.
+  useLayoutEffect(() => {
+    const field = contents.current;
+    return () => {
+      if (field) field.value = "";
+    };
+  }, []);
   const [fileError, setFileError] = useState("");
   const [fileName, setFileName] = useState("");
   const format = keyFormats[type];
@@ -32,7 +47,7 @@ export function KeyMaterialField({
     if (!file) return;
     setFileError("");
     if (file.size > keyLimits.materialLength) {
-      setFileError("Choose a key file smaller than 32 KB.");
+      setFileError(`${format.fileAction} smaller than 32 KB.`);
       return;
     }
     setReading(true);
@@ -62,20 +77,21 @@ export function KeyMaterialField({
       <label className={`key-upload ${disabled || reading ? "disabled" : ""}`}>
         <Upload aria-hidden="true" />
         <span>
-          <strong>{reading ? "Reading key…" : "Choose a key file"}</strong>
+          <strong>{reading ? "Reading file…" : format.fileAction}</strong>
           <small>{fileName || "Up to 32 KB"}</small>
         </span>
         <input
           className="sr-only"
           type="file"
-          aria-label="Key file"
+          aria-label={format.fileLabel}
           disabled={disabled || reading}
           onChange={(event) => void upload(event)}
         />
       </label>
       <label className="field">
-        Key contents
+        {format.contentLabel}
         <textarea
+          ref={contents}
           rows={6}
           value={value}
           placeholder={format.placeholder}

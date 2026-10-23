@@ -196,3 +196,196 @@ test("rejects invalid files and retains a pasted draft after a failed save", asy
   await expect(page.getByRole("textbox", { name: "Key contents" })).toBeEmpty();
   await page.getByRole("button", { name: "Cancel" }).click();
 });
+
+test("a generic credential's value is write-only: it never comes back in responses, the page, or storage", async ({
+  page,
+}, info) => {
+  const marker = `sentinel-ui-${crypto.randomUUID()}`;
+  // Leading and trailing spaces, line breaks, quotes, `$`, and Unicode must survive unchanged.
+  const value = `  ${marker}\nsecond line $HOME "quoted" 'single' \\ ü 🔑\n  `;
+  const replacement = `${marker}-replaced\r\nnext`;
+  const name = `credential-check-${crypto.randomUUID().slice(0, 8)}`;
+  const bodies: Promise<string>[] = [];
+  const errors: string[] = [];
+  let id: string | undefined;
+  page.on("pageerror", (error) => errors.push(error.message));
+  page.on("response", (response) => {
+    if (new URL(response.url()).pathname.startsWith("/v1/"))
+      bodies.push(response.text().catch(() => ""));
+  });
+  await signIn(page);
+  const origin = new URL(page.url()).origin;
+  try {
+    await page.getByRole("button", { name: "Add key", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "Add key", exact: true });
+    await dialog.getByRole("textbox", { name: "Key name" }).fill(name);
+    await dialog
+      .getByRole("combobox", { name: "Key type", exact: true })
+      .click();
+    await page
+      .getByRole("option", { name: "Generic credential", exact: true })
+      .click();
+    await dialog
+      .getByRole("textbox", { name: "Description (optional)" })
+      .fill("Slack bot token for checks");
+    await dialog.getByRole("textbox", { name: "Value" }).fill(value);
+    await expect(dialog.getByRole("textbox", { name: "Value" })).toHaveValue(
+      value,
+    );
+    const creating = page.waitForResponse(
+      (response) =>
+        response.url().endsWith("/v1/keys") &&
+        response.request().method() === "POST",
+    );
+    await dialog.getByRole("button", { name: "Add key", exact: true }).click();
+    const response = await creating;
+    expect(response.status()).toBe(201);
+    const saved = await response.json();
+    id = saved.id;
+    expect(saved).toMatchObject({
+      name,
+      type: "generic",
+      description: "Slack bot token for checks",
+      owned: true,
+    });
+    expect(Object.keys(saved)).not.toContain("material");
+    await expect(dialog).toHaveCount(0);
+    const card = page.locator(".key-card", {
+      has: page.getByRole("heading", { name, exact: true }),
+    });
+    await expect(card).toContainText("Slack bot token for checks");
+    await expect(card).toContainText("Added by you");
+
+    await page.getByRole("button", { name: "Add key", exact: true }).click();
+    await page
+      .getByRole("dialog", { name: "Add key", exact: true })
+      .getByRole("combobox", { name: "Key type", exact: true })
+      .click();
+    await page
+      .getByRole("option", { name: "Generic credential", exact: true })
+      .click();
+    await expect(page.getByRole("textbox", { name: "Value" })).toBeEmpty();
+    await page.getByRole("button", { name: "Cancel", exact: true }).click();
+
+    await page
+      .getByRole("button", { name: `Edit ${name}`, exact: true })
+      .click();
+    const editor = page.getByRole("dialog", {
+      name: "Edit credential",
+      exact: true,
+    });
+    await expect(editor.getByRole("textbox", { name: "Value" })).toHaveCount(0);
+    const renamed = `${name}-renamed`;
+    await editor.getByRole("textbox", { name: "Key name" }).fill(renamed);
+    await editor
+      .getByRole("textbox", { name: "Description (optional)" })
+      .fill("Renamed description");
+    await editor.getByRole("button", { name: "Save changes" }).click();
+    await expect(
+      page.getByRole("heading", { name: renamed, exact: true }),
+    ).toBeVisible();
+    await expect(page.getByText("Renamed description")).toBeVisible();
+
+    await page
+      .getByRole("button", { name: `Apps using ${renamed}`, exact: true })
+      .click();
+    const usage = page.getByRole("dialog", { name: `Apps using ${renamed}` });
+    await expect(usage).toContainText("No app uses this credential.");
+    await usage.getByRole("button", { name: "Done", exact: true }).click();
+
+    // A listed app shows that saving a new value restarts it.
+    await page.route(`**/v1/keys/${id}/apps`, (route) =>
+      route.fulfill({
+        json: {
+          apps: [
+            {
+              appId: "00000000-0000-4000-8000-000000000001",
+              slug: "slack-bot",
+              title: "Slack bot",
+              env: "SLACK_BOT_TOKEN",
+              status: "applied",
+            },
+          ],
+          otherApps: 1,
+        },
+      }),
+    );
+    await page
+      .getByRole("button", { name: `Replace value of ${renamed}`, exact: true })
+      .click();
+    const replace = page.getByRole("dialog", {
+      name: "Replace value",
+      exact: true,
+    });
+    await expect(replace).toContainText(
+      "Saving restarts these apps so they use the new value:",
+    );
+    await expect(replace).toContainText("Slack bot");
+    await expect(replace).toContainText("SLACK_BOT_TOKEN");
+    await expect(replace).toContainText("One app of another account");
+    await page.unroute(`**/v1/keys/${id}/apps`);
+    await replace.getByRole("textbox", { name: "Value" }).fill(replacement);
+    const replacing = page.waitForResponse(
+      (response) =>
+        response.url().endsWith(`/v1/keys/${id}/value`) &&
+        response.request().method() === "PUT",
+    );
+    await replace
+      .getByRole("button", { name: "Replace value", exact: true })
+      .click();
+    expect((await replacing).status()).toBe(200);
+    const replaced = page.getByRole("dialog", {
+      name: "Value replaced",
+      exact: true,
+    });
+    await expect(replaced).toBeVisible();
+    await expect(replaced.getByRole("textbox")).toHaveCount(0);
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true);
+    await page.screenshot({ path: info.outputPath("credential-replaced.png") });
+    await replaced.getByRole("button", { name: "Done", exact: true }).click();
+
+    await page
+      .getByRole("button", { name: `Delete ${renamed}`, exact: true })
+      .click();
+    const deletion = page.getByRole("alertdialog", {
+      name: "Delete credential?",
+    });
+    await expect(deletion).toContainText("No app uses it");
+    await expect(
+      deletion.getByRole("button", { name: "Cancel", exact: true }),
+    ).toBeFocused();
+    await deletion
+      .getByRole("button", { name: "Delete credential", exact: true })
+      .click();
+    await expect(deletion).toHaveCount(0);
+    await expect(
+      page.getByRole("heading", { name: renamed, exact: true }),
+    ).toHaveCount(0);
+    await expect(page.locator(".key-feedback")).toContainText(
+      "Credential deleted.",
+    );
+    id = undefined;
+
+    const seen = (await Promise.all(bodies)).join("\n");
+    expect(seen).not.toContain(marker);
+    expect(await page.content()).not.toContain(marker);
+    expect(page.url()).not.toContain(marker);
+    expect(
+      await page.evaluate(() =>
+        JSON.stringify([{ ...localStorage }, { ...sessionStorage }]),
+      ),
+    ).not.toContain(marker);
+    expect(errors).toEqual([]);
+  } finally {
+    if (id)
+      expect(
+        (
+          await page.request.delete(`/v1/keys/${id}`, { headers: { origin } })
+        ).status(),
+      ).toBe(200);
+  }
+});

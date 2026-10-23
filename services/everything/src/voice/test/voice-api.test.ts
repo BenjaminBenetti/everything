@@ -136,6 +136,8 @@ async function application(
     publicOrigin,
     chatGptRedirectUri: "http://127.0.0.1:8080/v1/providers/chatgpt/callback",
     keys: unusedOperations(),
+    credentialGrants: unusedOperations(),
+    credentialRollouts: unusedOperations(),
     providers: unusedOperations(),
     models: unusedOperations(),
     agents: unusedOperations(),

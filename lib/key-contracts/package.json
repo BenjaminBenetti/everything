@@ -14,6 +14,10 @@
     "./ssh": {
       "types": "./build/key/service/ssh-key-format.d.ts",
       "default": "./build/key/service/ssh-key-format.js"
+    },
+    "./generic": {
+      "types": "./build/key/service/generic-credential-format.d.ts",
+      "default": "./build/key/service/generic-credential-format.js"
     }
   },
   "scripts": {

@@ -1,0 +1,26 @@
+meta {
+  name: List the credential as another account
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/v1/keys
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{outsiderToken}}
+}
+
+tests {
+  test("Show other accounts the shared metadata, marked as not theirs, and never the value", () => {
+    expect(res.status).to.equal(200);
+    const credential = res.body.keys.find((key) => key.id === bru.getVar("credentialId"));
+    expect(credential.owned).to.equal(false);
+    expect(credential.description).to.equal("Bruno test credential");
+    expect(JSON.stringify(res.body)).to.not.include("bruno-sentinel");
+    expect(JSON.stringify(res.body)).to.not.include("encrypted");
+  });
+}

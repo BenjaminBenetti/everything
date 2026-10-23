@@ -13,6 +13,7 @@ import {
 } from "../error/artifact-errors.js";
 import type { ArtifactGateway } from "../interface/artifact-gateway.js";
 import type { ArtifactLibrary } from "../interface/artifact-library.js";
+import type { CredentialGrants } from "../../credential/service/credential-grants.js";
 
 /** Express artifact service failures as this API's own errors. */
 function translate(error: unknown): Error {
@@ -29,25 +30,33 @@ export class ArtifactLibraryService implements ArtifactLibrary {
   // Construction
   // ===========================================
 
-  /** Use the artifact service through its gateway. */
+  /** Use the artifact service through its gateway, naming credentials from the key store. */
   constructor(
     private readonly gateway: Pick<
       ArtifactGateway,
       "list" | "view" | "start" | "stop" | "delete" | "apiKey"
     >,
+    private readonly credentials: Pick<CredentialGrants, "named">,
   ) {}
 
   // ===========================================
   // Operations
   // ===========================================
 
-  /** List the user's artifacts. */
+  /** List the user's artifacts with their credentials' current names. */
   async list(ownerId: string): Promise<ArtifactSummary[]> {
+    let artifacts: ArtifactSummary[];
     try {
-      return await this.gateway.list(ownerId);
+      artifacts = await this.gateway.list(ownerId);
     } catch (error) {
       throw translate(error);
     }
+    return Promise.all(
+      artifacts.map(async (artifact) => ({
+        ...artifact,
+        credentials: await this.credentials.named(artifact.credentials ?? []),
+      })),
+    );
   }
 
   /** Issue a view link for the user. */

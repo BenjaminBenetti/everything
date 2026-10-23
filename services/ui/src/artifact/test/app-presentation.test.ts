@@ -19,6 +19,8 @@ function app(
     kind: "dynamic",
     database: false,
     capabilities: [],
+    credentials: [],
+    credentialGeneration: 0,
     createdBy: { id: "ada", name: "Ada" },
     updatedBy: { id: "grace", name: "Grace" },
     url: `https://apps.test/${id}/`,

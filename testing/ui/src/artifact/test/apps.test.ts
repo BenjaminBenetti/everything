@@ -246,7 +246,10 @@ test("creator and capability icons explain apps without opening them", async ({
   for (const [label, description] of [
     ["Dynamic app", "Dynamic app: runs a backend service."],
     ["Database", "Database: stores app data in PostgreSQL."],
-    ["Everything API", "API: can call the Everything API."],
+    [
+      "Everything API",
+      "API: acts as you through the Everything API. It can ask your teammates to do things, including changing apps and their credentials.",
+    ],
   ] as const) {
     const icon = card.getByRole("img", { name: label, exact: true });
     if (info.project.name === "phone") await icon.tap();
@@ -516,7 +519,9 @@ test("the whole card and keyboard open apps while pause and play never open a ta
   state.holdAction = true;
   await card.getByRole("button", { name: "Stop Planner", exact: true }).click();
   await expect(card.getByText("Stopping…", { exact: true })).toBeVisible();
-  await expect(card.getByRole("button")).toBeDisabled();
+  // Every control on the card, including Credentials, waits for the pending action.
+  for (const control of await card.getByRole("button").all())
+    await expect(control).toBeDisabled();
   await expect(card.getByRole("link")).toHaveCount(0);
   await expect.poll(() => !!state.release).toBe(true);
   state.holdAction = false;

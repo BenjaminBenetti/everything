@@ -1,0 +1,34 @@
+meta {
+  name: Replace the value
+  type: http
+  seq: 9
+}
+
+put {
+  url: {{baseUrl}}/v1/keys/{{credentialId}}/value
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+  Authorization: Bearer {{accessToken}}
+}
+
+body:json {
+  {
+    "material": "bruno-sentinel-replaced"
+  }
+}
+
+tests {
+  test("Replace the value without returning it, and report that no app needs it", () => {
+    expect(res.status).to.equal(200);
+    expect(res.body.key.id).to.equal(bru.getVar("credentialId"));
+    expect(res.body.rollout).to.deep.equal({
+      complete: true,
+      usage: { apps: [], otherApps: 0 },
+    });
+    expect(JSON.stringify(res.body)).to.not.include("bruno-sentinel");
+  });
+}

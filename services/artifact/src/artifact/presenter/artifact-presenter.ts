@@ -1,3 +1,4 @@
+import type { AppCredentialView } from "../../credential/service/app-credentials.js";
 import type {
   ArtifactBuild,
   ArtifactDeployment,
@@ -43,12 +44,13 @@ function statusOf(
   return runtime?.state ?? "stopped";
 }
 
-/** Present an artifact with its status and current deployment's public capability flags. */
+/** Present an artifact with its status, current deployment's capability flags, and credentials. */
 export function representSummary(
   artifact: Artifact,
   observed: ArtifactRuntime | undefined,
   artifactOrigin: string,
   deployment: Pick<ArtifactDeployment, "database" | "capabilities"> | undefined,
+  credentials: AppCredentialView | undefined,
 ): ArtifactSummary {
   return {
     id: artifact.id,
@@ -58,6 +60,9 @@ export function representSummary(
     description: artifact.description,
     database: deployment?.database ?? false,
     capabilities: deployment?.capabilities ?? [],
+    credentials:
+      artifact.kind === "dynamic" ? (credentials?.credentials ?? []) : [],
+    credentialGeneration: credentials?.generation ?? 0,
     url: `${artifactOrigin}/${artifact.slug}/`,
     status: statusOf(artifact, runtimeOf(artifact, observed)),
     release: artifact.release,
@@ -68,12 +73,13 @@ export function representSummary(
   };
 }
 
-/** Present an artifact with its recent history, live release, and runtime. */
+/** Present an artifact with its recent history, live release, runtime, and credentials. */
 export function representDetails(
   artifact: Artifact,
   history: ArtifactHistory,
   observed: ArtifactRuntime | undefined,
   artifactOrigin: string,
+  credentials: AppCredentialView | undefined,
 ): ArtifactDetails {
   const deployment: ArtifactDeployment | null = history.deployment
     ? {
@@ -90,7 +96,13 @@ export function representDetails(
       }
     : null;
   return {
-    ...representSummary(artifact, observed, artifactOrigin, history.deployment),
+    ...representSummary(
+      artifact,
+      observed,
+      artifactOrigin,
+      history.deployment,
+      credentials,
+    ),
     liveRevision: artifact.liveRevision,
     revisions: history.revisions,
     builds: history.builds,

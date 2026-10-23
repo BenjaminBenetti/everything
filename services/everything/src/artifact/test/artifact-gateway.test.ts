@@ -11,6 +11,7 @@ import { ArtifactRequestFailure } from "../error/artifact-errors.js";
 import type { ArtifactGateway } from "../interface/artifact-gateway.js";
 import { ArtifactLibraryService } from "../service/artifact-library-service.js";
 import { ArtifactWorkbench } from "../service/artifact-workbench.js";
+import { noCredentialGrants } from "../../credential/test/credential-fixture.js";
 
 const tokens = { token: async () => "service-token" };
 const addresses = {
@@ -90,7 +91,10 @@ test("publishing uploads only content the artifact service lacks, then publishes
       return { release: 1 } as ArtifactDetails;
     },
   } as unknown as ArtifactGateway;
-  const result = await new ArtifactWorkbench(gateway).publish(
+  const result = await new ArtifactWorkbench(
+    gateway,
+    noCredentialGrants,
+  ).publish(
     {
       ownerId: "owner",
       author: { id: "agent", name: "Ada" },
@@ -122,6 +126,8 @@ test("browser endpoints list artifacts and open them, hiding artifact service de
     description: "A site",
     database: false,
     capabilities: [],
+    credentials: [],
+    credentialGeneration: 0,
     url: "http://artifacts.test/for-owner",
     status: "live" as const,
     release: 1,
@@ -130,30 +136,35 @@ test("browser endpoints list artifacts and open them, hiding artifact service de
     createdBy: { id: "owner", name: "You" },
     updatedBy: { id: "owner", name: "You" },
   };
-  const library = new ArtifactLibraryService({
-    start: async () => ({}) as ArtifactDetails,
-    stop: async () => ({}) as ArtifactDetails,
-    delete: async () => {},
-    apiKey: async () => assert.fail("no key requested"),
-    list: async (ownerId) => {
-      if (failures.length) throw failures.shift();
-      return [{ ...summary, slug: `for-${ownerId}` }];
+  const library = new ArtifactLibraryService(
+    {
+      start: async () => ({}) as ArtifactDetails,
+      stop: async () => ({}) as ArtifactDetails,
+      delete: async () => {},
+      apiKey: async () => assert.fail("no key requested"),
+      list: async (ownerId) => {
+        if (failures.length) throw failures.shift();
+        return [{ ...summary, slug: `for-${ownerId}` }];
+      },
+      view: async (_ownerId, input) => {
+        if (input.slug === "missing")
+          throw new ArtifactRequestFailure(
+            404,
+            "ARTIFACT_NOT_FOUND",
+            "App not found.",
+          );
+        return { url: `http://artifacts.test/_access?code=${input.slug}` };
+      },
     },
-    view: async (_ownerId, input) => {
-      if (input.slug === "missing")
-        throw new ArtifactRequestFailure(
-          404,
-          "ARTIFACT_NOT_FOUND",
-          "App not found.",
-        );
-      return { url: `http://artifacts.test/_access?code=${input.slug}` };
-    },
-  });
+    noCredentialGrants,
+  );
   const app = authenticatedTestServer();
   context.after(() => app.close());
   await artifactController(app, library);
   const listed = await app.inject({ url: "/artifacts" });
-  assert.deepEqual(listed.json(), { artifacts: [summary] });
+  // The credential generation is internal; the public listing leaves it out.
+  const { credentialGeneration: _generation, ...publicSummary } = summary;
+  assert.deepEqual(listed.json(), { artifacts: [publicSummary] });
   const opened = await app.inject({
     method: "POST",
     url: "/artifact-views",
@@ -201,7 +212,7 @@ test("teammate passes are issued for the owner's artifact and resolved on the in
       );
     },
   );
-  const view = await new ArtifactWorkbench(gateway).view(
+  const view = await new ArtifactWorkbench(gateway, noCredentialGrants).view(
     {
       ownerId: "owner/1",
       author: { id: "agent", name: "Ada" },
@@ -237,4 +248,77 @@ test("teammate passes are issued for the owner's artifact and resolved on the in
   await assert.rejects(missing.viewPass("owner", "gone", {}), {
     code: "ARTIFACT_NOT_FOUND",
   });
+});
+
+test("credential calls reach the app service's credential endpoints, with a value only where one is granted", async () => {
+  const requests: { url: string; init: RequestInit }[] = [];
+  const gateway = new HttpArtifactGateway(
+    addresses,
+    tokens,
+    async (url, init = {}) => {
+      requests.push({ url: String(url), init });
+      return Response.json(
+        String(url).endsWith("/credentials")
+          ? { credentials: [] }
+          : String(url).endsWith("/apps")
+            ? { apps: [] }
+            : { complete: true, apps: [], credentials: [] },
+      );
+    },
+  );
+  const actor = { ownerId: "owner", author: { id: "owner", name: "You" } };
+  const credentialId = "11111111-1111-4111-8111-111111111111";
+  const grant = {
+    credentialId,
+    env: "TOKEN",
+    version: 2,
+    valueId: "9c0b7a52-6d0e-4f0d-9a77-0f2a3f1f6c01",
+    value: "gw-value",
+    credentialGeneration: 4,
+  };
+  await gateway.attachCredential(actor, "bot", grant);
+  await gateway.detachCredential(actor, "bot", "TOKEN");
+  await gateway.deliverCredential(credentialId, {
+    version: 3,
+    valueId: "9c0b7a52-6d0e-4f0d-9a77-0f2a3f1f6c02",
+    value: "gw-new",
+  });
+  await gateway.revokeCredential(credentialId);
+  await gateway.credentialUses(credentialId);
+  await gateway.credentialInventory();
+  assert.deepEqual(
+    requests.map(({ url, init }) => [init.method, url, init.body ?? null]),
+    [
+      [
+        "POST",
+        "http://artifact:8081/internal/v1/owners/owner/artifacts/bot/credentials",
+        JSON.stringify(grant),
+      ],
+      [
+        "DELETE",
+        "http://artifact:8081/internal/v1/owners/owner/artifacts/bot/credentials/TOKEN",
+        null,
+      ],
+      [
+        "PUT",
+        `http://artifact:8081/internal/v1/credentials/${credentialId}/value`,
+        JSON.stringify({
+          version: 3,
+          valueId: "9c0b7a52-6d0e-4f0d-9a77-0f2a3f1f6c02",
+          value: "gw-new",
+        }),
+      ],
+      [
+        "POST",
+        `http://artifact:8081/internal/v1/credentials/${credentialId}/revocation`,
+        null,
+      ],
+      [
+        "GET",
+        `http://artifact:8081/internal/v1/credentials/${credentialId}/apps`,
+        null,
+      ],
+      ["GET", "http://artifact:8081/internal/v1/credentials", null],
+    ],
+  );
 });

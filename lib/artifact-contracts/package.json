@@ -15,6 +15,10 @@
       "types": "./build/capability/model/api-key.d.ts",
       "default": "./build/capability/model/api-key.js"
     },
+    "./credential": {
+      "types": "./build/credential/model/app-credential.d.ts",
+      "default": "./build/credential/model/app-credential.js"
+    },
     ".": {
       "types": "./build/artifact/model/artifact.d.ts",
       "default": "./build/artifact/model/artifact.js"

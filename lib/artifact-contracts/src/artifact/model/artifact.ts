@@ -1,3 +1,8 @@
+import type {
+  AppCredential,
+  AppCredentialGrant,
+} from "../../credential/model/app-credential.js";
+
 /** How an artifact is served; chosen when it is created and never changed. */
 export type ArtifactKind = "static" | "dynamic";
 
@@ -160,6 +165,16 @@ export interface ArtifactSummary {
   readonly database: boolean;
   /** Capabilities enabled for the current deployment; empty before deployment and for static apps. */
   readonly capabilities: readonly ArtifactCapability[];
+  /**
+   * Credentials the app's backend receives, and withdrawn ones a process still holds, by ID and
+   * environment variable; values are never included. Always empty for static apps.
+   */
+  readonly credentials: readonly AppCredential[];
+  /**
+   * Increases whenever the app's credentials are granted or withdrawn. A change that adds a
+   * credential names the generation it was prepared against, and is refused if it moved on.
+   */
+  readonly credentialGeneration: number;
   /** Link that opens the artifact on the artifact host. */
   readonly url: string;
   readonly status: ArtifactStatus;
@@ -256,6 +271,17 @@ export interface DeployInput {
   readonly database?: boolean;
   /** Omit to retain current capabilities; an empty list removes them. */
   readonly capabilities?: readonly ArtifactCapability[];
+  /**
+   * Every credential the app should receive, replacing its current set; omit to keep the current
+   * set, and pass an empty list to remove them all. Grants are stored apart from deployment history,
+   * so deploying an earlier build never restores a withdrawn credential.
+   */
+  readonly credentials?: readonly AppCredentialGrant[];
+  /**
+   * The app's credential generation read before the credentials were authorized; required when
+   * they add a grant the app doesn't already have.
+   */
+  readonly credentialGeneration?: number;
   readonly diskGi?: number | null;
   readonly healthPath?: string | null;
   readonly basedOn?: number;
