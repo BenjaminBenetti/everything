@@ -141,6 +141,15 @@ upgrades:
   # nowhere else.
   tokenAudience: "{{ .Release.Namespace }}-upgrader"
 
+# Telemetry: the errors, logs, and traces the Telemetry page shows. Everything exports them to the
+# openobserve service under `services` and reads them back through its own API, so only Everything
+# holds the storage's credentials, and each owner sees only their own records. Set
+# services.openobserve.enabled to false to run without telemetry.
+telemetry:
+  # Days of history OpenObserve keeps. Its compactor deletes older data within a few hours of it
+  # expiring. OpenObserve accepts 3 or more days; Everything allows up to 30.
+  retentionDays: 7
+
 # Volumes mounted by more than one service, such as files one service writes and another serves.
 # Each becomes a claim named after its key, kept on uninstall; services mount it with `sharedVolume`.
 # Shared storage needs an access mode and storage class that allow it, such as ReadWriteMany.
@@ -437,6 +446,14 @@ services:
       # Streaming voice input relays to the voice-asr service; empty, which turns streaming off, when
       # that service is turned off.
       VOICE_STREAM_URL: '{{ include "stack.serviceUrl" (dict "root" . "name" "voice-asr" "port" "http" "scheme" "ws" "path" "/v1/stream") }}'
+      # Telemetry goes to the openobserve service; empty, which turns telemetry off, when that service
+      # is turned off. The password is read from the telemetry-credentials volume, never the
+      # environment, so fleetd and the commands it runs don't inherit it.
+      TELEMETRY_URL: '{{ include "stack.serviceUrl" (dict "root" . "name" "openobserve" "port" "http" "scheme" "http" "path" "") }}'
+      TELEMETRY_USERNAME: everything@telemetry.local
+      TELEMETRY_PASSWORD_FILE: /var/run/secrets/telemetry/password
+      TELEMETRY_RETENTION_DAYS: "{{ .Values.telemetry.retentionDays }}"
+      TELEMETRY_SERVICE_VERSION: "{{ .Chart.AppVersion }}"
     apiAccess:
       "{{ .Release.Namespace }}":
         - apiGroups: [apps]
@@ -555,6 +572,10 @@ services:
         mountPath: /var/run/secrets/upgrader
         serviceAccountToken:
           audience: "{{ tpl .Values.upgrades.tokenAudience . }}"
+      # OpenObserve's password, rendered by templates/telemetry-credentials.yaml.
+      telemetry-credentials:
+        mountPath: /var/run/secrets/telemetry
+        secret: telemetry-credentials
     sidecars:
       # The Docker engine fleetd builds devcontainer images with. It needs a privileged container,
       # and serves only the socket it shares with Everything's container.
@@ -810,6 +831,71 @@ services:
       content:
         mountPath: /content
         persistentVolume: { size: 10Gi }
+      tmp: { mountPath: /tmp, emptyDir: {} }
+
+  # Telemetry storage: OpenObserve (AGPL-3.0, github.com/openobserve/openobserve) run unchanged from
+  # its published image, for amd64 and arm64, as one node keeping its data on its own disk. Everything
+  # is its only client, through the private Service, with the root account templates/telemetry-
+  # credentials.yaml derives; it has no Ingress and makes no connections outside the cluster. Set
+  # `enabled: false` to run without telemetry; Everything then reports it as turned off.
+  openobserve:
+    # One copy owns its data directory and metadata database.
+    workload: StatefulSet
+    rolloutWave: 0
+    upstreamImage: public.ecr.aws/zinclabs/openobserve:v1.1.2@sha256:4a154849432f75c4fb024de32fe34163c02406c905dab22bf8d213d2e3386392
+    terminationGracePeriodSeconds: 30
+    env:
+      ZO_HTTP_PORT: "5080"
+      ZO_DATA_DIR: /data
+      ZO_LOCAL_MODE: "true"
+      ZO_LOCAL_MODE_STORAGE: disk
+      ZO_COMPACT_DATA_RETENTION_DAYS: "{{ .Values.telemetry.retentionDays }}"
+      # Created with the data directory; Everything's TELEMETRY_USERNAME names the same account.
+      ZO_ROOT_USER_EMAIL: everything@telemetry.local
+      ZO_ROOT_USER_PASSWORD:
+        secretName: telemetry-credentials
+        key: password
+      # Nothing leaves the cluster: by default OpenObserve also reports usage to its makers and
+      # downloads GeoIP databases, LLM prices, and redaction patterns from the internet.
+      ZO_TELEMETRY: "false"
+      ZO_MMDB_DISABLE_DOWNLOAD: "true"
+      ZO_MODEL_PRICING_ENABLED: "false"
+      ZO_REGEX_PATTERNS_SOURCE_URL: ""
+      # Only the API Everything uses is served.
+      ZO_UI_ENABLED: "false"
+      ZO_SWAGGER_ENABLED: "false"
+      ZO_MCP_ENABLED: "false"
+      ZO_PROMETHEUS_ENABLED: "false"
+      # Everything's queries, which name owners and search terms, aren't kept.
+      ZO_QUERY_HISTORY_ENABLED: "false"
+      # Caches and in-memory tables sized for one installation's telemetry rather than a share of the
+      # node's memory; see deployment/documentation/telemetry.md for the measurements.
+      ZO_MEMORY_CACHE_MAX_SIZE: "64"
+      ZO_MEMORY_CACHE_DATAFUSION_MAX_SIZE: "128"
+      ZO_MEM_TABLE_MAX_SIZE: "64"
+      ZO_MAX_FILE_SIZE_IN_MEMORY: "16"
+    ports:
+      http: { containerPort: 5080, servicePort: 5080 }
+    probes:
+      startup:
+        httpGet: { path: /healthz, port: http }
+        failureThreshold: 60
+        periodSeconds: 2
+      readiness:
+        httpGet: { path: /healthz, port: http }
+        periodSeconds: 10
+      liveness:
+        httpGet: { path: /healthz, port: http }
+        periodSeconds: 20
+    # Measured at 30 MiB idle and under 100 MiB while ingesting and searching; the limit leaves room
+    # for compaction and larger searches.
+    resources:
+      requests: { cpu: 50m, memory: 128Mi }
+      limits: { cpu: "1", memory: 768Mi }
+    volumes:
+      data:
+        mountPath: /data
+        persistentVolume: { size: 5Gi }
       tmp: { mountPath: /tmp, emptyDir: {} }
 
   # Speech recognition for voice input: NVIDIA's Nemotron Speech Streaming English 0.6B model on the

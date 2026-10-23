@@ -11,7 +11,8 @@
     "upgrades",
     "sharedVolumes",
     "serviceDefaults",
-    "services"
+    "services",
+    "telemetry"
   ],
   "properties": {
     "global": {
@@ -233,6 +234,19 @@
         "tokenAudience": {
           "type": "string",
           "minLength": 1
+        }
+      }
+    },
+    "telemetry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["retentionDays"],
+      "properties": {
+        "retentionDays": {
+          "type": "integer",
+          "minimum": 3,
+          "maximum": 30,
+          "description": "Days of telemetry history OpenObserve keeps; Everything limits searches to the same period."
         }
       }
     },

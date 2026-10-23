@@ -510,6 +510,7 @@ disk_description() {
     everything-fleet) echo "workspaces, where teammates work on complex, long-running tasks such as building apps" ;;
     registry-data) echo "the app and workspace images your teammates build" ;;
     artifact-content) echo "the apps your teammates make in Everything" ;;
+    openobserve-data) echo "telemetry: about a week of errors, requests, and teammate work for the Telemetry page" ;;
     *) echo "the $1 volume" ;;
   esac
 }
