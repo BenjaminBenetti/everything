@@ -1,14 +1,16 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { test, type TestContext } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import type { ReadableSpan } from "@opentelemetry/sdk-trace";
 import { forkToolNames } from "../../runtime/model/fork-policy.js";
 import { sendMessageToolName } from "../../runtime/model/message-delivery.js";
+import { SessionMailbox } from "../../runtime/service/session-mailbox.js";
 import {
   telemetryAttributes as attribute,
   telemetryEvents,
   telemetrySpans,
 } from "../model/telemetry-attributes.js";
+import { ScopeSpanProcessor } from "../service/scope-span-processor.js";
 import { failure, reply, settled, teammate } from "./runtime-fixtures.js";
 import {
   eventsNamed,
@@ -31,6 +33,61 @@ function answeredTool(messages: readonly RequestMessage[]): string | undefined {
   return messages.at(-2)?.tool_calls?.[0]?.function.name;
 }
 
+/** One step of the work, in the order it happened. */
+type Step =
+  | { readonly step: "queued" }
+  | { readonly step: "start" | "end"; readonly spanId: string };
+
+/**
+ * Record, in order, when a fork's message is queued for the main conversation and when each
+ * prompt span starts and ends, as the SDK reports them to the runtime's own span processor,
+ * synchronously, from start() and end(). Exported timestamps can't show this order: each span's
+ * start is the wall clock to the millisecond and its end a finer duration from it, so a span can
+ * appear to end after the next one started when it didn't.
+ */
+function recordSteps(context: TestContext): Step[] {
+  const steps: Step[] = [];
+  const { submit } = SessionMailbox.prototype;
+  const { onStart, onEnding } = ScopeSpanProcessor.prototype;
+  SessionMailbox.prototype.submit = function (
+    this: SessionMailbox,
+    text,
+    kind,
+  ) {
+    if (kind !== "user" && text.startsWith("Fork "))
+      steps.push({ step: "queued" });
+    return submit.call(this, text, kind);
+  };
+  ScopeSpanProcessor.prototype.onStart = function (span, parent) {
+    onStart.call(this, span, parent);
+    if (span.name === telemetrySpans.prompt)
+      steps.push({ step: "start", spanId: span.spanContext().spanId });
+  };
+  ScopeSpanProcessor.prototype.onEnding = function (span) {
+    onEnding.call(this, span);
+    if (span.name === telemetrySpans.prompt)
+      steps.push({ step: "end", spanId: span.spanContext().spanId });
+  };
+  context.after(() => {
+    SessionMailbox.prototype.submit = submit;
+    ScopeSpanProcessor.prototype.onStart = onStart;
+    ScopeSpanProcessor.prototype.onEnding = onEnding;
+  });
+  return steps;
+}
+
+/** Where a step is in the recorded order, failing if it never happened. */
+function position(steps: readonly Step[], wanted: Step): number {
+  const index = steps.findIndex(
+    (step) =>
+      step.step === wanted.step &&
+      (!("spanId" in wanted) ||
+        ("spanId" in step && step.spanId === wanted.spanId)),
+  );
+  assert.ok(index >= 0, `${JSON.stringify(wanted)} was recorded`);
+  return index;
+}
+
 /** Wait for `predicate`, failing rather than hanging when background work is lost. */
 async function until(predicate: () => boolean, label: string): Promise<void> {
   const deadline = Date.now() + 15_000;
@@ -42,6 +99,7 @@ async function until(predicate: () => boolean, label: string): Promise<void> {
 
 test("a fork's message queued behind a running user turn starts its own trace, outside that turn's run, after the turn's prompt", async (context) => {
   telemetry.reset();
+  const steps = recordSteps(context);
   const order: string[] = [];
   let forkFinished = false;
   let family!: Awaited<ReturnType<typeof teammate>>["session"];
@@ -70,10 +128,9 @@ test("a fork's message queued behind a running user turn starts its own trace, o
     if (tool === forkToolNames.fork) {
       // The user's turn is still running until the fork's message is waiting behind it.
       await until(
-        () => family.subagents!.list().every((fork) => fork.status === "idle"),
-        "the fork finishing",
+        () => steps.some(({ step }) => step === "queued"),
+        "the fork's message being queued for the main conversation",
       );
-      await delay(50);
       forkFinished = true;
       order.push("turn continues");
       return reply("", {
@@ -129,14 +186,30 @@ test("a fork's message queued behind a running user turn starts its own trace, o
     (span) => span.attributes[attribute.sessionKind] === "main",
   );
   assert.equal(main.length, 2, "the user's prompt and the queued message's");
-  const [user, queued] = [...main].sort(
-    (a, b) => startedAt(a) - startedAt(b),
-  ) as [ReadableSpan, ReadableSpan];
+  // The prompts in the order they started, as the SDK reported them.
+  const [user, queued] = steps
+    .filter(({ step }) => step === "start")
+    .map((step) =>
+      main.find(
+        (span) => "spanId" in step && span.spanContext().spanId === step.spanId,
+      ),
+    )
+    .filter((span): span is ReadableSpan => !!span);
+  assert.ok(user && queued, "both main prompts were seen to start");
   assert.equal(user.spanContext().traceId, userTrace);
   assert.equal(user.parentSpanContext?.spanId, turn.spanContext().spanId);
   assert.equal(user.attributes[attribute.runId], runId);
+  const userEnded = position(steps, {
+    step: "end",
+    spanId: user.spanContext().spanId,
+  });
   assert.ok(
-    endedAt(user) <= startedAt(queued),
+    position(steps, { step: "queued" }) < userEnded,
+    "the fork's message was queued while the user's prompt was running",
+  );
+  assert.ok(
+    userEnded <
+      position(steps, { step: "start", spanId: queued.spanContext().spanId }),
     "the queued message waited for the user's prompt",
   );
 
@@ -181,13 +254,3 @@ test("a fork's message queued behind a running user turn starts its own trace, o
     "nothing of the queued message is in the user's trace",
   );
 });
-
-/** A span's start, in milliseconds. */
-function startedAt(span: ReadableSpan): number {
-  return span.startTime[0] * 1_000 + span.startTime[1] / 1_000_000;
-}
-
-/** A span's end, in milliseconds. */
-function endedAt(span: ReadableSpan): number {
-  return span.endTime[0] * 1_000 + span.endTime[1] / 1_000_000;
-}
