@@ -68,6 +68,26 @@ export const telemetryPageQuery = Type.Object(
 );
 export type TelemetryPageQuery = Static<typeof telemetryPageQuery>;
 
+/**
+ * Filters for a page of spans: those of any page, and a minimum age that leaves out spans that
+ * started too recently, so a list shows work that has had time to finish.
+ */
+export const telemetrySpanPageQuery = Type.Object(
+  {
+    ...telemetryPageQuery.properties,
+    minAge: Type.Optional(
+      Type.String({
+        // 0 to 3600, matching telemetryLimits.maxSpanDelaySeconds.
+        pattern:
+          "^(?:[0-9]|[1-9][0-9]|[1-9][0-9]{2}|[1-2][0-9]{3}|3[0-5][0-9]{2}|3600)$",
+        description: `Leave out spans that started less than this many seconds ago, by the server's clock, up to ${telemetryLimits.maxSpanDelaySeconds}. Recording is never delayed, and an older span's trace can still be filling in.`,
+      }),
+    ),
+  },
+  { additionalProperties: false },
+);
+export type TelemetrySpanPageQuery = Static<typeof telemetrySpanPageQuery>;
+
 /** One event by the ID Everything gave it. */
 export const telemetryEventParams = Type.Object(
   { eventId: Type.String({ format: "uuid" }) },

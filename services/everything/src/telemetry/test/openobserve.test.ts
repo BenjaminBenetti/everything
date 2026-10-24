@@ -2,27 +2,39 @@ import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { test } from "node:test";
 import { promisify } from "node:util";
-import type { TelemetryRecordSummary } from "@everything/telemetry-contracts";
+import { context as otel, SpanKind } from "@opentelemetry/api";
+import type {
+  TelemetryRecordSummary,
+  TelemetrySpan,
+} from "@everything/telemetry-contracts";
 import { OpenObserveSearch } from "../adapter/openobserve-search.js";
 import { loadTelemetrySettings } from "../config/telemetry-config.js";
 import { startTelemetry } from "../factory/telemetry-runtime.js";
-import { telemetryEvents } from "../model/telemetry-attributes.js";
+import {
+  telemetryAttributes as attribute,
+  telemetryEvents,
+} from "../model/telemetry-attributes.js";
+import { sendMessageToolName } from "../../runtime/model/message-delivery.js";
 import { recordWarning } from "../service/diagnostic-warnings.js";
+import { startTelemetrySpan } from "../service/telemetry-recorder.js";
 import { TelemetryQueryService } from "../service/telemetry-query-service.js";
 import { failure, reply, settled, teammate } from "./runtime-fixtures.js";
 
 /**
  * Everything's export pipeline, OpenObserve, and the owner-scoped query API end to end. Run by
  * deployment/script/test-telemetry.sh against a disposable OpenObserve container; skipped otherwise.
- * Error text is withheld unless TELEMETRY_E2E_INCLUDE_ERROR_TEXT is `true`.
+ * Error text and content are recorded, as by default, unless TELEMETRY_E2E_INCLUDE_ERROR_TEXT is
+ * `false`, as for an installation that set `telemetry.includeErrorText: false`, which withholds
+ * content too.
  *
  *   TELEMETRY_E2E_URL=http://127.0.0.1:… TELEMETRY_E2E_PASSWORD_FILE=/path [TELEMETRY_E2E_CONTAINER=name]
  */
 const url = process.env.TELEMETRY_E2E_URL;
 const passwordFile = process.env.TELEMETRY_E2E_PASSWORD_FILE;
 const container = process.env.TELEMETRY_E2E_CONTAINER;
-const includeErrorText =
-  process.env.TELEMETRY_E2E_INCLUDE_ERROR_TEXT === "true";
+const withheld = process.env.TELEMETRY_E2E_INCLUDE_ERROR_TEXT === "false";
+const includeErrorText = !withheld;
+const includeContent = !withheld;
 
 /** Natural-language text a provider's error quotes from the request; no credential shape. */
 const privateText = "The private launch date is next Tuesday";
@@ -45,7 +57,8 @@ const settings = skip
         process.env.TELEMETRY_E2E_USERNAME ?? "everything@telemetry.local",
       TELEMETRY_STREAM: stream,
       TELEMETRY_RETENTION_DAYS: process.env.TELEMETRY_E2E_RETENTION_DAYS ?? "7",
-      TELEMETRY_INCLUDE_ERROR_TEXT: String(includeErrorText),
+      // Unset, the installation's defaults apply.
+      ...(withheld ? { TELEMETRY_INCLUDE_ERROR_TEXT: "false" } : {}),
     });
 const runtime = settings
   ? startTelemetry(settings, { instrument: false, batchDelayMs: 200 })
@@ -235,6 +248,152 @@ test(
       reader!.events("owner-a", { search: "\\' OR 1=1 --" }),
       /backslashes/,
     );
+  },
+);
+
+test(
+  "content previews, SQL shapes, and links are stored redacted, and related traces resolve through the owner-scoped API",
+  { skip },
+  async (context) => {
+    const owner = "owner-content";
+    const canary = "sk-proj-e2econtentcanaryabcdefgh";
+    const { runtime: turnRuntime, definition } = await teammate(
+      context,
+      ({ attempt }) =>
+        attempt === 1
+          ? reply("", {
+              name: sendMessageToolName,
+              input: {
+                text: `Here is the plan; the key ${canary} stays private.`,
+              },
+            })
+          : reply("Done."),
+      owner,
+    );
+    const message = `Plan the launch: ${privateText}. The password=hunter2 and ${canary} are in the vault.`;
+    // The request that sends the message, with a database query, as Everything's API records it.
+    const request = startTelemetrySpan("POST /v1/agents/:agentId/messages", {
+      kind: SpanKind.SERVER,
+      scope: { ownerId: owner, agentId: definition.id },
+      attributes: {
+        [attribute.httpMethod]: "POST",
+        [attribute.httpRoute]: "/v1/agents/:agentId/messages",
+      },
+    });
+    otel.with(request.context, () => {
+      const query = startTelemetrySpan("pg.query:SELECT everything", {
+        kind: SpanKind.CLIENT,
+        attributes: {
+          "db.system.name": "postgresql",
+          [attribute.dbQueryText]:
+            "SELECT * FROM accounts WHERE token = 'sql-literal-secret' AND id = $1",
+        },
+      });
+      query.span.end();
+      turnRuntime.start(message);
+    });
+    request.span.end();
+    await settled(turnRuntime);
+    await runtime!.flush();
+
+    const spans = await eventually(async () => {
+      const page = await reader!.spans(owner, { severity: "info", limit: 100 });
+      return page.records.some((span) => span.name === "teammate.turn") &&
+        page.records.some((span) => span.name === "teammate.tool")
+        ? (page.records as TelemetrySpan[])
+        : undefined;
+    }, "the content spans");
+    const turn = spans.find((span) => span.name === "teammate.turn")!;
+    const tool = spans.find((span) => span.name === "teammate.tool")!;
+    const query = spans.find((span) => span.name.startsWith("pg.query"))!;
+    const requestSpan = spans.find((span) => span.kind === "server")!;
+    assert.equal(
+      (await reader!.status()).content,
+      withheld ? "withheld" : "included",
+    );
+    if (includeContent) {
+      assert.deepEqual(turn.previews, [
+        {
+          kind: "message",
+          format: "text",
+          value: `Plan the launch: ${privateText}. The password=[redacted] and [redacted] are in the vault.`,
+          truncated: false,
+          originalLength: message.length,
+        },
+      ]);
+      assert.deepEqual(JSON.parse(tool.previews[0]!.value), {
+        text: "Here is the plan; the key [redacted] stays private.",
+      });
+      assert.equal(
+        query.previews[0]?.value,
+        "SELECT * FROM accounts WHERE token = ? AND id = $1",
+      );
+    } else
+      for (const span of [turn, tool, query]) {
+        assert.deepEqual(span.previews, [], span.name);
+        assert.equal(span.contentWithheld, true, span.name);
+      }
+
+    // What storage holds, read directly rather than through the API's presentation.
+    const window = {
+      start: (Date.now() - 3_600_000) * 1000,
+      end: (Date.now() + 60_000) * 1000,
+    };
+    const stored = JSON.stringify(
+      await search!.search(
+        "traces",
+        `SELECT * FROM "${stream}" WHERE everything_owner_id = '${owner}'`,
+        window,
+        500,
+      ),
+    );
+    for (const secret of [canary, "hunter2", "sql-literal-secret"])
+      assert.ok(!stored.includes(secret), `${secret} never reaches storage`);
+    assert.equal(
+      stored.includes("Plan the launch"),
+      includeContent,
+      includeContent
+        ? "the message is stored, redacted"
+        : "withheld content never reaches storage",
+    );
+
+    // The turn's own trace links back to the request, and the request finds the turn it started.
+    const fromTurn = await eventually(async () => {
+      const trace = await reader!.trace(owner, turn.traceId!);
+      return trace.relations?.related.length ? trace : undefined;
+    }, "the turn's relations");
+    assert.deepEqual(
+      fromTurn.relations!.related.map((related) => [
+        related.relation,
+        related.span.spanId,
+      ]),
+      [["started_by", requestSpan.spanId]],
+    );
+    assert.ok(
+      fromTurn.spans.every((span) => span.traceId === turn.traceId),
+      "the traces stay separate",
+    );
+    const fromRequest = await reader!.trace(owner, requestSpan.traceId!);
+    assert.deepEqual(
+      fromRequest.relations!.related.map((related) => [
+        related.relation,
+        related.span.spanId,
+      ]),
+      [["started", turn.spanId]],
+    );
+    await assert.rejects(reader!.trace("owner-a", turn.traceId!), {
+      code: "TELEMETRY_NOT_FOUND",
+    });
+
+    // A span list can wait for spans to age; these are seconds old.
+    const delayed = await reader!.spans(owner, {
+      severity: "info",
+      minAge: 3_600,
+    });
+    assert.ok(delayed.records.every((span) => span.id !== turn.id));
+    assert.ok(Date.parse(delayed.to) <= Date.now() - 3_599_000);
+    const live = await reader!.spans(owner, { severity: "info", minAge: 0 });
+    assert.ok(live.records.some((span) => span.id === turn.id));
   },
 );
 

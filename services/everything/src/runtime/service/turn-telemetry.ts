@@ -2,6 +2,7 @@ import {
   context,
   INVALID_SPAN_CONTEXT,
   trace,
+  type Attributes,
   type Context,
   type Span,
 } from "@opentelemetry/api";
@@ -25,6 +26,7 @@ import {
   startTelemetrySpan,
 } from "../../telemetry/service/telemetry-recorder.js";
 import { describeError } from "../../telemetry/service/telemetry-redactor.js";
+import { messagePreview } from "../../telemetry/service/message-preview.js";
 
 /** Why a running turn ended early: the owner pressed Stop, sent a new message, or the runtime closed. */
 export type TurnCancellation = "stopped" | "interrupted" | "closed";
@@ -41,7 +43,10 @@ const failureCodes: readonly [new (...args: never[]) => Error, string][] = [
 /**
  * Telemetry for one turn of a teammate's main conversation: a span starting a trace of its own,
  * linked to the request that started it, under which the turn's prompts, provider requests, tool
- * calls, and compactions are recorded, and an event when the turn fails or is stopped.
+ * calls, and compactions are recorded, and an event when the turn fails or is stopped. The span
+ * holds a bounded, redacted preview of the message the turn answers: the text sent to the
+ * teammate's conversation, never the reminders, private messages, or instructions Everything adds
+ * to the session, and never the model's thinking.
  */
 export class TurnTelemetry {
   // ===========================================
@@ -52,11 +57,15 @@ export class TurnTelemetry {
   readonly context: Context;
   private readonly span: Span;
 
-  /** Start the turn's span for the session's run, attributing it to `scope` when known. */
+  /**
+   * Start the turn's span for the session's run, attributing it to `scope` when known, with a
+   * preview of `message`, the text sent to the conversation that the turn answers.
+   */
   constructor(
     scope: TelemetryScope | undefined,
     sessionId: string,
     runId: string,
+    message?: string,
   ) {
     let started: { span: Span; context: Context };
     try {
@@ -71,6 +80,7 @@ export class TurnTelemetry {
           [attribute.type]: "turn",
           [attribute.sessionId]: sessionId,
           [attribute.runId]: runId,
+          ...(message !== undefined ? previewAttributes(message) : {}),
         },
       });
     } catch {
@@ -146,5 +156,20 @@ export class TurnTelemetry {
       },
       this.context,
     );
+  }
+}
+
+/** A message's preview as span attributes, or none when it can't be made. */
+function previewAttributes(message: string): Attributes {
+  try {
+    const preview = messagePreview(message);
+    return {
+      [attribute.messagePreview]: preview.text,
+      [attribute.messageLength]: preview.length,
+      [attribute.messageTruncated]: preview.truncated,
+    };
+  } catch {
+    // A preview never stops a turn; this one is recorded without it.
+    return {};
   }
 }

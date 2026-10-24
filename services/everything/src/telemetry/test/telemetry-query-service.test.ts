@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import type { TelemetrySpan } from "@everything/telemetry-contracts";
 import { TelemetrySearchError } from "../error/telemetry-errors.js";
 import type {
   TelemetryRow,
@@ -178,6 +179,7 @@ test("turned-off and unreachable telemetry give helpful errors and status", asyn
     state: "disabled",
     retentionDays: 7,
     errorText: "withheld",
+    content: "withheld",
     export: null,
   });
   assert.equal(
@@ -277,4 +279,118 @@ test("details say when a record's error text was withheld", async () => {
   );
   assert.equal(shown.textWithheld, false);
   assert.equal(shown.message, "Rate limit reached");
+});
+
+test("a span list's minimum age ends its range that long before the server's now, and an emptied range has no records", async () => {
+  const { search, queries } = backend();
+  const page = await service(search).spans("owner-a", {
+    from: "2026-10-23T11:45:00Z",
+    minAge: 60,
+  });
+  assert.equal(page.to, "2026-10-23T11:59:00.000Z");
+  assert.equal(page.from, "2026-10-23T11:45:00.000Z");
+  assert.equal(queries[0]!.window.end, (now - 60_000) * 1000);
+  // An absolute range that ended before the cutoff is unchanged.
+  await service(search).spans("owner-a", {
+    from: "2026-10-23T10:00:00Z",
+    to: "2026-10-23T11:00:00Z",
+    minAge: 60,
+  });
+  assert.equal(
+    queries[1]!.window.end,
+    Date.parse("2026-10-23T11:00:00Z") * 1000,
+  );
+  // A range entirely younger than the minimum age is empty, without asking the backend.
+  const empty = await service(search).spans("owner-a", {
+    from: "2026-10-23T11:59:30Z",
+    minAge: 60,
+  });
+  assert.deepEqual(empty.records, []);
+  assert.equal(empty.nextCursor, null);
+  assert.equal(empty.from, empty.to);
+  assert.equal(queries.length, 2);
+  // Events never wait.
+  const events = await service(search).events("owner-a", { minAge: 60 });
+  assert.equal(events.to, new Date(now).toISOString());
+});
+
+test("spans present their stored previews by kind, say when content was withheld, and older spans have none", async () => {
+  const base = {
+    _timestamp: 3,
+    trace_id: "5b8efff798038103d269b633813fc60c",
+    everything_owner_id: "owner-a",
+  };
+  const { search } = backend(() => [
+    {
+      ...base,
+      span_id: "eee19b7ec3c1b174",
+      operation_name: "teammate.turn",
+      everything_message_preview: "Plan the launch",
+      everything_message_length: 15,
+      everything_message_truncated: false,
+    },
+    {
+      ...base,
+      span_id: "fff19b7ec3c1b174",
+      operation_name: "teammate.tool",
+      everything_tool_arguments: '{"path":"a.txt"}',
+      everything_tool_arguments_truncated: true,
+    },
+    {
+      ...base,
+      span_id: "aaa19b7ec3c1b174",
+      operation_name: "pg.query:SELECT everything",
+      db_query_text: "SELECT * FROM t WHERE a = $1…[truncated]",
+    },
+    {
+      ...base,
+      span_id: "bbb19b7ec3c1b174",
+      operation_name: "teammate.tool",
+      everything_content_withheld: true,
+    },
+    { ...base, span_id: "ccc19b7ec3c1b174", operation_name: "teammate.tool" },
+    {
+      ...base,
+      span_id: "ddd19b7ec3c1b174",
+      operation_name: "teammate.turn",
+      everything_message_preview: "é".repeat(5_000),
+    },
+  ]);
+  const page = await service(search).spans("owner-a", { severity: "info" });
+  const [message, args, sql, withheld, older, oversized] =
+    page.records as TelemetrySpan[];
+  assert.deepEqual(message!.previews, [
+    {
+      kind: "message",
+      format: "text",
+      value: "Plan the launch",
+      truncated: false,
+      originalLength: 15,
+    },
+  ]);
+  assert.deepEqual(args!.previews, [
+    {
+      kind: "tool_arguments",
+      format: "json",
+      value: '{"path":"a.txt"}',
+      truncated: true,
+      originalLength: null,
+    },
+  ]);
+  assert.deepEqual(sql!.previews, [
+    {
+      kind: "sql",
+      format: "sql",
+      value: "SELECT * FROM t WHERE a = $1…[truncated]",
+      truncated: true,
+      originalLength: null,
+    },
+  ]);
+  assert.deepEqual(withheld!.previews, []);
+  assert.equal(withheld!.contentWithheld, true);
+  assert.deepEqual(older!.previews, []);
+  assert.equal(older!.contentWithheld, false);
+  const value = oversized!.previews[0]!;
+  assert.equal(value.truncated, true, "a stored value over the budget is cut");
+  assert.ok(Buffer.byteLength(value.value) <= 2_000);
 });

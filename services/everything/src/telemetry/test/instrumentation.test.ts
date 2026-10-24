@@ -125,7 +125,10 @@ function named(spans: readonly ReceivedSpan[], name: string): ReceivedSpan[] {
   return spans.filter((span) => span.name === name);
 }
 
-/** Secrets the app's requests, errors, and dependency calls carry, none of which may be exported. */
+/**
+ * Secrets the app's requests, errors, and dependency calls carry, none of which may be exported
+ * however the installation is set, including the literal written into its SQL statement.
+ */
 const secrets = [
   "hunter2",
   "dbsecret",
@@ -133,13 +136,15 @@ const secrets = [
   "sk-dependency-secret-123",
   "sk-sql-secret-456",
   "pg-password-secret",
-  "secret_column",
   "Ot1-test-password",
   "pathsecretabcdefghijkl",
   "encodedpathsecretabcd",
   "questionmarkkeyabcdefgh",
   "hashmarkkeyabcdefghijk",
 ];
+
+/** The app's SQL statement as its shape: the column it names stays, its literal never does. */
+const statementShape = "SELECT secret_column FROM accounts WHERE token = ?";
 
 /**
  * Run the instrumented app against an OTLP receiver with `environment`, make a failing request and
@@ -208,7 +213,8 @@ async function exercise(
   };
 }
 
-test("the preload instruments incoming requests, fetch, and PostgreSQL in a real process, exporting only redacted, owned records without error text", async (context) => {
+test("with error text withheld, the preload instruments incoming requests, fetch, and PostgreSQL in a real process, exporting only redacted, owned records without error text or content", async (context) => {
+  // An installation that set `telemetry.includeErrorText: false`; content follows it.
   const {
     receiver,
     exported,
@@ -219,7 +225,8 @@ test("the preload instruments incoming requests, fetch, and PostgreSQL in a real
     children,
     outgoing,
     stalled,
-  } = await exercise(context);
+  } = await exercise(context, { TELEMETRY_INCLUDE_ERROR_TEXT: "false" });
+  assert.ok(!exported.includes("secret_column"), "the statement is withheld");
   for (const text of [
     privateText,
     "Lookup failed",
@@ -313,13 +320,21 @@ test("the preload instruments incoming requests, fetch, and PostgreSQL in a real
   assert.ok(query, "PostgreSQL is instrumented beneath the request");
   assert.equal(query.attributes["db.statement"], undefined);
   assert.equal(query.attributes["db.query.text"], undefined);
+  assert.equal(query.attributes[attribute.contentWithheld], true);
   assert.equal(query.attributes[attribute.ownerId], "owner-a");
   assert.equal(work.attributes[attribute.ownerId], "owner-a");
 });
 
-test("with error text recorded, the preload exports it redacted and bounded, and still redacts credentials", async (context) => {
-  const { exported, failure, event, stalled, outgoing, dependencyUrl } =
-    await exercise(context, { TELEMETRY_INCLUDE_ERROR_TEXT: "true" });
+test("by default the preload records error text and SQL statements' shapes, redacted and bounded, without parameter values or literals", async (context) => {
+  const {
+    exported,
+    failure,
+    event,
+    stalled,
+    outgoing,
+    dependencyUrl,
+    children,
+  } = await exercise(context);
   const exception = failure.events.find((event) => event.name === "exception");
   const message = String(exception?.attributes["exception.message"]);
   assert.match(message, /Lookup failed with password=\[redacted\]/);
@@ -341,6 +356,26 @@ test("with error text recorded, the preload exports it redacted and bounded, and
       path,
     );
   assert.ok(exported.includes(privateText), "error text is recorded");
+  const query = children.find(
+    (span) => span.attributes["db.system"] ?? span.attributes["db.system.name"],
+  );
+  assert.ok(query, "PostgreSQL is instrumented beneath the request");
+  assert.equal(query.attributes["db.query.text"], statementShape);
+  assert.equal(query.attributes["db.postgresql.values"], undefined);
+  assert.equal(query.attributes[attribute.contentWithheld], undefined);
+});
+
+test("with content withheld on its own, error text is still recorded but SQL statements are not", async (context) => {
+  const { exported, children } = await exercise(context, {
+    TELEMETRY_INCLUDE_CONTENT: "false",
+  });
+  assert.ok(exported.includes(privateText), "error text is recorded");
+  assert.ok(!exported.includes("secret_column"), "the statement is withheld");
+  const query = children.find(
+    (span) => span.attributes["db.system"] ?? span.attributes["db.system.name"],
+  );
+  assert.equal(query?.attributes["db.query.text"], undefined);
+  assert.equal(query?.attributes[attribute.contentWithheld], true);
 });
 
 test("with telemetry off nothing is exported and the app is unaffected", async (context) => {

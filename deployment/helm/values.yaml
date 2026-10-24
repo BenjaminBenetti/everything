@@ -150,9 +150,15 @@ telemetry:
   # expiring. OpenObserve accepts 3 or more days; Everything allows up to 30.
   retentionDays: 7
   # Record the text of provider, SDK, and library error messages, redacted and cut to 400
-  # characters. Off by default: such text can quote prompts and other private text, which redaction
-  # cannot reliably recognize. Categories, codes, statuses, and request IDs are recorded either way.
-  includeErrorText: false
+  # characters, so the Telemetry page can say what a failure said. On by default; such text can
+  # quote prompts and other private text, which redaction cannot reliably recognize, so set false to
+  # withhold it. Categories, codes, statuses, and request IDs are recorded either way.
+  includeErrorText: true
+  # Record previews of content, redacted for credentials and cut to 2,000 bytes each: the message a
+  # teammate turn answered, the arguments of tool calls, and SQL statements without their parameter
+  # values. Unset, it follows includeErrorText, so an installation that withholds error text
+  # withholds content too; set true or false to choose on its own.
+  includeContent: null
 
 # Volumes mounted by more than one service, such as files one service writes and another serves.
 # Each becomes a claim named after its key, kept on uninstall; services mount it with `sharedVolume`.
@@ -458,6 +464,7 @@ services:
       TELEMETRY_PASSWORD_FILE: /var/run/secrets/telemetry/password
       TELEMETRY_RETENTION_DAYS: "{{ .Values.telemetry.retentionDays }}"
       TELEMETRY_INCLUDE_ERROR_TEXT: "{{ .Values.telemetry.includeErrorText }}"
+      TELEMETRY_INCLUDE_CONTENT: '{{ if kindIs "bool" .Values.telemetry.includeContent }}{{ .Values.telemetry.includeContent }}{{ else }}{{ .Values.telemetry.includeErrorText }}{{ end }}'
       TELEMETRY_SERVICE_VERSION: "{{ .Chart.AppVersion }}"
     apiAccess:
       "{{ .Release.Namespace }}":

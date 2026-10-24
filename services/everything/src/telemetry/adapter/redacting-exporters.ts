@@ -9,6 +9,7 @@ import {
   errorTextLimit,
   exportableAttributes,
   exportedSpanEvents,
+  withholdsContent,
   withholdsErrorText,
   type ExportPolicy,
 } from "../service/telemetry-allowlist.js";
@@ -25,9 +26,9 @@ const nameLimit = 200;
  * Send spans with only allowlisted, redacted attributes and events, so nothing a library or SDK
  * error recorded leaves the process unless it is known to be safe. Error text, in status messages
  * and exception events, is left out unless `policy` records it; only Everything's own fixed status
- * messages are kept regardless. Spans that ended before their request was authenticated, such as
- * the session lookup, receive its owner here, since batches are exported after the request has
- * been. Batch outcomes are counted.
+ * messages are kept regardless. Content previews are left out unless `policy` records content.
+ * Spans that ended before their request was authenticated, such as the session lookup, receive its
+ * owner here, since batches are exported after the request has been. Batch outcomes are counted.
  */
 export class RedactingSpanExporter implements SpanExporter {
   /** Wrap the backend's exporter, attributing spans from `owners`. */
@@ -116,7 +117,9 @@ export class RedactingLogExporter implements LogRecordExporter {
 
 /**
  * A view of the span, delegating to it, with its name, attributes, events, and status made safe.
- * A span whose error text `policy` left out is marked, so the explorer can say so.
+ * A span whose error text or content `policy` left out is marked, so the explorer can say so. Its
+ * links keep only the IDs of the spans that started it, so the explorer can relate traces; any
+ * attributes or trace state a link carried are dropped.
  */
 export function exportableSpan(
   span: ReadableSpan,
@@ -146,11 +149,24 @@ export function exportableSpan(
   return Object.create(span, {
     name: { value: redactText(span.name, nameLimit) },
     attributes: {
-      value: withheld
-        ? { ...attributes, [attribute.textWithheld]: true }
-        : attributes,
+      value: {
+        ...attributes,
+        ...(withheld ? { [attribute.textWithheld]: true } : {}),
+        ...(withholdsContent(span.attributes, policy)
+          ? { [attribute.contentWithheld]: true }
+          : {}),
+      },
     },
     events: { value: events },
+    links: {
+      value: span.links.map((link) => ({
+        context: {
+          traceId: link.context.traceId,
+          spanId: link.context.spanId,
+          traceFlags: link.context.traceFlags,
+        },
+      })),
+    },
     droppedEventsCount: {
       value: span.droppedEventsCount + span.events.length - events.length,
     },

@@ -250,7 +250,11 @@
         },
         "includeErrorText": {
           "type": "boolean",
-          "description": "Record the redacted text of provider, SDK, and library error messages, which can quote prompts and other private text. Off by default; structured diagnostics are recorded either way."
+          "description": "Record the redacted text of provider, SDK, and library error messages, which can quote prompts and other private text. On by default; false withholds it. Structured diagnostics are recorded either way."
+        },
+        "includeContent": {
+          "type": ["boolean", "null"],
+          "description": "Record redacted, bounded previews of the message a teammate turn answered, tool call arguments, and SQL statements without their parameter values. Null follows includeErrorText."
         }
       }
     },

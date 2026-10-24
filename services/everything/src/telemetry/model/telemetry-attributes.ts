@@ -35,13 +35,32 @@ export const telemetryAttributes = {
   willRetry: "everything.will_retry",
   /** Set on records whose error text was left out because the installation does not record it. */
   textWithheld: "everything.text_withheld",
+  /** The message a teammate turn answered, as a bounded, redacted preview. */
+  messagePreview: "everything.message_preview",
+  /** Characters in the whole message the preview was made from. */
+  messageLength: "everything.message_length",
+  /** The message preview leaves part of the message out. */
+  messageTruncated: "everything.message_truncated",
+  /** A tool call's arguments, as bounded, redacted JSON. */
+  toolArguments: "everything.tool_arguments",
+  /** The arguments preview cut or summarized part of the arguments. */
+  toolArgumentsTruncated: "everything.tool_arguments_truncated",
+  /** Set on spans whose content previews were left out because the installation does not record them. */
+  contentWithheld: "everything.content_withheld",
   httpMethod: "http.request.method",
   httpRoute: "http.route",
   httpStatus: "http.response.status_code",
   serverAddress: "server.address",
   urlPath: "url.path",
   urlFull: "url.full",
+  /** A database query's statement, with placeholders for its parameters, as PostgreSQL's instrumentation records it. */
+  dbQueryText: "db.query.text",
+  /** The same under older semantic conventions. */
+  dbStatement: "db.statement",
 } as const;
+
+/** Longest attribute value the SDK keeps, in UTF-16 code units; it cuts longer values when set. */
+export const attributeValueLengthLimit = 2_048;
 
 /** The column telemetry storage keeps an attribute in. */
 export function telemetryColumn(attribute: string): string {

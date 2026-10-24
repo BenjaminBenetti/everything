@@ -21,10 +21,10 @@ import {
   startInMemoryTelemetry,
 } from "./telemetry-fixtures.js";
 
-// Error text is withheld by default; this process does not change that.
-const telemetry = startInMemoryTelemetry();
+// This installation withholds error text, as `telemetry.includeErrorText: false` does.
+const telemetry = startInMemoryTelemetry({ includeErrorText: false });
 
-test("by default no error text reaches any exported span, span event, or event, while its structured diagnosis does", async (context) => {
+test("with error text withheld, no error text reaches any exported span, span event, or event, while its structured diagnosis does", async (context) => {
   telemetry.reset();
   await recordErrorText(context);
   const exported = await telemetry.collect();

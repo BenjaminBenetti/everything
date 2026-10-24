@@ -44,10 +44,18 @@ export const telemetryEnvironmentSchema = Type.Object({
     default: 10_000,
   }),
   /**
-   * Record the redacted text of provider and error messages, which can quote prompts and other
-   * private text. Off by default; structured diagnostics are recorded either way.
+   * Record the redacted, bounded text of provider and error messages, which can quote prompts and
+   * other private text. On by default; `false` withholds it. Structured diagnostics are recorded
+   * either way.
    */
-  TELEMETRY_INCLUDE_ERROR_TEXT: Type.Boolean({ default: false }),
+  TELEMETRY_INCLUDE_ERROR_TEXT: Type.Boolean({ default: true }),
+  /**
+   * Record redacted, bounded previews of content: the message a teammate turn answered, tool call
+   * arguments, and SQL statements without their parameter values. Unset, it follows
+   * TELEMETRY_INCLUDE_ERROR_TEXT, so an installation that withholds error text withholds content
+   * too unless it says otherwise.
+   */
+  TELEMETRY_INCLUDE_CONTENT: Type.Optional(Type.Boolean()),
   TELEMETRY_SERVICE_VERSION: Type.String({
     pattern: "^[0-9A-Za-z][0-9A-Za-z.+_-]{0,63}$",
     default: "development",
