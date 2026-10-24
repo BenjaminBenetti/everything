@@ -94,8 +94,15 @@ test("a turn records the message it answered once, redacted, and its tool calls'
     1,
     "only the turn holds the message",
   );
-  const prompts = spansNamed(exported, telemetrySpans.prompt);
-  assert.ok(prompts.length >= 2, "the user's prompt and the reminder's");
+  const prompts = spansNamed(exported, telemetrySpans.prompt).sort(
+    (a, b) =>
+      a.startTime[0] - b.startTime[0] || a.startTime[1] - b.startTime[1],
+  );
+  assert.deepEqual(
+    prompts.map((prompt) => prompt.attributes[attribute.promptSource]),
+    ["message", "reminder"],
+    "the user's prompt and the reminder's are told apart, without their text",
+  );
 
   const [tool] = spansNamed(exported, telemetrySpans.tool);
   assert.equal(tool?.attributes[attribute.tool], sendMessageToolName);

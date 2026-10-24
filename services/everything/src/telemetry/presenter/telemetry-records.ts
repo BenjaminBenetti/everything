@@ -13,9 +13,11 @@ import {
 } from "@everything/telemetry-contracts";
 import type { TelemetryRow } from "../interface/telemetry-search.js";
 import {
+  promptSources,
   telemetryAttributes as attribute,
   telemetryColumn,
   telemetrySpans,
+  type PromptSource,
 } from "../model/telemetry-attributes.js";
 import { truncate, truncationMarker } from "../service/telemetry-redactor.js";
 import { utf8Head, utf8Length } from "../service/text-budget.js";
@@ -152,9 +154,25 @@ export function spanRecord(row: TelemetryRow): TelemetrySpan {
     previews: spanPreviews(row),
     contentWithheld:
       flag(row, telemetryColumn(attribute.contentWithheld)) === true,
-    details: details(row, spanDetails),
+    details: [...promptDetails(row), ...details(row, spanDetails)],
     events: spanEvents(row.events),
   };
+}
+
+/** Where a prompt's text came from, in plain words, by Everything's fixed catalog. */
+const promptSourceLabels: Readonly<Record<PromptSource, string>> = {
+  message: "The message sent to the teammate",
+  reminder: "Everything’s reminder to reply",
+  private: "A private message, such as from background work",
+};
+
+/** A prompt span's source as a detail, when it was recorded; any other value is left out. */
+function promptDetails(row: TelemetryRow): TelemetryDetail[] {
+  const column = telemetryColumn(attribute.promptSource);
+  const source = oneOf(promptSources, row[column]);
+  return source
+    ? [{ key: column, label: "Prompted by", value: promptSourceLabels[source] }]
+    : [];
 }
 
 /** A span the stored span names in its links, such as the request that started a teammate turn. */

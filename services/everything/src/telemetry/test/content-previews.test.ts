@@ -147,7 +147,11 @@ test("tool arguments are structured JSON with secrets, bodies, blobs, and depth 
   assert.equal(parsed.password, "[redacted]");
   assert.equal(parsed.apiKey, "[redacted]");
   assert.equal(parsed.max_tokens, 4_096, "a token count stays readable");
-  assert.deepEqual(parsed.headers, { Authorization: "[redacted]" });
+  assert.deepEqual(
+    parsed.headers,
+    { Authorization: "[value not recorded]" },
+    "headers keep their names only",
+  );
   assert.match(String(parsed.content), /^# Plan\nWrite the launch/);
   assert.match(String(parsed.content), /…\[truncated from \d+ characters\]$/);
   assert.match(
@@ -160,6 +164,44 @@ test("tool arguments are structured JSON with secrets, bodies, blobs, and depth 
   assert.ok(!preview.text.includes("iVBORw0KGgo"));
   assert.match(JSON.stringify(parsed.nested), /\[object with 1 field\]/);
   assert.equal((parsed.items as unknown[]).at(-1), "[+6 more items]");
+});
+
+test("environment variables, build arguments, and headers keep their names but never their values", () => {
+  const preview = toolArgumentsPreview({
+    app: "billing",
+    env: {
+      STRIPE_KEY: "sk_live_shortsecret",
+      DATABASE_URL: "postgresql://admin:dbsecret@db/billing",
+      FEATURE_FLAG: "on",
+    },
+    buildArgs: { NPM_TOKEN: "npm-build-secret", NODE_ENV: "production" },
+    headers: { "X-Api-Key": "header-secret" },
+  });
+  const parsed = JSON.parse(preview.text) as Record<string, unknown>;
+  assert.deepEqual(parsed.env, {
+    STRIPE_KEY: "[value not recorded]",
+    DATABASE_URL: "[value not recorded]",
+    FEATURE_FLAG: "[value not recorded]",
+  });
+  assert.deepEqual(parsed.buildArgs, {
+    NPM_TOKEN: "[value not recorded]",
+    NODE_ENV: "[value not recorded]",
+  });
+  assert.deepEqual(parsed.headers, { "X-Api-Key": "[value not recorded]" });
+  assert.equal(parsed.app, "billing");
+  assert.ok(preview.truncated, "values left out count as summarized");
+  for (const secret of [
+    "sk_live_shortsecret",
+    "dbsecret",
+    "npm-build-secret",
+    "header-secret",
+  ])
+    assert.ok(!preview.text.includes(secret), secret);
+  assert.equal(
+    JSON.parse(toolArgumentsPreview({ env: "A=1 SECRET=x" }).text).env,
+    "[values not recorded]",
+    "a value map given as text is left out too",
+  );
 });
 
 test("circular, accessor, proxy, and non-JSON arguments are summarized without running their code", () => {

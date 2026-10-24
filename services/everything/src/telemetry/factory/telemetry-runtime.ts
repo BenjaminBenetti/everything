@@ -29,7 +29,10 @@ import type {
   TelemetryBackendSettings,
   TelemetrySettings,
 } from "../model/telemetry-settings.js";
-import { DatabaseStatementProcessor } from "../service/database-statement-processor.js";
+import {
+  DatabaseStatementProcessor,
+  shapeQueryStatement,
+} from "../service/database-statement-processor.js";
 import { ExportHealth } from "../service/export-health.js";
 import {
   defaultReadRequestPolicy,
@@ -171,12 +174,15 @@ export function startTelemetry(
         }),
         // fetch, including provider requests; only inside traced work, so pollers stay quiet.
         new UndiciInstrumentation({ requireParentforSpans: true }),
-        // Queries are named by operation. Their statements are kept only as their shape, without
-        // literals, when the installation records content; parameter values are never collected.
+        // Queries are named by operation. Their statements are replaced by their shape, without
+        // literals, as each query starts, and exported only when the installation records content.
+        // Parameter values are never collected, and nothing is added to the queries that run.
         new PgInstrumentation({
           requireParentSpan: true,
           enhancedDatabaseReporting: false,
           ignoreConnectSpans: true,
+          requestHook: (span, { query }) =>
+            shapeQueryStatement(span, query.text),
         }),
       ],
     });

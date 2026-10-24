@@ -74,6 +74,21 @@ const bodyKeys = new Set([
   "payload",
 ]);
 
+/**
+ * Field names that hold maps of named values, such as an app's environment variables or build
+ * arguments, which are often credentials: their names are shown, never their values.
+ */
+const valueMaps = new Set([
+  "env",
+  "environment",
+  "variables",
+  "vars",
+  "buildargs",
+  "buildarguments",
+  "headers",
+  "secrets",
+]);
+
 /** A data URL's media type, without its data. */
 const dataUrl = /^data:([\w.+-]{1,64}\/[\w.+-]{1,64})?[^,]{0,100},/i;
 
@@ -82,9 +97,9 @@ const dataUrl = /^data:([\w.+-]{1,64}\/[\w.+-]{1,64})?[^,]{0,100},/i;
  * `telemetryLimits.previewBytes` of UTF-8. Only the arguments' own enumerable data properties are
  * read, never getters or `toJSON`, and nothing is changed, so the call runs with exactly the
  * arguments it was given. Strings are redacted for credentials and cut, fields named like
- * credentials are replaced, bodies such as file contents are shortened, encoded or binary data is
- * summarized by its size, and deep, wide, or circular values are summarized; each cut is marked
- * in place. Arguments that can't be read at all become a short note instead of an error.
+ * credentials are replaced, maps of named values such as environment variables keep only their
+ * names, bodies such as file contents are shortened, encoded or binary data is summarized by its
+ * size, and deep, wide, or circular values are summarized; each cut is marked in place. Arguments that can't be read at all become a short note instead of an error.
  */
 export function toolArgumentsPreview(
   args: unknown,
@@ -201,9 +216,12 @@ class PreviewPass {
       }
       shown++;
       const name = this.key(key, result);
-      const field = secretKey.test(normalizedKey(key))
+      const normalized = normalizedKey(key);
+      const field = secretKey.test(normalized)
         ? "[redacted]"
-        : this.value(ownValue(value, key), depth + 1, key);
+        : valueMaps.has(normalized)
+          ? this.names(ownValue(value, key), depth + 1)
+          : this.value(ownValue(value, key), depth + 1, key);
       Object.defineProperty(result, name, {
         value: field,
         enumerable: true,
@@ -218,6 +236,44 @@ class PreviewPass {
         ),
         enumerable: true,
       });
+    return result;
+  }
+
+  /** A map of named values, such as environment variables, by its names only. */
+  private names(value: unknown, depth: number): unknown {
+    if (
+      !value ||
+      typeof value !== "object" ||
+      Array.isArray(value) ||
+      value instanceof Unread ||
+      depth >= this.limits.depth
+    )
+      return value === undefined || value === null
+        ? value
+        : this.cut("[values not recorded]");
+    const result: Record<string, unknown> = Object.create(null);
+    let shown = 0;
+    let more = 0;
+    for (const key in value) {
+      if (!Object.hasOwn(value, key)) continue;
+      if (++this.nodes > this.limits.nodes || shown >= this.limits.entries) {
+        if (++more >= countedKeys) break;
+        continue;
+      }
+      shown++;
+      Object.defineProperty(result, this.key(key, result), {
+        value: "[value not recorded]",
+        enumerable: true,
+        writable: true,
+        configurable: true,
+      });
+    }
+    if (more > 0)
+      Object.defineProperty(result, "…", {
+        value: `[+${more}${more >= countedKeys ? " or more" : ""} more fields]`,
+        enumerable: true,
+      });
+    this.truncated = true;
     return result;
   }
 

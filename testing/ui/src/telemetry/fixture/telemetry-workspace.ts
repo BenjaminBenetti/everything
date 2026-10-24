@@ -130,6 +130,7 @@ export interface TelemetryWorkspace {
     state: string;
     retentionDays: number;
     errorText: string;
+    content: string;
     export: unknown;
   };
   /** Pages returned for event listings, by cursor; the first page has no cursor. */
@@ -164,6 +165,7 @@ export async function telemetryWorkspace(
       state: "available",
       retentionDays: 7,
       errorText: "included",
+      content: "included",
       export: null,
     },
     eventPages: new Map([["", { records: [record()], nextCursor: null }]]),

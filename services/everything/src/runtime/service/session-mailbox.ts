@@ -4,7 +4,10 @@ import type {
   ForkableSession,
   SessionFork,
 } from "../interface/session-forks.js";
-import { withoutRun } from "../../telemetry/service/telemetry-recorder.js";
+import {
+  withoutRun,
+  withPromptSource,
+} from "../../telemetry/service/telemetry-recorder.js";
 
 /** Capture the completed turn before another queued message changes the live session state. */
 interface TurnOutcome {
@@ -144,12 +147,15 @@ export class SessionMailbox {
 
   /**
    * Prompt the session in the turn's submitted context. A private message is never part of its
-   * sender's run, even when a user turn sent it, so its prompt starts a trace of its own.
+   * sender's run, even when a user turn sent it, so its prompt starts a trace of its own, and
+   * telemetry knows it as private rather than as its sender's message.
    */
   private prompt(turn: PendingTurn): Promise<void> {
     return turn.restore(() =>
       turn.kind === "private"
-        ? context.with(withoutRun(), () => this.session.prompt(turn.text))
+        ? context.with(withPromptSource("private", withoutRun()), () =>
+            this.session.prompt(turn.text),
+          )
         : this.session.prompt(turn.text),
     );
   }

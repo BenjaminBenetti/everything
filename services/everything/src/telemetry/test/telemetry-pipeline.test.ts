@@ -206,7 +206,7 @@ test("events carry their scope and trace, with nested error causes redacted", as
   assert.equal(
     event.attributes[attribute.message],
     undefined,
-    "error text is withheld by default",
+    "error text is withheld, as this process is set to",
   );
   assert.equal(event.attributes[attribute.textWithheld], true);
   assert.equal(event.attributes[attribute.eventId]?.toString().length, 36);

@@ -47,6 +47,8 @@ export const telemetryAttributes = {
   toolArgumentsTruncated: "everything.tool_arguments_truncated",
   /** Set on spans whose content previews were left out because the installation does not record them. */
   contentWithheld: "everything.content_withheld",
+  /** Where a prompt's text came from, one of `promptSources`; never the text itself. */
+  promptSource: "everything.prompt_source",
   httpMethod: "http.request.method",
   httpRoute: "http.route",
   httpStatus: "http.response.status_code",
@@ -78,6 +80,14 @@ export const telemetryEvents = {
   requestFailed: "http.request.failed",
   warning: "app.warning",
 } as const;
+
+/**
+ * Where a teammate prompt's text came from: the message sent to the conversation, a reminder
+ * Everything adds when a turn hasn't replied, or a private message from other work, such as a
+ * background fork, a monitor, or an API event.
+ */
+export const promptSources = ["message", "reminder", "private"] as const;
+export type PromptSource = (typeof promptSources)[number];
 
 /** Names of the spans Everything starts itself; instrumented libraries name their own. */
 export const telemetrySpans = {

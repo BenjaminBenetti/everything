@@ -67,7 +67,7 @@ test("a provider error before the stream is recorded with its safe cause, reques
   assert.equal(
     model.attributes[attribute.message],
     undefined,
-    "the provider's error text is withheld by default",
+    "the provider's error text is withheld, as this process is set to",
   );
   assert.equal(model.attributes[attribute.textWithheld], true);
   assert.doesNotMatch(

@@ -15,6 +15,7 @@ import {
 } from "../../telemetry/service/prompt-diagnostics.js";
 import {
   failTelemetrySpan,
+  promptSource,
   recordTelemetryEvent,
   startTelemetrySpan,
   telemetryScope,
@@ -119,9 +120,13 @@ export class PiPromptTelemetry {
     }
   }
 
-  /** Start the prompt's span and diagnostics. */
+  /**
+   * Start the prompt's span and diagnostics, noting where its text came from when the code that
+   * started it said, such as a user turn's message or one of its reminders.
+   */
   private begin(): RunningPrompt {
     const enclosing = telemetryScope();
+    const source = promptSource();
     const partOfTurn =
       this.scope.sessionKind === "main" &&
       enclosing?.ownerId === this.scope.ownerId &&
@@ -132,7 +137,10 @@ export class PiPromptTelemetry {
       {
         root: !partOfTurn,
         scope: { ...this.scope, sessionId: this.sessionId },
-        attributes: { [attribute.type]: "turn" },
+        attributes: {
+          [attribute.type]: "turn",
+          ...(source ? { [attribute.promptSource]: source } : {}),
+        },
       },
     );
     return {

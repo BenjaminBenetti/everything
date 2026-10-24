@@ -78,7 +78,8 @@ export function TelemetryExplorer() {
   const newer = useNewerRecords(
     applied.view,
     applied.query,
-    list[0]?.time ?? applied.query?.to,
+    // With a span age, an empty list ends at the server's cutoff, not at the range's end.
+    list[0]?.time ?? records.data?.pages[0]?.to ?? applied.query?.to,
     live && available && filters.range !== "custom",
   );
   const newCount =
@@ -98,6 +99,7 @@ export function TelemetryExplorer() {
       "correlationId",
       "customFrom",
       "customTo",
+      "customDelay",
     ].some((key) => key in patch);
     if (typed)
       typing.current = window.setTimeout(

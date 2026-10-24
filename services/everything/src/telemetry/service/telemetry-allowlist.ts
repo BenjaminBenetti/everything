@@ -2,6 +2,7 @@ import type { AttributeValue, Attributes } from "@opentelemetry/api";
 import { telemetryLimits } from "@everything/telemetry-contracts";
 import {
   attributeValueLengthLimit,
+  promptSources,
   telemetryAttributes,
 } from "../model/telemetry-attributes.js";
 import { sqlStatementPreview } from "./sql-statement.js";
@@ -86,6 +87,12 @@ const sqlStatement: Sanitizer = (value) =>
       }).text
     : undefined;
 
+/** A prompt's source, from Everything's fixed catalog only. */
+const promptSource: Sanitizer = (value) =>
+  (promptSources as readonly AttributeValue[]).includes(value)
+    ? value
+    : undefined;
+
 /** A URL without credentials, query string, or fragment. */
 const url: Sanitizer = (value) =>
   typeof value === "string" ? redactUrl(value) : undefined;
@@ -153,6 +160,7 @@ const exportedAttributes: Readonly<Record<string, Sanitizer>> = {
   [telemetryAttributes.toolArguments]: toolArguments,
   [telemetryAttributes.dbQueryText]: sqlStatement,
   [telemetryAttributes.dbStatement]: sqlStatement,
+  [telemetryAttributes.promptSource]: promptSource,
   [telemetryAttributes.reason]: identifier,
   [telemetryAttributes.tool]: identifier,
   [telemetryAttributes.urlFull]: url,

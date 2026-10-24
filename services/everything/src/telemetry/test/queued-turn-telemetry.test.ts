@@ -196,6 +196,12 @@ test("a fork's message queued behind a running user turn starts its own trace, o
     )
     .filter((span): span is ReadableSpan => !!span);
   assert.ok(user && queued, "both main prompts were seen to start");
+  assert.equal(user.attributes[attribute.promptSource], "message");
+  assert.equal(
+    queued.attributes[attribute.promptSource],
+    "private",
+    "the fork's message is known as private, not as the user's message",
+  );
   assert.equal(user.spanContext().traceId, userTrace);
   assert.equal(user.parentSpanContext?.spanId, turn.spanContext().spanId);
   assert.equal(user.attributes[attribute.runId], runId);
