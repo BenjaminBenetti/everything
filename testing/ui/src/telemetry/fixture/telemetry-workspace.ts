@@ -33,8 +33,11 @@ export function record(overrides: Record<string, unknown> = {}) {
   };
 }
 
-/** A span in the shared trace. */
-function span(
+/** No related traces, as a trace without links or other runs has. */
+export const noRelations = { related: [], unresolved: false, truncated: false };
+
+/** A span in the shared trace, without content previews unless a test adds them. */
+export function span(
   id: string,
   name: string,
   title: string,
@@ -68,6 +71,8 @@ function span(
     statusMessage:
       severity === "error" ? "Model request failed: rate_limit" : null,
     textWithheld: false,
+    previews: [] as unknown[],
+    contentWithheld: false,
     details:
       name === "provider.request"
         ? [{ key: "server_address", label: "Host", value: "api.anthropic.com" }]
@@ -122,6 +127,7 @@ export const trace = {
     }),
   ],
   truncated: false,
+  relations: noRelations as unknown,
 };
 
 /**
@@ -154,7 +160,13 @@ export function longTrace(prompts: number) {
         index === prompts ? "error" : "info",
       ),
     );
-  return { traceId, spans, events: [] as unknown[], truncated: false };
+  return {
+    traceId,
+    spans,
+    events: [] as unknown[],
+    truncated: false,
+    relations: noRelations as unknown,
+  };
 }
 
 /** `count` synthetic failures in the shared trace, newest first, each attributed to `spanOf(index)`. */
@@ -191,7 +203,11 @@ export interface TelemetryWorkspace {
     spans: unknown[];
     events: unknown[];
     truncated: boolean;
+    /** Related traces, as the API returns them with the trace; absent from older APIs. */
+    relations?: unknown;
   };
+  /** Other traces the owner can open, such as related ones, by trace ID. */
+  otherTraces: Map<string, unknown>;
   /** Status for trace requests; 200 returns `trace`. */
   traceStatus: number;
   /** Trace responses wait for this, when set, as a slow backend would. */
@@ -221,6 +237,7 @@ export async function telemetryWorkspace(
     spanRecords: trace.spans,
     listStatus: 200,
     trace,
+    otherTraces: new Map(),
     traceStatus: 200,
     traceGate: undefined,
     eventDetail: {
@@ -287,11 +304,15 @@ function telemetryResponse(
   };
   if (url.pathname === "/v1/telemetry/status") return { json: state.status };
   if (url.pathname.startsWith("/v1/telemetry/traces/")) {
-    if (!url.pathname.endsWith(traceId))
-      return {
-        status: 404,
-        json: { code: "TELEMETRY_NOT_FOUND", message: "Not available." },
-      };
+    if (!url.pathname.endsWith(traceId)) {
+      const other = state.otherTraces.get(url.pathname.split("/").pop()!);
+      return other
+        ? { json: other }
+        : {
+            status: 404,
+            json: { code: "TELEMETRY_NOT_FOUND", message: "Not available." },
+          };
+    }
     return state.traceStatus === 200
       ? { json: state.trace }
       : {

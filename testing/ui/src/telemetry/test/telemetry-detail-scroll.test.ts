@@ -39,6 +39,38 @@ const longMessage = Array.from(
   (_, line) => `Synthetic provider explanation, line ${line + 1}.`,
 ).join("\n");
 
+/** The longest previews a span can hold, about 2,000 bytes each, as the server bounds them. */
+const longPreviews = [
+  {
+    kind: "message",
+    format: "text",
+    value: `${Array.from({ length: 30 }, (_, line) => `Build log line ${line + 1}: error TS2322 in value.ts`).join("\n")}\n…[middle of the message not shown]…\nWhy does the build fail?`,
+    truncated: true,
+    originalLength: 48_000,
+  },
+  {
+    kind: "tool_arguments",
+    format: "json",
+    value: JSON.stringify(
+      Object.fromEntries(
+        Array.from({ length: 24 }, (_, field) => [
+          `field${field}`,
+          `value ${field} ${"x".repeat(40)}`,
+        ]),
+      ),
+    ),
+    truncated: true,
+    originalLength: null,
+  },
+  {
+    kind: "sql",
+    format: "sql",
+    value: `SELECT ${Array.from({ length: 60 }, (_, column) => `"m"."column_${column}"`).join(", ")} FROM "messages" "m" WHERE "m"."owner_id" = $1 LIMIT ?`,
+    truncated: false,
+    originalLength: null,
+  },
+];
+
 /** Desktop sizes: wide, short, and narrower than the two-column layout's breakpoint. */
 const viewports = [
   { name: "wide", width: 1440, height: 960 },
@@ -691,6 +723,70 @@ test.describe("desktop", { tag: "@desktop" }, () => {
         path: `${evidence}${viewport.name}-same-trace-reselected.png`,
       });
     });
+
+  test("on a short desktop, a selected span's long content previews stay inside the details, with its whole button in view", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 640 });
+    const workspace = await longWorkspace(page);
+    workspace.trace = {
+      ...workspace.trace,
+      spans: workspace.trace.spans.map((entry) => ({
+        ...(entry as object),
+        previews: longPreviews,
+      })),
+    };
+    await page.goto("/telemetry");
+    await expect(row(page, 12)).toBeVisible();
+    await scrollListTo(page, 12);
+    const chosen = { index: 12, top: await rowTop(page, 12) };
+    await row(page, 12).click();
+    const opened = await expectContainedAndRevealed(
+      page,
+      chosen,
+      `Provider request ${depth - 4}`,
+    );
+    const target = page.locator(".telemetry-span.highlighted");
+    for (const heading of [
+      "Message sent to your teammate",
+      "Tool call arguments",
+      "SQL statement",
+    ])
+      await expect(target.getByRole("heading", { name: heading })).toHaveCount(
+        1,
+      );
+    await page.screenshot({ path: `${evidence}short-long-previews.png` });
+    record("short-long-previews", opened);
+
+    // Showing all of each preview grows the details below the span's button, never the page.
+    const showAll = target.getByRole("button", { name: "Show all" });
+    expect(await showAll.count()).toBeGreaterThan(0);
+    for (const button of await showAll.all())
+      await button.evaluate((element) => (element as HTMLElement).click());
+    await expect(
+      target.getByRole("button", { name: "Show less" }),
+    ).not.toHaveCount(0);
+    const expanded = await geometry(page);
+    expect(expanded.documentScrollTop).toBe(0);
+    expect(expanded.content.scrollTop, "the page stayed put").toBe(
+      opened.content.scrollTop,
+    );
+    expect(expanded.panel!.bottom).toBeLessThanOrEqual(
+      expanded.content.bottom + 1,
+    );
+    expect(
+      expanded.scroller,
+      "the details scroll inside themselves",
+    ).not.toBeNull();
+    expect(expanded.scroller!.maxScrollTop).toBeGreaterThan(
+      opened.scroller!.maxScrollTop,
+    );
+    expectWholeButtonInView(expanded);
+    await page.screenshot({
+      path: `${evidence}short-long-previews-expanded.png`,
+    });
+    record("short-long-previews-expanded", expanded);
+  });
 
   test("a trace that arrives after the details open is revealed when it arrives", async ({
     page,
