@@ -2,10 +2,10 @@
 # Test Everything's telemetry against a disposable OpenObserve container run as the chart runs it:
 # its pinned image, every setting the chart renders, its CPU and memory limits, a non-root user, and a
 # read-only root filesystem. Checks that the image is published for amd64 and arm64, runs the
-# export, query API, owner isolation, restart, and retention tests, and with --browser the Telemetry
-# page in Chromium against the same storage, with error text withheld, as by default, and recorded.
-# Reports the container's peak memory. Never touches a cluster; the container and its data are
-# removed afterward.
+# export, content preview, related trace, query API, owner isolation, restart, and retention tests,
+# and with --browser the Telemetry page in Chromium against the same storage, with error text and
+# content recorded, as by default, and withheld. Reports the container's peak memory. Never touches a
+# cluster; the container and its data are removed afterward.
 #
 #   bash deployment/script/test-telemetry.sh [--browser]
 set -euo pipefail
@@ -116,10 +116,11 @@ export TELEMETRY_E2E_URL="$url"
 export TELEMETRY_E2E_PASSWORD_FILE="$work/password"
 export TELEMETRY_E2E_CONTAINER="$name"
 export TELEMETRY_E2E_RETENTION_DAYS="$retention"
-# Error text is withheld by default; the owner scenario runs again with it recorded.
+# Error text and content are recorded by default; the owner and content scenarios run again with
+# both withheld, as `telemetry.includeErrorText: false` does.
 (cd services/everything && node --import tsx --test src/telemetry/test/openobserve.test.ts)
-(cd services/everything && TELEMETRY_E2E_INCLUDE_ERROR_TEXT=true \
-  node --import tsx --test --test-name-pattern 'model failures exported' src/telemetry/test/openobserve.test.ts)
+(cd services/everything && TELEMETRY_E2E_INCLUDE_ERROR_TEXT=false \
+  node --import tsx --test --test-name-pattern 'model failures exported|content previews' src/telemetry/test/openobserve.test.ts)
 
 if $browser; then
   for include_error_text in false true; do

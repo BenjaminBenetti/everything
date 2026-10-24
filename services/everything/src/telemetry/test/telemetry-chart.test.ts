@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -31,6 +33,17 @@ interface Container {
 
 /** Render the chart with the development values and `settings`. */
 async function render(...settings: string[]): Promise<Manifest[]> {
+  return renderWith(
+    [path.join(chart, "values.dev.yaml")],
+    settings.flatMap((setting) => ["--set", setting]),
+  );
+}
+
+/** Render the chart with `files` as values, in order, and further Helm arguments. */
+async function renderWith(
+  files: readonly string[],
+  extra: readonly string[] = [],
+): Promise<Manifest[]> {
   const { stdout } = await promisify(execFile)(
     "helm",
     [
@@ -39,9 +52,8 @@ async function render(...settings: string[]): Promise<Manifest[]> {
       chart,
       "--namespace",
       "everything",
-      "--values",
-      path.join(chart, "values.dev.yaml"),
-      ...settings.flatMap((setting) => ["--set", setting]),
+      ...files.flatMap((file) => ["--values", file]),
+      ...extra,
     ],
     { maxBuffer: 32 * 1024 * 1024 },
   );
@@ -144,8 +156,13 @@ test("Everything reaches OpenObserve with the same retention and reads its passw
   assert.equal(settings.TELEMETRY_RETENTION_DAYS, "7");
   assert.equal(
     settings.TELEMETRY_INCLUDE_ERROR_TEXT,
-    "false",
-    "error text is withheld unless the installation opts in",
+    "true",
+    "error text is recorded unless the installation withholds it",
+  );
+  assert.equal(
+    settings.TELEMETRY_INCLUDE_CONTENT,
+    "true",
+    "content previews follow error text by default",
   );
   assert.equal(
     settings.TELEMETRY_PASSWORD_FILE,
@@ -201,16 +218,38 @@ test("retention and error text each follow one setting, are validated, and turni
       render(`telemetry.retentionDays=${days}`),
       /retentionDays/,
     );
-  assert.equal(
-    environment(
-      workload(await render("telemetry.includeErrorText=true"), "everything")!
-        .container,
-    ).TELEMETRY_INCLUDE_ERROR_TEXT,
-    "true",
-  );
+  // An explicit false withholds error text, and content with it unless content is set on its own.
+  for (const [settings, errorText, content] of [
+    [["telemetry.includeErrorText=false"], "false", "false"],
+    [["telemetry.includeContent=false"], "true", "false"],
+    [
+      ["telemetry.includeErrorText=false", "telemetry.includeContent=true"],
+      "false",
+      "true",
+    ],
+    [["telemetry.includeErrorText=true"], "true", "true"],
+  ] as const) {
+    const everything = environment(
+      workload(await render(...settings), "everything")!.container,
+    );
+    assert.equal(
+      everything.TELEMETRY_INCLUDE_ERROR_TEXT,
+      errorText,
+      settings.join(" "),
+    );
+    assert.equal(
+      everything.TELEMETRY_INCLUDE_CONTENT,
+      content,
+      settings.join(" "),
+    );
+  }
   await assert.rejects(
     render("telemetry.includeErrorText=yes"),
     /includeErrorText/,
+  );
+  await assert.rejects(
+    render("telemetry.includeContent=yes"),
+    /includeContent/,
   );
   const off = await render("services.openobserve.enabled=false");
   assert.equal(workload(off, "openobserve"), undefined);
@@ -218,4 +257,34 @@ test("retention and error text each follow one setting, are validated, and turni
     environment(workload(off, "everything")!.container).TELEMETRY_URL,
     "",
   );
+});
+
+test("an upgrade that resets values to the chart's records error text and content unless the installation's settings file withholds them", async (context) => {
+  // The upgrader runs `helm upgrade --reset-values` with the new chart's values, its production
+  // values, and the installer's settings file; the development values stand in for the production
+  // values and credentials here. A settings file that never mentioned telemetry gets the new
+  // defaults, and one that set includeErrorText to false keeps error text, and content, withheld.
+  const directory = await mkdtemp(path.join(tmpdir(), "everything-chart-"));
+  context.after(() => rm(directory, { recursive: true, force: true }));
+  const cases = [
+    ["global:\n  externalHostname: everything.example.com\n", "true", "true"],
+    ["telemetry:\n  includeErrorText: false\n", "false", "false"],
+    [
+      "telemetry:\n  includeErrorText: false\n  includeContent: true\n",
+      "false",
+      "true",
+    ],
+  ] as const;
+  for (const [index, [settings, errorText, content]] of cases.entries()) {
+    const file = path.join(directory, `settings-${index}.yaml`);
+    await writeFile(file, settings);
+    const everything = environment(
+      workload(
+        await renderWith([path.join(chart, "values.dev.yaml"), file]),
+        "everything",
+      )!.container,
+    );
+    assert.equal(everything.TELEMETRY_INCLUDE_ERROR_TEXT, errorText, settings);
+    assert.equal(everything.TELEMETRY_INCLUDE_CONTENT, content, settings);
+  }
 });

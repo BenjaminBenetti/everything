@@ -21,7 +21,8 @@ test("without a URL telemetry is off", () => {
     retentionDays: 7,
     readSampleRatio: 0.05,
     serviceVersion: "development",
-    includeErrorText: false,
+    includeErrorText: true,
+    includeContent: true,
   });
 });
 
@@ -42,6 +43,7 @@ test("the backend is configured from the environment and its password file", () 
     readSampleRatio: 0.1,
     serviceVersion: "1.2.3",
     includeErrorText: true,
+    includeContent: true,
     backend: {
       url: "http://openobserve.everything.svc.cluster.local:5080",
       organization: "default",
@@ -78,6 +80,10 @@ test("retention is bounded and malformed settings never stop Everything from sta
       TELEMETRY_URL: "http://openobserve:5080",
       TELEMETRY_INCLUDE_ERROR_TEXT: "maybe",
     },
+    {
+      TELEMETRY_URL: "http://openobserve:5080",
+      TELEMETRY_INCLUDE_CONTENT: "maybe",
+    },
   ]) {
     assert.throws(() => loadTelemetrySettings(environment, secret("x")));
     const settings = loadTelemetrySettingsOrUnavailable(
@@ -86,15 +92,24 @@ test("retention is bounded and malformed settings never stop Everything from sta
     );
     assert.equal(settings.enabled, true);
     assert.equal(settings.backend, null);
-    assert.equal(settings.includeErrorText, false, "error text stays withheld");
+    assert.equal(
+      settings.includeErrorText,
+      false,
+      "unreadable settings record no error text",
+    );
+    assert.equal(
+      settings.includeContent,
+      false,
+      "unreadable settings record no content",
+    );
   }
 });
 
-test("error text is withheld unless the setting is exactly true", () => {
+test("error text is recorded by default and withheld only when the setting is false", () => {
   for (const [value, expected] of [
-    [undefined, false],
-    ["false", false],
+    [undefined, true],
     ["true", true],
+    ["false", false],
   ] as const) {
     const settings = loadTelemetrySettings(
       {
@@ -103,6 +118,35 @@ test("error text is withheld unless the setting is exactly true", () => {
       },
       secret("x"),
     );
-    assert.equal(settings.includeErrorText, expected);
+    assert.equal(settings.includeErrorText, expected, String(value));
+  }
+});
+
+test("content follows error text unless set on its own, so an installation that withheld error text keeps content withheld", () => {
+  for (const [errorText, content, expected] of [
+    [undefined, undefined, true],
+    ["false", undefined, false],
+    ["true", undefined, true],
+    ["false", "true", true],
+    ["true", "false", false],
+    [undefined, "false", false],
+  ] as const) {
+    const settings = loadTelemetrySettings(
+      {
+        TELEMETRY_URL: "http://openobserve:5080",
+        ...(errorText !== undefined
+          ? { TELEMETRY_INCLUDE_ERROR_TEXT: errorText }
+          : {}),
+        ...(content !== undefined
+          ? { TELEMETRY_INCLUDE_CONTENT: content }
+          : {}),
+      },
+      secret("x"),
+    );
+    assert.equal(
+      settings.includeContent,
+      expected,
+      `error text ${errorText}, content ${content}`,
+    );
   }
 });

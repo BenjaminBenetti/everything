@@ -64,6 +64,8 @@ function span(
     kind: "internal",
     statusMessage: null,
     textWithheld: false,
+    previews: [],
+    contentWithheld: false,
     details: [],
     events: [],
   };

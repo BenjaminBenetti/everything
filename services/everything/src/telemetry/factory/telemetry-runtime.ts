@@ -29,12 +29,17 @@ import type {
   TelemetryBackendSettings,
   TelemetrySettings,
 } from "../model/telemetry-settings.js";
+import {
+  DatabaseStatementProcessor,
+  shapeQueryStatement,
+} from "../service/database-statement-processor.js";
 import { ExportHealth } from "../service/export-health.js";
 import {
   defaultReadRequestPolicy,
   ReadRequestFilter,
 } from "../service/read-request-filter.js";
 import { ScopeSpanProcessor } from "../service/scope-span-processor.js";
+import { attributeValueLengthLimit } from "../model/telemetry-attributes.js";
 
 /** The process's started telemetry: its export health, and flushing for shutdown. */
 export interface TelemetryRuntime {
@@ -71,8 +76,8 @@ export function activeTelemetry(): TelemetryRuntime | undefined {
  * Start tracing and event export to the configured backend, once per process, before the modules
  * it instruments are loaded. Export is bounded and asynchronous: a slow or unreachable backend fills
  * fixed-size queues whose overflow is counted and dropped, and never delays or fails the
- * application's work. Error text is exported only if the settings record it. Without a backend
- * nothing is started and the API's calls do nothing.
+ * application's work. Error text and content previews are exported only if the settings record
+ * them. Without a backend nothing is started and the API's calls do nothing.
  */
 export function startTelemetry(
   settings: TelemetrySettings,
@@ -97,7 +102,10 @@ export function startTelemetry(
     "service.name": "everything",
     "service.version": settings.serviceVersion,
   });
-  const policy = { includeErrorText: settings.includeErrorText };
+  const policy = {
+    includeErrorText: settings.includeErrorText,
+    includeContent: settings.includeContent,
+  };
   const contextManager = new AsyncLocalStorageContextManager().enable();
   context.setGlobalContextManager(contextManager);
   const spans = new BatchSpanProcessor({
@@ -117,12 +125,13 @@ export function startTelemetry(
     sampler: new ParentBasedSampler({ root: new AlwaysOnSampler() }),
     spanLimits: {
       attributeCountLimit: 64,
-      attributeValueLengthLimit: 2048,
+      attributeValueLengthLimit,
       eventCountLimit: 64,
       linkCountLimit: 8,
     },
     spanProcessors: [
       new ScopeSpanProcessor(),
+      new DatabaseStatementProcessor(),
       new ReadRequestFilter(
         spans,
         { ...defaultReadRequestPolicy, sampleRatio: settings.readSampleRatio },
@@ -134,7 +143,7 @@ export function startTelemetry(
     resource,
     logRecordLimits: {
       attributeCountLimit: 64,
-      attributeValueLengthLimit: 2048,
+      attributeValueLengthLimit,
     },
     processors: [
       new BatchLogRecordProcessor({
@@ -165,11 +174,15 @@ export function startTelemetry(
         }),
         // fetch, including provider requests; only inside traced work, so pollers stay quiet.
         new UndiciInstrumentation({ requireParentforSpans: true }),
-        // Queries are named by operation; statements and parameters are never exported.
+        // Queries are named by operation. Their statements are replaced by their shape, without
+        // literals, as each query starts, and exported only when the installation records content.
+        // Parameter values are never collected, and nothing is added to the queries that run.
         new PgInstrumentation({
           requireParentSpan: true,
           enhancedDatabaseReporting: false,
           ignoreConnectSpans: true,
+          requestHook: (span, { query }) =>
+            shapeQueryStatement(span, query.text),
         }),
       ],
     });

@@ -58,21 +58,24 @@ app.post("/v1/work", async () => {
     100,
   );
   await call.catch(() => {});
-  const client = new Client({
-    host: "127.0.0.1",
-    port: Number(process.env.CLOSED_PORT),
-    user: "everything",
-    password: "pg-password-secret",
-    database: "everything",
-    connectionTimeoutMillis: 500,
-  });
-  await client.connect().catch(() => {});
-  await client
-    .query(
-      "SELECT secret_column FROM accounts WHERE token = 'sk-sql-secret-456'",
-    )
-    .catch(() => {});
-  await client.end().catch(() => {});
+  // Each statement on a client of its own, since a client whose connection failed answers once.
+  for (const statement of [
+    "SELECT secret_column FROM accounts WHERE token = 'sk-sql-secret-456'",
+    // Longer than the SDK keeps an attribute, with a literal that ends beyond its limit.
+    `SELECT '${"x".repeat(2_100)}' AS padding, 'sk-sql-tail-secret-789' AS tail FROM accounts`,
+  ]) {
+    const client = new Client({
+      host: "127.0.0.1",
+      port: Number(process.env.CLOSED_PORT),
+      user: "everything",
+      password: "pg-password-secret",
+      database: "everything",
+      connectionTimeoutMillis: 500,
+    });
+    await client.connect().catch(() => {});
+    await client.query(statement).catch(() => {});
+    await client.end().catch(() => {});
+  }
   return { status: "ok" };
 });
 await app.listen({ host: "127.0.0.1", port: 0 });

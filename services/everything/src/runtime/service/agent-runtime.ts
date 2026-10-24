@@ -131,7 +131,13 @@ export class AgentRuntime {
 
   /** Begin prompting immediately, so an abort issued right after start reaches this turn, and record its outcome. */
   private async runTurn(text: string, runId: string): Promise<void> {
-    const telemetry = new TurnTelemetry(this.scope, this.session.id, runId);
+    // `text` is what the owner sent to the conversation, so it is the turn's message.
+    const telemetry = new TurnTelemetry(
+      this.scope,
+      this.session.id,
+      runId,
+      text,
+    );
     try {
       await context.with(telemetry.context, () => this.session.prompt(text));
       telemetry.completed(this.cancellation);

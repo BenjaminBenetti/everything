@@ -6,9 +6,11 @@ import type { TelemetryReader } from "../interface/telemetry-reader.js";
 import {
   telemetryEventParams,
   telemetryPageQuery,
+  telemetrySpanPageQuery,
   telemetryTraceParams,
   type TelemetryEventParams,
   type TelemetryPageQuery,
+  type TelemetrySpanPageQuery,
   type TelemetryTraceParams,
 } from "../schema/telemetry-request.js";
 import {
@@ -65,13 +67,13 @@ export async function telemetryController(
     async (request) =>
       telemetry.event(subject(request), request.params.eventId),
   );
-  app.get<{ Querystring: TelemetryPageQuery }>(
+  app.get<{ Querystring: TelemetrySpanPageQuery }>(
     "/telemetry/spans",
     {
       schema: {
         summary:
           "Search your recorded requests, dependency calls, and teammate work",
-        querystring: telemetryPageQuery,
+        querystring: telemetrySpanPageQuery,
         response: { 200: telemetrySpanPageResponse, 503: errorResponse },
       },
     },
@@ -82,7 +84,8 @@ export async function telemetryController(
     "/telemetry/traces/:traceId",
     {
       schema: {
-        summary: "Read the spans and events of one trace",
+        summary:
+          "Read the spans and events of one trace, with the traces related to it",
         params: telemetryTraceParams,
         response: {
           200: telemetryTraceResponse,
@@ -96,10 +99,16 @@ export async function telemetryController(
   );
 }
 
-/** The validated query string as the reader's filters, with the page size as a number. */
-function pageQuery({ limit, ...filters }: TelemetryPageQuery): TelemetryQuery {
+/** The validated query string as the reader's filters, with the page size and minimum age as numbers. */
+function pageQuery({
+  limit,
+  minAge,
+  ...filters
+}: TelemetryPageQuery &
+  Pick<TelemetrySpanPageQuery, "minAge">): TelemetryQuery {
   return {
     ...filters,
     ...(limit !== undefined ? { limit: Number(limit) } : {}),
+    ...(minAge !== undefined ? { minAge: Number(minAge) } : {}),
   };
 }

@@ -188,3 +188,53 @@ test("event and trace lookups require the owner too", () => {
     `SELECT * FROM "everything" WHERE everything_owner_id = 'owner-a' AND trace_id = '5b8efff798038103d269b633813fc60c' ORDER BY start_time ASC LIMIT 501`,
   );
 });
+
+test("relation lookups are fixed queries that start with the owner and write every ID as a literal", () => {
+  const fields = new Set([...allFields, "links"]);
+  const pair = {
+    traceId: "0d32f64cd7aaab4c985c5a8575db6474",
+    spanId: "57b967f57c88f327",
+  };
+  assert.equal(
+    builder.spansById("owner-a", [pair, pair], fields, 2),
+    `SELECT * FROM "everything" WHERE everything_owner_id = 'owner-a' AND trace_id IN ('0d32f64cd7aaab4c985c5a8575db6474') AND span_id IN ('57b967f57c88f327') ORDER BY start_time ASC LIMIT 3`,
+  );
+  assert.equal(
+    builder.linkedTo("owner-a", pair.traceId, fields, 10),
+    `SELECT * FROM "everything" WHERE everything_owner_id = 'owner-a' AND str_match(links, '0d32f64cd7aaab4c985c5a8575db6474') AND trace_id <> '0d32f64cd7aaab4c985c5a8575db6474' ORDER BY start_time ASC LIMIT 11`,
+  );
+  assert.equal(
+    builder.runTraces("owner-a", ["run-1", "run-1"], pair.traceId, fields, 10),
+    `SELECT trace_id, MIN(_timestamp) AS first_time FROM "everything" WHERE everything_owner_id = 'owner-a' AND everything_run_id IN ('run-1') AND trace_id <> '0d32f64cd7aaab4c985c5a8575db6474' GROUP BY trace_id ORDER BY first_time ASC LIMIT 11`,
+  );
+  assert.equal(
+    builder.firstSpans(
+      "owner-a",
+      [{ traceId: pair.traceId, time: 1792822391766000.7 }],
+      fields,
+      4,
+    ),
+    `SELECT * FROM "everything" WHERE everything_owner_id = 'owner-a' AND trace_id IN ('0d32f64cd7aaab4c985c5a8575db6474') AND _timestamp IN (1792822391766000) ORDER BY start_time ASC LIMIT 5`,
+  );
+  // A quote in an owner or run stays inside its literal; a backslash is refused.
+  assert.match(
+    builder.runTraces("o'wner", ["r'un"], pair.traceId, fields, 1)!,
+    /everything_owner_id = 'o''wner' AND everything_run_id IN \('r''un'\)/,
+  );
+  assert.throws(() => builder.linkedTo("owner-a", "x\\' OR 1=1 --", fields, 1));
+  assert.throws(() => builder.linkedTo("", pair.traceId, fields, 1));
+});
+
+test("relation lookups match nothing without the columns they need, or anything to look up", () => {
+  const pair = {
+    traceId: "0d32f64cd7aaab4c985c5a8575db6474",
+    spanId: "57b967f57c88f327",
+  };
+  assert.equal(builder.linkedTo("owner-a", pair.traceId, allFields, 10), null);
+  assert.equal(builder.spansById("owner-a", [], allFields, 10), null);
+  assert.equal(
+    builder.runTraces("owner-a", [], pair.traceId, allFields, 10),
+    null,
+  );
+  assert.equal(builder.firstSpans("owner-a", [], allFields, 10), null);
+});

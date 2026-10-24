@@ -107,7 +107,9 @@ export function useTelemetryRecords(
 
 /**
  * Records newer than `since` that match the applied filters, checked every fifteen seconds while
- * watching is on. They are only counted for the explorer to offer; nothing already shown moves.
+ * watching is on. They are only counted for the explorer to offer; nothing already shown moves. A
+ * span age stays in the filters, so each check ends at a fresh cutoff on the server's clock and
+ * counts only spans that have become old enough.
  */
 export function useNewerRecords(
   view: TelemetrySource,

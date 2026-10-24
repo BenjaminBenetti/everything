@@ -38,6 +38,7 @@ import {
   type TelemetryCursor,
   type TelemetrySql,
 } from "./telemetry-query-builder.js";
+import { TraceRelations } from "./trace-relations.js";
 
 /** The configured backend, when telemetry is on and its credentials could be read. */
 export interface TelemetryBackend {
@@ -53,6 +54,9 @@ const defaultRangeMs = 24 * 60 * 60_000;
 
 /** How far in the future an end time may be, for clocks slightly ahead of the server's. */
 const clockSkewMs = 5 * 60_000;
+
+/** Longest a trace waits for its related traces by default; without them in time, it's shown alone. */
+const relationsDeadlineMs = 5_000;
 
 /** The owner column, read back to check every row the backend returns. */
 const ownerColumn = telemetryColumn(attribute.ownerId);
@@ -74,6 +78,7 @@ export class TelemetryQueryService implements TelemetryReader {
   // ===========================================
 
   private readonly builder: TelemetryQueryBuilder | undefined;
+  private readonly relations: TraceRelations | undefined;
   private readonly schemas = new Map<
     TelemetryStreamType,
     { fields: ReadonlySet<string>; expiresAt: number }
@@ -90,14 +95,22 @@ export class TelemetryQueryService implements TelemetryReader {
       readonly retentionDays: number;
       /** Whether error text is recorded; withheld unless set. */
       readonly includeErrorText?: boolean;
+      /** Whether content previews are recorded; withheld unless set. */
+      readonly includeContent?: boolean;
     },
     private readonly backend: TelemetryBackend | null,
     private readonly exportHealth: () => TelemetryExportHealth | null = () =>
       null,
     private readonly now: () => number = Date.now,
+    private readonly relationsTimeoutMs: number = relationsDeadlineMs,
   ) {
     this.builder = backend
       ? new TelemetryQueryBuilder(backend.stream)
+      : undefined;
+    this.relations = this.builder
+      ? new TraceRelations(this.builder, (type, build, size) =>
+          this.run(type, build, this.retentionWindow(), size),
+        )
       : undefined;
   }
 
@@ -105,12 +118,22 @@ export class TelemetryQueryService implements TelemetryReader {
   // Operations
   // ===========================================
 
-  /** Turned off, answering, or not answering, with the error-text setting and this process's export health. */
+  /**
+   * Turned off, answering, or not answering, with the error-text and content settings and this
+   * process's export health.
+   */
   async status(): Promise<TelemetryStatus> {
     const retentionDays = this.settings.retentionDays;
     const errorText = this.settings.includeErrorText ? "included" : "withheld";
+    const content = this.settings.includeContent ? "included" : "withheld";
     if (!this.settings.enabled)
-      return { state: "disabled", retentionDays, errorText, export: null };
+      return {
+        state: "disabled",
+        retentionDays,
+        errorText,
+        content,
+        export: null,
+      };
     const available = this.backend
       ? await this.available(this.backend.search)
       : false;
@@ -118,6 +141,7 @@ export class TelemetryQueryService implements TelemetryReader {
       state: available ? "available" : "unavailable",
       retentionDays,
       errorText,
+      content,
       export: this.exportHealth(),
     };
   }
@@ -127,7 +151,10 @@ export class TelemetryQueryService implements TelemetryReader {
     return this.page("logs", ownerId, query);
   }
 
-  /** A page of the owner's spans. */
+  /**
+   * A page of the owner's spans, leaving out those that started less than `query.minAge` seconds
+   * ago by this server's clock.
+   */
   spans(ownerId: string, query: TelemetryQuery): Promise<TelemetryPage> {
     return this.page("traces", ownerId, query);
   }
@@ -146,7 +173,10 @@ export class TelemetryQueryService implements TelemetryReader {
     return eventDetail(row);
   }
 
-  /** The owner's spans and events of one trace; a trace with neither does not exist for them. */
+  /**
+   * The owner's spans and events of one trace, with its related traces when they can be found in
+   * time; a trace with neither spans nor events does not exist for them.
+   */
   async trace(ownerId: string, traceId: string): Promise<TelemetryTrace> {
     const { builder } = this.requireBackend();
     const window = this.retentionWindow();
@@ -182,16 +212,43 @@ export class TelemetryQueryService implements TelemetryReader {
     const events = owned(eventRows, ownerId);
     if (!spans.length && !events.length)
       throw new TelemetryRecordNotFoundError();
+    const shown = spans.slice(0, telemetryLimits.traceSpanLimit);
     return {
       traceId,
-      spans: spans.slice(0, telemetryLimits.traceSpanLimit).map(spanRecord),
+      spans: shown.map(spanRecord),
       events: events
         .slice(0, telemetryLimits.traceEventLimit)
         .map(eventSummary),
       truncated:
         spans.length > telemetryLimits.traceSpanLimit ||
         events.length > telemetryLimits.traceEventLimit,
+      relations: await this.related(ownerId, traceId, shown),
     };
+  }
+
+  /**
+   * The trace's related traces, or null when they couldn't be found within the deadline, so a
+   * slow or failing lookup never keeps the trace from being shown.
+   */
+  private async related(
+    ownerId: string,
+    traceId: string,
+    spans: readonly TelemetryRow[],
+  ): Promise<TelemetryTrace["relations"]> {
+    if (!this.relations) return null;
+    let timer: NodeJS.Timeout | undefined;
+    const deadline = new Promise<null>((resolve) => {
+      timer = setTimeout(() => resolve(null), this.relationsTimeoutMs);
+      timer.unref();
+    });
+    try {
+      return await Promise.race([
+        this.relations.find(ownerId, traceId, spans).catch(() => null),
+        deadline,
+      ]);
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   // ===========================================
@@ -205,7 +262,18 @@ export class TelemetryQueryService implements TelemetryReader {
     query: TelemetryQuery,
   ): Promise<TelemetryPage> {
     const { builder } = this.requireBackend();
-    const window = this.window(query.from, query.to);
+    const window = this.window(
+      query.from,
+      query.to,
+      type === "traces" ? query.minAge : undefined,
+    );
+    if (window.start >= window.end)
+      return {
+        records: [],
+        nextCursor: null,
+        from: new Date(window.start / 1000).toISOString(),
+        to: new Date(window.start / 1000).toISOString(),
+      };
     const cursor =
       query.cursor === undefined ? undefined : decodeCursor(query.cursor);
     const limit = Math.min(
@@ -336,10 +404,15 @@ export class TelemetryQueryService implements TelemetryReader {
   // Time
   // ===========================================
 
-  /** The requested range, defaulting to the last day and cut to the retention period. */
+  /**
+   * The requested range, defaulting to the last day and cut to the retention period. With
+   * `minAgeSeconds`, it also ends that long before now, as this server tells time; a range that
+   * then ends before it starts is empty rather than invalid, since its records are only too new.
+   */
   private window(
     from: string | undefined,
     to: string | undefined,
+    minAgeSeconds?: number,
   ): TelemetryWindow {
     const now = this.now();
     const earliest = now - this.settings.retentionDays * 24 * 60 * 60_000;
@@ -353,7 +426,10 @@ export class TelemetryQueryService implements TelemetryReader {
     );
     if (!Number.isFinite(start) || !Number.isFinite(end) || start >= end)
       throw new InvalidTelemetryRangeError(this.settings.retentionDays);
-    return { start: start * 1000, end: end * 1000 };
+    const settled = minAgeSeconds
+      ? Math.max(start, Math.min(end, now - minAgeSeconds * 1000))
+      : end;
+    return { start: start * 1000, end: settled * 1000 };
   }
 
   /** The whole retention period, for lookups by identifier. */

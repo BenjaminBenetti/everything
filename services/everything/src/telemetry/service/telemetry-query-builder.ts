@@ -50,6 +50,8 @@ const column = {
   traceId: "trace_id",
   spanId: "span_id",
   startTime: "start_time",
+  run: telemetryColumn(attribute.runId),
+  links: "links",
 } as const;
 
 /** The column that orders records with the same time, per stream. */
@@ -218,6 +220,92 @@ export class TelemetryQueryBuilder {
     return `${this.select(conditions as string[])} ORDER BY ${order} ASC LIMIT ${bound(limit) + 1}`;
   }
 
+  /**
+   * The owner's spans with the given trace and span IDs, such as those that started a trace's work.
+   * A pair matches only if both IDs do; callers check the pairs of the rows returned.
+   */
+  spansById(
+    ownerId: string,
+    spans: readonly { readonly traceId: string; readonly spanId: string }[],
+    fields: ReadonlySet<string>,
+    limit: number,
+  ): TelemetrySql {
+    const conditions = [
+      this.owner(ownerId, fields),
+      oneOf(column.traceId, unique(spans.map((span) => span.traceId)), fields),
+      oneOf(column.spanId, unique(spans.map((span) => span.spanId)), fields),
+    ];
+    if (!spans.length || conditions.includes(null)) return null;
+    return `${this.select(conditions as string[])} ORDER BY ${column.startTime} ASC LIMIT ${bound(limit) + 1}`;
+  }
+
+  /**
+   * The owner's spans in other traces whose links name `traceId`: the first spans of the work it
+   * started. Callers check each row's links, since this only matches their stored text.
+   */
+  linkedTo(
+    ownerId: string,
+    traceId: string,
+    fields: ReadonlySet<string>,
+    limit: number,
+  ): TelemetrySql {
+    const conditions = [
+      this.owner(ownerId, fields),
+      fields.has(column.links)
+        ? `str_match(${column.links}, ${sqlLiteral(traceId)})`
+        : null,
+      fields.has(column.traceId)
+        ? `${column.traceId} <> ${sqlLiteral(traceId)}`
+        : null,
+    ];
+    if (conditions.includes(null)) return null;
+    return `${this.select(conditions as string[])} ORDER BY ${column.startTime} ASC LIMIT ${bound(limit) + 1}`;
+  }
+
+  /**
+   * Other traces of the owner's that recorded any of `runIds`, each with the time of its first
+   * span, earliest first.
+   */
+  runTraces(
+    ownerId: string,
+    runIds: readonly string[],
+    traceId: string,
+    fields: ReadonlySet<string>,
+    limit: number,
+  ): TelemetrySql {
+    const conditions = [
+      this.owner(ownerId, fields),
+      oneOf(column.run, unique(runIds), fields),
+      fields.has(column.traceId)
+        ? `${column.traceId} <> ${sqlLiteral(traceId)}`
+        : null,
+    ];
+    if (!runIds.length || conditions.includes(null)) return null;
+    return `SELECT ${column.traceId}, MIN(${column.time}) AS first_time FROM "${this.stream}" WHERE ${conditions.join(" AND ")} GROUP BY ${column.traceId} ORDER BY first_time ASC LIMIT ${bound(limit) + 1}`;
+  }
+
+  /** The owner's spans that began the given traces, at the times `runTraces` found. */
+  firstSpans(
+    ownerId: string,
+    starts: readonly { readonly traceId: string; readonly time: number }[],
+    fields: ReadonlySet<string>,
+    limit: number,
+  ): TelemetrySql {
+    const conditions = [
+      this.owner(ownerId, fields),
+      oneOf(
+        column.traceId,
+        unique(starts.map((start) => start.traceId)),
+        fields,
+      ),
+      fields.has(column.time)
+        ? `${column.time} IN (${unique(starts.map((start) => String(Math.trunc(start.time)))).join(", ")})`
+        : null,
+    ];
+    if (!starts.length || conditions.includes(null)) return null;
+    return `${this.select(conditions as string[])} ORDER BY ${column.startTime} ASC LIMIT ${bound(limit) + 1}`;
+  }
+
   // ===========================================
   // Clauses
   // ===========================================
@@ -232,6 +320,11 @@ export class TelemetryQueryBuilder {
   private select(conditions: readonly string[]): string {
     return `SELECT * FROM "${this.stream}" WHERE ${conditions.join(" AND ")}`;
   }
+}
+
+/** Values without repeats, in their first order. */
+function unique(values: readonly string[]): string[] {
+  return [...new Set(values)];
 }
 
 /** A row count from 1 to 500. */

@@ -80,10 +80,13 @@ export function useScrollReveal<Area extends HTMLElement>(
       0,
       Math.min(contextAbove, view.height / 4, view.height - box.height),
     );
-    // Rounded up, as the area scrolls in whole pixels, so the target's end isn't cut short.
+    // The area scrolls in whole pixels: a target that fits is rounded up, so its end isn't cut
+    // short, and one taller than the area, such as a span with long previews, is rounded down, so
+    // its start, where its title is, isn't.
+    const offset = scroller.scrollTop + box.top - view.top - room;
     scroller.scrollTop = Math.max(
       0,
-      Math.ceil(scroller.scrollTop + box.top - view.top - room),
+      box.height > view.height ? Math.floor(offset) : Math.ceil(offset),
     );
   }, []);
 

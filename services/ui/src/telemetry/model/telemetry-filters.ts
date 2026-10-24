@@ -12,6 +12,20 @@ import {
 /** A preset range, or one the owner chooses. */
 export type TelemetryRangeChoice = TelemetryTimeRange | "custom";
 
+/**
+ * How old spans must be before the list shows them: as soon as they are stored, a minute after
+ * they started, or a number of minutes the owner chooses. Recording is never delayed.
+ */
+export const spanDelayChoices = [
+  { id: "live", label: "Live", seconds: 0 },
+  { id: "1m", label: "At least 1 minute old", seconds: 60 },
+  { id: "custom", label: "Custom age", seconds: null },
+] as const;
+export type SpanDelayChoice = (typeof spanDelayChoices)[number]["id"];
+
+/** Longest custom span age, in whole minutes. */
+export const maxSpanDelayMinutes = telemetryLimits.maxSpanDelaySeconds / 60;
+
 /** Everything the explorer filters by, as its controls hold it. */
 export interface TelemetryFilters {
   /** Events are durable records such as failures; spans time each operation. */
@@ -30,6 +44,10 @@ export interface TelemetryFilters {
   readonly model: string;
   readonly correlationId: string;
   readonly search: string;
+  /** Spans only: how old a span must be before the list shows it. */
+  readonly delay: SpanDelayChoice;
+  /** Whole minutes, as typed, for a custom span age. */
+  readonly customDelay: string;
 }
 
 /** Errors first: failures from the last day. */
@@ -46,6 +64,8 @@ export const defaultTelemetryFilters: TelemetryFilters = {
   model: "",
   correlationId: "",
   search: "",
+  delay: "live",
+  customDelay: "5",
 };
 
 /** Record types each view can show. */
@@ -84,9 +104,15 @@ export function telemetryQuery(
       error:
         "A correlation ID has only letters, numbers, and the characters . _ : -",
     };
+  const minAge = filters.view === "spans" ? spanDelaySeconds(filters) : 0;
+  if (minAge === undefined)
+    return {
+      error: `Choose a span age of 1 to ${maxSpanDelayMinutes} whole minutes.`,
+    };
   return {
     query: {
       ...range,
+      ...(minAge ? { minAge } : {}),
       severity: filters.severity,
       ...(filters.type !== "all" &&
       typesByView[filters.view].includes(filters.type)
@@ -104,9 +130,27 @@ export function telemetryQuery(
   };
 }
 
+/**
+ * The minimum age, in seconds, a span list waits for, or undefined when the custom age isn't a
+ * whole number of minutes from 1 to `maxSpanDelayMinutes`.
+ */
+export function spanDelaySeconds(
+  filters: TelemetryFilters,
+): number | undefined {
+  const choice = spanDelayChoices.find(({ id }) => id === filters.delay);
+  if (choice && choice.seconds !== null) return choice.seconds;
+  const text = filters.customDelay.trim();
+  if (!/^[0-9]{1,3}$/.test(text)) return undefined;
+  const minutes = Number(text);
+  return minutes >= 1 && minutes <= maxSpanDelayMinutes
+    ? minutes * 60
+    : undefined;
+}
+
 /** Whether filters beyond the view, time range, and severity narrow the results. */
 export function hasNarrowingFilters(filters: TelemetryFilters): boolean {
   return (
+    (filters.view === "spans" && filters.delay !== "live") ||
     filters.type !== "all" ||
     filters.outcome !== "any" ||
     !!filters.agentId ||

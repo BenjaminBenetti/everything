@@ -11,10 +11,10 @@ import {
   type ExportPolicy,
 } from "../service/telemetry-allowlist.js";
 
-/** Both error-text settings; credentials are redacted under each. */
+/** Error text withheld and recorded, with content the same; credentials are redacted under each. */
 const policies: readonly ExportPolicy[] = [
-  { includeErrorText: false },
-  { includeErrorText: true },
+  { includeErrorText: false, includeContent: false },
+  { includeErrorText: true, includeContent: true },
 ];
 
 /** A synthetic key in a shape the redactor recognizes. */
@@ -188,7 +188,10 @@ test("by default only Everything's own fixed status messages are kept; text that
 });
 
 test("with error text recorded, any status message is kept, redacted and bounded", () => {
-  const recorded: ExportPolicy = { includeErrorText: true };
+  const recorded: ExportPolicy = {
+    includeErrorText: true,
+    includeContent: true,
+  };
   const view = exportableSpan(
     ended({
       code: SpanStatusCode.ERROR,
