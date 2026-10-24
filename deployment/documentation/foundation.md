@@ -206,6 +206,11 @@ After authentication, each folder creates the agents it needs and deletes them a
 | POST | `/v1/agents/:agentId/interrupt` | Abort generation and await in-flight tools. |
 | GET | `/v1/artifacts` | Artifacts shared by the caller's teammates, with status, link, and authors. |
 | POST | `/v1/artifact-views` | Exchange `{ "slug": "...", "path": "/optional" }` for a one-time `url` that opens the artifact on the artifact host. |
+| GET | `/v1/telemetry/status` | Whether telemetry is turned off, available, or unavailable, its retention, whether error text is recorded or withheld, and this process's export health. |
+| GET | `/v1/telemetry/events` | The caller's events, newest first: `from`, `to`, `type`, `severity`, `outcome`, `agentId`, `provider`, `model`, `correlationId`, `search`, `cursor`, and `limit` filter and page them. |
+| GET | `/v1/telemetry/events/:eventId` | One of the caller's events with its diagnosis. |
+| GET | `/v1/telemetry/spans` | The caller's spans, with the same filters. |
+| GET | `/v1/telemetry/traces/:traceId` | The caller's spans and events in one trace; another owner's trace is a 404. |
 
 Request schemas reject unexpected properties, invalid IDs, empty messages, and excessive input. Bodies are bounded to 64 KiB. Routes reachable without authentication are rate limited per client address: sign-in at 20 requests a minute, session restore, logout, and the ChatGPT callback at 120. Authenticated routes are not rate limited, since the application has a single user. Security headers are applied, and authorization headers are redacted from logs. Public runtime errors do not contain provider responses or credentials.
 
@@ -438,6 +443,10 @@ Consumers never reach that agent directly. Everything serves relays that pass on
 fleetd points its children's `SSH_AUTH_SOCK` at its relay. That relay answers with the agent of the newest attached Fleet client that has one, and with the agent fleetd was started with only when none does, so an attached client would otherwise hide the saved keys from fleetd's clones. `FLEET_SSH_AGENT_SOCK` changes only which agent instances use, not fleetd's own Git, so Everything doesn't set it. `IdentityAgent` doesn't change Fleet's `GIT_SSH_COMMAND` or its host-key checks, and an `IdentityAgent` in `/fleet/.ssh/config` still takes precedence. Instances keep Fleet's order: an attached client's agent, then the saved keys.
 
 Host trust is unchanged. `files/ssh` supplies the shared known_hosts, which names GitHub; OpenSSH checks host keys strictly in noninteractive commands, so a teammate's first connection to another host needs that host's key in the teammate's `~/.ssh/known_hosts`, and fleetd clones from a host missing from both known_hosts files only after an attached Fleet client approves its key. Anyone who can run commands in a teammate pod, a Fleet instance, or Everything's container can sign with the saved keys while they stay saved, but cannot read them out of the agent.
+
+## Telemetry
+
+The Telemetry page searches model and provider errors, requests, dependency calls, and teammate work that Everything records with OpenTelemetry and keeps in a single OpenObserve node for `telemetry.retentionDays` (seven) days. Each owner sees only their own records, through Everything's API; OpenObserve has no Ingress, no web UI, and makes no connections outside the cluster. The text of error messages, which can quote prompts, is withheld unless `telemetry.includeErrorText` is `true`. See [Telemetry](telemetry.md) for what is and isn't recorded, redaction, access control, configuration, resources, and tests.
 
 ## Validation
 

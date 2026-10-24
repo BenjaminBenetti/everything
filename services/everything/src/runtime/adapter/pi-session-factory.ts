@@ -225,7 +225,14 @@ export class PiSessionFactory implements AgentSessionFactory {
     });
     // Starting the extensions connects Fleet's MCP server.
     await session.bindExtensions({});
-    return new PiAgentSession(session);
+    return new PiAgentSession(session, Date.now, {
+      ownerId: agent.ownerId,
+      agentId: agent.id,
+      sessionKind: parentId === undefined ? "main" : "fork",
+      ...(parentId !== undefined ? { parentSessionId: parentId } : {}),
+      provider: agent.inference!.provider,
+      model: agent.inference!.model,
+    });
   }
 
   // ===========================================

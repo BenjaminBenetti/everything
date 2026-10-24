@@ -18,6 +18,7 @@ COPY lib/settings-contracts/package.json ./lib/settings-contracts/package.json
 COPY lib/workspace-contracts/package.json ./lib/workspace-contracts/package.json
 COPY lib/update-contracts/package.json ./lib/update-contracts/package.json
 COPY lib/upgrade-contracts/package.json ./lib/upgrade-contracts/package.json
+COPY lib/telemetry-contracts/package.json ./lib/telemetry-contracts/package.json
 COPY services/everything/package.json ./services/everything/package.json
 COPY services/keycloak/package.json ./services/keycloak/package.json
 COPY testing/api/package.json ./testing/api/package.json
@@ -39,6 +40,7 @@ COPY lib/settings-contracts ./lib/settings-contracts
 COPY lib/workspace-contracts ./lib/workspace-contracts
 COPY lib/update-contracts ./lib/update-contracts
 COPY lib/upgrade-contracts ./lib/upgrade-contracts
+COPY lib/telemetry-contracts ./lib/telemetry-contracts
 RUN pnpm --filter @everything/everything... build
 RUN --mount=type=secret,id=proxy_ca \
     if [ -f /run/secrets/proxy_ca ]; then export NODE_EXTRA_CA_CERTS=/run/secrets/proxy_ca; fi; \
@@ -77,4 +79,5 @@ COPY --from=build /output ./
 USER 1000:1000
 EXPOSE 8080
 ENTRYPOINT ["/usr/bin/tini", "--"]
-CMD ["node", "build/application/bootstrap/main.js"]
+# Telemetry's preload instruments Node's HTTP server, fetch, and PostgreSQL before the application loads.
+CMD ["node", "--import", "./build/telemetry/bootstrap/instrumentation.js", "build/application/bootstrap/main.js"]

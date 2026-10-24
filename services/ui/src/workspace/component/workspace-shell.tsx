@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
+  Activity,
   ArrowLeft,
   Bell,
   Boxes,
@@ -30,13 +31,15 @@ import {
   unreadLinkLabel,
 } from "../../update/component/update-count-badge.js";
 
+/** Destinations in sidebar order; desktop-only ones are left out of the phone's bottom bar. */
 const navigation = [
-  { path: "/", label: "Home", icon: House },
-  { path: "/updates", label: "Updates", icon: Bell },
-  { path: "/team", label: "Your team", icon: Grid2X2 },
-  { path: "/apps", label: "Apps", icon: Folder },
-  { path: "/workspaces", label: "Workspaces", icon: Boxes },
-  { path: "/keys", label: "Keys", icon: KeyRound },
+  { path: "/", label: "Home", icon: House, desktopOnly: false },
+  { path: "/updates", label: "Updates", icon: Bell, desktopOnly: false },
+  { path: "/team", label: "Your team", icon: Grid2X2, desktopOnly: false },
+  { path: "/apps", label: "Apps", icon: Folder, desktopOnly: false },
+  { path: "/workspaces", label: "Workspaces", icon: Boxes, desktopOnly: false },
+  { path: "/keys", label: "Keys", icon: KeyRound, desktopOnly: false },
+  { path: "/telemetry", label: "Telemetry", icon: Activity, desktopOnly: true },
 ];
 
 /** Keep navigation stationary and let phone conversations use their own compact header. */
@@ -199,24 +202,26 @@ export function WorkspaceShell() {
         </main>
       </div>
       <nav className="mobile-nav" aria-label="Mobile workspace">
-        {navigation.map(({ path, label: itemLabel, icon: Icon }) => {
-          const shortLabel = itemLabel === "Your team" ? "Team" : itemLabel;
-          return (
-            <NavLink
-              key={path}
-              to={path}
-              end
-              className={({ isActive }) => (isActive ? "active" : "")}
-              aria-label={unreadLinkLabel(shortLabel, unreadFor(path))}
-            >
-              <span className="mobile-nav-icon">
-                <Icon aria-hidden="true" />
-                <UpdateCountBadge count={unreadFor(path)} />
-              </span>
-              {shortLabel}
-            </NavLink>
-          );
-        })}
+        {navigation
+          .filter(({ desktopOnly }) => !desktopOnly)
+          .map(({ path, label: itemLabel, icon: Icon }) => {
+            const shortLabel = itemLabel === "Your team" ? "Team" : itemLabel;
+            return (
+              <NavLink
+                key={path}
+                to={path}
+                end
+                className={({ isActive }) => (isActive ? "active" : "")}
+                aria-label={unreadLinkLabel(shortLabel, unreadFor(path))}
+              >
+                <span className="mobile-nav-icon">
+                  <Icon aria-hidden="true" />
+                  <UpdateCountBadge count={unreadFor(path)} />
+                </span>
+                {shortLabel}
+              </NavLink>
+            );
+          })}
       </nav>
     </div>
   );

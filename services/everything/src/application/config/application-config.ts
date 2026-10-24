@@ -3,6 +3,8 @@ import envSchema from "env-schema";
 import { Value } from "typebox/value";
 import type { FleetSettings } from "../../fleet/model/fleet-settings.js";
 import type { VoiceSettings } from "../../voice/model/voice-settings.js";
+import type { TelemetrySettings } from "../../telemetry/model/telemetry-settings.js";
+import { loadTelemetrySettingsOrUnavailable } from "../../telemetry/config/telemetry-config.js";
 import {
   environmentSchema,
   fleetChecksumsSchema,
@@ -52,6 +54,8 @@ export interface ApplicationConfig {
   };
   /** The self-hosted speech recognition service and transcription limits; no service, no voice input. */
   readonly voice: VoiceSettings;
+  /** The in-cluster telemetry backend and its retention; no backend, no telemetry. */
+  readonly telemetry: TelemetrySettings;
 }
 
 /** Validate deployment settings with env-schema and normalize paths. */
@@ -122,6 +126,7 @@ export function loadApplicationConfig(
         queueTimeoutMs: settings.VOICE_QUEUE_TIMEOUT_MS,
       },
     },
+    telemetry: loadTelemetrySettingsOrUnavailable(environment),
     fleet: {
       home: path.resolve(settings.FLEET_HOME),
       release: {
