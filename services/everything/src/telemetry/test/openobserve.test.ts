@@ -356,6 +356,14 @@ test(
         ? "the message is stored, redacted"
         : "withheld content never reaches storage",
     );
+    // OpenObserve derives its own normalized copy of each statement it receives.
+    assert.equal(
+      stored.includes("FROM accounts WHERE token"),
+      includeContent,
+      includeContent
+        ? "the statement's shape is stored, and OpenObserve's copy of it"
+        : "a withheld statement reaches storage in no column, including OpenObserve's copy",
+    );
 
     // The turn's own trace links back to the request, and the request finds the turn it started.
     const fromTurn = await eventually(async () => {
