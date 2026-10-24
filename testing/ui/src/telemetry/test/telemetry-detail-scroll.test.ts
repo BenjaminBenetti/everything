@@ -81,6 +81,8 @@ interface Geometry {
     expanded: boolean;
     title: string;
   } | null;
+  /** The selected span's own button, its title row, which must be wholly in view. */
+  readonly targetButton: { top: number; bottom: number; height: number } | null;
 }
 
 /** Measure the page: the content area, the details panel, its scrolling area, and the target. */
@@ -101,6 +103,7 @@ function geometry(page: Page): Promise<Geometry> {
         )
       : undefined;
     const target = panel?.querySelector(".telemetry-span.highlighted");
+    const button = target?.querySelector(".telemetry-span-button");
     return {
       content: {
         ...box(content)!,
@@ -129,8 +132,37 @@ function geometry(page: Page): Promise<Geometry> {
               target.querySelector(".telemetry-span-name")?.textContent ?? "",
           }
         : null,
+      targetButton: button
+        ? {
+            ...box(button)!,
+            height: button.getBoundingClientRect().height,
+          }
+        : null,
     };
   });
+}
+
+/**
+ * The selected span's whole button, not just its top, is within the details' visible scrolling
+ * area and the content area, measured directly from its own rectangle.
+ */
+function expectWholeButtonInView(measured: Geometry): void {
+  const { content, scroller, targetButton } = measured;
+  expect(targetButton, "the selected span's button is shown").not.toBeNull();
+  expect(
+    targetButton!.height,
+    "the button fits the visible area",
+  ).toBeLessThanOrEqual(scroller!.height);
+  expect(
+    targetButton!.top,
+    "the button's top is in the details' view",
+  ).toBeGreaterThanOrEqual(scroller!.top - 0.5);
+  expect(
+    targetButton!.bottom,
+    "the button's bottom is in the details' view",
+  ).toBeLessThanOrEqual(scroller!.top + scroller!.height + 0.5);
+  expect(targetButton!.top).toBeGreaterThanOrEqual(content.top - 0.5);
+  expect(targetButton!.bottom).toBeLessThanOrEqual(content.bottom + 0.5);
 }
 
 /** Where the row of the record with `index` is on screen. */
@@ -324,6 +356,7 @@ async function expectContainedAndRevealed(
     target!.top,
     "the selected span is in the details' visible area",
   ).toBeLessThan(scroller!.bottom - 20);
+  expectWholeButtonInView(measured);
   return measured;
 }
 
@@ -335,8 +368,10 @@ async function expectWholePanelUsable(
   page: Page,
   index: number,
 ): Promise<void> {
+  const measured = await geometry(page);
   const { content, panel, header, close, scroller, target, documentScrollTop } =
-    await geometry(page);
+    measured;
+  expectWholeButtonInView(measured);
   expect(documentScrollTop).toBe(0);
   expect(panel!.top, "the panel starts in view").toBeGreaterThanOrEqual(
     content.top - 1,
@@ -474,6 +509,108 @@ async function arrive(
   if (arrival === "Refresh")
     await page.getByRole("button", { name: "Refresh" }).click();
   else await page.clock.fastForward(6_000);
+}
+
+/** A span the page's watching finds in the trace before the waiting record's span, early in it. */
+const earlierSpanTitle = "Tool call while waiting";
+
+/**
+ * `trace` with one more span, under its first prompt: far above what the details show once the
+ * waiting record's event is revealed, so the browser's scroll anchor, a span lower down, moves.
+ */
+function withEarlierSpan<Trace extends { spans: unknown[] }>(
+  trace: Trace,
+): Trace {
+  const request = longTrace(1).spans.find(
+    (span) => (span as { title: string }).title === "Provider request 1",
+  ) as Record<string, unknown>;
+  return {
+    ...trace,
+    spans: [
+      ...trace.spans,
+      {
+        ...request,
+        id: "4000000000000001",
+        spanId: "4000000000000001",
+        title: earlierSpanTitle,
+      },
+    ],
+  };
+}
+
+/** The details' scrolling area once two frames pass without its offset changing. */
+interface Settled {
+  readonly scrollTop: number;
+  readonly max: number;
+  readonly height: number;
+}
+
+/** Wait for the details' scrolling, the page's own and the browser's, to settle, and measure it. */
+function settledScroll(page: Page): Promise<Settled> {
+  return page.evaluate(async () => {
+    const body = document.querySelector<HTMLElement>(".telemetry-detail-body")!;
+    const frame = () =>
+      new Promise((resolve) => requestAnimationFrame(resolve));
+    let last = Number.NaN;
+    for (let check = 0; check < 60 && body.scrollTop !== last; check++) {
+      last = body.scrollTop;
+      await frame();
+      await frame();
+    }
+    return {
+      scrollTop: body.scrollTop,
+      max: body.scrollHeight - body.clientHeight,
+      height: body.clientHeight,
+    };
+  });
+}
+
+/** What the page saw while observed: the details' scroll offsets, and every input given. */
+interface Observed {
+  readonly scrolls: number[];
+  readonly inputs: { type: string; inDetails: boolean }[];
+}
+
+/**
+ * Record, in the page, every scroll event of the details' scrolling area with its offset, and
+ * every input anyone could give, anywhere: wheel, key, pointer, mouse, and touch. It only listens,
+ * so it changes neither; it proves an offset change came from the browser, not from the reader.
+ */
+function observeDetails(page: Page): Promise<void> {
+  return page.evaluate(() => {
+    const body = document.querySelector<HTMLElement>(".telemetry-detail-body")!;
+    const observed = {
+      scrolls: [] as number[],
+      inputs: [] as { type: string; inDetails: boolean }[],
+    };
+    body.addEventListener("scroll", () =>
+      observed.scrolls.push(body.scrollTop),
+    );
+    for (const type of [
+      "wheel",
+      "keydown",
+      "pointerdown",
+      "mousedown",
+      "touchstart",
+    ])
+      window.addEventListener(
+        type,
+        (event) =>
+          observed.inputs.push({
+            type,
+            inDetails: body.contains(event.target as Node),
+          }),
+        { capture: true, passive: true },
+      );
+    Object.assign(window, { observedDetails: observed });
+  });
+}
+
+/** What the page has seen since `observeDetails`. */
+function observed(page: Page): Promise<Observed> {
+  return page.evaluate(
+    () => (window as unknown as { observedDetails: Observed }).observedDetails,
+  );
 }
 
 test.describe("desktop", { tag: "@desktop" }, () => {
@@ -746,6 +883,7 @@ test.describe("desktop", { tag: "@desktop" }, () => {
         arrived.target!.top,
         "the arriving span is in the details' visible area",
       ).toBeLessThan(arrived.scroller!.bottom - 20);
+      expectWholeButtonInView(arrived);
     });
 
   test("watching a trace that keeps changing never moves the details again once its span is revealed", async ({
@@ -836,6 +974,187 @@ test.describe("desktop", { tag: "@desktop" }, () => {
     );
     expect(
       Math.abs((await spanTop(page, read.span)) - read.top),
+      "what the reader was looking at stayed in place",
+    ).toBeLessThan(1);
+  });
+
+  // ===========================================
+  // The browser moving the details by itself, before the span arrives
+  // ===========================================
+
+  test("a span that arrives after the window grew, and the browser pulled the details back from their end, is revealed", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 800 });
+    const workspace = await partialTraceWorkspace(page, "Refresh");
+    await openWaitingForSpan(page);
+    const shown = await settledScroll(page);
+    expect(shown.scrollTop, "the event was revealed at the details' end").toBe(
+      shown.max,
+    );
+    await observeDetails(page);
+
+    // The window grows: the details grow with it, so the browser lowers their offset to its new end.
+    await page.setViewportSize({ width: 1440, height: 960 });
+    const grown = await settledScroll(page);
+    const seen = await observed(page);
+    record("native-clamp-on-window-growth", { shown, grown, seen });
+    expect(grown.height, "the details grew").toBeGreaterThan(shown.height);
+    expect(
+      grown.scrollTop,
+      "the browser moved the details' offset itself",
+    ).toBeLessThan(shown.scrollTop);
+    expect(grown.scrollTop).toBe(grown.max);
+    expect(seen.scrolls.length, "with a scroll event").toBeGreaterThan(0);
+    expect(seen.inputs, "and no input from the reader").toEqual([]);
+
+    workspace.trace = fullTrace();
+    await arrive(page, "Refresh");
+    await expect
+      .poll(async () => (await geometry(page)).target?.title)
+      .toBe(`Provider request ${waitingSpan}`);
+    const arrived = await geometry(page);
+    record("span-arrives-after-native-clamp", arrived);
+    await page.screenshot({
+      path: `${evidence}span-arrives-after-native-clamp.png`,
+    });
+    expect(arrived.target!.expanded).toBe(true);
+    expectWholeButtonInView(arrived);
+  });
+
+  test("a span that arrives after watching added a span above what the details show, which the browser kept in place, is revealed", async ({
+    page,
+  }) => {
+    const workspace = await partialTraceWorkspace(page, "watching");
+    await openWaitingForSpan(page);
+    const shown = await settledScroll(page);
+    const anchor = await readingPosition(page);
+    await observeDetails(page);
+
+    // The next check finds a span early in the trace, above the spans in view.
+    workspace.trace = withEarlierSpan(partialTrace("watching"));
+    await arrive(page, "watching");
+    await expect(
+      page
+        .locator("#telemetry-detail .telemetry-span-name")
+        .filter({ hasText: earlierSpanTitle }),
+      "the trace was checked again and grew above the spans in view",
+    ).toHaveCount(1);
+    const anchored = await settledScroll(page);
+    const seen = await observed(page);
+    const anchorTop = await spanTop(page, anchor.span);
+    record("native-anchoring-on-watch", {
+      shown,
+      anchor,
+      anchored,
+      anchorTop,
+      seen,
+    });
+    expect(
+      anchored.scrollTop,
+      "the browser scrolled the details itself",
+    ).toBeGreaterThan(shown.scrollTop);
+    expect(
+      Math.abs(anchorTop - anchor.top),
+      "keeping the span in view where it was",
+    ).toBeLessThan(1);
+    expect(seen.scrolls.length, "with a scroll event").toBeGreaterThan(0);
+    expect(seen.inputs, "and no input from the reader").toEqual([]);
+
+    workspace.trace = withEarlierSpan(unfinishedTrace(depth));
+    await arrive(page, "watching");
+    await expect
+      .poll(async () => (await geometry(page)).target?.title)
+      .toBe(`Provider request ${waitingSpan}`);
+    const arrived = await geometry(page);
+    record("span-arrives-after-native-anchoring", arrived);
+    await page.screenshot({
+      path: `${evidence}span-arrives-after-native-anchoring.png`,
+    });
+    expect(arrived.target!.expanded).toBe(true);
+    expectWholeButtonInView(arrived);
+  });
+
+  test("a span that arrives after the reader scrolled the list, which grew the details, is revealed", async ({
+    page,
+  }) => {
+    const workspace = await partialTraceWorkspace(page, "watching");
+    await openWaitingForSpan(page);
+    const shown = await settledScroll(page);
+    expect(shown.scrollTop).toBe(shown.max);
+    await observeDetails(page);
+
+    // The reader scrolls the page with the wheel over the list, not the details; the details stick
+    // to the top, grow, and the browser lowers their offset to their new end.
+    const list = (await page.locator(".telemetry-results").boundingBox())!;
+    await page.mouse.move(list.x + 200, list.y + 300);
+    await page.mouse.wheel(0, 300);
+    await expect
+      .poll(async () => (await geometry(page)).content.scrollTop)
+      .toBeGreaterThan(0);
+    const grown = await settledScroll(page);
+    const seen = await observed(page);
+    record("native-clamp-on-page-scroll", { shown, grown, seen });
+    expect(grown.height, "the details grew").toBeGreaterThan(shown.height);
+    expect(
+      grown.scrollTop,
+      "the browser moved the details' offset itself",
+    ).toBeLessThan(shown.scrollTop);
+    expect(seen.scrolls.length, "with a scroll event").toBeGreaterThan(0);
+    expect(
+      seen.inputs.filter((input) => input.inDetails),
+      "and no input in the details",
+    ).toEqual([]);
+
+    workspace.trace = unfinishedTrace(depth);
+    await arrive(page, "watching");
+    await expect
+      .poll(async () => (await geometry(page)).target?.title)
+      .toBe(`Provider request ${waitingSpan}`);
+    const arrived = await geometry(page);
+    record("span-arrives-after-page-scroll", arrived);
+    expect(arrived.target!.expanded).toBe(true);
+    expectWholeButtonInView(arrived);
+  });
+
+  test("a span that arrives after the reader moved through the details with the keyboard leaves them where they are", async ({
+    page,
+  }) => {
+    const workspace = await partialTraceWorkspace(page, "Refresh");
+    await openWaitingForSpan(page);
+    const shown = await settledScroll(page);
+    // The reader tabs from the details' heading into their contents, which scroll to what has
+    // focus, and pages down from there.
+    const inDetails = () =>
+      page.evaluate(
+        () =>
+          !!document
+            .querySelector(".telemetry-detail-body")
+            ?.contains(document.activeElement),
+      );
+    for (let press = 0; press < 5 && !(await inDetails()); press++)
+      await page.keyboard.press("Tab");
+    expect(await inDetails(), "Tab reached the details' contents").toBe(true);
+    await page.keyboard.press("PageDown");
+    const read = await settledScroll(page);
+    expect(read.scrollTop, "the reader moved the details").not.toBe(
+      shown.scrollTop,
+    );
+    const position = await readingPosition(page);
+
+    workspace.trace = fullTrace();
+    await arrive(page, "Refresh");
+    await expect
+      .poll(async () => (await geometry(page)).target?.title)
+      .toBe(`Provider request ${waitingSpan}`);
+    const arrived = await geometry(page);
+    record("span-arrives-after-keyboard-reading", arrived);
+    expect(arrived.target!.expanded, "the span still opens").toBe(true);
+    expect(arrived.scroller!.scrollTop, "the details didn't scroll").toBe(
+      position.scrollTop,
+    );
+    expect(
+      Math.abs((await spanTop(page, position.span)) - position.top),
       "what the reader was looking at stayed in place",
     ).toBeLessThan(1);
   });

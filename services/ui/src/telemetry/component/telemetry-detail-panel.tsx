@@ -104,11 +104,7 @@ export function TelemetryDetailPanel({
           <X aria-hidden="true" />
         </IconButton>
       </div>
-      <div
-        className="telemetry-detail-body"
-        ref={reveal.area}
-        onScroll={reveal.onScroll}
-      >
+      <div className="telemetry-detail-body" ref={reveal.area}>
         {event.isPending && record.source === "events" && (
           <p className="telemetry-muted" role="status">
             Loading details…
