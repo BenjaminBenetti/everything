@@ -112,3 +112,57 @@ test("queries are encoded for the API without empty values", () => {
   );
   assert.equal(queryString({}), "");
 });
+
+test("spans can wait to show work that has had time to finish: live by default, a minute, or a custom age", () => {
+  const spans = { ...defaultTelemetryFilters, view: "spans" as const };
+  const query = (patch: Partial<typeof spans>) => {
+    const result = telemetryQuery({ ...spans, ...patch }, now);
+    return "query" in result ? result.query : result;
+  };
+  assert.equal(
+    (query({}) as { minAge?: number }).minAge,
+    undefined,
+    "live shows spans as soon as they're stored",
+  );
+  assert.equal((query({ delay: "1m" }) as { minAge?: number }).minAge, 60);
+  assert.equal(
+    (query({ delay: "custom", customDelay: " 15 " }) as { minAge?: number })
+      .minAge,
+    900,
+  );
+  assert.equal(
+    (query({ delay: "custom", customDelay: "60" }) as { minAge?: number })
+      .minAge,
+    3_600,
+  );
+  for (const customDelay of ["0", "61", "1.5", "-1", "", "1e2", "ten"])
+    assert.deepEqual(
+      query({ delay: "custom", customDelay }),
+      { error: "Choose a span age of 1 to 60 whole minutes." },
+      customDelay,
+    );
+  // The range is still the one chosen; the server ends it at the cutoff by its own clock.
+  assert.equal(
+    (query({ delay: "1m" }) as { to?: string }).to,
+    "2026-10-23T12:00:00.000Z",
+  );
+  assert.equal(
+    queryString(query({ delay: "1m", severity: "info" }) as never),
+    "?from=2026-10-22T12%3A00%3A00.000Z&to=2026-10-23T12%3A00%3A00.000Z&minAge=60&severity=info",
+  );
+  // Events never wait, whatever the span age says.
+  assert.equal(
+    (
+      telemetryQuery({ ...spans, view: "events", delay: "1m" }, now) as {
+        query: { minAge?: number };
+      }
+    ).query.minAge,
+    undefined,
+  );
+  assert.equal(hasNarrowingFilters({ ...spans, delay: "1m" }), true);
+  assert.equal(
+    hasNarrowingFilters({ ...spans, view: "events", delay: "1m" }),
+    false,
+  );
+  assert.equal(clearedFilters({ ...spans, delay: "1m" }).delay, "live");
+});
