@@ -20,6 +20,7 @@ import {
 } from "../model/telemetry-filters.js";
 import { formatTime } from "../model/telemetry-presentation.js";
 import { useKeepInPlace } from "../hook/use-keep-in-place.js";
+import { useRoomInView } from "../hook/use-room-in-view.js";
 import {
   useNewerRecords,
   useRefreshTelemetryRecord,
@@ -67,6 +68,9 @@ export function TelemetryExplorer() {
   const typing = useRef<number | undefined>(undefined);
   const opener = useRef<HTMLElement | null>(null);
   const keepInPlace = useKeepInPlace(selected);
+  const detail = useRef<HTMLElement>(null);
+  // After the chosen row is kept in place, so a short window then scrolls on to fit the details.
+  useRoomInView(detail, selected);
   const resultsHeading = useRef<HTMLHeadingElement>(null);
   const refreshRecord = useRefreshTelemetryRecord();
   const available = status.data?.state === "available";
@@ -307,6 +311,7 @@ export function TelemetryExplorer() {
         {selected && (
           <TelemetryDetailPanel
             key={`${selected.source}:${selected.id}`}
+            panelRef={detail}
             record={selected}
             teammates={agents.data}
             watching={live}

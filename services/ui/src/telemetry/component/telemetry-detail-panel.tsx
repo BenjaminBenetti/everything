@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type RefObject } from "react";
 import { ExternalLink, X } from "lucide-react";
 import { Link } from "react-router-dom";
 import type {
@@ -41,15 +41,18 @@ function providerName(provider: string | null): string | null {
  *
  * The panel fits the visible part of the page and scrolls its own contents below a header that
  * stays in view. Once the trace is shown, it scrolls itself, never the page, to the selected
- * record's span.
+ * record's span, or to the record's event until its span arrives. `panelRef` is the panel's
+ * element, for the page to make room for it.
  */
 export function TelemetryDetailPanel({
+  panelRef,
   record,
   teammates,
   watching,
   onSelect,
   onClose,
 }: {
+  panelRef: RefObject<HTMLElement | null>;
   record: TelemetryRecordSummary;
   teammates:
     readonly { readonly id: string; readonly name: string }[] | undefined;
@@ -57,7 +60,6 @@ export function TelemetryDetailPanel({
   onSelect: (record: TelemetryRecordSummary) => void;
   onClose: () => void;
 }) {
-  const panel = useRef<HTMLElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
   const event = useTelemetryEvent(
     record.source === "events" ? record.id : undefined,
@@ -69,7 +71,7 @@ export function TelemetryDetailPanel({
     event.data ?? record;
   const cause = describeCause(detail.category, detail.code);
   const teammate = teammateName(detail.agentId, teammates);
-  useVisibleHeight(panel);
+  useVisibleHeight(panelRef);
   // The span is revealed once the details above it, which move it as they load, are in place.
   const reveal = useScrollReveal<HTMLDivElement>(
     record.source !== "events" || !event.isPending,
@@ -81,7 +83,7 @@ export function TelemetryDetailPanel({
   return (
     <aside
       id="telemetry-detail"
-      ref={panel}
+      ref={panelRef}
       className="telemetry-detail"
       aria-labelledby="telemetry-detail-heading"
     >
@@ -245,6 +247,7 @@ export function TelemetryDetailPanel({
                 selectedEventId={record.source === "events" ? record.id : null}
                 onSelectEvent={onSelect}
                 targetRef={reveal.target}
+                fallbackRef={reveal.fallback}
               />
             </>
           ))}

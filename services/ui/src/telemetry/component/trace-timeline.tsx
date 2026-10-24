@@ -11,7 +11,8 @@ import { SeverityBadge } from "./severity-badge.js";
 /**
  * A trace's spans as an indented tree on one time axis, each expandable to its details and events,
  * followed by the events recorded during the trace. The highlighted span starts expanded, and is
- * passed to `targetRef`; when it isn't in the trace, the selected event is passed instead.
+ * passed to `targetRef`; the selected event is passed to `fallbackRef`, to stand in for the span
+ * until the span is in the trace.
  */
 export function TraceTimeline({
   trace,
@@ -19,12 +20,14 @@ export function TraceTimeline({
   selectedEventId,
   onSelectEvent,
   targetRef,
+  fallbackRef,
 }: {
   trace: TelemetryTrace;
   highlightSpanId: string | null;
   selectedEventId: string | null;
   onSelectEvent: (event: TelemetryRecordSummary) => void;
   targetRef?: (element: HTMLElement | null) => void;
+  fallbackRef?: (element: HTMLElement | null) => void;
 }) {
   const timeline = traceTimeline(trace.spans);
   const [expanded, setExpanded] = useState<string | null>(highlightSpanId);
@@ -34,11 +37,6 @@ export function TraceTimeline({
     setHighlighted(highlightSpanId);
     setExpanded(highlightSpanId);
   }
-  const targetSpan = timeline.rows.some(
-    ({ span }) => span.id === highlightSpanId,
-  )
-    ? highlightSpanId
-    : null;
   return (
     <section
       className="telemetry-trace"
@@ -57,7 +55,7 @@ export function TraceTimeline({
             return (
               <li
                 key={span.id}
-                ref={span.id === targetSpan ? targetRef : undefined}
+                ref={span.id === highlightSpanId ? targetRef : undefined}
                 className={`telemetry-span ${span.severity}${span.id === highlightSpanId ? " highlighted" : ""}`}
                 style={{ "--depth": depth } as CSSProperties}
               >
@@ -165,11 +163,7 @@ export function TraceTimeline({
             {trace.events.map((event) => (
               <li
                 key={event.id}
-                ref={
-                  !targetSpan && event.id === selectedEventId
-                    ? targetRef
-                    : undefined
-                }
+                ref={event.id === selectedEventId ? fallbackRef : undefined}
               >
                 <button
                   type="button"

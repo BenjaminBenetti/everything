@@ -20,15 +20,7 @@ export function useVisibleHeight(element: RefObject<HTMLElement | null>): void {
     let frame = 0;
     const measure = () => {
       frame = 0;
-      const bounds = area
-        ? area.getBoundingClientRect()
-        : { top: 0, bottom: window.innerHeight };
-      const top = Math.max(target.getBoundingClientRect().top, bounds.top);
-      const height = Math.floor(bounds.bottom - top - bottomGap);
-      target.style.setProperty(
-        "--visible-height",
-        `${Math.max(minimumHeight, height)}px`,
-      );
+      fitToVisibleArea(target, area);
     };
     const schedule = () => {
       if (!frame) frame = requestAnimationFrame(measure);
@@ -50,6 +42,32 @@ export function useVisibleHeight(element: RefObject<HTMLElement | null>): void {
       observer.disconnect();
     };
   }, [element]);
+}
+
+/**
+ * How much of `area`, or of the window when it is none, is left below `element`'s top, or below
+ * the area's top once the element reaches it, keeping a small gap at the bottom.
+ */
+export function visibleRoom(
+  element: HTMLElement,
+  area: HTMLElement | null,
+): number {
+  const bounds = area
+    ? area.getBoundingClientRect()
+    : { top: 0, bottom: window.innerHeight };
+  const top = Math.max(element.getBoundingClientRect().top, bounds.top);
+  return bounds.bottom - top - bottomGap;
+}
+
+/** Set `element`'s `--visible-height` to its room in `area` now, but no less than its least. */
+export function fitToVisibleArea(
+  element: HTMLElement,
+  area: HTMLElement | null,
+): void {
+  element.style.setProperty(
+    "--visible-height",
+    `${Math.max(minimumHeight, Math.floor(visibleRoom(element, area)))}px`,
+  );
 }
 
 /** The nearest ancestor that scrolls vertically, or none when the document itself does. */
