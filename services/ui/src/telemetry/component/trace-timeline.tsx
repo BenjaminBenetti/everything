@@ -10,21 +10,35 @@ import { SeverityBadge } from "./severity-badge.js";
 
 /**
  * A trace's spans as an indented tree on one time axis, each expandable to its details and events,
- * followed by the events recorded during the trace.
+ * followed by the events recorded during the trace. The highlighted span starts expanded, and is
+ * passed to `targetRef`; when it isn't in the trace, the selected event is passed instead.
  */
 export function TraceTimeline({
   trace,
   highlightSpanId,
   selectedEventId,
   onSelectEvent,
+  targetRef,
 }: {
   trace: TelemetryTrace;
   highlightSpanId: string | null;
   selectedEventId: string | null;
   onSelectEvent: (event: TelemetryRecordSummary) => void;
+  targetRef?: (element: HTMLElement | null) => void;
 }) {
   const timeline = traceTimeline(trace.spans);
   const [expanded, setExpanded] = useState<string | null>(highlightSpanId);
+  const [highlighted, setHighlighted] = useState(highlightSpanId);
+  // A newly highlighted span opens in place of whichever was open.
+  if (highlighted !== highlightSpanId) {
+    setHighlighted(highlightSpanId);
+    setExpanded(highlightSpanId);
+  }
+  const targetSpan = timeline.rows.some(
+    ({ span }) => span.id === highlightSpanId,
+  )
+    ? highlightSpanId
+    : null;
   return (
     <section
       className="telemetry-trace"
@@ -43,6 +57,7 @@ export function TraceTimeline({
             return (
               <li
                 key={span.id}
+                ref={span.id === targetSpan ? targetRef : undefined}
                 className={`telemetry-span ${span.severity}${span.id === highlightSpanId ? " highlighted" : ""}`}
                 style={{ "--depth": depth } as CSSProperties}
               >
@@ -148,7 +163,14 @@ export function TraceTimeline({
           <h3 className="telemetry-subheading">Events in this trace</h3>
           <ul className="telemetry-trace-events">
             {trace.events.map((event) => (
-              <li key={event.id}>
+              <li
+                key={event.id}
+                ref={
+                  !targetSpan && event.id === selectedEventId
+                    ? targetRef
+                    : undefined
+                }
+              >
                 <button
                   type="button"
                   className="telemetry-link-button"

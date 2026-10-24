@@ -24,7 +24,8 @@ export function TelemetryRecordTable({
   teammates:
     readonly { readonly id: string; readonly name: string }[] | undefined;
   showDuration: boolean;
-  onSelect: (record: TelemetryRecordSummary) => void;
+  /** Open a record's details, from its row's button. */
+  onSelect: (record: TelemetryRecordSummary, row: HTMLElement) => void;
 }) {
   /** Move focus to the previous or next row's button. */
   function moveFocus(event: KeyboardEvent<HTMLTableSectionElement>): void {
@@ -80,7 +81,7 @@ export function TelemetryRecordTable({
                   className="telemetry-row-button"
                   aria-pressed={selected}
                   aria-controls="telemetry-detail"
-                  onClick={() => onSelect(record)}
+                  onClick={(event) => onSelect(record, event.currentTarget)}
                 >
                   <span className="telemetry-title">{record.title}</span>
                   <small>

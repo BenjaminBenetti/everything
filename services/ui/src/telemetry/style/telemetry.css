@@ -121,6 +121,16 @@
     grid-template-columns: minmax(0, 1fr) minmax(360px, 460px);
   }
 }
+/* In one column the details dock to the bottom of the view while the list scrolls above them, so
+   they are never left below a long list. A flex column, unlike a grid row, lets them stick across
+   the whole list. */
+@media (max-width: 1239.98px) {
+  .telemetry-layout {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
 .telemetry-results {
   min-width: 0;
 }
@@ -227,22 +237,44 @@
 /* ===========================================
    Details and traces
    =========================================== */
+/* The details fit the visible part of the page at any scroll position (see useVisibleHeight),
+   keep their header in view, and scroll their own contents without scrolling the page. */
 .telemetry-detail {
   position: sticky;
   top: 0;
-  display: grid;
-  gap: 18px;
+  display: flex;
+  flex-direction: column;
   min-width: 0;
-  padding: 20px;
+  max-height: var(--visible-height, calc(100dvh - 85px));
+  overflow: hidden;
   border: 1px solid var(--border-default);
   border-radius: var(--radius-panel);
   background: var(--surface-panel);
 }
 .telemetry-detail-header {
   display: flex;
+  flex: none;
   justify-content: space-between;
   align-items: flex-start;
   gap: 12px;
+  padding: 20px 20px 14px;
+}
+.telemetry-detail-body {
+  display: grid;
+  align-content: start;
+  gap: 18px;
+  min-height: 0;
+  padding: 4px 20px 20px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+@media (max-width: 1239.98px) {
+  .telemetry-detail {
+    top: auto;
+    bottom: 0;
+    z-index: 1;
+    max-height: 50dvh;
+  }
 }
 .telemetry-detail-header h2 {
   margin: 8px 0 6px;
