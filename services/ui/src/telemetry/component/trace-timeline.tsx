@@ -10,21 +10,33 @@ import { SeverityBadge } from "./severity-badge.js";
 
 /**
  * A trace's spans as an indented tree on one time axis, each expandable to its details and events,
- * followed by the events recorded during the trace.
+ * followed by the events recorded during the trace. The highlighted span starts expanded, and is
+ * passed to `targetRef`; the selected event is passed to `fallbackRef`, to stand in for the span
+ * until the span is in the trace.
  */
 export function TraceTimeline({
   trace,
   highlightSpanId,
   selectedEventId,
   onSelectEvent,
+  targetRef,
+  fallbackRef,
 }: {
   trace: TelemetryTrace;
   highlightSpanId: string | null;
   selectedEventId: string | null;
   onSelectEvent: (event: TelemetryRecordSummary) => void;
+  targetRef?: (element: HTMLElement | null) => void;
+  fallbackRef?: (element: HTMLElement | null) => void;
 }) {
   const timeline = traceTimeline(trace.spans);
   const [expanded, setExpanded] = useState<string | null>(highlightSpanId);
+  const [highlighted, setHighlighted] = useState(highlightSpanId);
+  // A newly highlighted span opens in place of whichever was open.
+  if (highlighted !== highlightSpanId) {
+    setHighlighted(highlightSpanId);
+    setExpanded(highlightSpanId);
+  }
   return (
     <section
       className="telemetry-trace"
@@ -43,6 +55,7 @@ export function TraceTimeline({
             return (
               <li
                 key={span.id}
+                ref={span.id === highlightSpanId ? targetRef : undefined}
                 className={`telemetry-span ${span.severity}${span.id === highlightSpanId ? " highlighted" : ""}`}
                 style={{ "--depth": depth } as CSSProperties}
               >
@@ -148,7 +161,10 @@ export function TraceTimeline({
           <h3 className="telemetry-subheading">Events in this trace</h3>
           <ul className="telemetry-trace-events">
             {trace.events.map((event) => (
-              <li key={event.id}>
+              <li
+                key={event.id}
+                ref={event.id === selectedEventId ? fallbackRef : undefined}
+              >
                 <button
                   type="button"
                   className="telemetry-link-button"
