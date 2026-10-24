@@ -124,6 +124,53 @@ export const trace = {
   truncated: false,
 };
 
+/**
+ * A synthetic long trace for layout tests: a turn with `prompts` prompts, each with a provider
+ * request beneath it, so the trace is taller than any viewport, as a long teammate turn's is. Its
+ * spans are named by index.
+ */
+export function longTrace(prompts: number) {
+  const turn = "2000000000000000";
+  const id = (kind: 2 | 3, index: number) =>
+    `${kind}${String(index).padStart(15, "0")}`;
+  const spans = [span(turn, "teammate.turn", "Teammate turn", null, 0, 9_000)];
+  for (let index = 1; index <= prompts; index++)
+    spans.push(
+      span(
+        id(2, index),
+        "teammate.prompt",
+        `Model prompt ${index}`,
+        turn,
+        index * 200,
+        150,
+      ),
+      span(
+        id(3, index),
+        "provider.request",
+        `Provider request ${index}`,
+        id(2, index),
+        index * 200 + 5,
+        100,
+        index === prompts ? "error" : "info",
+      ),
+    );
+  return { traceId, spans, events: [] as unknown[], truncated: false };
+}
+
+/** `count` synthetic failures in the shared trace, newest first, each attributed to `spanOf(index)`. */
+export function longRecords(count: number, spanOf: (index: number) => string) {
+  return Array.from({ length: count }, (_, index) =>
+    record({
+      id: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
+      time: new Date(
+        Date.parse("2026-10-23T11:58:00.000Z") - index * 60_000,
+      ).toISOString(),
+      title: `Model request failed ${index}`,
+      spanId: spanOf(index),
+    }),
+  );
+}
+
 /** Server-side state the tests observe and control. */
 export interface TelemetryWorkspace {
   status: {
@@ -147,6 +194,8 @@ export interface TelemetryWorkspace {
   };
   /** Status for trace requests; 200 returns `trace`. */
   traceStatus: number;
+  /** Trace responses wait for this, when set, as a slow backend would. */
+  traceGate: Promise<void> | undefined;
   /** An event's diagnosis beyond its list entry, such as its error text. */
   eventDetail: Record<string, unknown>;
   /** Telemetry requests the page made, in order. */
@@ -173,6 +222,7 @@ export async function telemetryWorkspace(
     listStatus: 200,
     trace,
     traceStatus: 200,
+    traceGate: undefined,
     eventDetail: {
       message: "Rate limit reached for requests per minute",
       textWithheld: false,
@@ -214,9 +264,10 @@ export async function telemetryWorkspace(
   await json("**/v1/updates/count", { unread: 0 });
   await json("**/v1/settings/general", { summaryInference: null });
   await json("**/v1/settings/teammate-order", { teammateIds: [] });
-  await context.route("**/v1/telemetry/**", (route) => {
+  await context.route("**/v1/telemetry/**", async (route) => {
     const url = new URL(route.request().url());
     state.requests.push(url);
+    if (url.pathname.startsWith("/v1/telemetry/traces/")) await state.traceGate;
     return route.fulfill(telemetryResponse(state, url, route.request()));
   });
   return state;
