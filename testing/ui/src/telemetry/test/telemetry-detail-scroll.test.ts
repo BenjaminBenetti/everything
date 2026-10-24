@@ -760,9 +760,13 @@ test.describe("desktop", { tag: "@desktop" }, () => {
 
     // Showing all of each preview grows the details below the span's button, never the page.
     const showAll = target.getByRole("button", { name: "Show all" });
-    expect(await showAll.count()).toBeGreaterThan(0);
-    for (const button of await showAll.all())
-      await button.evaluate((element) => (element as HTMLElement).click());
+    const collapsed = await showAll.count();
+    expect(collapsed).toBeGreaterThan(0);
+    // Each one becomes Show less once pressed, so the first remaining one is pressed each time.
+    for (let pressed = 0; pressed < collapsed; pressed++)
+      await showAll
+        .first()
+        .evaluate((element) => (element as HTMLElement).click());
     await expect(
       target.getByRole("button", { name: "Show less" }),
     ).not.toHaveCount(0);

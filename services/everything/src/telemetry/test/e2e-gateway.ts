@@ -74,7 +74,10 @@ const ownerB = await teammate(
     }),
   "owner-b",
 );
-ownerA.runtime.start("Plan the launch");
+// Owner A's message holds a synthetic key, which the page must show only redacted.
+ownerA.runtime.start(
+  "Plan the launch; the staging key is sk-proj-e2ebrowsercanaryabcdefgh",
+);
 ownerB.runtime.start("Plan the launch");
 await Promise.all([settled(ownerA.runtime), settled(ownerB.runtime)]);
 await telemetry.flush();
