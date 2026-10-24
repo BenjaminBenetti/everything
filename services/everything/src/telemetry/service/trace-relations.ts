@@ -203,23 +203,35 @@ export class TraceRelations {
       ),
     ].slice(0, runLookupLimit);
     if (!runIds.length) return none;
-    const traces = await this.query(
+    const groups = await this.query(
       "traces",
       (fields) =>
         this.builder.runTraces(ownerId, runIds, traceId, fields, this.limit),
-      this.limit + 1,
+      (this.limit + 1) * runIds.length,
     );
-    const starts = traces
-      .slice(0, this.limit)
-      .map((row) => ({ traceId: row.trace_id, time: Number(row.first_time) }))
-      .filter(
-        (start): start is { traceId: string; time: number } =>
-          typeof start.traceId === "string" &&
-          traceIdPattern.test(start.traceId) &&
-          start.traceId !== traceId &&
-          Number.isSafeInteger(start.time) &&
-          start.time > 0,
-      );
+    // Only groups proven to be this owner's, for one of these runs, are counted or looked up, so
+    // nothing another owner recorded, even from a backend that ignores the owner condition, can
+    // change what this trace reports.
+    const earliest = new Map<string, number>();
+    for (const group of groups) {
+      const candidate = group.trace_id;
+      const time = Number(group.first_time);
+      if (
+        group[ownerColumn] !== ownerId ||
+        !runIds.includes(group[runColumn] as string) ||
+        typeof candidate !== "string" ||
+        !traceIdPattern.test(candidate) ||
+        candidate === traceId ||
+        !Number.isSafeInteger(time) ||
+        time <= 0
+      )
+        continue;
+      earliest.set(candidate, Math.min(earliest.get(candidate) ?? time, time));
+    }
+    const verified = [...earliest]
+      .map(([candidate, time]) => ({ traceId: candidate, time }))
+      .sort((a, b) => a.time - b.time);
+    const starts = verified.slice(0, this.limit);
     if (!starts.length) return none;
     const rows = owned(
       await this.query(
@@ -251,7 +263,7 @@ export class TraceRelations {
     return {
       related,
       unresolved: false,
-      truncated: traces.length > this.limit,
+      truncated: verified.length > this.limit,
     };
   }
 }

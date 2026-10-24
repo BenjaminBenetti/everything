@@ -100,7 +100,15 @@ function store(
       if (failure === "hang") return new Promise<TelemetryRow[]>(() => {});
       if (failure) throw new Error("backend failure");
       const owner = literals(sql, /everything_owner_id = ('[^']*')/)![0];
-      const traceEquals = literals(sql, /trace_id = ('[^']*')/);
+      // Exact tuples, `(trace_id = … AND span_id = …)` or `(… AND _timestamp = …)`, match together.
+      const tuples = [
+        ...sql.matchAll(
+          /\(trace_id = '([0-9a-f]+)' AND (span_id|_timestamp) = '?([0-9a-f]+)'?\)/g,
+        ),
+      ].map(([, trace, column, value]) => ({ trace, column: column!, value }));
+      const traceEquals = tuples.length
+        ? undefined
+        : literals(sql, /trace_id = ('[^']*')/);
       const traceIn = literals(sql, /trace_id IN \(([^)]*)\)/);
       const spanIn = literals(sql, /span_id IN \(([^)]*)\)/);
       const runIn = literals(sql, /everything_run_id IN \(([^)]*)\)/);
@@ -116,23 +124,35 @@ function store(
           (!runIn || runIn.includes(String(row.everything_run_id))) &&
           (!timeIn || timeIn.includes(String(row._timestamp))) &&
           (!linked || String(row.links).includes(linked[0]!)) &&
-          (!excluded || row.trace_id !== excluded[0]),
+          (!excluded || row.trace_id !== excluded[0]) &&
+          (!tuples.length ||
+            tuples.some(
+              (tuple) =>
+                row.trace_id === tuple.trace &&
+                String(row[tuple.column]) === tuple.value,
+            )),
       );
       const limit = Number(/LIMIT (\d+)/.exec(sql)?.[1] ?? 500);
-      if (sql.includes("GROUP BY trace_id")) {
-        const first = new Map<string, number>();
-        for (const row of matched)
-          first.set(
-            String(row.trace_id),
-            Math.min(
-              first.get(String(row.trace_id)) ?? Infinity,
-              Number(row._timestamp),
-            ),
-          );
-        return [...first]
-          .sort((a, b) => a[1] - b[1])
-          .slice(0, limit)
-          .map(([trace_id, first_time]) => ({ trace_id, first_time }));
+      const grouped = /GROUP BY (.+?) ORDER BY/.exec(sql)?.[1];
+      if (grouped) {
+        // One row per group, with the grouped columns and its earliest time, as SQL returns it.
+        const columns = grouped.split(",").map((column) => column.trim());
+        const groups = new Map<string, TelemetryRow>();
+        for (const row of matched) {
+          const key = columns.map((column) => String(row[column])).join("|");
+          const time = Number(row._timestamp);
+          const group = groups.get(key);
+          if (!group || time < Number(group.first_time))
+            groups.set(key, {
+              ...Object.fromEntries(
+                columns.map((column) => [column, row[column]]),
+              ),
+              first_time: time,
+            });
+        }
+        return [...groups.values()]
+          .sort((a, b) => Number(a.first_time) - Number(b.first_time))
+          .slice(0, limit);
       }
       return [...matched]
         .sort((a, b) => Number(a.start_time) - Number(b.start_time))

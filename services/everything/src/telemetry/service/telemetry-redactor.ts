@@ -102,7 +102,7 @@ export function redactStart(
   options: RedactionOptions = {},
 ): RedactedWindow {
   const cut = value.length > window;
-  const text = withoutSecrets(cut ? value.slice(0, window) : value, options);
+  const text = withoutAnySecrets(cut ? value.slice(0, window) : value, options);
   return {
     text:
       cut && !text.endsWith(redacted)
@@ -119,13 +119,35 @@ export function redactStart(
  */
 export function redactEnd(value: string, window: number): RedactedWindow {
   if (value.length <= window) return redactStart(value, window);
-  const text = withoutSecrets(value.slice(value.length - window));
+  const text = withoutAnySecrets(value.slice(value.length - window));
   return {
     text: text.startsWith(redacted)
       ? text
       : text.slice(Math.min(text.length, cutMargin)),
     cut: true,
   };
+}
+
+/** Whether text holds percent-encoded ASCII, which could spell a credential the patterns miss. */
+const hasEncodedAscii = /%[0-7][0-9A-Fa-f]/;
+
+/**
+ * `text` with credentials redacted, as written and as its percent-encoded ASCII reads decoded, so
+ * encoding a credential, such as a key in a URL path or `api%5Fkey%3D…`, cannot hide it. Text in
+ * which decoding reveals nothing is kept as written. Otherwise its decoded, redacted form is used,
+ * since a credential can't be cut out of its encoded form reliably. Only `text` itself, already a
+ * bounded window, is decoded, at most `decodePasses` times; other encodings, such as base64 or
+ * HTML entities, are not recognized.
+ */
+function withoutAnySecrets(
+  text: string,
+  options: RedactionOptions = {},
+): string {
+  const literal = withoutSecrets(text, options);
+  if (!hasEncodedAscii.test(literal)) return literal;
+  const decoded = decodedPath(literal);
+  const safe = withoutSecrets(decoded, options);
+  return safe === decoded ? literal : safe;
 }
 
 /** `text` with control characters and every credential shape replaced. */
@@ -188,8 +210,8 @@ const encodedAscii = /%([0-7][0-9A-Fa-f])/g;
 /** Most times a path is decoded, for a credential encoded more than once. */
 const decodePasses = 3;
 
-/** A path with its percent-encoded ASCII characters decoded, up to `decodePasses` times. */
-function decodedPath(path: string): string {
+/** Text with its percent-encoded ASCII characters decoded, up to `decodePasses` times. */
+export function decodedPath(path: string): string {
   let current = path;
   for (let pass = 0; pass < decodePasses; pass++) {
     const next = current.replace(encodedAscii, (_match, hex: string) =>

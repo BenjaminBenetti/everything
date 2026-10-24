@@ -1,5 +1,5 @@
 import { telemetryLimits } from "@everything/telemetry-contracts";
-import { redactStart } from "./telemetry-redactor.js";
+import { decodedPath, redactStart } from "./telemetry-redactor.js";
 import { fitUtf8, utf8Length } from "./text-budget.js";
 
 /** A tool call's arguments as bounded JSON, and whether anything was left out. */
@@ -34,6 +34,16 @@ const passes: readonly PreviewLimits[] = [
 
 /** Most keys counted on one object to say how many were left out. */
 const countedKeys = 1_000;
+
+/**
+ * Most keys one object's scan visits, own or inherited, and most one pass visits in all, so a long
+ * prototype chain or many wide objects can't make the walk unbounded.
+ */
+const objectScanLimit = 1_024;
+const passScanLimit = 4_096;
+
+/** Integers at least this large, either way, are summarized rather than written out. */
+const largeInteger = 10n ** 30n;
 
 /** Longest field name shown, in UTF-8 bytes. */
 const keyBytes = 64;
@@ -95,8 +105,11 @@ const dataUrl = /^data:([\w.+-]{1,64}\/[\w.+-]{1,64})?[^,]{0,100},/i;
 /**
  * A bounded, redacted preview of a tool call's arguments as compact JSON within
  * `telemetryLimits.previewBytes` of UTF-8. Only the arguments' own enumerable data properties are
- * read, never getters or `toJSON`, and nothing is changed, so the call runs with exactly the
- * arguments it was given. Strings are redacted for credentials and cut, fields named like
+ * read, never getters or `toJSON`, built-in objects are summarized through the engine's own
+ * methods, never an override, and nothing is changed, so the call runs with exactly the arguments
+ * it was given. Key scans, inherited keys included, values, and strings are bounded before
+ * anything is serialized, and large integers are summarized. A proxy's traps are its own code and
+ * can still run when it is walked. Strings are redacted for credentials and cut, fields named like
  * credentials are replaced, maps of named values such as environment variables keep only their
  * names, bodies such as file contents are shortened, encoded or binary data is summarized by its
  * size, and deep, wide, or circular values are summarized; each cut is marked in place. Arguments that can't be read at all become a short note instead of an error.
@@ -133,6 +146,7 @@ class PreviewPass {
   /** Something was cut, summarized, or redacted away. */
   truncated = false;
   private nodes = 0;
+  private scanned = 0;
   private readonly seen = new Set<object>();
 
   /** Walk within `limits`. */
@@ -149,7 +163,10 @@ class PreviewPass {
     if (typeof value === "number")
       return Number.isFinite(value) ? value : String(value);
     if (typeof value === "string") return this.string(value, key);
-    if (typeof value === "bigint") return `${value}n`;
+    if (typeof value === "bigint")
+      return value < largeInteger && value > -largeInteger
+        ? `${value}n`
+        : this.cut("[large integer]");
     if (typeof value === "undefined") return "[undefined]";
     if (typeof value === "function") return this.cut("[function]");
     if (typeof value === "symbol") return this.cut("[symbol]");
@@ -206,15 +223,8 @@ class PreviewPass {
   /** The first fields of an object, with a count of the rest. */
   private record(value: object, depth: number): Record<string, unknown> {
     const result: Record<string, unknown> = Object.create(null);
-    let shown = 0;
-    let more = 0;
-    for (const key in value) {
-      if (!Object.hasOwn(value, key)) continue;
-      if (shown >= this.limits.entries) {
-        if (++more >= countedKeys) break;
-        continue;
-      }
-      shown++;
+    const { keys, more, unchecked } = this.keysOf(value);
+    for (const key of keys) {
       const name = this.key(key, result);
       const normalized = normalizedKey(key);
       const field = secretKey.test(normalized)
@@ -229,14 +239,47 @@ class PreviewPass {
         configurable: true,
       });
     }
-    if (more > 0)
-      Object.defineProperty(result, "…", {
-        value: this.cut(
-          `[+${more}${more >= countedKeys ? " or more" : ""} more fields]`,
-        ),
-        enumerable: true,
-      });
+    this.markRest(result, more, unchecked);
     return result;
+  }
+
+  /**
+   * The object's first own enumerable keys, how many more it has, and whether the scan stopped
+   * before checking every key, own or inherited, within `objectScanLimit` and `passScanLimit`.
+   */
+  private keysOf(value: object): {
+    keys: string[];
+    more: number;
+    unchecked: boolean;
+  } {
+    const keys: string[] = [];
+    let more = 0;
+    let scanned = 0;
+    for (const key in value) {
+      if (++scanned > objectScanLimit || ++this.scanned > passScanLimit)
+        return { keys, more, unchecked: true };
+      if (!Object.hasOwn(value, key)) continue;
+      if (keys.length < this.limits.entries) keys.push(key);
+      else if (++more >= countedKeys) return { keys, more, unchecked: true };
+    }
+    return { keys, more, unchecked: false };
+  }
+
+  /** Say how many more fields `result` leaves out, or that some weren't checked. */
+  private markRest(
+    result: Record<string, unknown>,
+    more: number,
+    unchecked: boolean,
+  ): void {
+    if (!more && !unchecked) return;
+    Object.defineProperty(result, "…", {
+      value: this.cut(
+        more
+          ? `[+${more}${unchecked ? " or more" : ""} more fields]`
+          : "[more fields not checked]",
+      ),
+      enumerable: true,
+    });
   }
 
   /** A map of named values, such as environment variables, by its names only. */
@@ -252,14 +295,10 @@ class PreviewPass {
         ? value
         : this.cut("[values not recorded]");
     const result: Record<string, unknown> = Object.create(null);
+    const { keys, more, unchecked } = this.keysOf(value);
     let shown = 0;
-    let more = 0;
-    for (const key in value) {
-      if (!Object.hasOwn(value, key)) continue;
-      if (++this.nodes > this.limits.nodes || shown >= this.limits.entries) {
-        if (++more >= countedKeys) break;
-        continue;
-      }
+    for (const key of keys) {
+      if (++this.nodes > this.limits.nodes) break;
       shown++;
       Object.defineProperty(result, this.key(key, result), {
         value: "[value not recorded]",
@@ -268,11 +307,7 @@ class PreviewPass {
         configurable: true,
       });
     }
-    if (more > 0)
-      Object.defineProperty(result, "…", {
-        value: `[+${more}${more >= countedKeys ? " or more" : ""} more fields]`,
-        enumerable: true,
-      });
+    this.markRest(result, more + keys.length - shown, unchecked);
     this.truncated = true;
     return result;
   }
@@ -311,9 +346,12 @@ function ownValue(value: object, key: string): unknown {
   }
 }
 
-/** A field name without case or separators, for matching credential and body names. */
+/**
+ * A field name without percent-encoding, case, or separators, for matching credential and body
+ * names, so `api%5Fkey` reads as `api_key`. Only its first characters are read.
+ */
 function normalizedKey(key: string): string {
-  return key
+  return decodedPath(key.slice(0, 192))
     .slice(0, 64)
     .toLowerCase()
     .replace(/[\s_.-]/g, "");
@@ -340,19 +378,63 @@ function encodedData(value: string): string | undefined {
   return undefined;
 }
 
-/** A summary of an object that isn't plain JSON data, such as bytes or a map, or undefined. */
+/**
+ * The engine's own getters and methods for built-in objects, taken when this module loads, so an
+ * instance or subclass that overrides `size`, `byteLength`, `getTime`, or `toISOString` never has
+ * its code run. Each checks its object's internal type itself and throws for any other object.
+ */
+const builtIns = {
+  apply: Reflect.apply,
+  typedArrayBytes: Object.getOwnPropertyDescriptor(
+    Object.getPrototypeOf(Uint8Array.prototype) as object,
+    "byteLength",
+  )!.get!,
+  dataViewBytes: Object.getOwnPropertyDescriptor(
+    DataView.prototype,
+    "byteLength",
+  )!.get!,
+  bufferBytes: Object.getOwnPropertyDescriptor(
+    ArrayBuffer.prototype,
+    "byteLength",
+  )!.get!,
+  mapSize: Object.getOwnPropertyDescriptor(Map.prototype, "size")!.get!,
+  setSize: Object.getOwnPropertyDescriptor(Set.prototype, "size")!.get!,
+  dateTime: Date.prototype.getTime,
+  dateIso: Date.prototype.toISOString,
+};
+
+/** `method` applied to `value` by the engine, or undefined when `value` isn't its kind. */
+function builtIn(method: Function, value: object): unknown {
+  try {
+    return builtIns.apply(method, value, []);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * A summary of a built-in object that isn't plain JSON data, such as bytes, a map, or a date, or
+ * undefined for anything else, read only through `builtIns`. A proxy has no built-in type, so it is
+ * walked as an object, and its traps, which are its own code, can run; that is not guarded against.
+ */
 function specialObject(value: object): string | undefined {
-  if (ArrayBuffer.isView(value))
-    return `[binary data, ${value.byteLength} bytes]`;
-  if (value instanceof ArrayBuffer)
-    return `[binary data, ${value.byteLength} bytes]`;
-  if (value instanceof Map) return `[map of ${value.size} entries]`;
-  if (value instanceof Set) return `[set of ${value.size} items]`;
-  if (value instanceof Date)
-    return Number.isNaN(value.getTime())
+  for (const method of [
+    builtIns.typedArrayBytes,
+    builtIns.dataViewBytes,
+    builtIns.bufferBytes,
+  ]) {
+    const bytes = builtIn(method, value);
+    if (typeof bytes === "number") return `[binary data, ${bytes} bytes]`;
+  }
+  const entries = builtIn(builtIns.mapSize, value);
+  if (typeof entries === "number") return `[map of ${entries} entries]`;
+  const items = builtIn(builtIns.setSize, value);
+  if (typeof items === "number") return `[set of ${items} items]`;
+  const time = builtIn(builtIns.dateTime, value);
+  if (typeof time === "number")
+    return Number.isNaN(time)
       ? "[invalid date]"
-      : value.toISOString();
-  if (value instanceof Promise) return "[promise]";
+      : String(builtIn(builtIns.dateIso, value));
   return undefined;
 }
 
@@ -361,7 +443,10 @@ function shape(value: unknown): string {
   if (Array.isArray(value)) return `array of ${value.length} items`;
   if (value && typeof value === "object") {
     let fields = 0;
+    let scanned = 0;
     for (const key in value) {
+      if (++scanned > objectScanLimit)
+        return `object with ${fields} or more fields`;
       if (Object.hasOwn(value, key)) fields++;
       if (fields >= countedKeys)
         return `object with ${countedKeys} or more fields`;

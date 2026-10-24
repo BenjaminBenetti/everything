@@ -136,6 +136,8 @@ const secrets = [
   "sk-dependency-secret-123",
   "sk-sql-secret-456",
   "sk-sql-tail-secret-789",
+  "morning appointments",
+  "REVIEWFAKEpgid7",
   "pg-password-secret",
   "Ot1-test-password",
   "pathsecretabcdefghijkl",
@@ -152,6 +154,12 @@ const statementShape = "SELECT secret_column FROM accounts WHERE token = ?";
  * starts, so it is complete even though the statement is longer than the SDK keeps an attribute.
  */
 const longStatementShape = "SELECT ? AS padding, ? AS tail FROM accounts";
+
+/** The app's dollar-quoted and quoted-identifier statements as their shapes. */
+const reviewedShapes = [
+  "SELECT ? AS note FROM accounts",
+  'SELECT ? AS "password=[redacted]" FROM accounts',
+];
 
 /**
  * Run the instrumented app against an OTLP receiver with `environment`, make a failing request and
@@ -376,6 +384,11 @@ test("by default the preload records error text and SQL statements' shapes, reda
     ),
     "a statement longer than the attribute limit is shaped whole, before the SDK cuts it",
   );
+  for (const shape of reviewedShapes)
+    assert.ok(
+      children.some((span) => span.attributes["db.query.text"] === shape),
+      shape,
+    );
 });
 
 test("with content withheld on its own, error text is still recorded but SQL statements are not", async (context) => {

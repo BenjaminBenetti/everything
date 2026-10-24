@@ -8,20 +8,28 @@ export const sqlLiteralPlaceholder = "?";
 /** Most characters of a statement read, so the time taken is bounded however long it is. */
 const scanLimit = 8_192;
 
-/** Characters that can continue an identifier or keyword, so a quote after one isn't a prefix. */
-const identifierCharacter = /[A-Za-z0-9_$]/;
+/**
+ * Characters that can continue an identifier or keyword, so a quote after one isn't a prefix and a
+ * dollar after one isn't a dollar quote. PostgreSQL counts every non-ASCII character as a letter.
+ */
+const identifierCharacter = /[A-Za-z0-9_$\u0080-\uFFFF]/;
 
-/** A dollar-quote's opening tag, such as `$$` or `$body$`. */
-const dollarTag = /^\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$/;
+/** Characters a dollar-quote tag can start with, as PostgreSQL's lexer defines them. */
+const tagStart = /[A-Za-z_\u0080-\uFFFF]/;
+
+/** Characters a dollar-quote tag can continue with. */
+const tagCharacter = /[A-Za-z0-9_\u0080-\uFFFF]/;
 
 /**
  * An SQL statement's shape for a span: keywords, identifiers, and `$n` parameter placeholders
  * stay; string, numeric, and dollar-quoted literals become `?` and comments are dropped, so values
  * written into the statement itself, such as a password or a connection string, are never kept.
- * Parameter values are never part of the text. Whitespace runs become one space, what remains is
- * redacted for credential shapes, and the result fits `telemetryLimits.previewBytes` of UTF-8,
- * marked when cut. A literal or comment the statement doesn't close runs to its end. The statement
- * that runs is unchanged; only this copy is recorded.
+ * Dollar-quote tags follow PostgreSQL's rules, non-ASCII letters and any length included. Parameter
+ * values are never part of the text. Quoted identifiers are redacted for credentials, `name=value`
+ * included; whitespace runs become one space; what remains is redacted for credential shapes; and
+ * the result fits `telemetryLimits.previewBytes` of UTF-8, marked when cut. A literal, comment, or
+ * dollar-quote opener the statement doesn't close hides the rest of it. The statement that runs is
+ * unchanged; only this copy is recorded.
  */
 export function sqlStatementPreview(
   statement: string,
@@ -78,18 +86,20 @@ function sqlShape(statement: string): { text: string; unterminated: boolean } {
       const end = quotedEnd(statement, index, false, '"');
       if (end < 0)
         return { text: result + sqlLiteralPlaceholder, unterminated: true };
-      result += statement.slice(index, end);
+      // A name stays, but credentials written into it, such as `password=…`, don't.
+      result += `"${redactStart(statement.slice(index + 1, end - 1), end).text}"`;
       index = end;
     } else if (
       character === "$" &&
       !identifierCharacter.test(result.at(-1) ?? "") &&
-      dollarTag.test(statement.slice(index, index + 66))
+      (next === "$" || tagStart.test(next ?? ""))
     ) {
-      const tag = dollarTag.exec(statement.slice(index, index + 66))![0];
-      const end = statement.indexOf(tag, index + tag.length);
+      const tag = dollarQuoteTag(statement, index);
+      // An opener whose tag doesn't close, or a quote that doesn't, hides the rest of the text.
+      const end = tag ? statement.indexOf(tag, index + tag.length) : -1;
       result += sqlLiteralPlaceholder;
       if (end < 0) return { text: result, unterminated: true };
-      index = end + tag.length;
+      index = end + tag!.length;
     } else if (
       /[0-9]/.test(character) &&
       !identifierCharacter.test(result.at(-1) ?? "")
@@ -106,6 +116,19 @@ function sqlShape(statement: string): { text: string; unterminated: boolean } {
     }
   }
   return { text: result, unterminated: false };
+}
+
+/**
+ * The dollar-quote tag opening at `start`, such as `$$`, `$body$`, or `$ü$`, or undefined when its
+ * tag never reaches a closing dollar, which PostgreSQL would reject. Tags may be any length.
+ */
+function dollarQuoteTag(statement: string, start: number): string | undefined {
+  let index = start + 1;
+  while (index < statement.length && tagCharacter.test(statement[index]!))
+    index++;
+  return statement[index] === "$"
+    ? statement.slice(start, index + 1)
+    : undefined;
 }
 
 /** The index after a numeric literal starting at `start`, with its fraction and exponent. */

@@ -232,8 +232,12 @@ export class TelemetryQueryBuilder {
   ): TelemetrySql {
     const conditions = [
       this.owner(ownerId, fields),
-      oneOf(column.traceId, unique(spans.map((span) => span.traceId)), fields),
-      oneOf(column.spanId, unique(spans.map((span) => span.spanId)), fields),
+      anyPair(
+        column.traceId,
+        column.spanId,
+        spans.map((span) => [span.traceId, sqlLiteral(span.spanId)]),
+        fields,
+      ),
     ];
     if (!spans.length || conditions.includes(null)) return null;
     return `${this.select(conditions as string[])} ORDER BY ${column.startTime} ASC LIMIT ${bound(limit) + 1}`;
@@ -264,7 +268,9 @@ export class TelemetryQueryBuilder {
 
   /**
    * Other traces of the owner's that recorded any of `runIds`, each with the time of its first
-   * span, earliest first.
+   * span, earliest first, and with the owner and run it was grouped by, so each result can be
+   * checked again before it is counted. A trace that recorded several of the runs has a row for
+   * each, so up to `limit + 1` traces take up to `(limit + 1) * runIds.length` rows.
    */
   runTraces(
     ownerId: string,
@@ -281,7 +287,9 @@ export class TelemetryQueryBuilder {
         : null,
     ];
     if (!runIds.length || conditions.includes(null)) return null;
-    return `SELECT ${column.traceId}, MIN(${column.time}) AS first_time FROM "${this.stream}" WHERE ${conditions.join(" AND ")} GROUP BY ${column.traceId} ORDER BY first_time ASC LIMIT ${bound(limit) + 1}`;
+    const groups = `${column.traceId}, ${column.owner}, ${column.run}`;
+    const rows = Math.min(500, (bound(limit) + 1) * unique(runIds).length);
+    return `SELECT ${groups}, MIN(${column.time}) AS first_time FROM "${this.stream}" WHERE ${conditions.join(" AND ")} GROUP BY ${groups} ORDER BY first_time ASC LIMIT ${rows}`;
   }
 
   /** The owner's spans that began the given traces, at the times `runTraces` found. */
@@ -293,14 +301,12 @@ export class TelemetryQueryBuilder {
   ): TelemetrySql {
     const conditions = [
       this.owner(ownerId, fields),
-      oneOf(
+      anyPair(
         column.traceId,
-        unique(starts.map((start) => start.traceId)),
+        column.time,
+        starts.map((start) => [start.traceId, String(Math.trunc(start.time))]),
         fields,
       ),
-      fields.has(column.time)
-        ? `${column.time} IN (${unique(starts.map((start) => String(Math.trunc(start.time)))).join(", ")})`
-        : null,
     ];
     if (!starts.length || conditions.includes(null)) return null;
     return `${this.select(conditions as string[])} ORDER BY ${column.startTime} ASC LIMIT ${bound(limit) + 1}`;
@@ -320,6 +326,24 @@ export class TelemetryQueryBuilder {
   private select(conditions: readonly string[]): string {
     return `SELECT * FROM "${this.stream}" WHERE ${conditions.join(" AND ")}`;
   }
+}
+
+/**
+ * Rows matching any one of `pairs` exactly, as `(first = a AND second = b) OR …`, so that rows
+ * pairing one tuple's first value with another's second never match; `second` values are SQL
+ * already. Nothing can match when either column is absent.
+ */
+function anyPair(
+  first: string,
+  second: string,
+  pairs: readonly (readonly [string, string])[],
+  fields: ReadonlySet<string>,
+): string | null {
+  if (!fields.has(first) || !fields.has(second)) return null;
+  const conditions = unique(
+    pairs.map(([a, b]) => `(${first} = ${sqlLiteral(a)} AND ${second} = ${b})`),
+  );
+  return `(${conditions.join(" OR ")})`;
 }
 
 /** Values without repeats, in their first order. */

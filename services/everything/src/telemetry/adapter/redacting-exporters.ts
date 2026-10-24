@@ -22,6 +22,18 @@ import { isFixedStatus } from "../model/telemetry-statuses.js";
 /** Longest span name or event summary, after redaction. */
 const nameLimit = 200;
 
+/** Most links exported for one span, as many as the SDK keeps. */
+const linkLimit = 8;
+
+/** W3C trace and span IDs as lowercase hexadecimal. */
+const traceIdPattern = /^[0-9a-f]{32}$/;
+const spanIdPattern = /^[0-9a-f]{16}$/;
+
+/** Whether `id` is a canonical, non-zero ID, the only kind a link is exported with. */
+function canonicalId(id: unknown, pattern: RegExp): boolean {
+  return typeof id === "string" && pattern.test(id) && !/^0+$/.test(id);
+}
+
 /**
  * Send spans with only allowlisted, redacted attributes and events, so nothing a library or SDK
  * error recorded leaves the process unless it is known to be safe. Error text, in status messages
@@ -118,8 +130,9 @@ export class RedactingLogExporter implements LogRecordExporter {
 /**
  * A view of the span, delegating to it, with its name, attributes, events, and status made safe.
  * A span whose error text or content `policy` left out is marked, so the explorer can say so. Its
- * links keep only the IDs of the spans that started it, so the explorer can relate traces; any
- * attributes or trace state a link carried are dropped.
+ * links keep only the canonical IDs of the spans that started it, at most eight, so the explorer
+ * can relate traces; any attributes or trace state a link carried are dropped, and so is a link
+ * whose IDs aren't canonical, non-zero, lowercase hexadecimal.
  */
 export function exportableSpan(
   span: ReadableSpan,
@@ -159,13 +172,20 @@ export function exportableSpan(
     },
     events: { value: events },
     links: {
-      value: span.links.map((link) => ({
-        context: {
-          traceId: link.context.traceId,
-          spanId: link.context.spanId,
-          traceFlags: link.context.traceFlags,
-        },
-      })),
+      value: span.links
+        .filter(
+          (link) =>
+            canonicalId(link.context.traceId, traceIdPattern) &&
+            canonicalId(link.context.spanId, spanIdPattern),
+        )
+        .slice(0, linkLimit)
+        .map((link) => ({
+          context: {
+            traceId: link.context.traceId,
+            spanId: link.context.spanId,
+            traceFlags: link.context.traceFlags & 0xff,
+          },
+        })),
     },
     droppedEventsCount: {
       value: span.droppedEventsCount + span.events.length - events.length,

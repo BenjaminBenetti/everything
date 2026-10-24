@@ -4,6 +4,7 @@ import { expect, test, type Page } from "@playwright/test";
 import {
   longRecords,
   longTrace,
+  span,
   telemetryWorkspace,
   type TelemetryWorkspace,
 } from "../fixture/telemetry-workspace.js";
@@ -922,6 +923,105 @@ test.describe("desktop", { tag: "@desktop" }, () => {
         record(`${name}-panel-end`, ended);
         expect(ended.content.scrollTop, "the page stayed put").toBe(
           opened.content.scrollTop,
+        );
+        await page.screenshot({ path: `${evidence}${name}-panel-end.png` });
+        await expect(
+          page.getByRole("heading", {
+            level: 2,
+            name: /Model request failed 0/,
+          }),
+        ).toBeFocused();
+      });
+
+  for (const height of [500, 440])
+    for (const opening of ["pointer", "keyboard"] as const)
+      test(`with the longest previews and related traces, opening the first record at the top of a ${height} px window, by ${opening}, keeps the selected span's whole button in one internal scroller, without moving the page`, async ({
+        page,
+      }) => {
+        await page.setViewportSize({ width: 1440, height });
+        const workspace = await longWorkspace(page);
+        workspace.trace = {
+          ...workspace.trace,
+          spans: workspace.trace.spans.map((entry) => ({
+            ...(entry as object),
+            previews: longPreviews,
+          })),
+          relations: {
+            related: Array.from({ length: 10 }, (_, index) => ({
+              relation: index === 0 ? "started_by" : "same_run",
+              span: {
+                ...span(
+                  `9${String(index).padStart(15, "0")}`,
+                  "teammate.prompt",
+                  `Related prompt ${index}`,
+                  null,
+                  index * 10,
+                  5,
+                ),
+                traceId: `9${String(index).padStart(31, "0")}`,
+              },
+              localSpanId: null,
+            })),
+            unresolved: true,
+            truncated: true,
+          },
+        };
+        await page.goto("/telemetry");
+        await expect(row(page, 0)).toBeAttached();
+        const reached = await openFromPageTop(page, 0, opening);
+        await expect
+          .poll(async () => (await geometry(page)).target?.title)
+          .toBe(`Provider request ${depth}`);
+        const name = `rich-page-top-${height}-${opening}`;
+        const opened = await geometry(page);
+        record(name, { ...reached, ...opened });
+        await page.screenshot({ path: `${evidence}${name}-opened.png` });
+        await expectWholePanelUsable(page, 0);
+        const target = page.locator(".telemetry-span.highlighted");
+        await expect(
+          target.getByRole("heading", { name: "Tool call arguments" }),
+        ).toHaveCount(1);
+        const scrollers = await page.evaluate(
+          () =>
+            [
+              ...document.querySelectorAll(
+                "#telemetry-detail, #telemetry-detail *",
+              ),
+            ].filter(
+              (element) =>
+                /(auto|scroll)/.test(getComputedStyle(element).overflowY) &&
+                element.scrollHeight > element.clientHeight + 1,
+            ).length,
+        );
+        expect(scrollers, "the details scroll in one area only").toBe(1);
+
+        // The related traces after the trace are reached by scrolling the details, never the page.
+        const box = (await page.locator("#telemetry-detail").boundingBox())!;
+        await page.mouse.move(box.x + box.width / 2, box.y + box.height - 30);
+        for (let turn = 0; turn < 80; turn++) await page.mouse.wheel(0, 400);
+        await expect
+          .poll(async () => {
+            const { scroller } = await geometry(page);
+            return scroller!.scrollTop >= scroller!.maxScrollTop - 1;
+          })
+          .toBe(true);
+        const ended = await geometry(page);
+        record(`${name}-panel-end`, ended);
+        expect(ended.content.scrollTop, "the page stayed put").toBe(
+          opened.content.scrollTop,
+        );
+        expect(ended.documentScrollTop).toBe(0);
+        const related = page.getByRole("region", { name: "Related traces" });
+        await expect(related).toContainText(
+          "Only the first related traces are listed.",
+        );
+        const last = await related
+          .getByRole("button", { name: /Related prompt 9/ })
+          .boundingBox();
+        expect(last, "the last related trace is shown").not.toBeNull();
+        expect(last!.y).toBeGreaterThanOrEqual(ended.scroller!.top - 1);
+        expect(last!.y + last!.height).toBeLessThanOrEqual(
+          ended.scroller!.top + ended.scroller!.height + 1,
         );
         await page.screenshot({ path: `${evidence}${name}-panel-end.png` });
         await expect(

@@ -270,7 +270,9 @@ test(
           : reply("Done."),
       owner,
     );
-    const message = `Plan the launch: ${privateText}. The password=hunter2 and ${canary} are in the vault.`;
+    // A deliberately fake key, percent-encoded in a URL path, as review found encoding could hide.
+    const encodedCanary = "sk%2Dproj%2DREVIEWFAKEstore0009abcdef";
+    const message = `Plan the launch: ${privateText}. The password=hunter2 and ${canary} are in the vault. See https://gateway.test/v1/${encodedCanary}/x.`;
     // The request that sends the message, with a database query, as Everything's API records it.
     const request = startTelemetrySpan("POST /v1/agents/:agentId/messages", {
       kind: SpanKind.SERVER,
@@ -290,6 +292,19 @@ test(
         },
       });
       query.span.end();
+      // Valid PostgreSQL the shaper must still reduce: a non-ASCII dollar tag around ordinary
+      // private words, and a short fake credential assignment in a quoted identifier.
+      for (const statement of [
+        "SELECT $ü$the visit note mentions morning appointments$ü$ AS note FROM visits",
+        'SELECT 1 AS "password=REVIEWFAKEstore8" FROM visits',
+      ])
+        startTelemetrySpan("pg.query:SELECT everything", {
+          kind: SpanKind.CLIENT,
+          attributes: {
+            "db.system.name": "postgresql",
+            [attribute.dbQueryText]: statement,
+          },
+        }).span.end();
       turnRuntime.start(message);
     });
     request.span.end();
@@ -305,7 +320,8 @@ test(
     }, "the content spans");
     const turn = spans.find((span) => span.name === "teammate.turn")!;
     const tool = spans.find((span) => span.name === "teammate.tool")!;
-    const query = spans.find((span) => span.name.startsWith("pg.query"))!;
+    const queries = spans.filter((span) => span.name.startsWith("pg.query"));
+    assert.equal(queries.length, 3, "each statement's span is stored");
     const requestSpan = spans.find((span) => span.kind === "server")!;
     assert.equal(
       (await reader!.status()).content,
@@ -316,7 +332,7 @@ test(
         {
           kind: "message",
           format: "text",
-          value: `Plan the launch: ${privateText}. The password=[redacted] and [redacted] are in the vault.`,
+          value: `Plan the launch: ${privateText}. The password=[redacted] and [redacted] are in the vault. See https://gateway.test/v1/[redacted]/x.`,
           truncated: false,
           originalLength: message.length,
         },
@@ -324,12 +340,16 @@ test(
       assert.deepEqual(JSON.parse(tool.previews[0]!.value), {
         text: "Here is the plan; the key [redacted] stays private.",
       });
-      assert.equal(
-        query.previews[0]?.value,
-        "SELECT * FROM accounts WHERE token = ? AND id = $1",
+      assert.deepEqual(
+        queries.map((span) => span.previews[0]?.value).sort(),
+        [
+          "SELECT * FROM accounts WHERE token = ? AND id = $1",
+          "SELECT ? AS note FROM visits",
+          'SELECT ? AS "password=[redacted]" FROM visits',
+        ].sort(),
       );
     } else
-      for (const span of [turn, tool, query]) {
+      for (const span of [turn, tool, ...queries]) {
         assert.deepEqual(span.previews, [], span.name);
         assert.equal(span.contentWithheld, true, span.name);
       }
@@ -347,8 +367,24 @@ test(
         500,
       ),
     );
-    for (const secret of [canary, "hunter2", "sql-literal-secret"])
+    for (const secret of [
+      canary,
+      "hunter2",
+      "sql-literal-secret",
+      "REVIEWFAKEstore0009",
+      "morning appointments",
+      "REVIEWFAKEstore8",
+    ])
       assert.ok(!stored.includes(secret), `${secret} never reaches storage`);
+    for (const shape of [
+      "SELECT ? AS note FROM visits",
+      'SELECT ? AS \\"password=[redacted]\\" FROM visits',
+    ])
+      assert.equal(
+        stored.includes(shape),
+        includeContent,
+        `${shape}: the shape, and OpenObserve's copy, only with content`,
+      );
     assert.equal(
       stored.includes("Plan the launch"),
       includeContent,
@@ -392,6 +428,45 @@ test(
     await assert.rejects(reader!.trace("owner-a", turn.traceId!), {
       code: "TELEMETRY_NOT_FOUND",
     });
+
+    // A trace that only shares the turn's run is found by the run alone, through the grouped
+    // lookup and the exact trace-and-time lookup after it; another owner's, in the same run, isn't.
+    const runId = turn.details.find((fact) => fact.label === "Run ID")?.value;
+    assert.ok(runId, "the turn recorded its run");
+    const sameRun = (ownerId: string) => {
+      const started = startTelemetrySpan("GET /v1/agents/:agentId", {
+        kind: SpanKind.SERVER,
+        root: true,
+        scope: { ownerId, agentId: definition.id, runId },
+      });
+      started.span.end();
+      return started.span.spanContext();
+    };
+    const sibling = sameRun(owner);
+    const foreign = sameRun("owner-a");
+    await runtime!.flush();
+    const withSibling = await eventually(async () => {
+      const trace = await reader!.trace(owner, turn.traceId!);
+      return trace.relations?.related.some(
+        (related) => related.relation === "same_run",
+      )
+        ? trace
+        : undefined;
+    }, "the same run's other trace");
+    assert.deepEqual(
+      withSibling.relations!.related.map((related) => [
+        related.relation,
+        related.span.traceId,
+        related.span.spanId,
+      ]),
+      [
+        ["started_by", requestSpan.traceId, requestSpan.spanId],
+        ["same_run", sibling.traceId, sibling.spanId],
+      ],
+      "the linked request is listed once, and the other owner's trace not at all",
+    );
+    assert.ok(foreign.traceId !== sibling.traceId);
+    assert.equal(withSibling.relations!.truncated, false);
 
     // A span list can wait for spans to age; these are seconds old.
     const delayed = await reader!.spans(owner, {

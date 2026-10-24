@@ -63,6 +63,10 @@ app.post("/v1/work", async () => {
     "SELECT secret_column FROM accounts WHERE token = 'sk-sql-secret-456'",
     // Longer than the SDK keeps an attribute, with a literal that ends beyond its limit.
     `SELECT '${"x".repeat(2_100)}' AS padding, 'sk-sql-tail-secret-789' AS tail FROM accounts`,
+    // Valid PostgreSQL: a dollar quote with a non-ASCII tag around ordinary private words.
+    "SELECT $ü$the visit note mentions morning appointments$ü$ AS note FROM accounts",
+    // A short, deliberately fake credential assignment inside a quoted identifier.
+    'SELECT 1 AS "password=REVIEWFAKEpgid7" FROM accounts',
   ]) {
     const client = new Client({
       host: "127.0.0.1",

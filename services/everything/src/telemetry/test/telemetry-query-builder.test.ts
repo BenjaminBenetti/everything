@@ -195,9 +195,14 @@ test("relation lookups are fixed queries that start with the owner and write eve
     traceId: "0d32f64cd7aaab4c985c5a8575db6474",
     spanId: "57b967f57c88f327",
   };
+  const other = {
+    traceId: "1d32f64cd7aaab4c985c5a8575db6474",
+    spanId: "67b967f57c88f327",
+  };
+  // Exact pairs, so a row pairing one link's trace with another's span never matches.
   assert.equal(
-    builder.spansById("owner-a", [pair, pair], fields, 2),
-    `SELECT * FROM "everything" WHERE everything_owner_id = 'owner-a' AND trace_id IN ('0d32f64cd7aaab4c985c5a8575db6474') AND span_id IN ('57b967f57c88f327') ORDER BY start_time ASC LIMIT 3`,
+    builder.spansById("owner-a", [pair, pair, other], fields, 3),
+    `SELECT * FROM "everything" WHERE everything_owner_id = 'owner-a' AND ((trace_id = '0d32f64cd7aaab4c985c5a8575db6474' AND span_id = '57b967f57c88f327') OR (trace_id = '1d32f64cd7aaab4c985c5a8575db6474' AND span_id = '67b967f57c88f327')) ORDER BY start_time ASC LIMIT 4`,
   );
   assert.equal(
     builder.linkedTo("owner-a", pair.traceId, fields, 10),
@@ -205,16 +210,42 @@ test("relation lookups are fixed queries that start with the owner and write eve
   );
   assert.equal(
     builder.runTraces("owner-a", ["run-1", "run-1"], pair.traceId, fields, 10),
-    `SELECT trace_id, MIN(_timestamp) AS first_time FROM "everything" WHERE everything_owner_id = 'owner-a' AND everything_run_id IN ('run-1') AND trace_id <> '0d32f64cd7aaab4c985c5a8575db6474' GROUP BY trace_id ORDER BY first_time ASC LIMIT 11`,
+    `SELECT trace_id, everything_owner_id, everything_run_id, MIN(_timestamp) AS first_time FROM "everything" WHERE everything_owner_id = 'owner-a' AND everything_run_id IN ('run-1') AND trace_id <> '0d32f64cd7aaab4c985c5a8575db6474' GROUP BY trace_id, everything_owner_id, everything_run_id ORDER BY first_time ASC LIMIT 11`,
+  );
+  assert.match(
+    builder.runTraces("owner-a", ["run-1", "run-2"], pair.traceId, fields, 10)!,
+    / LIMIT 22$/,
+    "a trace that recorded two of the runs takes a row for each",
   );
   assert.equal(
     builder.firstSpans(
       "owner-a",
-      [{ traceId: pair.traceId, time: 1792822391766000.7 }],
+      [
+        { traceId: pair.traceId, time: 1792822391766000.7 },
+        { traceId: other.traceId, time: 1792822391767000 },
+      ],
       fields,
-      4,
+      8,
     ),
-    `SELECT * FROM "everything" WHERE everything_owner_id = 'owner-a' AND trace_id IN ('0d32f64cd7aaab4c985c5a8575db6474') AND _timestamp IN (1792822391766000) ORDER BY start_time ASC LIMIT 5`,
+    `SELECT * FROM "everything" WHERE everything_owner_id = 'owner-a' AND ((trace_id = '0d32f64cd7aaab4c985c5a8575db6474' AND _timestamp = 1792822391766000) OR (trace_id = '1d32f64cd7aaab4c985c5a8575db6474' AND _timestamp = 1792822391767000)) ORDER BY start_time ASC LIMIT 9`,
+  );
+  assert.match(
+    builder.spansById(
+      "owner-a",
+      [{ traceId: pair.traceId, spanId: "x'y" }],
+      fields,
+      1,
+    )!,
+    /span_id = 'x''y'\)\)/,
+    "a quote in a pair stays inside its literal",
+  );
+  assert.throws(() =>
+    builder.spansById(
+      "owner-a",
+      [{ traceId: "x\\'", spanId: pair.spanId }],
+      fields,
+      1,
+    ),
   );
   // A quote in an owner or run stays inside its literal; a backslash is refused.
   assert.match(

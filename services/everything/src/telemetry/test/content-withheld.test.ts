@@ -20,8 +20,11 @@ const telemetry = startInMemoryTelemetry({
 
 test("with content withheld, no message or tool argument reaches the export, and the spans say it was withheld", async (context) => {
   telemetry.reset();
-  const message = "Natural private plan: we launch next Tuesday";
-  const answer = "Natural private answer: Tuesday works";
+  // Deliberately fake keys, one percent-encoded, which withheld content never carries anywhere.
+  const message =
+    "Natural private plan: we launch next Tuesday, see https://gateway.test/v1/sk%2Dproj%2DREVIEWFAKEoff0001abcdef/x";
+  const answer =
+    "Natural private answer: Tuesday works with api%5Fkey%3DREVIEWFAKEoff02";
   const { runtime, deliveries } = await teammate(context, ({ attempt }) =>
     attempt === 1
       ? reply("", { name: sendMessageToolName, input: { text: answer } })
@@ -33,6 +36,7 @@ test("with content withheld, no message or tool argument reaches the export, and
   const exported = await telemetry.collect();
   const text = exportedText(exported);
   assert.ok(!text.includes("Natural private"), "no content is exported");
+  assert.ok(!text.includes("REVIEWFAKEoff"), "nor any part of its canaries");
   for (const key of [
     attribute.messagePreview,
     attribute.messageLength,
