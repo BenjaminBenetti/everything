@@ -22,9 +22,11 @@ export function TraceRelations({
   relations,
   onSelect,
 }: {
-  relations: TelemetryTrace["relations"];
+  /** Undefined from an API that predates related traces, which shows nothing. */
+  relations: TelemetryTrace["relations"] | undefined;
   onSelect: (record: TelemetryRecordSummary) => void;
 }) {
+  if (relations === undefined) return null;
   if (relations === null)
     return (
       <section

@@ -14,11 +14,12 @@ import {
  * collapsed. When the installation withheld content, it says so instead of showing nothing.
  */
 export function SpanPreviews({
-  previews,
-  contentWithheld,
+  previews = [],
+  contentWithheld = false,
 }: {
-  previews: readonly TelemetryPreview[];
-  contentWithheld: boolean;
+  /** Undefined, like `contentWithheld`, from an API that predates previews. */
+  previews?: readonly TelemetryPreview[] | undefined;
+  contentWithheld?: boolean | undefined;
 }) {
   if (!previews.length && !contentWithheld) return null;
   return (
