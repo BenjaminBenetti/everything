@@ -19,6 +19,8 @@ import {
   type TelemetryFilters,
 } from "../model/telemetry-filters.js";
 import { formatTime } from "../model/telemetry-presentation.js";
+import { useKeepInPlace } from "../hook/use-keep-in-place.js";
+import { useRoomInView } from "../hook/use-room-in-view.js";
 import {
   useNewerRecords,
   useRefreshTelemetryRecord,
@@ -65,6 +67,10 @@ export function TelemetryExplorer() {
   const [live, setLive] = useState(true);
   const typing = useRef<number | undefined>(undefined);
   const opener = useRef<HTMLElement | null>(null);
+  const keepInPlace = useKeepInPlace(selected);
+  const detail = useRef<HTMLElement>(null);
+  // After the chosen row is kept in place, so a short window then scrolls on to fit the details.
+  useRoomInView(detail, selected);
   const resultsHeading = useRef<HTMLHeadingElement>(null);
   const refreshRecord = useRefreshTelemetryRecord();
   const available = status.data?.state === "available";
@@ -124,19 +130,25 @@ export function TelemetryExplorer() {
     resultsHeading.current?.focus();
   }
 
-  /** Open a record's details, remembering the row to return focus to. */
-  function select(record: TelemetryRecordSummary): void {
-    const active = document.activeElement;
-    // A row in the list opens details; a record chosen inside the details keeps that row.
-    if (active instanceof HTMLElement && active.closest(".telemetry-table"))
-      opener.current = active;
+  /**
+   * Open a record's details, remembering the row to return focus to. A row in the list opens
+   * details and stays where it is on screen while the list makes room for them; a record chosen
+   * inside the details keeps that row.
+   */
+  function select(record: TelemetryRecordSummary, row?: HTMLElement): void {
+    if (row) {
+      opener.current = row;
+      keepInPlace(row);
+    }
     setSelected(record);
   }
 
-  /** Close the details and return focus to the row that opened them. */
+  /** Close the details and return focus to the row that opened them, where it is on screen. */
   function close(): void {
+    keepInPlace(opener.current?.isConnected ? opener.current : null);
     setSelected(null);
-    if (opener.current?.isConnected) opener.current.focus();
+    if (opener.current?.isConnected)
+      opener.current.focus({ preventScroll: true });
     opener.current = null;
   }
 
@@ -299,6 +311,7 @@ export function TelemetryExplorer() {
         {selected && (
           <TelemetryDetailPanel
             key={`${selected.source}:${selected.id}`}
+            panelRef={detail}
             record={selected}
             teammates={agents.data}
             watching={live}
