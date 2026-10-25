@@ -169,6 +169,77 @@ test.describe("desktop", { tag: "@desktop" }, () => {
     );
   });
 
+  test("the Spans list can wait for spans to age, by a minute or a custom age, while Events never wait", async ({
+    page,
+    context,
+  }) => {
+    const workspace = await telemetryWorkspace(context);
+    await page.clock.install();
+    await page.goto("/telemetry");
+    // The latest span listing the filters produced, which always carries the range's end.
+    const listing = (path: string) =>
+      workspace.requests
+        .filter((url) => url.pathname === path && url.searchParams.has("to"))
+        .at(-1);
+    const age = page.getByRole("combobox", { name: "Span age" });
+    await expect(age).toHaveCount(0);
+
+    await page.getByRole("radio", { name: "Spans" }).check();
+    await expect
+      .poll(() => listing("/v1/telemetry/spans")?.searchParams.has("minAge"))
+      .toBe(false);
+    await expect(age).toContainText("Live");
+
+    await age.click();
+    await page.getByRole("option", { name: "At least 1 minute old" }).click();
+    await expect
+      .poll(() => listing("/v1/telemetry/spans")?.searchParams.get("minAge"))
+      .toBe("60");
+    await expect(
+      page.getByText(
+        /Showing spans that started at least 1 minute ago, by the server’s clock\. Recording isn’t delayed/,
+      ),
+    ).toBeVisible();
+
+    await age.click();
+    await page.getByRole("option", { name: "Custom age" }).click();
+    const minutes = page.getByRole("spinbutton", { name: "Minutes old" });
+    await minutes.fill("15");
+    await expect
+      .poll(() => listing("/v1/telemetry/spans")?.searchParams.get("minAge"))
+      .toBe("900");
+    await minutes.fill("90");
+    await expect(page.getByRole("alert")).toHaveText(
+      /Choose a span age of 1 to 60 whole minutes\./,
+    );
+    await minutes.fill("2");
+    await expect
+      .poll(() => listing("/v1/telemetry/spans")?.searchParams.get("minAge"))
+      .toBe("120");
+
+    // Newer-record checks keep the age, so the server ends each one at a fresh cutoff.
+    const before = workspace.requests.length;
+    await page.clock.fastForward(16_000);
+    await expect
+      .poll(() =>
+        workspace.requests
+          .slice(before)
+          .some(
+            (url) =>
+              url.pathname === "/v1/telemetry/spans" &&
+              !url.searchParams.has("to") &&
+              url.searchParams.get("minAge") === "120",
+          ),
+      )
+      .toBe(true);
+
+    await page.getByRole("radio", { name: "Events" }).check();
+    await expect
+      .poll(() => listing("/v1/telemetry/events")?.searchParams.has("minAge"))
+      .toBe(false);
+    await expect(age).toHaveCount(0);
+  });
+
   test("choosing an error shows its cause, codes, request ID, teammate, and trace", async ({
     page,
     context,
@@ -569,6 +640,7 @@ test.describe("desktop", { tag: "@desktop" }, () => {
       state: "unavailable",
       retentionDays: 7,
       errorText: "withheld",
+      content: "withheld",
       export: {
         lastSuccessAt: null,
         lastFailureAt: "2026-10-23T11:00:00.000Z",
@@ -598,6 +670,7 @@ test.describe("desktop", { tag: "@desktop" }, () => {
       state: "disabled",
       retentionDays: 7,
       errorText: "withheld",
+      content: "withheld",
       export: null,
     };
     await page.reload();

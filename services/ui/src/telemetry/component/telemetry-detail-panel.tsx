@@ -24,6 +24,7 @@ import { useScrollReveal } from "../hook/use-scroll-reveal.js";
 import { useVisibleHeight } from "../hook/use-visible-height.js";
 import { SeverityBadge } from "./severity-badge.js";
 import { Fact, TraceTimeline } from "./trace-timeline.js";
+import { TraceRelations } from "./trace-relations.js";
 
 /** Provider IDs as their names. */
 function providerName(provider: string | null): string | null {
@@ -35,9 +36,11 @@ function providerName(provider: string | null): string | null {
 
 /**
  * The selected record's diagnosis: what happened in plain words with the next step, the codes,
- * status, and IDs that identify it, the teammate it concerns, and the trace it belongs to. It is
- * fetched by ID, so it stays open while the list refreshes or loads more records. While
- * `watching`, a trace whose work may still be finishing is checked again for records that arrive.
+ * status, and IDs that identify it, the teammate it concerns, the trace it belongs to, and, after
+ * the trace, the traces related to it, each of which opens as its own record. It is fetched by ID,
+ * so it stays open while the list refreshes or loads more records. While `watching`, a trace whose
+ * work may still be finishing is checked again for records that arrive, and its related traces
+ * with it.
  *
  * The panel fits the visible part of the page and scrolls its own contents below a header that
  * stays in view. Once the trace is shown, it scrolls itself, never the page, to the selected
@@ -244,6 +247,11 @@ export function TelemetryDetailPanel({
                 onSelectEvent={onSelect}
                 targetRef={reveal.target}
                 fallbackRef={reveal.fallback}
+              />
+              {/* After the trace, so related traces that change as it refreshes never move it. */}
+              <TraceRelations
+                relations={trace.data.relations}
+                onSelect={onSelect}
               />
             </>
           ))}

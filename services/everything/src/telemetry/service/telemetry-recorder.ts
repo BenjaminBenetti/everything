@@ -20,6 +20,7 @@ import type {
 } from "@everything/telemetry-contracts";
 import {
   telemetryAttributes as attribute,
+  type PromptSource,
   type telemetryEvents,
 } from "../model/telemetry-attributes.js";
 import type { TelemetryScope } from "../model/telemetry-scope.js";
@@ -40,6 +41,9 @@ const instrumentation = "everything";
 
 /** Where the current work's scope lives in OpenTelemetry's context. */
 const scopeKey = createContextKey("everything.telemetry.scope");
+
+/** Where the current prompt's source lives in OpenTelemetry's context. */
+const promptSourceKey = createContextKey("everything.telemetry.prompt_source");
 
 /** Longest event message, after redaction. */
 const messageLimit = 400;
@@ -86,6 +90,24 @@ export function withoutRun(current: Context = context.active()): Context {
   if (!scope?.runId) return current;
   const { runId: _runId, ...rest } = scope;
   return current.setValue(scopeKey, rest);
+}
+
+/**
+ * A context whose prompt comes from `source`, set by the code that knows, such as a user turn for
+ * the message it was given and for the reminders it adds.
+ */
+export function withPromptSource(
+  source: PromptSource,
+  current: Context = context.active(),
+): Context {
+  return current.setValue(promptSourceKey, source);
+}
+
+/** Where the prompt about to run in a context comes from, if the code that started it said. */
+export function promptSource(
+  current: Context = context.active(),
+): PromptSource | undefined {
+  return current.getValue(promptSourceKey) as PromptSource | undefined;
 }
 
 /** A scope as record attributes. */

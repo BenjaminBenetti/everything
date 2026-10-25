@@ -16,6 +16,15 @@ export const telemetryLimits = {
   traceSpanLimit: 500,
   /** Most events shown beside one trace. */
   traceEventLimit: 100,
+  /**
+   * Largest preview of a message, a tool call's arguments, or an SQL statement, in UTF-8 bytes.
+   * Longer content is cut, and the preview says so.
+   */
+  previewBytes: 2_000,
+  /** Most related traces listed for one trace, for each kind of relationship. */
+  relatedTraceLimit: 10,
+  /** Longest a span list can wait for spans to age before showing them, in seconds. */
+  maxSpanDelaySeconds: 60 * 60,
   /** Shortest and longest rolling history an installation can keep, in days. */
   minRetentionDays: 3,
   maxRetentionDays: 30,
@@ -59,12 +68,20 @@ export const telemetryTimeRanges = [
 export type TelemetryTimeRange = (typeof telemetryTimeRanges)[number]["id"];
 
 /**
- * Whether the text of provider, SDK, and library error messages is recorded. Withheld by default,
- * since such text can quote what was sent; categories, codes, statuses, and request IDs are
- * recorded either way.
+ * Whether the text of provider, SDK, and library error messages is recorded. Recorded by default,
+ * redacted and bounded, to explain failures; an installation can withhold it, since such text can
+ * quote what was sent. Categories, codes, statuses, and request IDs are recorded either way.
  */
 export const telemetryErrorTextPolicies = ["withheld", "included"] as const;
 export type TelemetryErrorText = (typeof telemetryErrorTextPolicies)[number];
+
+/**
+ * Whether previews of content are recorded: the message a teammate turn answered, the arguments of
+ * tool calls, and SQL statements without their parameter values. Recorded by default, redacted and
+ * bounded; an installation can withhold them.
+ */
+export const telemetryContentPolicies = ["withheld", "included"] as const;
+export type TelemetryContentPolicy = (typeof telemetryContentPolicies)[number];
 
 /**
  * Whether telemetry is turned off for the installation, reachable, or turned on but not answering.
@@ -75,6 +92,8 @@ export interface TelemetryStatus {
   readonly retentionDays: number;
   /** Whether error text is recorded from now on; each record says whether its own was withheld. */
   readonly errorText: TelemetryErrorText;
+  /** Whether content previews are recorded from now on; each span says whether its own were withheld. */
+  readonly content: TelemetryContentPolicy;
   readonly export: TelemetryExportHealth | null;
 }
 
@@ -109,6 +128,13 @@ export interface TelemetryQuery {
   readonly search?: string;
   readonly cursor?: string;
   readonly limit?: number;
+  /**
+   * Spans only: leave out spans that started less than this many seconds ago, up to
+   * `telemetryLimits.maxSpanDelaySeconds`, so a list shows work that has had time to finish. The
+   * server applies it to its own clock. It never delays recording, and an older span's trace can
+   * still be filling in.
+   */
+  readonly minAge?: number;
 }
 
 /** One record in a list: enough to scan and filter, with its correlation identifiers. */
@@ -174,6 +200,32 @@ export interface TelemetrySpanEvent {
   readonly details: TelemetryDetail[];
 }
 
+/** What a span's content preview shows. */
+export const telemetryPreviewKinds = [
+  /** The message a teammate turn answered, as it was sent to the teammate. */
+  "message",
+  /** The arguments a model gave a tool call, as structured JSON. */
+  "tool_arguments",
+  /** An SQL statement with placeholders, without its parameter values. */
+  "sql",
+] as const;
+export type TelemetryPreviewKind = (typeof telemetryPreviewKinds)[number];
+
+/**
+ * A bounded preview of what a span worked on, redacted for credentials before it was stored. A
+ * preview is never the whole payload once it is marked truncated.
+ */
+export interface TelemetryPreview {
+  readonly kind: TelemetryPreviewKind;
+  /** How the value reads: plain text, JSON, or SQL. */
+  readonly format: "text" | "json" | "sql";
+  readonly value: string;
+  /** Part of the content was cut or summarized to fit `telemetryLimits.previewBytes`. */
+  readonly truncated: boolean;
+  /** Characters in the original, when known, such as a message's length. */
+  readonly originalLength: number | null;
+}
+
 /** One timed operation within a trace. */
 export interface TelemetrySpan extends TelemetryRecordSummary {
   readonly parentSpanId: string | null;
@@ -183,8 +235,48 @@ export interface TelemetrySpan extends TelemetryRecordSummary {
   readonly statusMessage: string | null;
   /** The span's error text was left out because the installation does not record error text. */
   readonly textWithheld: boolean;
+  /** Previews of the content the span worked on, when the installation records content. */
+  readonly previews: TelemetryPreview[];
+  /** The span's content previews were left out because the installation does not record them. */
+  readonly contentWithheld: boolean;
   readonly details: TelemetryDetail[];
   readonly events: TelemetrySpanEvent[];
+}
+
+/** How another trace relates to the one shown. */
+export const telemetryRelations = [
+  /** A span in another trace started this trace's work, as the link recorded when it started says. */
+  "started_by",
+  /** This trace's work started another trace, which links back to it. */
+  "started",
+  /** Another trace recorded the same run, such as a request and the teammate turn it started. */
+  "same_run",
+] as const;
+export type TelemetryRelation = (typeof telemetryRelations)[number];
+
+/** A span in another of the owner's traces, and how it relates to this one. */
+export interface TelemetryRelatedSpan {
+  readonly relation: TelemetryRelation;
+  /** The span to open: the one that started this work, or the earliest recorded span of the other trace. */
+  readonly span: TelemetrySpan;
+  /** The span in this trace the relationship belongs to, when it is known. */
+  readonly localSpanId: string | null;
+}
+
+/**
+ * Other traces related to one trace, from links recorded when work started and from run IDs, never
+ * from timing. Each trace stays separate; only the owner's own traces are listed. A trace whose
+ * work is still running may not be listed yet, since a span is stored when it ends.
+ */
+export interface TelemetryTraceRelations {
+  readonly related: TelemetryRelatedSpan[];
+  /**
+   * A link recorded in this trace names work that isn't available: it may not have been stored
+   * yet, or it has expired.
+   */
+  readonly unresolved: boolean;
+  /** More related traces exist than are listed. */
+  readonly truncated: boolean;
 }
 
 /**
@@ -197,4 +289,6 @@ export interface TelemetryTrace {
   readonly events: TelemetryRecordSummary[];
   /** More spans or events exist than one trace view returns. */
   readonly truncated: boolean;
+  /** Related traces, or null when they couldn't be looked up this time. */
+  readonly relations: TelemetryTraceRelations | null;
 }

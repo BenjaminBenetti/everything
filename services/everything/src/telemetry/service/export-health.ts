@@ -2,8 +2,9 @@ import type { TelemetryExportHealth } from "@everything/telemetry-contracts";
 
 /**
  * What this process has managed to send to telemetry storage since it started: when the last batch
- * succeeded and failed, how many batches failed, and how many records the bounded export queues
- * had to discard. Holds counts and times only, never record contents or backend responses.
+ * succeeded and failed, how many batches failed, and how many records were discarded, by the
+ * bounded export queues or because they couldn't be made safe. Holds counts and times only, never
+ * record contents or backend responses.
  */
 export class ExportHealth {
   // ===========================================
@@ -50,7 +51,7 @@ export class ExportHealth {
     }
   }
 
-  /** Records a full export queue discarded. */
+  /** Records discarded: by a full export queue, or because one couldn't be made safe to hold. */
   discarded(count: number): void {
     if (Number.isFinite(count) && count > 0) this.dropped += count;
   }

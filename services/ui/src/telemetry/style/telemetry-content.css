@@ -1,0 +1,56 @@
+/* ===========================================
+   Content previews
+   =========================================== */
+.telemetry-previews {
+  display: grid;
+  gap: 12px;
+}
+.telemetry-preview {
+  display: grid;
+  gap: 4px;
+}
+.telemetry-preview h4,
+.telemetry-relation h4 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 550;
+}
+.telemetry-preview-badge {
+  padding: 1px 6px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-control);
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 450;
+}
+.telemetry-preview-value {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-control);
+  background: var(--surface-subtle);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 11px;
+  line-height: 1.6;
+}
+.telemetry-preview-value.collapsed {
+  max-height: calc(11px * 1.6 * 8 + 20px);
+  overflow: hidden;
+}
+.telemetry-preview .button {
+  justify-self: start;
+}
+
+/* ===========================================
+   Related traces
+   =========================================== */
+.telemetry-relations {
+  display: grid;
+  gap: 10px;
+}
+.telemetry-relation {
+  display: grid;
+  gap: 4px;
+}

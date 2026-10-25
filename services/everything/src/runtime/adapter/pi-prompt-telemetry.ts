@@ -2,6 +2,7 @@ import {
   context,
   SpanStatusCode,
   trace,
+  type Attributes,
   type Context,
   type Span,
 } from "@opentelemetry/api";
@@ -14,6 +15,7 @@ import {
 } from "../../telemetry/service/prompt-diagnostics.js";
 import {
   failTelemetrySpan,
+  promptSource,
   recordTelemetryEvent,
   startTelemetrySpan,
   telemetryScope,
@@ -26,6 +28,7 @@ import {
 import type { TelemetryScope } from "../../telemetry/model/telemetry-scope.js";
 import { telemetryStatuses } from "../../telemetry/model/telemetry-statuses.js";
 import { safeIdentifier } from "../../telemetry/service/telemetry-redactor.js";
+import { toolArgumentsPreview } from "../../telemetry/service/tool-arguments-preview.js";
 
 /** An event a Pi session reports while it works. */
 type PiSessionEvent = Parameters<Parameters<PiSession["subscribe"]>[0]>[0];
@@ -53,10 +56,10 @@ interface RunningPrompt {
 /**
  * Telemetry for one Pi session's prompts: a span per prompt, with child spans for tool calls and
  * context compaction, and durable events for model and compaction failures captured from Pi's own
- * messages before the session reduces them to a generic error. Prompts, responses, thinking, and
- * tool arguments or results are not recorded; tools are named, timed, and marked failed only. A
- * failure's error text, which can quote what was sent, is exported only if the installation
- * records error text.
+ * messages before the session reduces them to a generic error. A tool call's span holds a bounded,
+ * redacted preview of its arguments, read without changing them; prompts, the session's context,
+ * responses, thinking, and tool results are not recorded. A failure's error text, which can quote
+ * what was sent, and argument previews are exported only if the installation records them.
  */
 export class PiPromptTelemetry {
   // ===========================================
@@ -117,9 +120,13 @@ export class PiPromptTelemetry {
     }
   }
 
-  /** Start the prompt's span and diagnostics. */
+  /**
+   * Start the prompt's span and diagnostics, noting where its text came from when the code that
+   * started it said, such as a user turn's message or one of its reminders.
+   */
   private begin(): RunningPrompt {
     const enclosing = telemetryScope();
+    const source = promptSource();
     const partOfTurn =
       this.scope.sessionKind === "main" &&
       enclosing?.ownerId === this.scope.ownerId &&
@@ -130,7 +137,10 @@ export class PiPromptTelemetry {
       {
         root: !partOfTurn,
         scope: { ...this.scope, sessionId: this.sessionId },
-        attributes: { [attribute.type]: "turn" },
+        attributes: {
+          [attribute.type]: "turn",
+          ...(source ? { [attribute.promptSource]: source } : {}),
+        },
       },
     );
     return {
@@ -176,6 +186,7 @@ export class PiPromptTelemetry {
                   // The model names the tool, so only a well-formed name is kept.
                   [attribute.tool]:
                     safeIdentifier(event.toolName, 128) ?? "unknown",
+                  ...argumentAttributes(event.args),
                 },
               },
               prompt.context,
@@ -355,4 +366,16 @@ export class PiPromptTelemetry {
 /** A context whose active span is `span`, keeping the prompt's scope. */
 function withSpan(current: Context, span: Span): Context {
   return trace.setSpan(current, span);
+}
+
+/**
+ * A tool call's arguments as span attributes: a bounded, redacted preview built without changing
+ * them, since the same object is what the tool runs with.
+ */
+function argumentAttributes(args: unknown): Attributes {
+  const preview = toolArgumentsPreview(args);
+  return {
+    [attribute.toolArguments]: preview.text,
+    [attribute.toolArgumentsTruncated]: preview.truncated,
+  };
 }

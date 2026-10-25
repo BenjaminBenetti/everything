@@ -28,6 +28,10 @@ export function loadTelemetrySettings(
     readSampleRatio: settings.TELEMETRY_READ_SAMPLE_RATIO,
     serviceVersion: settings.TELEMETRY_SERVICE_VERSION,
     includeErrorText: settings.TELEMETRY_INCLUDE_ERROR_TEXT,
+    // An installation that withholds error text withholds content too, unless it says otherwise.
+    includeContent:
+      settings.TELEMETRY_INCLUDE_CONTENT ??
+      settings.TELEMETRY_INCLUDE_ERROR_TEXT,
   };
   if (!settings.TELEMETRY_URL)
     return { ...common, enabled: false, backend: null };
@@ -51,6 +55,8 @@ export function loadTelemetrySettings(
 /**
  * Telemetry settings that never stop Everything from starting: malformed settings leave telemetry
  * turned on but unavailable, so the Telemetry page explains it, with one line on standard error.
+ * Nothing is recorded then, and error text and content count as withheld, since the settings that
+ * would say otherwise couldn't be read.
  */
 export function loadTelemetrySettingsOrUnavailable(
   environment: NodeJS.ProcessEnv,
@@ -69,6 +75,7 @@ export function loadTelemetrySettingsOrUnavailable(
       readSampleRatio: 0,
       serviceVersion: "unknown",
       includeErrorText: false,
+      includeContent: false,
     };
   }
 }

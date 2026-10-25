@@ -7,10 +7,11 @@ import type {
 import { traceTimeline } from "../model/trace-timeline.js";
 import { formatDuration, formatTime } from "../model/telemetry-presentation.js";
 import { SeverityBadge } from "./severity-badge.js";
+import { SpanPreviews } from "./span-previews.js";
 
 /**
- * A trace's spans as an indented tree on one time axis, each expandable to its details and events,
- * followed by the events recorded during the trace. The highlighted span starts expanded, and is
+ * A trace's spans as an indented tree on one time axis, each expandable to its details, its content
+ * previews, and its events, followed by the events recorded during the trace. The highlighted span starts expanded, and is
  * passed to `targetRef`; the selected event is passed to `fallbackRef`, to stand in for the span
  * until the span is in the trace.
  */
@@ -123,6 +124,10 @@ export function TraceTimeline({
                         />
                       ))}
                     </dl>
+                    <SpanPreviews
+                      previews={span.previews}
+                      contentWithheld={span.contentWithheld}
+                    />
                     {span.events.length > 0 && (
                       <ul
                         className="telemetry-span-events"

@@ -144,8 +144,10 @@ export async function teammate(
   };
   // Replies the teammate delivers with its send-message tool, as the conversation records them.
   let delivered = 0;
-  const session = await factory.create(definition, async () => {
+  const deliveries: string[] = [];
+  const session = await factory.create(definition, async (text) => {
     delivered++;
+    deliveries.push(text);
   });
   context.after(async () => {
     await session.abort();
@@ -155,7 +157,7 @@ export async function teammate(
     new ReplyingAgentSession(session, () => delivered),
     { ownerId: definition.ownerId, agentId: definition.id },
   );
-  return { runtime, definition, session };
+  return { runtime, definition, session, deliveries };
 }
 
 /** Wait until the runtime's turn settles. */

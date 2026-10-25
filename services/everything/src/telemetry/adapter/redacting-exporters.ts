@@ -9,6 +9,7 @@ import {
   errorTextLimit,
   exportableAttributes,
   exportedSpanEvents,
+  withholdsContent,
   withholdsErrorText,
   type ExportPolicy,
 } from "../service/telemetry-allowlist.js";
@@ -21,13 +22,25 @@ import { isFixedStatus } from "../model/telemetry-statuses.js";
 /** Longest span name or event summary, after redaction. */
 const nameLimit = 200;
 
+/** Most links exported for one span, as many as the SDK keeps. */
+const linkLimit = 8;
+
+/** W3C trace and span IDs as lowercase hexadecimal. */
+const traceIdPattern = /^[0-9a-f]{32}$/;
+const spanIdPattern = /^[0-9a-f]{16}$/;
+
+/** Whether `id` is a canonical, non-zero ID, the only kind a link is exported with. */
+function canonicalId(id: unknown, pattern: RegExp): boolean {
+  return typeof id === "string" && pattern.test(id) && !/^0+$/.test(id);
+}
+
 /**
  * Send spans with only allowlisted, redacted attributes and events, so nothing a library or SDK
  * error recorded leaves the process unless it is known to be safe. Error text, in status messages
  * and exception events, is left out unless `policy` records it; only Everything's own fixed status
- * messages are kept regardless. Spans that ended before their request was authenticated, such as
- * the session lookup, receive its owner here, since batches are exported after the request has
- * been. Batch outcomes are counted.
+ * messages are kept regardless. Content previews are left out unless `policy` records content.
+ * Spans that ended before their request was authenticated, such as the session lookup, receive its
+ * owner here, since batches are exported after the request has been. Batch outcomes are counted.
  */
 export class RedactingSpanExporter implements SpanExporter {
   /** Wrap the backend's exporter, attributing spans from `owners`. */
@@ -116,7 +129,10 @@ export class RedactingLogExporter implements LogRecordExporter {
 
 /**
  * A view of the span, delegating to it, with its name, attributes, events, and status made safe.
- * A span whose error text `policy` left out is marked, so the explorer can say so.
+ * A span whose error text or content `policy` left out is marked, so the explorer can say so. Its
+ * links keep only the canonical IDs of the spans that started it, at most eight, so the explorer
+ * can relate traces; any attributes or trace state a link carried are dropped, and so is a link
+ * whose IDs aren't canonical, non-zero, lowercase hexadecimal.
  */
 export function exportableSpan(
   span: ReadableSpan,
@@ -146,11 +162,31 @@ export function exportableSpan(
   return Object.create(span, {
     name: { value: redactText(span.name, nameLimit) },
     attributes: {
-      value: withheld
-        ? { ...attributes, [attribute.textWithheld]: true }
-        : attributes,
+      value: {
+        ...attributes,
+        ...(withheld ? { [attribute.textWithheld]: true } : {}),
+        ...(withholdsContent(span.attributes, policy)
+          ? { [attribute.contentWithheld]: true }
+          : {}),
+      },
     },
     events: { value: events },
+    links: {
+      value: span.links
+        .filter(
+          (link) =>
+            canonicalId(link.context.traceId, traceIdPattern) &&
+            canonicalId(link.context.spanId, spanIdPattern),
+        )
+        .slice(0, linkLimit)
+        .map((link) => ({
+          context: {
+            traceId: link.context.traceId,
+            spanId: link.context.spanId,
+            traceFlags: link.context.traceFlags & 0xff,
+          },
+        })),
+    },
     droppedEventsCount: {
       value: span.droppedEventsCount + span.events.length - events.length,
     },

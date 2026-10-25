@@ -2,6 +2,8 @@ import { Type } from "typebox";
 import {
   telemetryLimits,
   telemetryOutcomes,
+  telemetryPreviewKinds,
+  telemetryRelations,
   telemetrySeverities,
   telemetrySources,
   telemetryTypes,
@@ -55,6 +57,23 @@ const spanFields = {
   startTime: Type.String({ format: "date-time" }),
   statusMessage: nullableString,
   textWithheld: Type.Boolean(),
+  previews: Type.Array(
+    Type.Object({
+      kind: Type.Union(
+        telemetryPreviewKinds.map((value) => Type.Literal(value)),
+      ),
+      format: Type.Union(
+        ["text", "json", "sql"].map((value) => Type.Literal(value)),
+      ),
+      value: Type.String({
+        description: `A redacted preview of at most ${telemetryLimits.previewBytes} UTF-8 bytes; never the whole content once truncated.`,
+      }),
+      truncated: Type.Boolean(),
+      originalLength: Type.Union([Type.Integer({ minimum: 0 }), Type.Null()]),
+    }),
+    { maxItems: 3 },
+  ),
+  contentWithheld: Type.Boolean(),
   details: Type.Array(telemetryDetail),
   events: Type.Array(
     Type.Object({
@@ -77,6 +96,7 @@ export const telemetryStatusResponse = Type.Object({
   ]),
   retentionDays: Type.Integer(),
   errorText: Type.Union([Type.Literal("withheld"), Type.Literal("included")]),
+  content: Type.Union([Type.Literal("withheld"), Type.Literal("included")]),
   export: Type.Union([
     Type.Object({
       lastSuccessAt: Type.Union([
@@ -122,7 +142,14 @@ export const telemetryEventResponse = Type.Object({
   details: Type.Array(telemetryDetail),
 });
 
-/** The owner's spans and events in one trace. */
+/** Another of the owner's traces and how it relates to the one shown. */
+const telemetryRelatedSpan = Type.Object({
+  relation: Type.Union(telemetryRelations.map((value) => Type.Literal(value))),
+  span: Type.Object(spanFields),
+  localSpanId: nullableString,
+});
+
+/** The owner's spans and events in one trace, with the traces related to it. */
 export const telemetryTraceResponse = Type.Object({
   traceId: Type.String(),
   spans: Type.Array(Type.Object(spanFields), {
@@ -132,4 +159,14 @@ export const telemetryTraceResponse = Type.Object({
     maxItems: telemetryLimits.traceEventLimit,
   }),
   truncated: Type.Boolean(),
+  relations: Type.Union([
+    Type.Object({
+      related: Type.Array(telemetryRelatedSpan, {
+        maxItems: telemetryLimits.relatedTraceLimit * 3,
+      }),
+      unresolved: Type.Boolean(),
+      truncated: Type.Boolean(),
+    }),
+    Type.Null(),
+  ]),
 });

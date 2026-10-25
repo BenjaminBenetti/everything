@@ -1,3 +1,4 @@
+import { writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import type { AddressInfo } from "node:net";
 import Fastify from "fastify";
@@ -7,6 +8,7 @@ import {
   bindAuthenticatedRequest,
   registerRequestTelemetry,
 } from "../handler/request-telemetry.js";
+import { observeFirstBuffers } from "./first-buffer-observer.js";
 
 /**
  * A small server started with the instrumentation preload, as Everything's container starts it, so
@@ -14,6 +16,10 @@ import {
  * PostgreSQL client through `require`, as TypeORM does, after the preload has run.
  */
 const require = createRequire(import.meta.url);
+
+/** When a test names a file, what reaches telemetry's first buffers is written there as the app stops. */
+const observationsFile = process.env.FIRST_BUFFER_OBSERVATIONS;
+const observer = observationsFile ? observeFirstBuffers() : undefined;
 const { Client } = require("pg") as typeof import("pg");
 
 const app = Fastify({ logger: false });
@@ -58,21 +64,32 @@ app.post("/v1/work", async () => {
     100,
   );
   await call.catch(() => {});
-  const client = new Client({
-    host: "127.0.0.1",
-    port: Number(process.env.CLOSED_PORT),
-    user: "everything",
-    password: "pg-password-secret",
-    database: "everything",
-    connectionTimeoutMillis: 500,
-  });
-  await client.connect().catch(() => {});
-  await client
-    .query(
-      "SELECT secret_column FROM accounts WHERE token = 'sk-sql-secret-456'",
-    )
-    .catch(() => {});
-  await client.end().catch(() => {});
+  // Each statement on a client of its own, since a client whose connection failed answers once.
+  for (const statement of [
+    "SELECT secret_column FROM accounts WHERE token = 'sk-sql-secret-456'",
+    // Longer than the SDK keeps an attribute, with a literal that ends beyond its limit.
+    `SELECT '${"x".repeat(2_100)}' AS padding, 'sk-sql-tail-secret-789' AS tail FROM accounts`,
+    // Valid PostgreSQL: a dollar quote with a non-ASCII tag around ordinary private words.
+    "SELECT $ü$the visit note mentions morning appointments$ü$ AS note FROM accounts",
+    // A short, deliberately fake credential assignment inside a quoted identifier.
+    'SELECT 1 AS "password=REVIEWFAKEpgid7" FROM accounts',
+    // The same, its value quoted inside the identifier with SQL's doubled quotes.
+    'SELECT 1 AS "password=""REVIEWFAKEpgdq8""" FROM accounts',
+    // Its value beginning with the redaction marker, as if it had been made safe already.
+    'SELECT 1 AS "password=""[redacted]REVIEWFAKEpgmk9""" FROM accounts',
+  ]) {
+    const client = new Client({
+      host: "127.0.0.1",
+      port: Number(process.env.CLOSED_PORT),
+      user: "everything",
+      password: "pg-password-secret",
+      database: "everything",
+      connectionTimeoutMillis: 500,
+    });
+    await client.connect().catch(() => {});
+    await client.query(statement).catch(() => {});
+    await client.end().catch(() => {});
+  }
   return { status: "ok" };
 });
 await app.listen({ host: "127.0.0.1", port: 0 });
@@ -82,6 +99,14 @@ process.once("SIGTERM", async () => {
   await app.close();
   const telemetry = activeTelemetry();
   await telemetry?.shutdown();
+  if (observer) {
+    const restored = observer.restore();
+    const { held, batchedSpans, batchedLogs, errors } = observer.observations;
+    await writeFile(
+      observationsFile!,
+      JSON.stringify({ held, batchedSpans, batchedLogs, errors, restored }),
+    );
+  }
   console.log(`health ${JSON.stringify(telemetry?.health() ?? null)}`);
   process.exit(0);
 });

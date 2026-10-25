@@ -446,7 +446,7 @@ Host trust is unchanged. `files/ssh` supplies the shared known_hosts, which name
 
 ## Telemetry
 
-The Telemetry page searches model and provider errors, requests, dependency calls, and teammate work that Everything records with OpenTelemetry and keeps in a single OpenObserve node for `telemetry.retentionDays` (seven) days. Each owner sees only their own records, through Everything's API; OpenObserve has no Ingress, no web UI, and makes no connections outside the cluster. The text of error messages, which can quote prompts, is withheld unless `telemetry.includeErrorText` is `true`. See [Telemetry](telemetry.md) for what is and isn't recorded, redaction, access control, configuration, resources, and tests.
+The Telemetry page searches model and provider errors, requests, dependency calls, and teammate work that Everything records with OpenTelemetry and keeps in a single OpenObserve node for `telemetry.retentionDays` (seven) days. Each owner sees only their own records, through Everything's API; OpenObserve has no Ingress, no web UI, and makes no connections outside the cluster. Error text and redacted, bounded content previews (the message a teammate turn answered, tool call arguments, and SQL statements without their values) are recorded by default; `telemetry.includeErrorText: false` withholds both, and `telemetry.includeContent` chooses content on its own. See [Telemetry](telemetry.md) for what is and isn't recorded, redaction, access control, configuration, resources, and tests.
 
 ## Validation
 

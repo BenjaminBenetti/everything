@@ -4,9 +4,15 @@ import { fileURLToPath } from "node:url";
 /** The teammate the gateway's real turns ran as, for both owners. */
 const agentId = "0b6a3c4e-5f1d-4e2a-8c9b-7d6e5f4a3b2c";
 
-/** Whether the gateway records error text, as TELEMETRY_INCLUDE_ERROR_TEXT sets it there. */
+/**
+ * Whether the gateway records error text, as TELEMETRY_INCLUDE_ERROR_TEXT sets it there. Content
+ * previews follow it, since the gateway doesn't set TELEMETRY_INCLUDE_CONTENT.
+ */
 const errorText =
   process.env.TELEMETRY_E2E_ERROR_TEXT === "included" ? "included" : "withheld";
+
+/** A synthetic key in owner A's message, which never reaches the page unredacted. */
+const messageKey = "sk-proj-e2ebrowsercanaryabcdefgh";
 
 /**
  * Where screenshots of the real page are kept as evidence, outside Playwright's output directory,
@@ -140,6 +146,28 @@ test("a real model failure travels from Everything's runtime through OpenObserve
   ).toBeVisible();
   await page.screenshot({
     path: `${evidence}telemetry-detail-${errorText}.png`,
+    fullPage: true,
+  });
+
+  // The turn's message, from real storage: redacted when recorded, and said to be withheld when not.
+  await spans.getByRole("button", { name: /Teammate turn/ }).click();
+  if (errorText === "included") {
+    const message = spans.getByRole("region", {
+      name: /Message sent to your teammate/,
+    });
+    await expect(message).toContainText(
+      "Plan the launch; the staging key is [redacted]",
+    );
+    await expect(message).toContainText(
+      "Recognizable credentials were removed before it was stored.",
+    );
+  } else {
+    await expect(spans.getByText("Content withheld")).toBeVisible();
+    await expect(spans.getByText(/Plan the launch/)).toHaveCount(0);
+  }
+  expect(await page.content()).not.toContain(messageKey);
+  await page.screenshot({
+    path: `${evidence}telemetry-content-${errorText}.png`,
     fullPage: true,
   });
 

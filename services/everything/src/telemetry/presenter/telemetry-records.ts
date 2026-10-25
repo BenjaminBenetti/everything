@@ -1,9 +1,11 @@
 import {
+  telemetryLimits,
   telemetryOutcomes,
   telemetrySeverities,
   telemetryTypes,
   type TelemetryDetail,
   type TelemetryEvent,
+  type TelemetryPreview,
   type TelemetryRecordSummary,
   type TelemetrySeverity,
   type TelemetrySpan,
@@ -11,11 +13,14 @@ import {
 } from "@everything/telemetry-contracts";
 import type { TelemetryRow } from "../interface/telemetry-search.js";
 import {
+  promptSources,
   telemetryAttributes as attribute,
   telemetryColumn,
   telemetrySpans,
+  type PromptSource,
 } from "../model/telemetry-attributes.js";
-import { truncate } from "../service/telemetry-redactor.js";
+import { truncate, truncationMarker } from "../service/telemetry-redactor.js";
+import { utf8Head, utf8Length } from "../service/text-budget.js";
 
 /** Longest value of any field returned to the browser. */
 const valueLimit = 1_200;
@@ -66,6 +71,16 @@ const spanDetails: readonly DetailSpec[] = [
   [telemetryColumn(attribute.runId), "Run ID"],
   ["error_type", "Error type"],
 ];
+
+/** Longest stored links value parsed; a span keeps at most a few links, each about 150 bytes. */
+const linksLimit = 4_096;
+
+/** Most links read from one span, as many as the SDK keeps. */
+const linkLimit = 8;
+
+/** A W3C trace ID and span ID, lowercase hexadecimal. */
+const traceIdPattern = /^[0-9a-f]{32}$/;
+const spanIdPattern = /^[0-9a-f]{16}$/;
 
 /** OTLP span kinds by their stored number. */
 const spanKinds: Readonly<Record<string, TelemetrySpan["kind"]>> = {
@@ -136,9 +151,63 @@ export function spanRecord(row: TelemetryRow): TelemetrySpan {
     parentSpanId: text(row, "reference_parent_span_id"),
     statusMessage: text(row, "status_message"),
     textWithheld: flag(row, telemetryColumn(attribute.textWithheld)) === true,
-    details: details(row, spanDetails),
+    previews: spanPreviews(row),
+    contentWithheld:
+      flag(row, telemetryColumn(attribute.contentWithheld)) === true,
+    details: [...promptDetails(row), ...details(row, spanDetails)],
     events: spanEvents(row.events),
   };
+}
+
+/** Where a prompt's text came from, in plain words, by Everything's fixed catalog. */
+const promptSourceLabels: Readonly<Record<PromptSource, string>> = {
+  message: "The message sent to the teammate",
+  reminder: "Everything’s reminder to reply",
+  private: "A private message, such as from background work",
+};
+
+/** A prompt span's source as a detail, when it was recorded; any other value is left out. */
+function promptDetails(row: TelemetryRow): TelemetryDetail[] {
+  const column = telemetryColumn(attribute.promptSource);
+  const source = oneOf(promptSources, row[column]);
+  return source
+    ? [{ key: column, label: "Prompted by", value: promptSourceLabels[source] }]
+    : [];
+}
+
+/** A span the stored span names in its links, such as the request that started a teammate turn. */
+export interface SpanLink {
+  readonly traceId: string;
+  readonly spanId: string;
+}
+
+/**
+ * The spans a stored span's links name: canonical, non-zero IDs only, from a bounded value, so a
+ * malformed or oversized value yields none rather than an error.
+ */
+export function spanLinks(row: TelemetryRow): SpanLink[] {
+  const value = row.links;
+  if (typeof value !== "string" || value.length > linksLimit) return [];
+  let links: unknown;
+  try {
+    links = JSON.parse(value);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(links)) return [];
+  const result: SpanLink[] = [];
+  for (const link of links.slice(0, linkLimit)) {
+    const context =
+      link && typeof link === "object"
+        ? ((link as { context?: unknown }).context ?? link)
+        : undefined;
+    if (!context || typeof context !== "object") continue;
+    const ids = context as Record<string, unknown>;
+    const traceId = identifier(ids.traceId ?? ids.trace_id, traceIdPattern);
+    const spanId = identifier(ids.spanId ?? ids.span_id, spanIdPattern);
+    if (traceId && spanId) result.push({ traceId, spanId });
+  }
+  return result;
 }
 
 // ===========================================
@@ -187,6 +256,74 @@ function spanTitle(row: TelemetryRow, name: string): string {
     return `PostgreSQL ${text(row, "db_operation_name") ?? text(row, "db_operation") ?? "query"}`;
   if (host && /^[A-Z]+$/.test(name)) return `${name} ${host}`;
   return name;
+}
+
+// ===========================================
+// Content previews
+// ===========================================
+
+/** The content previews a span row holds: a message, a tool call's arguments, or a statement. */
+function spanPreviews(row: TelemetryRow): TelemetryPreview[] {
+  const previews: TelemetryPreview[] = [];
+  const message = previewText(row, telemetryColumn(attribute.messagePreview));
+  if (message) {
+    const length = Number(row[telemetryColumn(attribute.messageLength)]);
+    previews.push({
+      kind: "message",
+      format: "text",
+      value: message.value,
+      truncated:
+        message.cut ||
+        flag(row, telemetryColumn(attribute.messageTruncated)) === true,
+      originalLength:
+        Number.isSafeInteger(length) && length >= 0 ? length : null,
+    });
+  }
+  const args = previewText(row, telemetryColumn(attribute.toolArguments));
+  if (args)
+    previews.push({
+      kind: "tool_arguments",
+      format: isJson(args.value) ? "json" : "text",
+      value: args.value,
+      truncated:
+        args.cut ||
+        flag(row, telemetryColumn(attribute.toolArgumentsTruncated)) === true,
+      originalLength: null,
+    });
+  const statement =
+    previewText(row, telemetryColumn(attribute.dbQueryText)) ??
+    previewText(row, telemetryColumn(attribute.dbStatement));
+  if (statement)
+    previews.push({
+      kind: "sql",
+      format: "sql",
+      value: statement.value,
+      truncated: statement.cut || statement.value.endsWith(truncationMarker),
+      originalLength: null,
+    });
+  return previews;
+}
+
+/** A stored preview, cut to the preview budget if it is somehow longer. */
+function previewText(
+  row: TelemetryRow,
+  column: string,
+): { value: string; cut: boolean } | undefined {
+  const value = row[column];
+  if (typeof value !== "string" || !value) return undefined;
+  const budget = telemetryLimits.previewBytes;
+  const cut = utf8Length(value, budget) > budget;
+  return { value: cut ? utf8Head(value, budget) : value, cut };
+}
+
+/** Whether `value` is JSON, such as an arguments preview, rather than plain text. */
+function isJson(value: string): boolean {
+  try {
+    JSON.parse(value);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** The span's recorded events, newest last. */

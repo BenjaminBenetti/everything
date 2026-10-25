@@ -14,30 +14,65 @@ function opaqueToken(match: string): string {
     : redacted;
 }
 
+/** How a pattern's match is replaced: a replacement string, or a function of the match's groups. */
+type Replacement = string | ((match: string, ...groups: string[]) => string);
+
+/**
+ * Whether a recognized value is exactly the redaction marker, alone or in the quotes it was written
+ * in, and perhaps cut just after it, as redacting leaves a value. Only such a value is left as it
+ * is: one that merely begins with the marker can carry anything after it.
+ */
+function onlyMarker(value: string): boolean {
+  return /^(\\?["']?)\[redacted\]\1(?:…\[truncated\])?$/.test(value);
+}
+
+/**
+ * `name=value` secrets in text, JSON, or headers, such as `password=…` or `"api_key": "…"`, with
+ * the name kept. A value runs to its closing quote, or unquoted to a separator, including any
+ * marker it holds, so a value that only begins with the marker is replaced whole. Text whose values
+ * are already placeholders, such as an SQL statement's shape, can skip it.
+ */
+const assignmentPattern: readonly [RegExp, Replacement] = [
+  /((?:\\?["'])?\b(?:[a-z0-9_-]{0,32}(?:api[_-]?key|session)|access[_-]?token|refresh[_-]?token|id[_-]?token|client[_-]?secret|password|passwd|passphrase|secret|token|authorization|proxy-authorization|cookie|set-cookie|session[_-]?(?:key|id|token)|credentials?)(?:\\?["'])?\s*[:=]\s*)(\\"(?:[^"\\]|\\[^"])*\\"|"[^"]*"|'[^']*'|(?:\[redacted\]|…\[truncated\]|[^\s,;&}\]])+)/gi,
+  (match, name, value) => (onlyMarker(value!) ? match : `${name}${redacted}`),
+];
+
 /**
  * Credential shapes, replaced wherever they appear in text: private keys, tokens, API keys,
  * `name=value` secrets in text, JSON, or headers, and URL user information and query strings. A
- * pattern's first group, when present, is kept before the replacement. Already-redacted text is
- * left as it is, so redacting twice gives the same result.
+ * pattern's first group, when present, is kept before the replacement. A value that is exactly the
+ * marker is left as it is, so redacting twice gives the same result; a marker at the start of a
+ * longer value is never taken as proof that the value was made safe.
  */
-const secretPatterns: readonly [RegExp, string][] = [
+const secretPatterns: readonly (readonly [RegExp, Replacement])[] = [
   [
     /-----BEGIN [A-Z ]{0,40}PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]{0,40}PRIVATE KEY-----|$)/g,
     redacted,
   ],
-  // Whole cookie headers, since their values hold several name=value pairs.
-  [/\b((?:set-)?cookie\s*:\s*)(?!\[redacted\])[^\r\n]+/gi, `$1${redacted}`],
-  [/\b(bearer|basic|token)\s+[A-Za-z0-9._~+/=-]{6,}/gi, `$1 ${redacted}`],
+  // Whole cookie headers, since their values hold several name=value pairs; the rest of the line
+  // is kept only when it is exactly the marker.
+  [
+    /\b((?:set-)?cookie\s*:\s*)([^\r\n]+)/gi,
+    (match, name, rest) =>
+      onlyMarker(rest!.trimEnd()) ? match : `${name}${redacted}`,
+  ],
+  // An authorization scheme's credential: six or more token characters, or any that hold the
+  // marker without being exactly it.
+  [
+    /\b(bearer|basic|token)\s+((?:\[redacted\]|[A-Za-z0-9._~+/=-])+)/gi,
+    (match, scheme, credential) =>
+      credential === redacted ||
+      (credential!.length < 6 && !credential!.includes(redacted))
+        ? match
+        : `${scheme} ${redacted}`,
+  ],
   [/\beyJ[A-Za-z0-9_-]{4,}\.[A-Za-z0-9_-]{4,}\.[A-Za-z0-9_-]*/g, redacted],
   [/\b(?:sk|pk|rk)-[A-Za-z0-9_-]{6,}/g, redacted],
   [/\bAIza[0-9A-Za-z_-]{20,}/g, redacted],
   [/\b(?:gh[pousr]|github_pat)_[A-Za-z0-9_]{16,}/g, redacted],
   [/\bxox[abprs]-[A-Za-z0-9-]{8,}/g, redacted],
   [/\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/g, redacted],
-  [
-    /((?:\\?["'])?\b(?:[a-z0-9_-]{0,32}(?:api[_-]?key|session)|access[_-]?token|refresh[_-]?token|id[_-]?token|client[_-]?secret|password|passwd|passphrase|secret|token|authorization|proxy-authorization|cookie|set-cookie|session[_-]?(?:key|id|token)|credentials?)(?:\\?["'])?\s*[:=]\s*)(?!\\?["']?\[redacted\])(?:\\"(?:[^"\\]|\\[^"])*\\"|"[^"]*"|'[^']*'|[^\s,;&}\]]+)/gi,
-    `$1${redacted}`,
-  ],
+  assignmentPattern,
   [/\b([a-z][a-z0-9+.-]{0,31}:\/\/)[^\s/?#@]{1,256}@/gi, `$1${redacted}@`],
   [
     /(\b[a-z][a-z0-9+.-]{0,31}:\/\/[^\s?#"'<>]*)[?#][^\s"'<>]*/gi,
@@ -64,19 +99,100 @@ const cutMargin = 64;
  * redaction, so a credential the cut split in two cannot survive as a fragment.
  */
 export function redactText(value: string, limit: number): string {
-  const window = limit * 2 + 512;
+  const { text, cut } = redactStart(value, limit * 2 + 512);
+  return truncate((cut ? text + truncationMarker : text).trim(), limit);
+}
+
+/** Redacted text from part of a longer value, and whether the value went on past it. */
+export interface RedactedWindow {
+  readonly text: string;
+  readonly cut: boolean;
+}
+
+/** What a redaction replaces besides credential shapes. */
+export interface RedactionOptions {
+  /**
+   * Replace the values of `name=value` secrets too; on unless the text's values are already
+   * placeholders, as in an SQL statement's shape.
+   */
+  readonly assignments?: boolean;
+}
+
+/**
+ * Remove credentials and control characters from the first `window` characters of `value`,
+ * without marking or shortening the result further. When the value is longer, the last
+ * characters before the cut are dropped after redaction, as in `redactText`, unless what the cut
+ * ended in was itself redacted, so a credential the cut split leaves no fragment either way.
+ */
+export function redactStart(
+  value: string,
+  window: number,
+  options: RedactionOptions = {},
+): RedactedWindow {
   const cut = value.length > window;
-  let text = (cut ? value.slice(0, window) : value).replace(
-    controlCharacters,
-    " ",
-  );
-  for (const [pattern, replacement] of secretPatterns)
-    text = text.replace(pattern, replacement);
-  text = text.replace(/[A-Za-z0-9+/_-]{40,}={0,2}/g, opaqueToken);
-  if (cut)
-    text =
-      text.slice(0, Math.max(0, text.length - cutMargin)) + truncationMarker;
-  return truncate(text.trim(), limit);
+  const text = withoutAnySecrets(cut ? value.slice(0, window) : value, options);
+  return {
+    text:
+      cut && !text.endsWith(redacted)
+        ? text.slice(0, Math.max(0, text.length - cutMargin))
+        : text,
+    cut,
+  };
+}
+
+/**
+ * Remove credentials and control characters from the last `window` characters of `value`. When
+ * the value is longer, the first characters after the cut are dropped after redaction, unless
+ * what the cut began in was itself redacted, so a credential the cut split leaves no fragment.
+ */
+export function redactEnd(value: string, window: number): RedactedWindow {
+  if (value.length <= window) return redactStart(value, window);
+  const text = withoutAnySecrets(value.slice(value.length - window));
+  return {
+    text: text.startsWith(redacted)
+      ? text
+      : text.slice(Math.min(text.length, cutMargin)),
+    cut: true,
+  };
+}
+
+/** Whether text holds percent-encoded ASCII, which could spell a credential the patterns miss. */
+const hasEncodedAscii = /%[0-7][0-9A-Fa-f]/;
+
+/**
+ * `text` with credentials redacted, as written and as its percent-encoded ASCII reads decoded, so
+ * encoding a credential, such as a key in a URL path or `api%5Fkey%3D…`, cannot hide it. Text in
+ * which decoding reveals nothing is kept as written. Otherwise its decoded, redacted form is used,
+ * since a credential can't be cut out of its encoded form reliably. Only `text` itself, already a
+ * bounded window, is decoded, at most `decodePasses` times; other encodings, such as base64 or
+ * HTML entities, are not recognized.
+ */
+function withoutAnySecrets(
+  text: string,
+  options: RedactionOptions = {},
+): string {
+  const literal = withoutSecrets(text, options);
+  if (!hasEncodedAscii.test(literal)) return literal;
+  const decoded = decodedPath(literal);
+  const safe = withoutSecrets(decoded, options);
+  return safe === decoded ? literal : safe;
+}
+
+/** `text` with control characters and every credential shape replaced. */
+function withoutSecrets(
+  text: string,
+  { assignments = true }: RedactionOptions = {},
+): string {
+  let result = text.replace(controlCharacters, " ");
+  for (const entry of secretPatterns) {
+    if (!assignments && entry === assignmentPattern) continue;
+    const [pattern, replacement] = entry;
+    result =
+      typeof replacement === "string"
+        ? result.replace(pattern, replacement)
+        : result.replace(pattern, replacement);
+  }
+  return result.replace(/[A-Za-z0-9+/_-]{40,}={0,2}/g, opaqueToken);
 }
 
 /** Cut text to `limit` characters, marking the cut. */
@@ -127,8 +243,8 @@ const encodedAscii = /%([0-7][0-9A-Fa-f])/g;
 /** Most times a path is decoded, for a credential encoded more than once. */
 const decodePasses = 3;
 
-/** A path with its percent-encoded ASCII characters decoded, up to `decodePasses` times. */
-function decodedPath(path: string): string {
+/** Text with its percent-encoded ASCII characters decoded, up to `decodePasses` times. */
+export function decodedPath(path: string): string {
   let current = path;
   for (let pass = 0; pass < decodePasses; pass++) {
     const next = current.replace(encodedAscii, (_match, hex: string) =>
