@@ -269,8 +269,10 @@ export class TelemetryQueryBuilder {
   /**
    * Other traces of the owner's that recorded any of `runIds`, each with the time of its first
    * span, earliest first, and with the owner and run it was grouped by, so each result can be
-   * checked again before it is counted. A trace that recorded several of the runs has a row for
-   * each, so up to `limit + 1` traces take up to `(limit + 1) * runIds.length` rows.
+   * checked again before it is counted. The grouped owner and run are required again before the
+   * groups are ordered and bounded, so groups a faulty row filter let through can't take the
+   * owner's places within the bound. A trace that recorded several of the runs has a row for each,
+   * so up to `limit + 1` traces take up to `(limit + 1) * runIds.length` rows.
    */
   runTraces(
     ownerId: string,
@@ -288,8 +290,9 @@ export class TelemetryQueryBuilder {
     ];
     if (!runIds.length || conditions.includes(null)) return null;
     const groups = `${column.traceId}, ${column.owner}, ${column.run}`;
+    const proof = `${conditions[0]} AND ${conditions[1]}`;
     const rows = Math.min(500, (bound(limit) + 1) * unique(runIds).length);
-    return `SELECT ${groups}, MIN(${column.time}) AS first_time FROM "${this.stream}" WHERE ${conditions.join(" AND ")} GROUP BY ${groups} ORDER BY first_time ASC LIMIT ${rows}`;
+    return `SELECT ${groups}, MIN(${column.time}) AS first_time FROM "${this.stream}" WHERE ${conditions.join(" AND ")} GROUP BY ${groups} HAVING ${proof} ORDER BY first_time ASC LIMIT ${rows}`;
   }
 
   /** The owner's spans that began the given traces, at the times `runTraces` found. */

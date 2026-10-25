@@ -1,8 +1,13 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { test } from "node:test";
 import { promisify } from "node:util";
-import { context as otel, SpanKind } from "@opentelemetry/api";
+import {
+  context as otel,
+  SpanKind,
+  type SpanContext,
+} from "@opentelemetry/api";
 import type {
   TelemetryRecordSummary,
   TelemetrySpan,
@@ -16,6 +21,7 @@ import {
 } from "../model/telemetry-attributes.js";
 import { sendMessageToolName } from "../../runtime/model/message-delivery.js";
 import { recordWarning } from "../service/diagnostic-warnings.js";
+import { TelemetryQueryBuilder } from "../service/telemetry-query-builder.js";
 import { startTelemetrySpan } from "../service/telemetry-recorder.js";
 import { TelemetryQueryService } from "../service/telemetry-query-service.js";
 import { failure, reply, settled, teammate } from "./runtime-fixtures.js";
@@ -297,6 +303,8 @@ test(
       for (const statement of [
         "SELECT $ü$the visit note mentions morning appointments$ü$ AS note FROM visits",
         'SELECT 1 AS "password=REVIEWFAKEstore8" FROM visits',
+        // The same kind of fake credential, quoted inside the identifier with SQL's doubled quotes.
+        'SELECT 2 AS "secret=""REVIEWFAKEstore10""" FROM visits',
       ])
         startTelemetrySpan("pg.query:SELECT everything", {
           kind: SpanKind.CLIENT,
@@ -321,7 +329,7 @@ test(
     const turn = spans.find((span) => span.name === "teammate.turn")!;
     const tool = spans.find((span) => span.name === "teammate.tool")!;
     const queries = spans.filter((span) => span.name.startsWith("pg.query"));
-    assert.equal(queries.length, 3, "each statement's span is stored");
+    assert.equal(queries.length, 4, "each statement's span is stored");
     const requestSpan = spans.find((span) => span.kind === "server")!;
     assert.equal(
       (await reader!.status()).content,
@@ -346,6 +354,7 @@ test(
           "SELECT * FROM accounts WHERE token = ? AND id = $1",
           "SELECT ? AS note FROM visits",
           'SELECT ? AS "password=[redacted]" FROM visits',
+          'SELECT ? AS "secret=[redacted]" FROM visits',
         ].sort(),
       );
     } else
@@ -374,11 +383,13 @@ test(
       "REVIEWFAKEstore0009",
       "morning appointments",
       "REVIEWFAKEstore8",
+      "REVIEWFAKEstore10",
     ])
       assert.ok(!stored.includes(secret), `${secret} never reaches storage`);
     for (const shape of [
       "SELECT ? AS note FROM visits",
       'SELECT ? AS \\"password=[redacted]\\" FROM visits',
+      'SELECT ? AS \\"secret=[redacted]\\" FROM visits',
     ])
       assert.equal(
         stored.includes(shape),
@@ -477,6 +488,88 @@ test(
     assert.ok(Date.parse(delayed.to) <= Date.now() - 3_599_000);
     const live = await reader!.spans(owner, { severity: "info", minAge: 0 });
     assert.ok(live.records.some((span) => span.id === turn.id));
+  },
+);
+
+test(
+  "same-run groups are proven the owner's before the query's bound, so other owners' traces of the run can't crowd out the owner's, even without the owner in the row filter",
+  { skip },
+  async () => {
+    const owner = "owner-run";
+    const runId = randomUUID();
+    // Each root starts a few milliseconds after the last, so their first times order them.
+    const root = async (ownerId: string) => {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      const started = startTelemetrySpan("GET /v1/agents/:agentId", {
+        kind: SpanKind.SERVER,
+        root: true,
+        scope: { ownerId, runId },
+      });
+      started.span.end();
+      return started.span.spanContext();
+    };
+    const inspected = await root(owner);
+    // As many other owners' traces of the run, recorded first, as one run's query returns at most.
+    const others: SpanContext[] = [];
+    for (let index = 0; index < 11; index++)
+      others.push(await root("owner-other"));
+    const sibling = await root(owner);
+    await runtime!.flush();
+
+    const trace = await eventually(async () => {
+      const found = await reader!.trace(owner, inspected.traceId);
+      return found.relations?.related.length ? found : undefined;
+    }, "the run's other trace");
+    assert.deepEqual(
+      trace.relations!.related.map((related) => [
+        related.relation,
+        related.span.traceId,
+      ]),
+      [["same_run", sibling.traceId]],
+    );
+    assert.equal(trace.relations!.truncated, false);
+
+    // The grouped query as the builder writes it, with the row filter's owner condition removed,
+    // as a faulty backend or a mis-composed condition would leave it: real OpenObserve still
+    // returns only the owner's groups, within the same bound.
+    const window = {
+      start: (Date.now() - 3_600_000) * 1000,
+      end: (Date.now() + 60_000) * 1000,
+    };
+    const sql = new TelemetryQueryBuilder(stream).runTraces(
+      owner,
+      [runId],
+      inspected.traceId,
+      await search!.fields("traces"),
+      10,
+    )!;
+    const unfiltered = sql.replace(
+      `WHERE everything_owner_id = '${owner}' AND `,
+      "WHERE ",
+    );
+    assert.notEqual(
+      unfiltered,
+      sql,
+      "the row filter's owner condition is gone",
+    );
+    const unproven = unfiltered.replace(/ HAVING .*? ORDER BY /, " ORDER BY ");
+    const everyGroup = await eventually(async () => {
+      const found = await search!.search("traces", unproven, window, 500);
+      return others.every((other) =>
+        found.some((group) => group.trace_id === other.traceId),
+      )
+        ? found
+        : undefined;
+    }, "the other owners' groups, without either owner condition");
+    assert.ok(
+      everyGroup.every((group) => group.trace_id !== sibling.traceId),
+      "without either owner condition, the other owners' groups fill the bound",
+    );
+    const groups = await search!.search("traces", unfiltered, window, 500);
+    assert.deepEqual(
+      groups.map((group) => [group.trace_id, group.everything_owner_id]),
+      [[sibling.traceId, owner]],
+    );
   },
 );
 

@@ -210,7 +210,7 @@ test("relation lookups are fixed queries that start with the owner and write eve
   );
   assert.equal(
     builder.runTraces("owner-a", ["run-1", "run-1"], pair.traceId, fields, 10),
-    `SELECT trace_id, everything_owner_id, everything_run_id, MIN(_timestamp) AS first_time FROM "everything" WHERE everything_owner_id = 'owner-a' AND everything_run_id IN ('run-1') AND trace_id <> '0d32f64cd7aaab4c985c5a8575db6474' GROUP BY trace_id, everything_owner_id, everything_run_id ORDER BY first_time ASC LIMIT 11`,
+    `SELECT trace_id, everything_owner_id, everything_run_id, MIN(_timestamp) AS first_time FROM "everything" WHERE everything_owner_id = 'owner-a' AND everything_run_id IN ('run-1') AND trace_id <> '0d32f64cd7aaab4c985c5a8575db6474' GROUP BY trace_id, everything_owner_id, everything_run_id HAVING everything_owner_id = 'owner-a' AND everything_run_id IN ('run-1') ORDER BY first_time ASC LIMIT 11`,
   );
   assert.match(
     builder.runTraces("owner-a", ["run-1", "run-2"], pair.traceId, fields, 10)!,

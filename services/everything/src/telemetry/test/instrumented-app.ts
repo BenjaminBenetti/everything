@@ -1,3 +1,4 @@
+import { writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import type { AddressInfo } from "node:net";
 import Fastify from "fastify";
@@ -7,6 +8,7 @@ import {
   bindAuthenticatedRequest,
   registerRequestTelemetry,
 } from "../handler/request-telemetry.js";
+import { observeFirstBuffers } from "./first-buffer-observer.js";
 
 /**
  * A small server started with the instrumentation preload, as Everything's container starts it, so
@@ -14,6 +16,10 @@ import {
  * PostgreSQL client through `require`, as TypeORM does, after the preload has run.
  */
 const require = createRequire(import.meta.url);
+
+/** When a test names a file, what reaches telemetry's first buffers is written there as the app stops. */
+const observationsFile = process.env.FIRST_BUFFER_OBSERVATIONS;
+const observer = observationsFile ? observeFirstBuffers() : undefined;
 const { Client } = require("pg") as typeof import("pg");
 
 const app = Fastify({ logger: false });
@@ -67,6 +73,8 @@ app.post("/v1/work", async () => {
     "SELECT $ü$the visit note mentions morning appointments$ü$ AS note FROM accounts",
     // A short, deliberately fake credential assignment inside a quoted identifier.
     'SELECT 1 AS "password=REVIEWFAKEpgid7" FROM accounts',
+    // The same, its value quoted inside the identifier with SQL's doubled quotes.
+    'SELECT 1 AS "password=""REVIEWFAKEpgdq8""" FROM accounts',
   ]) {
     const client = new Client({
       host: "127.0.0.1",
@@ -89,6 +97,14 @@ process.once("SIGTERM", async () => {
   await app.close();
   const telemetry = activeTelemetry();
   await telemetry?.shutdown();
+  if (observer) {
+    const restored = observer.restore();
+    const { held, batchedSpans, batchedLogs, errors } = observer.observations;
+    await writeFile(
+      observationsFile!,
+      JSON.stringify({ held, batchedSpans, batchedLogs, errors, restored }),
+    );
+  }
   console.log(`health ${JSON.stringify(telemetry?.health() ?? null)}`);
   process.exit(0);
 });

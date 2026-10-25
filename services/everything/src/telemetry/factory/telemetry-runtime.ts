@@ -25,6 +25,10 @@ import {
   RedactingLogExporter,
   RedactingSpanExporter,
 } from "../adapter/redacting-exporters.js";
+import {
+  RedactingLogRecordProcessor,
+  RedactingSpanProcessor,
+} from "../adapter/redacting-processors.js";
 import type {
   TelemetryBackendSettings,
   TelemetrySettings,
@@ -76,8 +80,10 @@ export function activeTelemetry(): TelemetryRuntime | undefined {
  * Start tracing and event export to the configured backend, once per process, before the modules
  * it instruments are loaded. Export is bounded and asynchronous: a slow or unreachable backend fills
  * fixed-size queues whose overflow is counted and dropped, and never delays or fails the
- * application's work. Error text and content previews are exported only if the settings record
- * them. Without a backend nothing is started and the API's calls do nothing.
+ * application's work. Records are made safe before anything holds them, as they are again before
+ * export: error text and content previews are kept only if the settings record them, and the
+ * queues hold detached, redacted copies rather than the SDK's records. Without a backend nothing is
+ * started and the API's calls do nothing.
  */
 export function startTelemetry(
   settings: TelemetrySettings,
@@ -132,10 +138,17 @@ export function startTelemetry(
     spanProcessors: [
       new ScopeSpanProcessor(),
       new DatabaseStatementProcessor(),
-      new ReadRequestFilter(
-        spans,
-        { ...defaultReadRequestPolicy, sampleRatio: settings.readSampleRatio },
-        options.random,
+      new RedactingSpanProcessor(
+        new ReadRequestFilter(
+          spans,
+          {
+            ...defaultReadRequestPolicy,
+            sampleRatio: settings.readSampleRatio,
+          },
+          options.random,
+        ),
+        health,
+        policy,
       ),
     ],
   });
@@ -146,18 +159,22 @@ export function startTelemetry(
       attributeValueLengthLimit,
     },
     processors: [
-      new BatchLogRecordProcessor({
-        exporter: new RedactingLogExporter(
-          options.logExporter ?? logExporter(backend!),
-          health,
-          policy,
-        ),
-        maxQueueSize: Math.min(1024, queueSize),
-        maxExportBatchSize: Math.min(128, queueSize),
-        scheduledDelayMillis: Math.min(1_000, delay),
-        exportTimeoutMillis: timeout,
-        selfObsMeterProvider: meters,
-      }),
+      new RedactingLogRecordProcessor(
+        new BatchLogRecordProcessor({
+          exporter: new RedactingLogExporter(
+            options.logExporter ?? logExporter(backend!),
+            health,
+            policy,
+          ),
+          maxQueueSize: Math.min(1024, queueSize),
+          maxExportBatchSize: Math.min(128, queueSize),
+          scheduledDelayMillis: Math.min(1_000, delay),
+          exportTimeoutMillis: timeout,
+          selfObsMeterProvider: meters,
+        }),
+        health,
+        policy,
+      ),
     ],
   });
   trace.setGlobalTracerProvider(tracerProvider);

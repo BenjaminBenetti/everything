@@ -6,6 +6,7 @@ import type {
   TelemetrySearch,
 } from "../interface/telemetry-search.js";
 import { TelemetryQueryService } from "../service/telemetry-query-service.js";
+import { having } from "./sql-fixtures.js";
 
 /** A fixed clock: 2026-10-23T12:00:00Z. */
 const now = Date.parse("2026-10-23T12:00:00Z");
@@ -99,7 +100,8 @@ function store(
       const failure = fail(sql);
       if (failure === "hang") return new Promise<TelemetryRow[]>(() => {});
       if (failure) throw new Error("backend failure");
-      const owner = literals(sql, /everything_owner_id = ('[^']*')/)![0];
+      const where = /\bWHERE (.*?)(?: GROUP BY | ORDER BY |$)/.exec(sql)![1]!;
+      const owner = literals(where, /everything_owner_id = ('[^']*')/)![0];
       // Exact tuples, `(trace_id = … AND span_id = …)` or `(… AND _timestamp = …)`, match together.
       const tuples = [
         ...sql.matchAll(
@@ -133,10 +135,10 @@ function store(
             )),
       );
       const limit = Number(/LIMIT (\d+)/.exec(sql)?.[1] ?? 500);
-      const grouped = /GROUP BY (.+?) ORDER BY/.exec(sql)?.[1];
-      if (grouped) {
+      const grouping = /GROUP BY (.+?)(?: HAVING (.+?))? ORDER BY/.exec(sql);
+      if (grouping) {
         // One row per group, with the grouped columns and its earliest time, as SQL returns it.
-        const columns = grouped.split(",").map((column) => column.trim());
+        const columns = grouping[1]!.split(",").map((column) => column.trim());
         const groups = new Map<string, TelemetryRow>();
         for (const row of matched) {
           const key = columns.map((column) => String(row[column])).join("|");
@@ -150,7 +152,7 @@ function store(
               first_time: time,
             });
         }
-        return [...groups.values()]
+        return having([...groups.values()], grouping[2])
           .sort((a, b) => Number(a.first_time) - Number(b.first_time))
           .slice(0, limit);
       }

@@ -26,10 +26,11 @@ const tagCharacter = /[A-Za-z0-9_\u0080-\uFFFF]/;
  * written into the statement itself, such as a password or a connection string, are never kept.
  * Dollar-quote tags follow PostgreSQL's rules, non-ASCII letters and any length included. Parameter
  * values are never part of the text. Quoted identifiers are redacted for credentials, `name=value`
- * included; whitespace runs become one space; what remains is redacted for credential shapes; and
- * the result fits `telemetryLimits.previewBytes` of UTF-8, marked when cut. A literal, comment, or
- * dollar-quote opener the statement doesn't close hides the rest of it. The statement that runs is
- * unchanged; only this copy is recorded.
+ * included, as the names they spell once SQL's doubled quotes are undone; whitespace runs become
+ * one space; what remains is redacted for credential shapes; and the result fits
+ * `telemetryLimits.previewBytes` of UTF-8, marked when cut. A literal, comment, or dollar-quote
+ * opener the statement doesn't close hides the rest of it. The statement that runs is unchanged;
+ * only this copy is recorded.
  */
 export function sqlStatementPreview(
   statement: string,
@@ -86,8 +87,10 @@ function sqlShape(statement: string): { text: string; unterminated: boolean } {
       const end = quotedEnd(statement, index, false, '"');
       if (end < 0)
         return { text: result + sqlLiteralPlaceholder, unterminated: true };
-      // A name stays, but credentials written into it, such as `password=…`, don't.
-      result += `"${redactStart(statement.slice(index + 1, end - 1), end).text}"`;
+      // A name stays, but credentials written into it, such as `password=…`, don't. Its doubled
+      // quotes are undone first, so a quoted value reads as one, and redone after.
+      const name = statement.slice(index + 1, end - 1).replaceAll('""', '"');
+      result += `"${redactStart(name, end).text.replaceAll('"', '""')}"`;
       index = end;
     } else if (
       character === "$" &&

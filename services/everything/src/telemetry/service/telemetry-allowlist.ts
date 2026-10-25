@@ -7,6 +7,7 @@ import {
 } from "../model/telemetry-attributes.js";
 import { sqlStatementPreview } from "./sql-statement.js";
 import {
+  redacted,
   redactPath,
   redactStart,
   redactText,
@@ -103,10 +104,16 @@ const path: Sanitizer = (value) =>
 
 /**
  * A short identifier only, with any credential it spells redacted: a well-formed identifier, such
- * as a tool name a model chose or a gateway's host, can still be a key.
+ * as a tool name a model chose or a gateway's host, can still be a key. An identifier already made
+ * safe, whose only other text is the redaction marker, is kept as it is, so making a record safe
+ * again changes nothing.
  */
 const identifier: Sanitizer = (value) => {
-  const valid = safeIdentifier(value, 128);
+  const valid =
+    typeof value === "string" &&
+    safeIdentifier(value.replaceAll(redacted, "x"), 128) !== undefined
+      ? value
+      : safeIdentifier(value, 128);
   return valid === undefined ? scalar(value) : redactText(valid, 128);
 };
 

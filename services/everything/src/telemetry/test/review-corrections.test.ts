@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { TracerProvider, type ReadableSpan } from "@opentelemetry/sdk-trace";
+import { createTraceState, type Link } from "@opentelemetry/api";
+import {
+  TracerProvider,
+  type ReadableSpan,
+  type SpanProcessor,
+} from "@opentelemetry/sdk-trace";
 import { telemetryLimits } from "@everything/telemetry-contracts";
+import { exportableSpan } from "../adapter/redacting-exporters.js";
+import { RedactingSpanProcessor } from "../adapter/redacting-processors.js";
 import type {
   TelemetryRow,
   TelemetrySearch,
@@ -17,9 +24,11 @@ import {
   exportableAttributes,
   type ExportPolicy,
 } from "../service/telemetry-allowlist.js";
+import { ExportHealth } from "../service/export-health.js";
 import { TelemetryQueryService } from "../service/telemetry-query-service.js";
 import { utf8Length } from "../service/text-budget.js";
 import { toolArgumentsPreview } from "../service/tool-arguments-preview.js";
+import { having } from "./sql-fixtures.js";
 
 /**
  * Corrections from the review of 738832d. Every credential-like value here is a deliberately fake
@@ -276,6 +285,103 @@ test("P4: a short name=value credential in a quoted identifier is redacted, and 
 });
 
 // ===========================================
+// C1: credentials quoted inside a quoted identifier, with SQL's doubled quotes
+// ===========================================
+
+/**
+ * A deliberately fake, short, plain credential: no provider-key, opaque-token, or other shape the
+ * redactor recognizes on its own, so only the assignment it is written in can give it away.
+ */
+const quotedCanary = "REVIEWFAKEdq1";
+
+/** `name` as a PostgreSQL quoted identifier, its double quotes doubled as SQL requires. */
+const quotedIdentifier = (name: string) => `"${name.replaceAll('"', '""')}"`;
+
+/** The names quoted identifiers spell, decoded, in a shaped statement. */
+function identifierNames(shape: string): string[] {
+  return [...shape.matchAll(/"((?:[^"]|"")*)"/g)].map((match) =>
+    match[1]!.replaceAll('""', '"'),
+  );
+}
+
+test("C1: a credential quoted inside a quoted identifier is redacted, the identifier stays valid, and shaping again keeps it so", () => {
+  for (const name of [
+    `password="${quotedCanary}"`,
+    `api_key = "${quotedCanary}"`,
+    `note "kept" token="${quotedCanary}"`,
+  ]) {
+    const statement = `SELECT 1 AS ${quotedIdentifier(name)} FROM t WHERE "token" = $1`;
+    const preview = sqlStatementPreview(statement);
+    assert.ok(!preview.text.includes(quotedCanary), preview.text);
+    assert.ok(preview.text.endsWith('FROM t WHERE "token" = $1'), preview.text);
+    assert.ok(
+      /^SELECT \? AS "(?:[^"]|"")*" FROM/.test(preview.text),
+      `the identifier is still one valid quoted identifier: ${preview.text}`,
+    );
+    assert.ok(
+      identifierNames(preview.text).some((shown) =>
+        shown.includes("[redacted]"),
+      ),
+      preview.text,
+    );
+    assert.equal(
+      sqlStatementPreview(preview.text).text,
+      preview.text,
+      "shaping again changes nothing",
+    );
+  }
+  // The other quoted text in a name is kept, quotes and all.
+  assert.ok(
+    identifierNames(
+      sqlStatementPreview(
+        `SELECT 1 AS ${quotedIdentifier(`note "kept" token="${quotedCanary}"`)}`,
+      ).text,
+    ).includes('note "kept" token=[redacted]'),
+  );
+});
+
+test("C1: at the start and end of a statement, past the budget, and unterminated, a doubled-quote credential never shows", () => {
+  const identifier = quotedIdentifier(`password="${quotedCanary}"`);
+  for (const statement of [
+    `${identifier} AS x`,
+    `SELECT a FROM t ORDER BY ${identifier}`,
+    `SELECT ${"column_name, ".repeat(400)}1 AS ${identifier} FROM t`,
+    `SELECT 1 AS "password=""${quotedCanary}`,
+    `SELECT 1 AS "password=""${quotedCanary}""`,
+  ]) {
+    const preview = sqlStatementPreview(statement);
+    assert.ok(!preview.text.includes(quotedCanary), preview.text.slice(-80));
+    assert.ok(utf8Length(preview.text) <= telemetryLimits.previewBytes);
+  }
+});
+
+test("C1: the request hook, the ending processor, and the exporter all redact it, and the statement that runs is unchanged", () => {
+  const statement = `SELECT 1 AS ${quotedIdentifier(`password="${quotedCanary}"`)} FROM t WHERE id = $1`;
+  const original = statement.slice();
+  const tracer = new TracerProvider({
+    spanProcessors: [new DatabaseStatementProcessor()],
+  }).getTracer("review-c1");
+  const hooked = tracer.startSpan("pg.query:SELECT");
+  hooked.setAttribute(attribute.dbQueryText, statement);
+  shapeQueryStatement(hooked, statement);
+  const ended = tracer.startSpan("pg.query:SELECT");
+  ended.setAttribute(attribute.dbStatement, statement);
+  hooked.end();
+  ended.end();
+  for (const span of [hooked, ended] as unknown as ReadableSpan[])
+    assert.ok(
+      !JSON.stringify(span.attributes).includes(quotedCanary),
+      JSON.stringify(span.attributes),
+    );
+  const exported = exportableAttributes(
+    { [attribute.dbQueryText]: statement, [attribute.dbStatement]: statement },
+    recorded,
+  );
+  assert.ok(!JSON.stringify(exported).includes(quotedCanary));
+  assert.equal(statement, original);
+});
+
+// ===========================================
 // M1 and M2: relation queries against a backend that answers SQL as written
 // ===========================================
 
@@ -316,9 +422,10 @@ function literals(sql: string, pattern: RegExp): string[] | undefined {
 
 /**
  * A backend that answers the SQL it is given as SQL would: independent `IN` lists are a cross
- * product, tuple conditions are exact, `LIMIT` cuts after ordering, and grouping returns the
- * columns selected. With `ignoreOwner`, it also returns other owners' rows, as a faulty backend
- * might.
+ * product, tuple conditions are exact, grouping returns the columns selected, `HAVING` applies to
+ * whole groups, and `LIMIT` cuts after ordering. With `ignoreOwner`, its row filter ignores the
+ * owner condition and returns other owners' rows, as a faulty backend or a mis-composed `WHERE`
+ * might; what it does with groups is unchanged.
  */
 function sqlBackend(rows: readonly TelemetryRow[], ignoreOwner = false) {
   const queries: string[] = [];
@@ -326,7 +433,9 @@ function sqlBackend(rows: readonly TelemetryRow[], ignoreOwner = false) {
     async search(type, sql) {
       queries.push(sql);
       if (type === "logs") return [];
-      const owner = literals(sql, /everything_owner_id = ('[^']*')/)?.[0];
+      const where =
+        /\bWHERE (.*?)(?: GROUP BY | ORDER BY |$)/.exec(sql)?.[1] ?? "";
+      const owner = literals(where, /everything_owner_id = ('[^']*')/)?.[0];
       const traceEquals =
         /\bWHERE .*?trace_id = '([0-9a-f]{32})' (?:ORDER|LIMIT)/.exec(sql)?.[1];
       const traceIn = literals(sql, /trace_id IN \(([^)]*)\)/);
@@ -366,9 +475,9 @@ function sqlBackend(rows: readonly TelemetryRow[], ignoreOwner = false) {
             )),
       );
       const limit = Number(/LIMIT (\d+)/.exec(sql)?.[1] ?? 500);
-      const group = /GROUP BY ([^O]+?) ORDER/.exec(sql)?.[1];
-      if (group) {
-        const keys = group.split(",").map((key) => key.trim());
+      const grouping = /GROUP BY (.+?)(?: HAVING (.+?))? ORDER BY/.exec(sql);
+      if (grouping) {
+        const keys = grouping[1]!.split(",").map((key) => key.trim());
         const groups = new Map<string, TelemetryRow>();
         for (const candidate of matched) {
           const id = keys.map((key) => String(candidate[key])).join("|");
@@ -380,7 +489,7 @@ function sqlBackend(rows: readonly TelemetryRow[], ignoreOwner = false) {
               first_time: time,
             });
         }
-        return [...groups.values()]
+        return having([...groups.values()], grouping[2])
           .sort((a, b) => Number(a.first_time) - Number(b.first_time))
           .slice(0, limit);
       }
@@ -484,6 +593,48 @@ test("M1: aggregates without an owner, or other owners' first, never crowd out a
   assert.equal(trace.relations?.truncated, false);
 });
 
+test("M1: eleven rejected groups before an owned trace of the same run, as many as the query's bound, still don't crowd it out", async () => {
+  const own = traceOf("a1");
+  const owned = traceOf("a2");
+  const rows = [
+    row("owner-a", own, spanOf("a1"), at(1), { everything_run_id: runId }),
+    // One more rejected group than the earlier case: as many as one run's query returns at most.
+    ...Array.from({ length: 7 }, (_, index) =>
+      row("owner-b", traceOf(`b${index}`), spanOf("b1"), at(2 + index), {
+        everything_run_id: runId,
+      }),
+    ),
+    ...Array.from({ length: 4 }, (_, index) =>
+      row(undefined, traceOf(`c${index}`), spanOf("c1"), at(10 + index), {
+        everything_run_id: runId,
+      }),
+    ),
+    row("owner-a", owned, spanOf("a2"), at(20), { everything_run_id: runId }),
+  ];
+  const { search, queries } = sqlBackend(rows, true);
+  const trace = await reader(search).trace("owner-a", own);
+  assert.deepEqual(
+    trace.relations?.related.map((related) => [
+      related.relation,
+      related.span.traceId,
+    ]),
+    [["same_run", owned]],
+  );
+  assert.equal(trace.relations?.truncated, false);
+  assert.ok(
+    !queries.some((sql) =>
+      rows.slice(1, 12).some((entry) => sql.includes(String(entry.trace_id))),
+    ),
+    "no query fans out to a rejected group's trace",
+  );
+  // Without the rejected groups, the same trace reports the same thing.
+  const alone = sqlBackend([rows[0]!, rows.at(-1)!], true);
+  assert.deepEqual(
+    (await reader(alone.search).trace("owner-a", own)).relations,
+    trace.relations,
+  );
+});
+
 test("M2: linked spans are found by their exact trace and span, however many other spans share their IDs", async () => {
   const own = traceOf("a1");
   const targets = [
@@ -538,5 +689,110 @@ test("M2: a same-run trace's first span is found by its exact trace and time, ho
   assert.deepEqual(
     trace.relations?.related.map((related) => related.span.traceId).sort(),
     [busy, quiet].sort(),
+  );
+});
+
+// ===========================================
+// Exported links: canonical IDs only, at most eight, flags as a byte
+// ===========================================
+
+test("links keep only canonical, non-zero, lowercase IDs, at most eight, with flags as one byte and nothing else, at export and before any buffer", () => {
+  const hex = (index: number, length: number) =>
+    index
+      .toString(16)
+      .padStart(2, "0")
+      .repeat(length / 2);
+  const link = (traceId: string, spanId: string, traceFlags = 1): Link => ({
+    context: {
+      traceId,
+      spanId,
+      traceFlags,
+      traceState: createTraceState("vendor=REVIEWFAKElinkstate1"),
+    },
+    attributes: { "link.note": "REVIEWFAKElinkattr2" },
+  });
+  const rejected = [
+    link(hex(0xab, 32).toUpperCase(), hex(0xab, 16)),
+    link(hex(0xcd, 32), hex(0xcd, 16).toUpperCase()),
+    link("0".repeat(32), hex(3, 16)),
+    link(hex(4, 32), "0".repeat(16)),
+    link(hex(5, 30), hex(5, 16)),
+    link(`${hex(6, 30)}zz`, hex(6, 16)),
+  ];
+  const kept = Array.from({ length: 10 }, (_, index) =>
+    link(hex(16 + index, 32), hex(16 + index, 16), index === 0 ? 0x1ff : 1),
+  );
+  const span = new TracerProvider()
+    .getTracer("review-links")
+    .startSpan("teammate.turn", { root: true, links: [...rejected, ...kept] });
+  span.end();
+  const expected = kept.slice(0, 8).map((entry, index) => ({
+    context: {
+      traceId: entry.context.traceId,
+      spanId: entry.context.spanId,
+      traceFlags: index === 0 ? 0xff : 1,
+    },
+  }));
+  const view = exportableSpan(span as unknown as ReadableSpan, recorded);
+  assert.deepEqual(view.links, expected);
+  let held: ReadableSpan | undefined;
+  const next: SpanProcessor = {
+    onStart() {},
+    onEnd(safe) {
+      held = safe;
+    },
+    async forceFlush() {},
+    async shutdown() {},
+  };
+  new RedactingSpanProcessor(next, new ExportHealth(), recorded).onEnd(
+    span as unknown as ReadableSpan,
+  );
+  assert.deepEqual(held?.links, expected);
+  for (const links of [view.links, held!.links]) {
+    const text = JSON.stringify(links);
+    assert.ok(!text.includes("REVIEWFAKElink"), text);
+  }
+});
+
+// ===========================================
+// Records are made safe twice: before any buffer and at export
+// ===========================================
+
+test("making attributes safe again changes nothing, so a record made safe before its buffer exports the same", () => {
+  const attributes = {
+    [attribute.tool]: "sk-proj-REVIEWFAKEtwice1abcdefgh",
+    [attribute.reason]: "context_window",
+    [attribute.httpMethod]: "GET",
+    [attribute.serverAddress]: "api.example.test",
+    [attribute.urlFull]:
+      "https://gateway.test/v1/sk-proj-REVIEWFAKEtwice2abcdef/x?api_key=REVIEWFAKEtwice3",
+    [attribute.urlPath]:
+      "/v1/agents/0b6a3c4e-5f1d-4e2a-8c9b-7d6e5f4a3b2c/messages",
+    [attribute.httpStatus]: "502",
+    [attribute.message]:
+      "Lookup failed with password=REVIEWFAKEtwice4 for the visit",
+    [attribute.messagePreview]: messagePreview(
+      `Plan with api%5Fkey%3DREVIEWFAKEtwice5 ${"and more words ".repeat(300)}`,
+    ).text,
+    [attribute.toolArguments]: toolArgumentsPreview({
+      "api%5Fkey": "REVIEWFAKEtwice6",
+      env: { TOKEN: "REVIEWFAKEtwice7" },
+      text: "x".repeat(2_000),
+    }).text,
+    [attribute.dbQueryText]: `SELECT 1 AS "password=""REVIEWFAKEtwice8""" FROM t WHERE a = 'b' AND id = $1`,
+    [attribute.contentWithheld]: true,
+    "error.type": "Error",
+  };
+  for (const policy of [
+    recorded,
+    { includeErrorText: false, includeContent: false },
+  ]) {
+    const once = exportableAttributes(attributes, policy);
+    assert.deepEqual(exportableAttributes(once, policy), once);
+    assert.ok(!JSON.stringify(once).includes("REVIEWFAKEtwice"));
+  }
+  assert.equal(
+    exportableAttributes(attributes, recorded)[attribute.tool],
+    "[redacted]",
   );
 });

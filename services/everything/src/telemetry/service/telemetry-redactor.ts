@@ -2,7 +2,7 @@
 export const truncationMarker = "…[truncated]";
 
 /** Replacement for anything that looks like a credential. */
-const redacted = "[redacted]";
+export const redacted = "[redacted]";
 
 /**
  * Redact a long run of token characters unless it is a path or identifier made of short parts,

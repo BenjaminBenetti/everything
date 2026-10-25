@@ -209,9 +209,11 @@ export class TraceRelations {
         this.builder.runTraces(ownerId, runIds, traceId, fields, this.limit),
       (this.limit + 1) * runIds.length,
     );
-    // Only groups proven to be this owner's, for one of these runs, are counted or looked up, so
-    // nothing another owner recorded, even from a backend that ignores the owner condition, can
-    // change what this trace reports.
+    // The query requires each group's owner and run again before bounding the groups, and only
+    // groups proven here to be this owner's, for one of these runs, are counted or looked up. So
+    // nothing another owner recorded changes what this trace reports, even from a backend whose row
+    // filter ignores the owner condition, as long as it applies the group condition; one that
+    // ignores both can hide the owner's own traces of the run, but never show another owner's.
     const earliest = new Map<string, number>();
     for (const group of groups) {
       const candidate = group.trace_id;

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -8,6 +8,12 @@ import path from "node:path";
 import { test, type TestContext } from "node:test";
 import { fileURLToPath } from "node:url";
 import { telemetryAttributes as attribute } from "../model/telemetry-attributes.js";
+import {
+  describeHeld,
+  hasLoneSurrogate,
+  type BufferedRecord,
+  type FirstBufferObservations,
+} from "./first-buffer-observer.js";
 import { startOtlpReceiver, type ReceivedSpan } from "./otlp-receiver.js";
 
 /** The service directory, from which the child process resolves its modules. */
@@ -62,6 +68,7 @@ async function instrumentedApp(
   context.after(() => rm(directory, { recursive: true, force: true }));
   const passwordFile = path.join(directory, "password");
   await writeFile(passwordFile, "Ot1-test-password\n", { mode: 0o600 });
+  const observationsFile = path.join(directory, "first-buffers.json");
   const child: ChildProcessWithoutNullStreams = spawn(
     process.execPath,
     [
@@ -81,6 +88,7 @@ async function instrumentedApp(
         TELEMETRY_TIMEOUT_MS: "1000",
         CLOSED_PORT: String(await closedPort()),
         FAILURE_TEXT: privateText,
+        FIRST_BUFFER_OBSERVATIONS: observationsFile,
         ...environment,
       },
     },
@@ -110,12 +118,23 @@ async function instrumentedApp(
   });
   return {
     url: `http://127.0.0.1:${port}`,
-    /** Stop the process gracefully and return its final export health and output. */
+    /**
+     * Stop the process gracefully and return its final export health and output, and what reached
+     * telemetry's first buffers.
+     */
     async stop() {
       child.kill("SIGTERM");
       const code = await exited;
       const health = /health (.*)/.exec(output)?.[1];
-      return { code, output, health: health ? JSON.parse(health) : undefined };
+      const observations = JSON.parse(
+        await readFile(observationsFile, "utf8"),
+      ) as FirstBufferObservations & { restored: boolean };
+      return {
+        code,
+        output,
+        health: health ? JSON.parse(health) : undefined,
+        observations,
+      };
     },
   };
 }
@@ -138,6 +157,7 @@ const secrets = [
   "sk-sql-tail-secret-789",
   "morning appointments",
   "REVIEWFAKEpgid7",
+  "REVIEWFAKEpgdq8",
   "pg-password-secret",
   "Ot1-test-password",
   "pathsecretabcdefghijkl",
@@ -162,8 +182,56 @@ const reviewedShapes = [
 ];
 
 /**
+ * What the app's telemetry held in its first buffers, checked as safe: the read-request filter and
+ * the span batch received the request, dependency, and query spans, the event batch received the
+ * failure, and none of them held a secret or the SDK's own record. Every check runs here, after the
+ * process ended, never inside the SDK calls the observer copied records from.
+ */
+function firstBuffers(
+  observations: FirstBufferObservations & { restored: boolean },
+) {
+  const { held, batchedSpans, batchedLogs, errors, restored } = observations;
+  assert.deepEqual(errors, [], "every buffered record was copied");
+  assert.ok(restored, "the observer put every method back exactly");
+  const names = (records: readonly BufferedRecord[]) =>
+    new Set(records.map((record) => record.name));
+  for (const [buffer, records] of [
+    ["read filter", held],
+    ["span batch", batchedSpans],
+  ] as const) {
+    const seen = names(records);
+    for (const name of ["GET /v1/agents/:agentId/fail", "POST /v1/work", "GET"])
+      assert.ok(seen.has(name), `${name} reached the ${buffer}`);
+    assert.ok(
+      records.some(
+        (record) =>
+          record.attributes["db.system"] ?? record.attributes["db.system.name"],
+      ),
+      `a query reached the ${buffer}`,
+    );
+  }
+  assert.ok(
+    names(held).has("GET /v1/quiet"),
+    "a quick read is held until its request ends",
+  );
+  assert.ok(
+    batchedLogs.some(
+      (record) => record.attributes[attribute.event] === "http.request.failed",
+    ),
+    "the failure reached the event batch",
+  );
+  for (const record of [...held, ...batchedSpans, ...batchedLogs]) {
+    for (const secret of secrets)
+      assert.ok(!record.text.includes(secret), `${record.name}: ${secret}`);
+    assert.ok(record.detached, `${record.name} is held as its own record`);
+    assert.ok(!hasLoneSurrogate(record.text), `${record.name} is valid text`);
+  }
+  return { held, batchedSpans, batchedLogs };
+}
+
+/**
  * Run the instrumented app against an OTLP receiver with `environment`, make a failing request and
- * a mutation that calls dependencies, and return what it exported.
+ * a mutation that calls dependencies, and return what it exported and held in its first buffers.
  */
 async function exercise(
   context: TestContext,
@@ -191,11 +259,22 @@ async function exercise(
     (await fetch(`${app.url}/v1/work`, { method: "POST" })).status,
     200,
   );
-  const { code } = await app.stop();
+  const { code, observations } = await app.stop();
+  // Which secrets, by their place in the list, each buffer held, before anything is asserted.
+  const labelled = Object.fromEntries(
+    secrets.map((secret, index) => [`secrets[${index}]`, secret]),
+  );
+  for (const [buffer, records] of [
+    ["read filter", observations.held],
+    ["span batch", observations.batchedSpans],
+    ["event batch", observations.batchedLogs],
+  ] as const)
+    context.diagnostic(`${buffer}: ${describeHeld(records, labelled)}`);
   assert.equal(code, 0);
   const exported = receiver.bodies.join("\n");
   for (const secret of secrets)
     assert.ok(!exported.includes(secret), `${secret} must not be exported`);
+  const buffered = firstBuffers(observations);
 
   const [failure] = named(receiver.spans, "GET /v1/agents/:agentId/fail");
   assert.ok(failure, "the failed request's server span is exported");
@@ -218,6 +297,7 @@ async function exercise(
   return {
     receiver,
     exported,
+    buffered,
     dependencyUrl,
     failure,
     event,
@@ -233,6 +313,7 @@ test("with error text withheld, the preload instruments incoming requests, fetch
   const {
     receiver,
     exported,
+    buffered,
     dependencyUrl,
     failure,
     event,
@@ -242,13 +323,17 @@ test("with error text withheld, the preload instruments incoming requests, fetch
     stalled,
   } = await exercise(context, { TELEMETRY_INCLUDE_ERROR_TEXT: "false" });
   assert.ok(!exported.includes("secret_column"), "the statement is withheld");
+  const held = JSON.stringify(buffered);
+  assert.ok(!held.includes("secret_column"), "and never buffered");
   for (const text of [
     privateText,
     "Lookup failed",
     "Provider said",
     "Upstream said",
-  ])
+  ]) {
     assert.ok(!exported.includes(text), `${text} is error text, withheld`);
+    assert.ok(!held.includes(text), `${text} is never buffered`);
+  }
   assert.ok(
     receiver.headers.every(
       (headers) =>
@@ -343,6 +428,7 @@ test("with error text withheld, the preload instruments incoming requests, fetch
 test("by default the preload records error text and SQL statements' shapes, redacted and bounded, without parameter values or literals", async (context) => {
   const {
     exported,
+    buffered,
     failure,
     event,
     stalled,
@@ -389,14 +475,27 @@ test("by default the preload records error text and SQL statements' shapes, reda
       children.some((span) => span.attributes["db.query.text"] === shape),
       shape,
     );
+  // The shapes are what the first buffers held, too, with the error text.
+  for (const shape of [statementShape, longStatementShape, ...reviewedShapes])
+    assert.ok(
+      buffered.held.some(
+        (record) => record.attributes["db.query.text"] === shape,
+      ),
+      `${shape} is buffered`,
+    );
+  assert.ok(JSON.stringify(buffered).includes(privateText));
 });
 
 test("with content withheld on its own, error text is still recorded but SQL statements are not", async (context) => {
-  const { exported, children } = await exercise(context, {
+  const { exported, buffered, children } = await exercise(context, {
     TELEMETRY_INCLUDE_CONTENT: "false",
   });
   assert.ok(exported.includes(privateText), "error text is recorded");
   assert.ok(!exported.includes("secret_column"), "the statement is withheld");
+  assert.ok(
+    !JSON.stringify(buffered).includes("secret_column"),
+    "and never buffered",
+  );
   const query = children.find(
     (span) => span.attributes["db.system"] ?? span.attributes["db.system.name"],
   );
