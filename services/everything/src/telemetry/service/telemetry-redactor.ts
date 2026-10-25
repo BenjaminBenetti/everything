@@ -2,7 +2,7 @@
 export const truncationMarker = "…[truncated]";
 
 /** Replacement for anything that looks like a credential. */
-export const redacted = "[redacted]";
+const redacted = "[redacted]";
 
 /**
  * Redact a long run of token characters unless it is a path or identifier made of short parts,
@@ -14,30 +14,58 @@ function opaqueToken(match: string): string {
     : redacted;
 }
 
+/** How a pattern's match is replaced: a replacement string, or a function of the match's groups. */
+type Replacement = string | ((match: string, ...groups: string[]) => string);
+
+/**
+ * Whether a recognized value is exactly the redaction marker, alone or in the quotes it was written
+ * in, and perhaps cut just after it, as redacting leaves a value. Only such a value is left as it
+ * is: one that merely begins with the marker can carry anything after it.
+ */
+function onlyMarker(value: string): boolean {
+  return /^(\\?["']?)\[redacted\]\1(?:…\[truncated\])?$/.test(value);
+}
+
 /**
  * `name=value` secrets in text, JSON, or headers, such as `password=…` or `"api_key": "…"`, with
- * the name kept. Text whose values are already placeholders, such as an SQL statement's shape, can
- * skip it.
+ * the name kept. A value runs to its closing quote, or unquoted to a separator, including any
+ * marker it holds, so a value that only begins with the marker is replaced whole. Text whose values
+ * are already placeholders, such as an SQL statement's shape, can skip it.
  */
-const assignmentPattern: readonly [RegExp, string] = [
-  /((?:\\?["'])?\b(?:[a-z0-9_-]{0,32}(?:api[_-]?key|session)|access[_-]?token|refresh[_-]?token|id[_-]?token|client[_-]?secret|password|passwd|passphrase|secret|token|authorization|proxy-authorization|cookie|set-cookie|session[_-]?(?:key|id|token)|credentials?)(?:\\?["'])?\s*[:=]\s*)(?!\\?["']?\[redacted\])(?:\\"(?:[^"\\]|\\[^"])*\\"|"[^"]*"|'[^']*'|[^\s,;&}\]]+)/gi,
-  `$1${redacted}`,
+const assignmentPattern: readonly [RegExp, Replacement] = [
+  /((?:\\?["'])?\b(?:[a-z0-9_-]{0,32}(?:api[_-]?key|session)|access[_-]?token|refresh[_-]?token|id[_-]?token|client[_-]?secret|password|passwd|passphrase|secret|token|authorization|proxy-authorization|cookie|set-cookie|session[_-]?(?:key|id|token)|credentials?)(?:\\?["'])?\s*[:=]\s*)(\\"(?:[^"\\]|\\[^"])*\\"|"[^"]*"|'[^']*'|(?:\[redacted\]|…\[truncated\]|[^\s,;&}\]])+)/gi,
+  (match, name, value) => (onlyMarker(value!) ? match : `${name}${redacted}`),
 ];
 
 /**
  * Credential shapes, replaced wherever they appear in text: private keys, tokens, API keys,
  * `name=value` secrets in text, JSON, or headers, and URL user information and query strings. A
- * pattern's first group, when present, is kept before the replacement. Already-redacted text is
- * left as it is, so redacting twice gives the same result.
+ * pattern's first group, when present, is kept before the replacement. A value that is exactly the
+ * marker is left as it is, so redacting twice gives the same result; a marker at the start of a
+ * longer value is never taken as proof that the value was made safe.
  */
-const secretPatterns: readonly (readonly [RegExp, string])[] = [
+const secretPatterns: readonly (readonly [RegExp, Replacement])[] = [
   [
     /-----BEGIN [A-Z ]{0,40}PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]{0,40}PRIVATE KEY-----|$)/g,
     redacted,
   ],
-  // Whole cookie headers, since their values hold several name=value pairs.
-  [/\b((?:set-)?cookie\s*:\s*)(?!\[redacted\])[^\r\n]+/gi, `$1${redacted}`],
-  [/\b(bearer|basic|token)\s+[A-Za-z0-9._~+/=-]{6,}/gi, `$1 ${redacted}`],
+  // Whole cookie headers, since their values hold several name=value pairs; the rest of the line
+  // is kept only when it is exactly the marker.
+  [
+    /\b((?:set-)?cookie\s*:\s*)([^\r\n]+)/gi,
+    (match, name, rest) =>
+      onlyMarker(rest!.trimEnd()) ? match : `${name}${redacted}`,
+  ],
+  // An authorization scheme's credential: six or more token characters, or any that hold the
+  // marker without being exactly it.
+  [
+    /\b(bearer|basic|token)\s+((?:\[redacted\]|[A-Za-z0-9._~+/=-])+)/gi,
+    (match, scheme, credential) =>
+      credential === redacted ||
+      (credential!.length < 6 && !credential!.includes(redacted))
+        ? match
+        : `${scheme} ${redacted}`,
+  ],
   [/\beyJ[A-Za-z0-9_-]{4,}\.[A-Za-z0-9_-]{4,}\.[A-Za-z0-9_-]*/g, redacted],
   [/\b(?:sk|pk|rk)-[A-Za-z0-9_-]{6,}/g, redacted],
   [/\bAIza[0-9A-Za-z_-]{20,}/g, redacted],
@@ -156,9 +184,14 @@ function withoutSecrets(
   { assignments = true }: RedactionOptions = {},
 ): string {
   let result = text.replace(controlCharacters, " ");
-  for (const entry of secretPatterns)
-    if (assignments || entry !== assignmentPattern)
-      result = result.replace(entry[0], entry[1]);
+  for (const entry of secretPatterns) {
+    if (!assignments && entry === assignmentPattern) continue;
+    const [pattern, replacement] = entry;
+    result =
+      typeof replacement === "string"
+        ? result.replace(pattern, replacement)
+        : result.replace(pattern, replacement);
+  }
   return result.replace(/[A-Za-z0-9+/_-]{40,}={0,2}/g, opaqueToken);
 }
 

@@ -32,6 +32,14 @@ export const canaries = {
   errorText: "REVIEWFAKEfberr11",
   exception: "REVIEWFAKEfbexc12",
   providerError: "REVIEWFAKEfbprov13",
+  // Short suffixes after the redaction marker, as if the value had been made safe already.
+  markerMessage: "REVIEWFAKEmkmsg31",
+  markerArgument: "REVIEWFAKEmkarg32",
+  markerProvider: "REVIEWFAKEmkprov33",
+  markerSql: "REVIEWFAKEmkdq34",
+  markerIdentifier: "REVIEWFAKEmkid35",
+  markerStatus: "REVIEWFAKEmkerr36",
+  markerException: "REVIEWFAKEmkexc37",
 } as const;
 
 /** Ordinary private words, in no credential shape, that only withholding content or error text keeps out. */
@@ -46,15 +54,19 @@ export const madeUpToolName = `sk-proj-${canaries.toolName}abcdefgh`;
 /** The text the send-message tool is given, which it must receive unchanged. */
 export const deliveredText = "Here is the plan for the launch.";
 
-/** A credential-shaped value, quoted inside a quoted SQL identifier with SQL's doubled quotes. */
+/**
+ * Credential-shaped values quoted inside quoted SQL identifiers with SQL's doubled quotes, one of
+ * them beginning with the redaction marker.
+ */
 const quotedCredential = `"password=""${canaries.sqlIdentifier}"""`;
+const quotedMarkerCredential = `"token=""[redacted]${canaries.markerSql}"""`;
 
 /** The SQL statement as the application runs it; its shape alone may be recorded. */
-export const statement = `SELECT 1 AS ${quotedCredential} FROM visits WHERE note = '${canaries.sqlLiteral}' AND id = $1`;
+export const statement = `SELECT 1 AS ${quotedCredential}, 2 AS ${quotedMarkerCredential} FROM visits WHERE note = '${canaries.sqlLiteral}' AND id = $1`;
 
 /** Its shape, as recorded with content. */
 export const statementShape =
-  'SELECT ? AS "password=[redacted]" FROM visits WHERE note = ? AND id = $1';
+  'SELECT ? AS "password=[redacted]", ? AS "token=[redacted]" FROM visits WHERE note = ? AND id = $1';
 
 /** The span names the work records, so a test can tell every one reached each buffer. */
 export const workSpans = {
@@ -72,11 +84,12 @@ export const workSpans = {
  * send-message tool received and the tool arguments as the model gave them.
  */
 export async function recordCanaryWork(context: TestContext) {
-  const message = `Plan: ${privateWords.message}. Call https://gateway.test/v1/sk%2Dproj%2D${canaries.messagePathKey}abcdef/messages with api%5Fkey%3D${canaries.messageAssignment}`;
+  const message = `Plan: ${privateWords.message}. Call https://gateway.test/v1/sk%2Dproj%2D${canaries.messagePathKey}abcdef/messages with api%5Fkey%3D${canaries.messageAssignment} and password="[redacted]${canaries.markerMessage}"`;
   const inspected = {
     "api%5Fkey": canaries.toolField,
     nested: { note: `token%3D${canaries.toolNested}` },
     path: "/v1/visits",
+    note: `password=[redacted]${canaries.markerArgument}`,
   };
   const given = structuredClone(inspected);
   const { runtime, deliveries } = await teammate(context, ({ attempt }) => {
@@ -90,7 +103,7 @@ export async function recordCanaryWork(context: TestContext) {
       });
     return failure(400, {
       error: {
-        message: `Invalid request: password=${canaries.providerError} was rejected while reading ${privateWords.error}`,
+        message: `Invalid request: password=${canaries.providerError} was rejected while reading ${privateWords.error}, and token="[redacted]${canaries.markerProvider}"`,
         type: "invalid_request_error",
       },
     });
@@ -138,16 +151,18 @@ export async function recordCanaryWork(context: TestContext) {
         [attribute.urlFull]: `https://dependency.test/resource?api_key=${canaries.urlQuery}`,
         [attribute.serverAddress]: "dependency.test",
         "http.request.header.authorization": `Bearer ${canaries.header}`,
+        // An error type a library recorded, shaped as an identifier.
+        "error.type": `password:[redacted]${canaries.markerIdentifier}`,
       },
     });
     call.recordException(
       new Error(
-        `Dependency said token=${canaries.exception}: ${privateWords.error}`,
+        `Dependency said token=${canaries.exception}: ${privateWords.error}, client_secret=[redacted]${canaries.markerException}`,
       ),
     );
     call.setStatus({
       code: SpanStatusCode.ERROR,
-      message: `Lookup failed with password=${canaries.errorText} for ${privateWords.error}`,
+      message: `Lookup failed with password=${canaries.errorText} for ${privateWords.error}, secret: '[redacted]${canaries.markerStatus}'`,
     });
     call.end();
   });

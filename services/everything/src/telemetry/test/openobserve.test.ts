@@ -278,7 +278,7 @@ test(
     );
     // A deliberately fake key, percent-encoded in a URL path, as review found encoding could hide.
     const encodedCanary = "sk%2Dproj%2DREVIEWFAKEstore0009abcdef";
-    const message = `Plan the launch: ${privateText}. The password=hunter2 and ${canary} are in the vault. See https://gateway.test/v1/${encodedCanary}/x.`;
+    const message = `Plan the launch: ${privateText}. The password=hunter2 and ${canary} are in the vault. See https://gateway.test/v1/${encodedCanary}/x. Then token="[redacted]REVIEWFAKEstore12" is used.`;
     // The request that sends the message, with a database query, as Everything's API records it.
     const request = startTelemetrySpan("POST /v1/agents/:agentId/messages", {
       kind: SpanKind.SERVER,
@@ -295,6 +295,8 @@ test(
           "db.system.name": "postgresql",
           [attribute.dbQueryText]:
             "SELECT * FROM accounts WHERE token = 'sql-literal-secret' AND id = $1",
+          // An error type a library recorded, beginning with the redaction marker; not content.
+          "error.type": "password:[redacted]REVIEWFAKEstore13",
         },
       });
       query.span.end();
@@ -305,6 +307,8 @@ test(
         'SELECT 1 AS "password=REVIEWFAKEstore8" FROM visits',
         // The same kind of fake credential, quoted inside the identifier with SQL's doubled quotes.
         'SELECT 2 AS "secret=""REVIEWFAKEstore10""" FROM visits',
+        // The same, its value beginning with the redaction marker.
+        'SELECT 3 AS "token=""[redacted]REVIEWFAKEstore11""" FROM visits',
       ])
         startTelemetrySpan("pg.query:SELECT everything", {
           kind: SpanKind.CLIENT,
@@ -329,7 +333,32 @@ test(
     const turn = spans.find((span) => span.name === "teammate.turn")!;
     const tool = spans.find((span) => span.name === "teammate.tool")!;
     const queries = spans.filter((span) => span.name.startsWith("pg.query"));
-    assert.equal(queries.length, 4, "each statement's span is stored");
+    // What storage holds, read directly rather than through the API's presentation, before
+    // anything is asserted, with the stored columns that hold each marker canary named.
+    const window = {
+      start: (Date.now() - 3_600_000) * 1000,
+      end: (Date.now() + 60_000) * 1000,
+    };
+    const rows = await search!.search(
+      "traces",
+      `SELECT * FROM "${stream}" WHERE everything_owner_id = '${owner}'`,
+      window,
+      500,
+    );
+    const holding = new Set<string>();
+    for (const row of rows)
+      for (const [column, value] of Object.entries(row))
+        for (const canary of [
+          "REVIEWFAKEstore11",
+          "REVIEWFAKEstore12",
+          "REVIEWFAKEstore13",
+        ])
+          if (String(value).includes(canary))
+            holding.add(`${column} [${canary}]`);
+    context.diagnostic(
+      `stored columns holding a marker canary: ${[...holding].sort().join(", ") || "none"}`,
+    );
+    assert.equal(queries.length, 5, "each statement's span is stored");
     const requestSpan = spans.find((span) => span.kind === "server")!;
     assert.equal(
       (await reader!.status()).content,
@@ -340,7 +369,7 @@ test(
         {
           kind: "message",
           format: "text",
-          value: `Plan the launch: ${privateText}. The password=[redacted] and [redacted] are in the vault. See https://gateway.test/v1/[redacted]/x.`,
+          value: `Plan the launch: ${privateText}. The password=[redacted] and [redacted] are in the vault. See https://gateway.test/v1/[redacted]/x. Then token=[redacted] is used.`,
           truncated: false,
           originalLength: message.length,
         },
@@ -355,6 +384,7 @@ test(
           "SELECT ? AS note FROM visits",
           'SELECT ? AS "password=[redacted]" FROM visits',
           'SELECT ? AS "secret=[redacted]" FROM visits',
+          'SELECT ? AS "token=[redacted]" FROM visits',
         ].sort(),
       );
     } else
@@ -363,19 +393,8 @@ test(
         assert.equal(span.contentWithheld, true, span.name);
       }
 
-    // What storage holds, read directly rather than through the API's presentation.
-    const window = {
-      start: (Date.now() - 3_600_000) * 1000,
-      end: (Date.now() + 60_000) * 1000,
-    };
-    const stored = JSON.stringify(
-      await search!.search(
-        "traces",
-        `SELECT * FROM "${stream}" WHERE everything_owner_id = '${owner}'`,
-        window,
-        500,
-      ),
-    );
+    // Every stored column, read above, as one text for the checks that follow.
+    const stored = JSON.stringify(rows);
     for (const secret of [
       canary,
       "hunter2",
@@ -384,12 +403,16 @@ test(
       "morning appointments",
       "REVIEWFAKEstore8",
       "REVIEWFAKEstore10",
+      "REVIEWFAKEstore11",
+      "REVIEWFAKEstore12",
+      "REVIEWFAKEstore13",
     ])
       assert.ok(!stored.includes(secret), `${secret} never reaches storage`);
     for (const shape of [
       "SELECT ? AS note FROM visits",
       'SELECT ? AS \\"password=[redacted]\\" FROM visits',
       'SELECT ? AS \\"secret=[redacted]\\" FROM visits',
+      'SELECT ? AS \\"token=[redacted]\\" FROM visits',
     ])
       assert.equal(
         stored.includes(shape),

@@ -75,6 +75,8 @@ app.post("/v1/work", async () => {
     'SELECT 1 AS "password=REVIEWFAKEpgid7" FROM accounts',
     // The same, its value quoted inside the identifier with SQL's doubled quotes.
     'SELECT 1 AS "password=""REVIEWFAKEpgdq8""" FROM accounts',
+    // Its value beginning with the redaction marker, as if it had been made safe already.
+    'SELECT 1 AS "password=""[redacted]REVIEWFAKEpgmk9""" FROM accounts',
   ]) {
     const client = new Client({
       host: "127.0.0.1",
