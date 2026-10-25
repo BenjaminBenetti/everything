@@ -358,6 +358,21 @@ test(
     context.diagnostic(
       `stored columns holding a marker canary: ${[...holding].sort().join(", ") || "none"}`,
     );
+    // OpenObserve's own normalized copy of each statement, read by its column name.
+    const normalized = rows
+      .map((row) => row.o2_db_query_norm)
+      .filter(
+        (value): value is string => typeof value === "string" && value !== "",
+      );
+    context.diagnostic(
+      `o2_db_query_norm values returned: ${normalized.length}`,
+    );
+    if (includeContent)
+      assert.ok(
+        normalized.some((value) => value.includes('"token=[redacted]"')),
+        "the named normalized copy holds the safe shape",
+      );
+    else assert.deepEqual(normalized, [], "no normalized copy without content");
     assert.equal(queries.length, 5, "each statement's span is stored");
     const requestSpan = spans.find((span) => span.kind === "server")!;
     assert.equal(

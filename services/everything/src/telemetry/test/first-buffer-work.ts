@@ -1,6 +1,7 @@
 import type { TestContext } from "node:test";
 import {
   context as otel,
+  logs,
   SpanKind,
   SpanStatusCode,
   trace,
@@ -40,6 +41,10 @@ export const canaries = {
   markerIdentifier: "REVIEWFAKEmkid35",
   markerStatus: "REVIEWFAKEmkerr36",
   markerException: "REVIEWFAKEmkexc37",
+  // Plain assignments under a key every ordinary object inherits, which no allowlist names.
+  constructorSpan: "REVIEWFAKEc3fb41",
+  constructorEvent: "REVIEWFAKEc3fb42",
+  constructorLog: "REVIEWFAKEc3fb43",
 } as const;
 
 /** Ordinary private words, in no credential shape, that only withholding content or error text keeps out. */
@@ -153,6 +158,7 @@ export async function recordCanaryWork(context: TestContext) {
         "http.request.header.authorization": `Bearer ${canaries.header}`,
         // An error type a library recorded, shaped as an identifier.
         "error.type": `password:[redacted]${canaries.markerIdentifier}`,
+        constructor: `token=${canaries.constructorSpan}`,
       },
     });
     call.recordException(
@@ -160,6 +166,10 @@ export async function recordCanaryWork(context: TestContext) {
         `Dependency said token=${canaries.exception}: ${privateWords.error}, client_secret=[redacted]${canaries.markerException}`,
       ),
     );
+    call.addEvent("exception", {
+      "exception.type": "Error",
+      constructor: [`token=${canaries.constructorEvent}`],
+    });
     call.setStatus({
       code: SpanStatusCode.ERROR,
       message: `Lookup failed with password=${canaries.errorText} for ${privateWords.error}, secret: '[redacted]${canaries.markerStatus}'`,
@@ -169,6 +179,14 @@ export async function recordCanaryWork(context: TestContext) {
   read.setAttribute(attribute.httpStatus, 500);
   read.setStatus({ code: SpanStatusCode.ERROR });
   read.end();
+  // An event recorded straight through the SDK's log API, as a library might.
+  logs.getLogger("first-buffer-work").emit({
+    body: "Dependency call failed",
+    attributes: {
+      [attribute.event]: "http.request.failed",
+      constructor: `token=${canaries.constructorLog}`,
+    },
+  });
   return { deliveries, inspected, given };
 }
 

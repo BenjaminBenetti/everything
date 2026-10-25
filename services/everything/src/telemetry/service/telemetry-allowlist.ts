@@ -220,7 +220,10 @@ export function exportableAttributes(
 ): Attributes {
   const result: Attributes = {};
   for (const [key, value] of Object.entries(attributes)) {
-    const sanitize = exportedAttributes[key];
+    // Only the allowlist's own names count, never one every object inherits, such as `constructor`.
+    const sanitize = Object.hasOwn(exportedAttributes, key)
+      ? exportedAttributes[key]
+      : undefined;
     if (!sanitize || value === undefined || value === null) continue;
     if (!policy.includeErrorText && errorTextAttributes.has(key)) continue;
     if (!policy.includeContent && contentAttributes.has(key)) continue;
