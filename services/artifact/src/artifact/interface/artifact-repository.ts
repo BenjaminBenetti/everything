@@ -5,6 +5,7 @@ import type {
 import type {
   ArtifactAuthor,
   ArtifactKind,
+  ArtifactVisibility,
   CreateArtifactInput,
 } from "@everything/artifact-contracts";
 import type { Artifact, ArtifactChanges } from "../model/artifact.js";
@@ -14,8 +15,19 @@ export interface KindScope {
   readonly kind: ArtifactKind;
 }
 
-/** Artifacts of one owner, or of one kind for system work. */
-export type ArtifactScope = OwnerScope | KindScope;
+/**
+ * Every public artifact across owners, for serving them to anyone with their link. No other
+ * visibility is a scope: private artifacts are reached only through their owner's scope.
+ */
+export interface PublicScope {
+  readonly visibility: "public";
+}
+
+/** The scope in which the artifact host finds public apps for visitors who have not signed in. */
+export const publicArtifacts: PublicScope = { visibility: "public" };
+
+/** Artifacts of one owner, of one kind for system work, or every public one for visitors. */
+export type ArtifactScope = OwnerScope | KindScope | PublicScope;
 
 /** Persistence boundary for artifact records. */
 export interface ArtifactRepository extends Repository<
@@ -26,7 +38,7 @@ export interface ArtifactRepository extends Repository<
   list(scope: ArtifactScope): Promise<Artifact[]>;
   /** Find an artifact in scope by its slug, which is unique across owners. */
   findBySlug(scope: ArtifactScope, slug: string): Promise<Artifact | undefined>;
-  /** Persist a new, unpublished artifact; a slug in use by any artifact is refused. */
+  /** Persist a new, unpublished, private artifact; a slug in use by any artifact is refused. */
   create(
     scope: OwnerScope,
     input: CreateArtifactInput,
@@ -37,6 +49,13 @@ export interface ArtifactRepository extends Repository<
     scope: OwnerScope,
     id: string,
     changes: ArtifactChanges,
+  ): Promise<Artifact | undefined>;
+  /** Set who can open the owner's artifact and record who changed it; undefined when it is missing. */
+  setVisibility(
+    scope: OwnerScope,
+    id: string,
+    visibility: ArtifactVisibility,
+    updatedBy: ArtifactAuthor,
   ): Promise<Artifact | undefined>;
 }
 

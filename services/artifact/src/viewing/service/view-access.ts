@@ -83,6 +83,13 @@ export class ViewAccess {
     )?.ownerId;
   }
 
+  /** End the session with this token, if it is valid, so it opens nothing from now on. */
+  async signOut(sessionToken: string): Promise<void> {
+    const scope = { tokenHash: credentialHash(sessionToken) };
+    const session = await this.sessions.findValid(scope);
+    if (session) await this.sessions.delete(scope, session.id);
+  }
+
   /** Delete expired links and sessions. */
   async purge(): Promise<void> {
     const expiredBefore = new Date().toISOString();

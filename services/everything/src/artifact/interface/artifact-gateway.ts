@@ -12,6 +12,7 @@ import type {
   ArtifactView,
   ArtifactViewInput,
   ArtifactViewPassInput,
+  ArtifactVisibilityInput,
   CreateArtifactInput,
   DeployInput,
   PublishRevisionInput,
@@ -137,4 +138,17 @@ export interface ArtifactGateway {
     reference: string,
     input: ArtifactViewPassInput,
   ): Promise<TeammateArtifactView>;
+}
+
+/**
+ * The owner's change of who can open an app. It is kept apart from ArtifactGateway, which teammate
+ * tools use, so only the owner's own browser requests can reach it.
+ */
+export interface ArtifactVisibilityGateway {
+  /** Make the owner's app private or public, as the owner. */
+  setVisibility(
+    actor: ArtifactActor,
+    reference: string,
+    input: ArtifactVisibilityInput,
+  ): Promise<ArtifactDetails>;
 }

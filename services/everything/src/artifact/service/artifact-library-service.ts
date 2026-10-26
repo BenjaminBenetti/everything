@@ -3,6 +3,7 @@ import type {
   ArtifactSummary,
   ArtifactView,
   ArtifactViewInput,
+  ArtifactVisibility,
 } from "@everything/artifact-contracts";
 import {
   AppApiKeyUnavailableError,
@@ -11,7 +12,10 @@ import {
   ArtifactServiceUnavailableError,
   AppActionConflictError,
 } from "../error/artifact-errors.js";
-import type { ArtifactGateway } from "../interface/artifact-gateway.js";
+import type {
+  ArtifactGateway,
+  ArtifactVisibilityGateway,
+} from "../interface/artifact-gateway.js";
 import type { ArtifactLibrary } from "../interface/artifact-library.js";
 
 /** Express artifact service failures as this API's own errors. */
@@ -21,6 +25,11 @@ function translate(error: unknown): Error {
   if (error instanceof ArtifactRequestFailure && error.status === 409)
     return new AppActionConflictError();
   return new ArtifactServiceUnavailableError();
+}
+
+/** The owner acting for themselves; authorship comes from the verified subject, never the request. */
+function ownerActor(ownerId: string) {
+  return { ownerId, author: { id: ownerId, name: "You" } };
 }
 
 /** Serves the browser's artifact operations through the artifact service. */
@@ -34,7 +43,8 @@ export class ArtifactLibraryService implements ArtifactLibrary {
     private readonly gateway: Pick<
       ArtifactGateway,
       "list" | "view" | "start" | "stop" | "delete" | "apiKey"
-    >,
+    > &
+      ArtifactVisibilityGateway,
   ) {}
 
   // ===========================================
@@ -85,6 +95,21 @@ export class ArtifactLibraryService implements ArtifactLibrary {
     }
   }
 
+  /** Make the owner's app private or public, as the owner, and return its new summary. */
+  async setVisibility(
+    ownerId: string,
+    id: string,
+    visibility: ArtifactVisibility,
+  ): Promise<ArtifactSummary> {
+    try {
+      return await this.gateway.setVisibility(ownerActor(ownerId), id, {
+        visibility,
+      });
+    } catch (error) {
+      throw translate(error);
+    }
+  }
+
   // ===========================================
   // Manual actions
   // ===========================================
@@ -95,7 +120,7 @@ export class ArtifactLibraryService implements ArtifactLibrary {
     id: string,
     action: "start" | "stop" | "delete",
   ): Promise<void> {
-    const actor = { ownerId, author: { id: ownerId, name: "You" } };
+    const actor = ownerActor(ownerId);
     try {
       if (action === "delete") await this.gateway.delete(actor, id, true);
       else await this.gateway[action](actor, id);

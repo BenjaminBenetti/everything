@@ -11,6 +11,7 @@ import {
 } from "../model/artifact-presentation.js";
 import type { AppCreator } from "../model/artifact-filters.js";
 import { ArtifactMetadata } from "./artifact-metadata.js";
+import { ArtifactSharing } from "./artifact-sharing.js";
 
 const pendingLabels: Record<AppAction, string> = {
   start: "Starting…",
@@ -76,6 +77,7 @@ export function ArtifactCard({
           {statusLabel}
         </span>
         <div className="artifact-controls">
+          <ArtifactSharing artifact={artifact} unavailable={unavailable} />
           <IconButton
             label={`${mutation.isPending ? statusLabel : actionLabel} ${artifact.title}`}
             disabled={!canControl || artifact.status === "unpublished"}

@@ -15,6 +15,7 @@ import type {
   ArtifactViewInput,
   ArtifactViewPass,
   ArtifactViewPassInput,
+  ArtifactVisibilityInput,
   CreateArtifactInput,
   DeployInput,
   MissingContent,
@@ -27,6 +28,7 @@ import { ArtifactRequestFailure } from "../error/artifact-errors.js";
 import type {
   ArtifactActor,
   ArtifactGateway,
+  ArtifactVisibilityGateway,
   LogChoice,
   SourceChoice,
   TeammateArtifactView,
@@ -54,7 +56,9 @@ const defaultTimeoutMs = 30_000;
 const transferTimeoutMs = 5 * 60_000;
 
 /** Calls the artifact service's internal API with a service-account token. */
-export class HttpArtifactGateway implements ArtifactGateway {
+export class HttpArtifactGateway
+  implements ArtifactGateway, ArtifactVisibilityGateway
+{
   // ===========================================
   // Construction
   // ===========================================
@@ -244,6 +248,19 @@ export class HttpArtifactGateway implements ArtifactGateway {
     return this.json(`${this.artifact(actor.ownerId, reference)}/start`, {
       method: "POST",
       actor,
+    });
+  }
+
+  /** Make the owner's app private or public. */
+  setVisibility(
+    actor: ArtifactActor,
+    reference: string,
+    input: ArtifactVisibilityInput,
+  ): Promise<ArtifactDetails> {
+    return this.json(`${this.artifact(actor.ownerId, reference)}/visibility`, {
+      method: "PUT",
+      actor,
+      json: { visibility: input.visibility },
     });
   }
 

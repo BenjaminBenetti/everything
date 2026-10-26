@@ -41,6 +41,11 @@ export const hostMessages = {
     message:
       "A teammate hasn't published or deployed this app yet. Check back later.",
   },
+  unavailable: {
+    title: "This app isn't available",
+    message:
+      "Its owner hasn't published it yet or has stopped it. Try again later.",
+  },
   stopped: {
     title: "This app is stopped",
     message:

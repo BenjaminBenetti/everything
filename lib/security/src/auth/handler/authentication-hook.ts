@@ -1,13 +1,17 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import type { CredentialSource } from "../model/credential-source.js";
 import type { Identity } from "../model/identity.js";
 import type { TokenVerifier } from "../interface/token-verifier.js";
 
-export { subject } from "./request-subject.js";
+export type { CredentialSource } from "../model/credential-source.js";
+export { credentialSource, subject } from "./request-subject.js";
 
 declare module "fastify" {
   interface FastifyRequest {
     /** Verified caller; set only inside scopes protected by requireAuthentication. */
     identity: Identity | null;
+    /** How the verified caller presented its token; set together with identity. */
+    credentialSource: CredentialSource | null;
   }
 }
 
@@ -32,6 +36,7 @@ export function requireAuthentication(
   sessionToken?: SessionTokenResolver,
 ): void {
   scope.decorateRequest("identity", null);
+  scope.decorateRequest("credentialSource", null);
   scope.addHook("onRequest", authenticationHook(verifier, sessionToken));
 }
 
@@ -40,18 +45,20 @@ function authenticationHook(
   verifier: TokenVerifier,
   sessionToken?: SessionTokenResolver,
 ) {
-  /** Attach the verified identity, or reply 401 without exposing why verification failed. */
+  /** Attach the verified identity and its source, or reply 401 without exposing why verification failed. */
   return async function authenticate(
     request: FastifyRequest,
     reply: FastifyReply,
   ): Promise<void> {
     try {
+      const header = request.headers.authorization;
       const token =
-        request.headers.authorization === undefined
+        header === undefined
           ? await sessionToken?.(request)
-          : bearerCredential.exec(request.headers.authorization)?.[1];
+          : bearerCredential.exec(header)?.[1];
       if (!token) throw new Error("Missing access token");
       request.identity = await verifier.verify(token);
+      request.credentialSource = header === undefined ? "session" : "bearer";
     } catch {
       reply.header("WWW-Authenticate", 'Bearer realm="everything"');
       await reply.code(401).send(unauthenticated);

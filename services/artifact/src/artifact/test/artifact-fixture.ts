@@ -3,6 +3,7 @@ import type {
   ArtifactAuthor,
   ArtifactFile,
   ArtifactKind,
+  ArtifactVisibility,
 } from "@everything/artifact-contracts";
 import type { OwnerScope } from "@everything/persistence/repository";
 import type {
@@ -81,6 +82,7 @@ export class MemoryArtifacts implements ArtifactRepository {
       liveDeployment: null,
       running: kind === "static" && changes.liveRevision != null,
       diskGi: null,
+      visibility: "private",
       ...changes,
     };
     this.records.set(artifact.id, artifact);
@@ -89,9 +91,11 @@ export class MemoryArtifacts implements ArtifactRepository {
 
   /** Whether the artifact is in scope. */
   private inScope(scope: ArtifactScope, artifact: Artifact): boolean {
-    return "ownerId" in scope
-      ? artifact.ownerId === scope.ownerId
-      : artifact.kind === scope.kind;
+    if ("ownerId" in scope) return artifact.ownerId === scope.ownerId;
+    if ("kind" in scope) return artifact.kind === scope.kind;
+    if (scope.visibility !== "public")
+      throw new Error("Only public artifacts form a visibility scope");
+    return artifact.visibility === "public";
   }
 
   async getById(scope: ArtifactScope, id: string) {
@@ -139,6 +143,23 @@ export class MemoryArtifacts implements ArtifactRepository {
     const updated = {
       ...artifact,
       ...changes,
+      updatedBy,
+      updatedAt: new Date().toISOString(),
+    };
+    this.records.set(id, updated);
+    return updated;
+  }
+  async setVisibility(
+    scope: OwnerScope,
+    id: string,
+    visibility: ArtifactVisibility,
+    updatedBy: ArtifactAuthor,
+  ) {
+    const artifact = await this.getById(scope, id);
+    if (!artifact) return undefined;
+    const updated = {
+      ...artifact,
+      visibility,
       updatedBy,
       updatedAt: new Date().toISOString(),
     };

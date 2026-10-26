@@ -59,6 +59,7 @@ export function representSummary(
     database: deployment?.database ?? false,
     capabilities: deployment?.capabilities ?? [],
     url: `${artifactOrigin}/${artifact.slug}/`,
+    visibility: artifact.visibility,
     status: statusOf(artifact, runtimeOf(artifact, observed)),
     release: artifact.release,
     createdAt: artifact.createdAt,

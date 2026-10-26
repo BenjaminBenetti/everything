@@ -48,6 +48,7 @@ import { createPublicApplication } from "../factory/public-application.js";
 import { PeriodicTask } from "../service/periodic-task.js";
 
 import { ArtifactLifecycleService } from "../../artifact/service/artifact-lifecycle-service.js";
+import { ArtifactVisibilityService } from "../../artifact/service/artifact-visibility-service.js";
 
 /** Assemble concrete adapters once at the process boundary and own their lifecycle. */
 async function main(): Promise<void> {
@@ -170,6 +171,7 @@ async function main(): Promise<void> {
       lock,
       reconciler,
     ),
+    visibility: new ArtifactVisibilityService(artifactRepository, lookup, lock),
     revisions: new RevisionService(
       artifactRepository,
       revisionRepository,

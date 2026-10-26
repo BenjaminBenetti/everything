@@ -191,7 +191,9 @@ function protectedApi(
     await agentController(scope, dependencies.agents, dependencies.removal);
     await agentActivityController(scope, dependencies.agentActivity);
     await agentEditingController(scope, dependencies.profiles);
-    await artifactController(scope, dependencies.artifacts);
+    await artifactController(scope, dependencies.artifacts, (request) =>
+      cookie.requireSignedInUser(request),
+    );
     await settingsController(scope, dependencies.workers);
     await generalSettingsController(scope, dependencies.generalSettings);
     await teammateOrderController(scope, dependencies.teammateOrder);

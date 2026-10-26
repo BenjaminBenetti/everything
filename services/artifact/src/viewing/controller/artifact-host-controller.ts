@@ -4,7 +4,10 @@ import {
   artifactSlugPattern,
   type ArtifactFile,
 } from "@everything/artifact-contracts";
-import type { ArtifactRepository } from "../../artifact/interface/artifact-repository.js";
+import {
+  publicArtifacts,
+  type ArtifactRepository,
+} from "../../artifact/interface/artifact-repository.js";
 import type { AppApiKeys } from "../../capability/service/app-api-keys.js";
 import type { ContentStore } from "../../content/interface/content-store.js";
 import type { ArtifactProxy } from "../adapter/artifact-proxy.js";
@@ -24,9 +27,12 @@ import type { StaticSite } from "../service/static-site.js";
 import type { ViewAccess } from "../service/view-access.js";
 import type { ViewPasses } from "../service/view-passes.js";
 
-/** What the artifact host needs to sign viewers, teammates, and API callers in and serve artifacts. */
+/**
+ * What the artifact host needs to sign viewers, teammates, and API callers in, and to serve
+ * artifacts to them and public apps to anyone.
+ */
 export interface ArtifactHostDependencies {
-  readonly access: Pick<ViewAccess, "redeem" | "viewer">;
+  readonly access: Pick<ViewAccess, "redeem" | "viewer" | "signOut">;
   readonly cookie: ViewCookie;
   readonly passes: Pick<ViewPasses, "find">;
   readonly passCredentials: ViewPassCredentials;
@@ -72,7 +78,7 @@ function isNavigation(request: FastifyRequest): boolean {
 
 /**
  * Register the artifact host: sign-in links for users and teammates, API keys for external callers,
- * static files, and forwarding to dynamic artifacts.
+ * public apps for anyone with their link, static files, and forwarding to dynamic artifacts.
  */
 export async function artifactHostController(
   app: FastifyInstance,
@@ -109,6 +115,22 @@ export async function artifactHostController(
   ): Promise<ArtifactViewer | undefined> {
     const scope = await apiKeys.authenticate(slug, key);
     return scope && { ownerId: scope.ownerId, artifactId: scope.artifactId };
+  }
+
+  /**
+   * Serve a public app to its visitor as anyone else, signing the browser out of the artifact host
+   * first: every app shares this origin, so a public app's pages must not run beside another
+   * owner's live session, which could read that owner's private apps. Public apps never receive an
+   * owner's credentials; the proxy withholds the host's cookies and passes from every app.
+   */
+  async function isolate(
+    request: FastifyRequest,
+    reply: FastifyReply,
+  ): Promise<void> {
+    const session = cookie.read(request);
+    if (session === undefined) return;
+    await access.signOut(session);
+    cookie.clear(reply);
   }
 
   /** Send a stored file with validators, so unchanged files are not downloaded again. */
@@ -218,42 +240,62 @@ export async function artifactHostController(
       queryStart === -1 ? request.url : request.url.slice(0, queryStart)
     ).slice(slug.length + 1);
     const query = queryStart === -1 ? "" : request.url.slice(queryStart);
-    // A request with an API key is judged by that key alone, never by cookies or passes.
+    // A request with an API key is judged by that key alone, never by cookies, passes, or public access.
     const apiKey = presentedApiKey(request);
     const passToken = passCredentials.read(request);
     const signedIn =
       apiKey === undefined
         ? await viewer(request, passToken)
         : await keyViewer(slug, apiKey);
-    if (!signedIn)
-      return apiKey !== undefined
-        ? reply
-            .code(401)
-            .header("Cache-Control", "no-store")
-            .send(apiKeyRejection)
+    if (!signedIn && apiKey !== undefined)
+      return reply
+        .code(401)
+        .header("Cache-Control", "no-store")
+        .send(apiKeyRejection);
+    const own =
+      signedIn &&
+      (await artifacts.findBySlug({ ownerId: signedIn.ownerId }, slug));
+    // A pass for another artifact sees the same answer as a missing one, unless that app is public.
+    const permitted =
+      own && (signedIn.artifactId === null || signedIn.artifactId === own.id)
+        ? own
+        : undefined;
+    const artifact =
+      permitted ??
+      (apiKey === undefined
+        ? await artifacts.findBySlug(publicArtifacts, slug)
+        : undefined);
+    if (!artifact)
+      return signedIn
+        ? explain(reply, 404, hostMessages.notFound)
         : passToken
           ? explain(reply, 401, hostMessages.passExpired)
           : signIn(request, reply, slug, rawPath + query);
-    const artifact = await artifacts.findBySlug(
-      { ownerId: signedIn.ownerId },
-      slug,
-    );
-    // A pass for another artifact sees the same answer as a missing one.
-    if (
-      !artifact ||
-      (signedIn.artifactId !== null && signedIn.artifactId !== artifact.id)
-    )
-      return explain(reply, 404, hostMessages.notFound);
+    const visitor = artifact !== permitted;
+    if (visitor) await isolate(request, reply);
     if (artifact.kind === "dynamic") {
       if (artifact.liveDeployment === null)
-        return explain(reply, 503, hostMessages.unpublished);
-      if (!artifact.running) return explain(reply, 503, hostMessages.stopped);
+        return explain(
+          reply,
+          503,
+          visitor ? hostMessages.unavailable : hostMessages.unpublished,
+        );
+      if (!artifact.running)
+        return explain(
+          reply,
+          503,
+          visitor ? hostMessages.unavailable : hostMessages.stopped,
+        );
       return proxy.forward(request, reply, artifact, rawPath + query);
     }
     if (request.method !== "GET" && request.method !== "HEAD")
       return reply.code(405).header("Allow", "GET, HEAD").send();
     if (artifact.liveRevision !== null && !artifact.running)
-      return explain(reply, 503, hostMessages.stopped);
+      return explain(
+        reply,
+        503,
+        visitor ? hostMessages.unavailable : hostMessages.stopped,
+      );
     let path: string;
     try {
       path = decodeURIComponent(rawPath);
@@ -268,7 +310,9 @@ export async function artifactHostController(
         reply,
         404,
         artifact.liveRevision === null
-          ? hostMessages.unpublished
+          ? visitor
+            ? hostMessages.unavailable
+            : hostMessages.unpublished
           : hostMessages.notFound,
       );
     return sendFile(request, reply, resolution.file, resolution.status);

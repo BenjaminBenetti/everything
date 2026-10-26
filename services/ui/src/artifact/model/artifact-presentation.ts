@@ -1,6 +1,7 @@
 import type {
   ArtifactStatus,
   ArtifactSummary,
+  ArtifactVisibility,
 } from "@everything/artifact-contracts";
 
 import {
@@ -72,4 +73,37 @@ export function relativeTime(iso: string, now = Date.now()): string {
     if (elapsed >= size)
       return format.format(-Math.floor(elapsed / size), unit);
   return "just now";
+}
+
+/** Plain-language name and meaning of who can open an app. */
+export const visibilityLabels: Readonly<
+  Record<
+    ArtifactVisibility,
+    { readonly name: string; readonly meaning: string }
+  >
+> = {
+  private: {
+    name: "Private",
+    meaning: "Only you and your teammates can open this app.",
+  },
+  public: {
+    name: "Public",
+    meaning: "Anyone with the link can use this app without signing in.",
+  },
+};
+
+/** What making this app public would let anyone with its link do, in the order to read it. */
+export function publicConsequences(app: ArtifactSummary): string[] {
+  return [
+    "Anyone with the link will be able to use this app without signing in to Everything, including its pages, its endpoints, and any data it shows or saves.",
+    ...(app.capabilities.includes("everything-api")
+      ? [
+          "This app can use the Everything API as you, so visitors can make it do anything it does for you.",
+        ]
+      : []),
+    ...(app.capabilities.includes("api-key")
+      ? ["Callers won’t need its API key to reach it."]
+      : []),
+    "You can make it private again at any time. That stops new visits right away, but people keep anything they’ve already downloaded.",
+  ];
 }

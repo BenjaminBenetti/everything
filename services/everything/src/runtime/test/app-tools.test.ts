@@ -55,6 +55,30 @@ test("teammates get every app tool, each described for the model", () => {
   }
 });
 
+test("no teammate tool or tool input can make an app public, and the prompt says only the user can", () => {
+  const tools = appTools({} as ArtifactWorkbench, context);
+  assert.ok(
+    !tools.some((tool) => /public|visibility|share/i.test(tool.name)),
+    "no tool changes who can open an app",
+  );
+  for (const tool of tools) {
+    assert.equal(tool.parameters.additionalProperties, false, tool.name);
+    assert.doesNotMatch(
+      JSON.stringify(tool.parameters),
+      /visibility|\bpublic\b/i,
+      tool.name,
+    );
+  }
+  const prompt = mainAgentPrompt({
+    id: agentId,
+    name: "Ada",
+    systemPrompt: "Help.",
+  });
+  assert.match(prompt, /Apps are private/);
+  assert.match(prompt, /Only the user can make an app public/);
+  assert.match(prompt, /you can't/);
+});
+
 test("list_apps returns the shared apps under the name the model uses", async () => {
   const apps = [{ slug: "trip-planner", title: "Trip planner" }];
   const workbench = {

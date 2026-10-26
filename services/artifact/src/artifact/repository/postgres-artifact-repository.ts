@@ -10,6 +10,7 @@ import {
 } from "@everything/persistence/repository";
 import type {
   ArtifactAuthor,
+  ArtifactVisibility,
   CreateArtifactInput,
 } from "@everything/artifact-contracts";
 import { SlugTakenError } from "../error/artifact-errors.js";
@@ -24,7 +25,7 @@ import type {
 } from "../model/artifact.js";
 import { ArtifactEntity } from "../schema/artifact-entity.js";
 
-/** Persist artifacts, scoped to their owner or, for system work, to their kind. */
+/** Persist artifacts, scoped to their owner, to their kind for system work, or to public ones for visitors. */
 export class PostgresArtifactRepository
   extends BaseRepository<Artifact, ArtifactScope, ArtifactRecord>
   implements ArtifactRepository
@@ -49,7 +50,11 @@ export class PostgresArtifactRepository
     scope: ArtifactScope,
     slug: string,
   ): Promise<Artifact | undefined> {
-    if (("ownerId" in scope ? !scope.ownerId : !scope.kind) || !slug)
+    if (
+      ("ownerId" in scope && !scope.ownerId) ||
+      ("kind" in scope && !scope.kind) ||
+      !slug
+    )
       throw new Error("Lookup requires a scope and a slug");
     const record = await this.orm.findOneBy({
       ...this.scopeWhere(scope),
@@ -58,7 +63,7 @@ export class PostgresArtifactRepository
     return record ? this.toEntity(record) : undefined;
   }
 
-  /** Save a new artifact with no release, translating a taken slug into a caller-safe error. */
+  /** Save a new private artifact with no release, translating a taken slug into a caller-safe error. */
   async create(
     { ownerId }: OwnerScope,
     input: CreateArtifactInput,
@@ -85,6 +90,7 @@ export class PostgresArtifactRepository
           liveDeployment: null,
           running: false,
           diskGi: null,
+          visibility: "private",
         }),
       );
       return this.toEntity(record);
@@ -118,15 +124,39 @@ export class PostgresArtifactRepository
     return result.affected ? this.getById(scope, id) : undefined;
   }
 
+  /** Set who can open the owner's artifact, recording the change like any other. */
+  async setVisibility(
+    scope: OwnerScope,
+    id: string,
+    visibility: ArtifactVisibility,
+    updatedBy: ArtifactAuthor,
+  ): Promise<Artifact | undefined> {
+    if (!scope.ownerId || !id)
+      throw new Error("Updates require an owner and an artifact identifier");
+    const result = await this.orm.update(
+      { ...this.scopeWhere(scope), id },
+      {
+        visibility,
+        updatedAt: new Date().toISOString(),
+        updatedById: updatedBy.id,
+        updatedByName: updatedBy.name,
+      },
+    );
+    return result.affected ? this.getById(scope, id) : undefined;
+  }
+
   // ===========================================
   // Domain policy
   // ===========================================
 
-  /** Scope to the owner, or to one kind of artifact for system work. */
+  /** Scope to the owner, to one kind of artifact for system work, or to public artifacts. */
   protected scopeWhere(scope: ArtifactScope): FindOptionsWhere<ArtifactRecord> {
-    return "ownerId" in scope
-      ? { ownerId: scope.ownerId }
-      : { kind: scope.kind };
+    if ("ownerId" in scope) return { ownerId: scope.ownerId };
+    if ("kind" in scope) return { kind: scope.kind };
+    // Fail closed if an unchecked caller ever passes another visibility as a scope.
+    if (scope.visibility !== "public")
+      throw new Error("Only public artifacts form a visibility scope");
+    return { visibility: "public" };
   }
 
   /** Rebuild authors from their flattened columns. */

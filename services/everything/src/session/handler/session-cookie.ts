@@ -1,5 +1,9 @@
 import type { FastifyRequest, FastifyReply } from "fastify";
-import { SessionOriginRejected } from "../error/session-errors.js";
+import { credentialSource } from "@everything/security/fastify";
+import {
+  SessionOriginRejected,
+  SignedInUserRequired,
+} from "../error/session-errors.js";
 import { sessionLifetimeMs } from "../model/stored-session.js";
 
 /** Own cookie and same-origin policy independently from session use cases. */
@@ -63,6 +67,19 @@ export class SessionCookie {
         request.headers["sec-fetch-site"] !== "same-origin")
     )
       throw new SessionOriginRejected();
+  }
+
+  /**
+   * Admit only a person signed in to this application in their browser. The verified token must come
+   * from the server-owned session, which only a password sign-in on this origin creates and whose
+   * tokens never leave the server, and the request must come from the exact application origin.
+   * App and teammate credentials act for their owner as bearer tokens, so they are refused even for
+   * the owner's own resources, as is an app page or other site causing a signed-in browser to call.
+   */
+  requireSignedInUser(request: FastifyRequest): void {
+    if (credentialSource(request) !== "session")
+      throw new SignedInUserRequired();
+    this.requireOrigin(request);
   }
 
   /**

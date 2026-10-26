@@ -2,6 +2,7 @@ import { Type, type Static } from "typebox";
 import {
   artifactLimits,
   artifactSlugPattern,
+  artifactVisibilities,
 } from "@everything/artifact-contracts";
 
 /** Request body asking to open an artifact, optionally at a path inside it. */
@@ -32,3 +33,20 @@ export const appParams = Type.Object(
 
 /** Validated app identifier for a manual lifecycle request. */
 export type AppParams = Static<typeof appParams>;
+
+/** The owner's choice of who can open an app; no other field is accepted with it. */
+export const appVisibilityBody = Type.Object(
+  {
+    visibility: Type.Union(
+      artifactVisibilities.map((visibility) => Type.Literal(visibility)),
+      {
+        description:
+          "private: only you and your teammates can open the app. public: anyone with its link can use it without signing in.",
+      },
+    ),
+  },
+  { additionalProperties: false },
+);
+
+/** Validated choice of who can open an app. */
+export type AppVisibilityBody = Static<typeof appVisibilityBody>;

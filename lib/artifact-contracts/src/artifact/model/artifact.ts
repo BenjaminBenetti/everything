@@ -61,6 +61,15 @@ export const artifactCapabilities = ["everything-api", "api-key"] as const;
 /** A provisioned service capability available to a dynamic app. */
 export type ArtifactCapability = (typeof artifactCapabilities)[number];
 
+/**
+ * Who can open an app: privately, only its owner and their teammates; publicly, anyone with its
+ * link, without signing in. Every app starts private, and only its owner changes this, from Apps.
+ */
+export const artifactVisibilities = ["private", "public"] as const;
+
+/** Who can open an app. */
+export type ArtifactVisibility = (typeof artifactVisibilities)[number];
+
 /** The teammate or user that made a change; the name is recorded as it was at the time. */
 export interface ArtifactAuthor {
   readonly id: string;
@@ -160,8 +169,10 @@ export interface ArtifactSummary {
   readonly database: boolean;
   /** Capabilities enabled for the current deployment; empty before deployment and for static apps. */
   readonly capabilities: readonly ArtifactCapability[];
-  /** Link that opens the artifact on the artifact host. */
+  /** Link that opens the artifact on the artifact host; anyone can use it while the app is public. */
   readonly url: string;
+  /** Who can open the app; teammates can read it, and only the owner changes it, from Apps. */
+  readonly visibility: ArtifactVisibility;
   readonly status: ArtifactStatus;
   /** Number of the live release; 0 before anything is published or deployed. */
   readonly release: number;
@@ -221,6 +232,14 @@ export interface CreateArtifactInput {
 export interface UpdateArtifactInput {
   readonly title?: string;
   readonly description?: string;
+}
+
+/**
+ * The owner's choice of who can open an app. It is a separate request from every create, edit, and
+ * release, so no teammate change can carry it; Everything accepts it only from the signed-in owner.
+ */
+export interface ArtifactVisibilityInput {
+  readonly visibility: ArtifactVisibility;
 }
 
 /** Publish uploaded files as a new revision of a static artifact. */

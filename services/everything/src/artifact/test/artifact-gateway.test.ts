@@ -123,6 +123,7 @@ test("browser endpoints list artifacts and open them, hiding artifact service de
     database: false,
     capabilities: [],
     url: "http://artifacts.test/for-owner",
+    visibility: "private" as const,
     status: "live" as const,
     release: 1,
     createdAt: "now",
@@ -135,6 +136,7 @@ test("browser endpoints list artifacts and open them, hiding artifact service de
     stop: async () => ({}) as ArtifactDetails,
     delete: async () => {},
     apiKey: async () => assert.fail("no key requested"),
+    setVisibility: async () => assert.fail("no visibility change requested"),
     list: async (ownerId) => {
       if (failures.length) throw failures.shift();
       return [{ ...summary, slug: `for-${ownerId}` }];
@@ -151,7 +153,9 @@ test("browser endpoints list artifacts and open them, hiding artifact service de
   });
   const app = authenticatedTestServer();
   context.after(() => app.close());
-  await artifactController(app, library);
+  await artifactController(app, library, () =>
+    assert.fail("no signed-in-only route requested"),
+  );
   const listed = await app.inject({ url: "/artifacts" });
   assert.deepEqual(listed.json(), { artifacts: [summary] });
   const opened = await app.inject({

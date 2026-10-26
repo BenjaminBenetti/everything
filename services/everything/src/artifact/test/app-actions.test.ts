@@ -21,7 +21,9 @@ test("browser actions derive ownership and authorship from authentication and re
   );
   const server = authenticatedTestServer();
   context.after(() => server.close());
-  await artifactController(server, new ArtifactLibraryService(gateway));
+  await artifactController(server, new ArtifactLibraryService(gateway), () =>
+    assert.fail("no signed-in-only route requested"),
+  );
   for (const action of ["start", "stop", "delete"] as const) {
     const response = await server.inject({
       method: action === "delete" ? "DELETE" : "POST",
@@ -68,7 +70,9 @@ test("manual action errors keep missing apps opaque and translate conflicts with
   );
   const server = authenticatedTestServer();
   context.after(() => server.close());
-  await artifactController(server, new ArtifactLibraryService(gateway));
+  await artifactController(server, new ArtifactLibraryService(gateway), () =>
+    assert.fail("no signed-in-only route requested"),
+  );
   for (const [upstream, expected, code] of [
     [404, 404, "ARTIFACT_NOT_FOUND"],
     [409, 409, "APP_ACTION_CONFLICT"],
@@ -104,7 +108,9 @@ test("the owner's API key is read from the app service for that owner and is nev
   );
   const server = authenticatedTestServer();
   context.after(() => server.close());
-  await artifactController(server, new ArtifactLibraryService(gateway));
+  await artifactController(server, new ArtifactLibraryService(gateway), () =>
+    assert.fail("no signed-in-only route requested"),
+  );
   const revealed = await server.inject({ url: `/artifacts/${appId}/api-key` });
   assert.equal(revealed.statusCode, 200);
   assert.equal(revealed.headers["cache-control"], "no-store");
