@@ -119,7 +119,7 @@ async function application(context: TestContext) {
     {
       url: "http://artifact:8081",
       hostUrl: "http://artifact:8080",
-      publicAppsHostUrl: "http://artifact:8082",
+      publicAppsHostUrl: "http://public-apps:8082",
     },
     { token: async () => "service-token" },
     async (url, init = {}) => {

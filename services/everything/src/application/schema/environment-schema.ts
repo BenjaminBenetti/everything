@@ -31,7 +31,10 @@ export const environmentSchema = Type.Object({
   ARTIFACT_SERVICE_URL: Type.String({ pattern: "^https?://[^/]+$" }),
   /** The artifact host as teammate pods reach it inside the cluster, over plain HTTP. */
   ARTIFACT_HOST_URL: Type.String({ pattern: "^https?://[^/]+$" }),
-  /** The public apps host as teammate pods reach it inside the cluster, over plain HTTP. */
+  /**
+   * The public apps host as teammate pods reach it inside the cluster, over plain HTTP, on a hostname
+   * apart from the artifact host's, so private apps' cookies in a teammate's browser never reach it.
+   */
   ARTIFACT_PUBLIC_APPS_HOST_URL: Type.String({ pattern: "^https?://[^/]+$" }),
   /** Keycloak client whose service account calls the artifact service. */
   ARTIFACT_CLIENT_ID: required,

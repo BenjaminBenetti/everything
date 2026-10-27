@@ -26,9 +26,10 @@ export const environmentSchema = Type.Object({
   PUBLIC_ORIGIN: origin,
   ARTIFACT_ORIGIN: origin,
   /**
-   * Origin that serves public apps to anyone. It is a different origin from the artifact host, so a
-   * public app's pages run under their own browser trust boundary and cannot reach the signed-in
-   * cookies or stored data of the artifact host, where private apps are served.
+   * Origin that serves public apps to anyone. Its hostname differs from the artifact host's and the
+   * application's, so a public app's pages run under their own browser trust boundary and receive
+   * none of the cookies, signed-in or app-owned, or stored data of the artifact host, where private
+   * apps are served. A different port is not enough: browsers share a hostname's cookies across ports.
    */
   PUBLIC_APPS_ORIGIN: origin,
   OIDC_ISSUER: required,

@@ -16,8 +16,9 @@ them, so a service can be reached on more than one origin.
 {{- if not (kindIs "slice" $specs) }}{{- $specs = list $specs }}{{- end }}
 {{- range $spec := $specs }}
 {{- $site := $spec.site | default "application" }}
+{{- $backend := (get $service.ports $spec.port | default dict).serviceName | default $name }}
 {{- range $spec.paths }}
-{{- $_ := set $paths $site (append (get $paths $site | default list) (dict "path" (tpl . $) "service" $name "port" $spec.port)) }}
+{{- $_ := set $paths $site (append (get $paths $site | default list) (dict "path" (tpl . $) "service" $backend "port" $spec.port)) }}
 {{- end }}
 {{- end }}
 {{- end }}

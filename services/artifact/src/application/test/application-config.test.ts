@@ -55,10 +55,6 @@ test("defaults the two ports and splits the artifact database address", () => {
 test("rejects invalid deployment input", () => {
   for (const override of [
     { ARTIFACT_ORIGIN: "https://artifacts.test/path" },
-    // Public apps lose their isolation if they share the artifact host's or the application's origin.
-    { PUBLIC_APPS_ORIGIN: "https://artifacts.everything.test" },
-    { PUBLIC_APPS_ORIGIN: "https://everything.test" },
-    { PUBLIC_APPS_ORIGIN: "https://ARTIFACTS.everything.test:443" },
     { CONTENT_DIRECTORY: "relative" },
     { ARTIFACT_NAMESPACE: "Not_A_Namespace" },
     { REGISTRY_PULL_HOST: "localhost:30500/path" },
@@ -67,5 +63,48 @@ test("rejects invalid deployment input", () => {
   ])
     assert.throws(() =>
       loadApplicationConfig({ ...environment(), ...override }),
+    );
+});
+
+test("public apps need a cookie host apart from the artifact host's and the application's", () => {
+  // Browsers scope cookies by hostname, not port or scheme: each of these would hand private apps'
+  // own cookies, or Everything's, to every public app.
+  for (const override of [
+    { PUBLIC_APPS_ORIGIN: "https://artifacts.everything.test" },
+    { PUBLIC_APPS_ORIGIN: "https://everything.test" },
+    { PUBLIC_APPS_ORIGIN: "https://ARTIFACTS.everything.test:443" },
+    { PUBLIC_APPS_ORIGIN: "http://artifacts.everything.test:8082" },
+    { PUBLIC_APPS_ORIGIN: "https://Artifacts.Everything.Test.:8443" },
+    { PUBLIC_APPS_ORIGIN: "http://everything.test.:9000" },
+    // The ports the development stack forwards, all on localhost.
+    {
+      PUBLIC_ORIGIN: "http://localhost:8080",
+      ARTIFACT_ORIGIN: "http://localhost:8081",
+      PUBLIC_APPS_ORIGIN: "http://localhost:8082",
+    },
+    {
+      PUBLIC_ORIGIN: "http://localhost:8080",
+      ARTIFACT_ORIGIN: "http://127.0.0.1:8081",
+      PUBLIC_APPS_ORIGIN: "http://LOCALHOST.:8082",
+    },
+  ])
+    assert.throws(
+      () => loadApplicationConfig({ ...environment(), ...override }),
+      /PUBLIC_APPS_ORIGIN needs a hostname apart/,
+      JSON.stringify(override),
+    );
+  for (const override of [
+    {},
+    // The development stack: another loopback hostname beside localhost.
+    {
+      PUBLIC_ORIGIN: "http://localhost:8080",
+      ARTIFACT_ORIGIN: "http://localhost:8081",
+      PUBLIC_APPS_ORIGIN: "http://127.0.0.1:8082",
+    },
+    { PUBLIC_APPS_ORIGIN: "https://apps.everything.test" },
+  ])
+    assert.equal(
+      loadApplicationConfig({ ...environment(), ...override }).publicAppsOrigin,
+      override.PUBLIC_APPS_ORIGIN ?? "https://public-apps.everything.test",
     );
 });

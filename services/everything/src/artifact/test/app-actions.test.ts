@@ -13,7 +13,7 @@ test("browser actions derive ownership and authorship from authentication and re
     {
       url: "http://artifact:8081",
       hostUrl: "http://artifact:8080",
-      publicAppsHostUrl: "http://artifact:8082",
+      publicAppsHostUrl: "http://public-apps:8082",
     },
     { token: async () => "service-token" },
     async (url, init = {}) => {
@@ -67,7 +67,7 @@ test("manual action errors keep missing apps opaque and translate conflicts with
     {
       url: "http://artifact:8081",
       hostUrl: "http://artifact:8080",
-      publicAppsHostUrl: "http://artifact:8082",
+      publicAppsHostUrl: "http://public-apps:8082",
     },
     { token: async () => "service-token" },
     async () =>
@@ -105,7 +105,7 @@ test("the owner's API key is read from the app service for that owner and is nev
     {
       url: "http://artifact:8081",
       hostUrl: "http://artifact:8080",
-      publicAppsHostUrl: "http://artifact:8082",
+      publicAppsHostUrl: "http://public-apps:8082",
     },
     { token: async () => "service-token" },
     async (url, init = {}) => {

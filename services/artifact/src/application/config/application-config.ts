@@ -1,5 +1,6 @@
 import path from "node:path";
 import envSchema from "env-schema";
+import { sharesCookieHost } from "@everything/security/cookie-host";
 import {
   environmentSchema,
   type EnvironmentSettings,
@@ -67,15 +68,16 @@ export function loadApplicationConfig(
     env: false,
     data: environment,
   });
-  // Public apps are isolated only on an origin of their own, apart from the app host and Everything.
-  const publicApps = new URL(settings.PUBLIC_APPS_ORIGIN).origin;
+  // Public apps are isolated only on a hostname of their own, apart from the app host and Everything:
+  // browsers send a hostname's cookies to every port, so a different port alone would hand private
+  // apps' and Everything's cookies to public apps.
   if (
-    [settings.ARTIFACT_ORIGIN, settings.PUBLIC_ORIGIN].some(
-      (other) => new URL(other).origin === publicApps,
+    [settings.ARTIFACT_ORIGIN, settings.PUBLIC_ORIGIN].some((other) =>
+      sharesCookieHost(other, settings.PUBLIC_APPS_ORIGIN),
     )
   )
     throw new Error(
-      "PUBLIC_APPS_ORIGIN must differ from ARTIFACT_ORIGIN and PUBLIC_ORIGIN",
+      "PUBLIC_APPS_ORIGIN needs a hostname apart from ARTIFACT_ORIGIN's and PUBLIC_ORIGIN's, since browsers share cookies across ports",
     );
   const [databaseHost, databasePort] =
     settings.ARTIFACT_DATABASE_HOST.split(":");

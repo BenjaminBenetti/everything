@@ -16,7 +16,7 @@ const tokens = { token: async () => "service-token" };
 const addresses = {
   url: "http://artifact:8081",
   hostUrl: "http://artifact.everything.svc.cluster.local:8080",
-  publicAppsHostUrl: "http://artifact.everything.svc.cluster.local:8082",
+  publicAppsHostUrl: "http://public-apps.everything.svc.cluster.local:8082",
 };
 
 test("the gateway authenticates as the service and names the acting teammate", async () => {
@@ -256,6 +256,6 @@ test("a public app's view is its page on the in-cluster public apps host, with n
   );
   assert.deepEqual(await gateway.viewPass("owner", "site", {}), {
     visibility: "public",
-    url: "http://artifact.everything.svc.cluster.local:8082/site/docs/?tab=2",
+    url: "http://public-apps.everything.svc.cluster.local:8082/site/docs/?tab=2",
   });
 });

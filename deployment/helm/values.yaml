@@ -19,10 +19,13 @@ global:
   # Locally the artifact host is a second port on localhost: a different origin on the same site.
   artifactOrigin: "http://{{ .Values.global.externalArtifactHostname }}:8081"
   # Hostname of the public apps host, a third origin that serves apps the user has made public to
-  # anyone. It is a different origin from the artifact host, so a public app's pages run under their
-  # own browser trust boundary and cannot reach the artifact host's signed-in cookies or the private
-  # apps served there. Locally it is a third port on localhost.
-  externalPublicAppsHostname: localhost
+  # anyone. Its hostname differs from the artifact host's and the application's, so a public app's
+  # pages run under their own browser trust boundary and receive none of the cookies, signed-in or
+  # set by private apps, nor reach the private apps served on the artifact host. A different port is
+  # not enough, since browsers share a hostname's cookies across its ports, and the artifact service
+  # refuses to start with a shared hostname. Locally it is 127.0.0.1, which the forwarded port also
+  # answers on and browsers keep cookies for apart from localhost's.
+  externalPublicAppsHostname: 127.0.0.1
   publicAppsOrigin: "http://{{ .Values.global.externalPublicAppsHostname }}:8082"
   # Realm defined in services/keycloak/config/everything-realm.json.
   realm: everything
@@ -214,12 +217,13 @@ serviceDefaults:
   args: []
   # Variable name to a literal value, or to `{ secretName, key }` for a Secret value.
   env: {}
-  # Port name to `{ containerPort, servicePort? }`; ports with a servicePort are exposed by a Service
-  # named after the service.
+  # Port name to `{ containerPort, servicePort?, serviceName? }`; ports with a servicePort are exposed
+  # by a Service named after the service, or by a Service of the pods' own named `serviceName`, which
+  # gives other pods a hostname for that port alone.
   ports: {}
   # Route these path prefixes, rendered as templates, to the named exposed port, on the application's
-  # origin or, with `site: artifacts` or `site: registry`, on the artifact host or the registry's
-  # hostname.
+  # origin or, with `site: artifacts`, `site: public-apps`, or `site: registry`, on the artifact host,
+  # the public apps host, or the registry's hostname.
   #   ingress: { port: http, paths: [/v1] }
   ingress: {}
   # Kubernetes API access: namespace (rendered as a template) to RBAC rules. A service with access
@@ -438,7 +442,9 @@ services:
       # The artifact host as teammate pods reach it, over plain HTTP, when view_app gives them a pass.
       ARTIFACT_HOST_URL: "http://artifact.{{ .Release.Namespace }}.svc.cluster.local:8080"
       # The public apps host as teammate pods reach it; view_app opens public apps here, with no pass.
-      ARTIFACT_PUBLIC_APPS_HOST_URL: "http://artifact.{{ .Release.Namespace }}.svc.cluster.local:8082"
+      # It has a Service of its own, so its hostname, and the cookies teammates' browsers send it,
+      # differ from the artifact host's.
+      ARTIFACT_PUBLIC_APPS_HOST_URL: "http://public-apps.{{ .Release.Namespace }}.svc.cluster.local:8082"
       ARTIFACT_CLIENT_ID: everything-artifact-client
       ARTIFACT_CLIENT_SECRET:
         secretName: artifact-auth
@@ -818,8 +824,12 @@ services:
       http: { containerPort: 8080, servicePort: 8080 }
       # The internal API, called by Everything and build jobs inside the cluster.
       internal: { containerPort: 8081, servicePort: 8081 }
-      # The public apps host, through the public apps Ingress, on its own origin.
-      public: { containerPort: 8082, servicePort: 8082 }
+      # The public apps host, through the public apps Ingress, on its own origin. Its own Service gives
+      # teammate pods a hostname for it apart from the artifact host's.
+      public:
+        containerPort: 8082
+        servicePort: 8082
+        serviceName: public-apps
     # Two Ingresses on separate origins: the artifact host, and the public apps host.
     ingress:
       - site: artifacts

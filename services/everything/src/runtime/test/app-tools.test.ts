@@ -302,7 +302,7 @@ test("view_app returns a teammate pass with quoted curl and Chromium commands", 
 });
 
 test("view_app opens a public app on the public apps host with no pass in its commands", async () => {
-  const url = "http://artifact.everything.svc.cluster.local:8082/site/";
+  const url = "http://public-apps.everything.svc.cluster.local:8082/site/";
   const workbench = {
     /** A public app's view: its page on the public apps host. */
     view: async () => ({ visibility: "public", url }),

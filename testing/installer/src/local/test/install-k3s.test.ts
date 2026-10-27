@@ -708,6 +708,34 @@ describe("failures", () => {
     assert.doesNotMatch(result.output, /Everything is running/);
   });
 
+  test("checks and mentions public apps only when the installed chart serves them", async () => {
+    const probed = () =>
+      host
+        .calls()
+        .filter((call) => call.name === "curl")
+        .map((call) => call.args.at(-1));
+    let result = await install();
+    assert.equal(result.status, 0, result.output);
+    assert.ok(probed().includes("https://public-apps.everything.internal/"));
+    assert.match(
+      result.output,
+      /public apps open on https:\/\/public-apps\.everything\.internal/,
+    );
+
+    // A chart from before public apps serves no public apps host; the certificate and hosts entry
+    // still name it, but an answer there would be Traefik's own, not proof of public apps.
+    writeFileSync(host.log, "");
+    result = await install({ env: { FAKE_INSTALLER_LEGACY_CHART: "1" } });
+    assert.equal(result.status, 0, result.output);
+    assert.ok(!probed().includes("https://public-apps.everything.internal/"));
+    assert.ok(probed().includes("https://artifacts.everything.internal/"));
+    assert.doesNotMatch(result.output, /public apps/i);
+    assert.match(
+      result.output,
+      /Apps your teammates make open on https:\/\/artifacts\.everything\.internal\.\n/,
+    );
+  });
+
   test("fails when a name does not answer with a trusted certificate", async () => {
     host.setEndpoints({
       "https://everything.internal/health/ready": "200",

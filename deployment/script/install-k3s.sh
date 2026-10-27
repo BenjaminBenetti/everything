@@ -58,7 +58,7 @@ hosts_end="# END Everything local installer"
 ca_nickname_prefix="Everything local CA"
 
 # Working state, set as the installer runs.
-work="" phase="" installer="" arch="" run_as_root=false trust_style="" package_manager=""
+work="" phase="" installer="" arch="" run_as_root=false trust_style="" package_manager="" public_apps=false
 packages=() k3s_state="" k3s_restart=false kubeconfig="" helm_bin="" kubectl_bin="" ca_fingerprint=""
 state_dir="" ca_dir="" tls_dir="" bin_dir="" finished=false
 # A root-owned copy beside a file it will replace, which an interrupted run removes.
@@ -1001,11 +1001,15 @@ run_installer() {
     EVERYTHING_PRESET_SETTINGS="$work/preset.yaml" EVERYTHING_RESULT_FILE="$work/installer-result" \
     bash "$installer" < /dev/null || status=$?
   if [ "$status" -ne 0 ]; then fail "Everything's installer stopped with status $status."; fi
-  if [ "$(cat "$work/installer-result")" = declined ]; then
-    say "Everything was not installed or upgraded, as you chose; rerun the installer to continue."
-    finished=true
-    exit 0
-  fi
+  case $(cat "$work/installer-result") in
+    declined)
+      say "Everything was not installed or upgraded, as you chose; rerun the installer to continue."
+      finished=true
+      exit 0
+      ;;
+    # The installed chart serves public apps; a chart from before them leaves their name unused.
+    public-apps) public_apps=true ;;
+  esac
   if ! "$helm_bin" status "$release" --kubeconfig "$kubeconfig" --kube-context "$context_name" \
     --namespace "$namespace" > /dev/null 2> "$work/helm-status.log"; then
     fail "Everything's installer finished, but Helm could not find its release: $(tail -n 1 "$work/helm-status.log")"
@@ -1023,10 +1027,13 @@ wait_for_everything() {
   done
 }
 
-# Each name answers over HTTPS with the trusted certificate, as a browser on this computer sees it.
+# Each name answers over HTTPS with the trusted certificate, as a browser on this computer sees it;
+# the public apps host's only when the installed chart serves public apps.
 verify_endpoints() {
-  local url code
-  for url in "https://$app_host/health/ready" "https://$artifact_host/" "https://$public_apps_host/" "https://$registry_host/v2/"; do
+  local url code urls=("https://$app_host/health/ready" "https://$artifact_host/")
+  if [ "$public_apps" = true ]; then urls+=("https://$public_apps_host/"); fi
+  urls+=("https://$registry_host/v2/")
+  for url in "${urls[@]}"; do
     code=$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --max-time 20 "$url") ||
       fail "$url did not answer with a trusted certificate."
     case "$url:$code" in
@@ -1040,7 +1047,11 @@ print_summary() {
   say ""
   say "Everything is running on this computer."
   say "  Open https://$app_host and sign in with the user you created."
-  say "  Apps your teammates make open on https://$artifact_host; public apps open on https://$public_apps_host."
+  if [ "$public_apps" = true ]; then
+    say "  Apps your teammates make open on https://$artifact_host; public apps open on https://$public_apps_host."
+  else
+    say "  Apps your teammates make open on https://$artifact_host."
+  fi
   say "  Browsers that were open during the installation may need a restart to trust the certificate."
   if [ "$arch" = arm64 ]; then
     say "  Voice input is off: its speech service runs only on x86-64 computers."

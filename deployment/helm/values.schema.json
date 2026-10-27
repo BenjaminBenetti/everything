@@ -393,6 +393,9 @@
               "servicePort": {
                 "type": "integer",
                 "minimum": 1
+              },
+              "serviceName": {
+                "$ref": "#/definitions/dnsLabel"
               }
             }
           }

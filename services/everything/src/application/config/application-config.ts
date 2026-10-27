@@ -1,6 +1,7 @@
 import path from "node:path";
 import envSchema from "env-schema";
 import { Value } from "typebox/value";
+import { sharesCookieHost } from "@everything/security/cookie-host";
 import type { FleetSettings } from "../../fleet/model/fleet-settings.js";
 import type { VoiceSettings } from "../../voice/model/voice-settings.js";
 import type { TelemetrySettings } from "../../telemetry/model/telemetry-settings.js";
@@ -68,6 +69,16 @@ export function loadApplicationConfig(
     env: false,
     data: environment,
   });
+  // Teammates' browsers open private apps on the artifact host and public apps on the public apps
+  // host; browsers send a hostname's cookies to every port, so they need different hostnames.
+  if (
+    [settings.ARTIFACT_HOST_URL, settings.PUBLIC_ORIGIN].some((other) =>
+      sharesCookieHost(other, settings.ARTIFACT_PUBLIC_APPS_HOST_URL),
+    )
+  )
+    throw new Error(
+      "ARTIFACT_PUBLIC_APPS_HOST_URL needs a hostname apart from ARTIFACT_HOST_URL's and PUBLIC_ORIGIN's, since browsers share cookies across ports",
+    );
   return {
     port: settings.PORT,
     issuer: settings.OIDC_ISSUER,
