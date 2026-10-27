@@ -361,6 +361,51 @@ test("editing saves the full replacement selection and cancelling retains the sa
   await expect(page.getByRole("dialog")).toContainText("High");
 });
 
+test("a saved Default effort a model no longer offers stays unsaved until the owner chooses a listed effort", async ({
+  page,
+  context,
+}) => {
+  const state = await workspace(context, {
+    provider: "chatgpt",
+    model: "terra-model",
+    effort: "off",
+  });
+  state.extraModels = [
+    {
+      id: "terra-model",
+      name: "Terra model",
+      efforts: ["low", "high"],
+      defaultEffort: "low",
+      effortSource: "provider",
+    },
+  ];
+  await page.goto("/team");
+  await page
+    .getByRole("button", { name: "Edit Researcher", exact: true })
+    .click();
+  await page.locator("summary").filter({ hasText: "Model settings" }).click();
+  const save = page.getByRole("button", { name: "Save changes", exact: true });
+  await expect(dropdown(page, "Model")).toHaveText("Terra model");
+  await expect(dropdown(page, "Effort level")).toHaveText(
+    "Choose an effort level",
+  );
+  await expect(save).toBeDisabled();
+  await expectChoices(page, "Effort level", [
+    "Choose an effort level",
+    "Low",
+    "High",
+  ]);
+  await choose(page, "Effort level", "High");
+  await save.click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  expect(state.saves).toHaveLength(1);
+  expect(state.saves[0]?.inference).toEqual({
+    provider: "chatgpt",
+    model: "terra-model",
+    effort: "high",
+  });
+});
+
 test("an unavailable saved provider stays out of the picker and profile edits retain its selection", async ({
   page,
   context,

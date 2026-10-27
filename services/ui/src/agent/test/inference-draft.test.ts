@@ -136,3 +136,29 @@ test("Fast mode wording names a request, never a confirmed faster reply", () => 
   for (const label of Object.values(fastModeLabels))
     assert.doesNotMatch(label, /\b(active|enabled|guaranteed|always)\b/i);
 });
+
+test("a saved Default effort a model no longer offers keeps the draft unsaveable, unchanged, until a listed effort is chosen", () => {
+  const saved = {
+    provider: "chatgpt",
+    model: "gpt-6.1-terra",
+    effort: "off",
+  } as const;
+  const listed: ProviderModel = {
+    id: "gpt-6.1-terra",
+    name: "GPT-6.1 Terra",
+    efforts: ["low", "high"],
+    defaultEffort: "low",
+    effortSource: "provider",
+    speeds: ["standard"],
+  };
+  const draft = inferenceDraft(saved);
+  // The stale effort is kept, never swapped for the model's default, and cannot be saved.
+  assert.equal(draft.effort, "off");
+  assert.equal(isChangedDraft(draft, saved), false);
+  assert.equal(isSupportedDraft(draft, listed), false);
+  // Choosing a listed effort, as the effort menu does, makes the draft a saveable change.
+  const repaired = { ...draft, effort: "high" } as const;
+  assert.equal(isSupportedDraft(repaired, listed), true);
+  assert.equal(isChangedDraft(repaired, saved), true);
+  assert.deepEqual(draftSelection(repaired), { ...saved, effort: "high" });
+});
