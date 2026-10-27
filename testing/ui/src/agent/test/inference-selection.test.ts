@@ -84,6 +84,7 @@ async function workspace(context: BrowserContext, existing?: Selection | null) {
       name: string;
       efforts: string[];
       defaultEffort: string;
+      effortSource?: string;
       speeds?: string[];
     }[],
     providers,
@@ -141,12 +142,14 @@ async function workspace(context: BrowserContext, existing?: Selection | null) {
                 name: "Reasoning model",
                 efforts: ["low", "medium", "high"],
                 defaultEffort: "medium",
+                effortSource: "catalog",
               },
               {
                 id: "fast-model",
                 name: "Fast model",
                 efforts: ["off"],
                 defaultEffort: "off",
+                effortSource: "catalog",
               },
               ...state.extraModels,
             ]
@@ -156,6 +159,7 @@ async function workspace(context: BrowserContext, existing?: Selection | null) {
                 name: "Local model",
                 efforts: ["low", "high"],
                 defaultEffort: "low",
+                effortSource: "catalog",
               },
             ],
       },
@@ -355,6 +359,51 @@ test("editing saves the full replacement selection and cancelling retains the sa
   await expect(page.getByRole("dialog")).toContainText("OpenAI-compatible API");
   await expect(page.getByRole("dialog")).toContainText("local-model");
   await expect(page.getByRole("dialog")).toContainText("High");
+});
+
+test("a saved Default effort a model no longer offers stays unsaved until the owner chooses a listed effort", async ({
+  page,
+  context,
+}) => {
+  const state = await workspace(context, {
+    provider: "chatgpt",
+    model: "terra-model",
+    effort: "off",
+  });
+  state.extraModels = [
+    {
+      id: "terra-model",
+      name: "Terra model",
+      efforts: ["low", "high"],
+      defaultEffort: "low",
+      effortSource: "provider",
+    },
+  ];
+  await page.goto("/team");
+  await page
+    .getByRole("button", { name: "Edit Researcher", exact: true })
+    .click();
+  await page.locator("summary").filter({ hasText: "Model settings" }).click();
+  const save = page.getByRole("button", { name: "Save changes", exact: true });
+  await expect(dropdown(page, "Model")).toHaveText("Terra model");
+  await expect(dropdown(page, "Effort level")).toHaveText(
+    "Choose an effort level",
+  );
+  await expect(save).toBeDisabled();
+  await expectChoices(page, "Effort level", [
+    "Choose an effort level",
+    "Low",
+    "High",
+  ]);
+  await choose(page, "Effort level", "High");
+  await save.click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  expect(state.saves).toHaveLength(1);
+  expect(state.saves[0]?.inference).toEqual({
+    provider: "chatgpt",
+    model: "terra-model",
+    effort: "high",
+  });
 });
 
 test("an unavailable saved provider stays out of the picker and profile edits retain its selection", async ({
@@ -595,6 +644,43 @@ test("dropdown menus follow every theme and keep long model catalogs within the 
       state.extraModels.at(-1)!.name,
     );
   }
+});
+
+test("a model whose effort levels aren't known explains that the provider's default effort applies", async ({
+  page,
+  context,
+}) => {
+  const state = await workspace(context);
+  state.extraModels = [
+    {
+      id: "new-model",
+      name: "New model",
+      efforts: ["off"],
+      defaultEffort: "off",
+      effortSource: "unknown",
+    },
+  ];
+  await page.goto("/team");
+  await page.getByRole("button", { name: "New teammate", exact: true }).click();
+  await page.locator("summary").filter({ hasText: "Model settings" }).click();
+  await choose(page, "Provider", "ChatGPT");
+  await choose(page, "Model", "New model");
+  await expect(dropdown(page, "Effort level")).toHaveText(
+    "Default (no effort setting)",
+  );
+  await expectChoices(page, "Effort level", [
+    "Choose an effort level",
+    "Default (no effort setting)",
+  ]);
+  await expect(
+    page.getByText(
+      "This model’s effort levels aren’t known, so it uses the provider’s default effort.",
+    ),
+  ).toBeVisible();
+  await choose(page, "Model", "Fast model");
+  await expect(
+    page.getByText("This model does not expose an adjustable effort level."),
+  ).toBeVisible();
 });
 
 test("Fast mode is offered only on models that list it, starts off with a usage warning, saves the request, and turns off for other models", async ({

@@ -266,7 +266,9 @@ export function InferenceFields({
           />
           <small id={`${fieldId}-effort-hint`}>
             {model?.efforts.length === 1 && model.efforts[0] === "off"
-              ? "This model does not expose an adjustable effort level."
+              ? model.effortSource === "unknown"
+                ? "This model’s effort levels aren’t known, so it uses the provider’s default effort."
+                : "This model does not expose an adjustable effort level."
               : "Higher effort can improve complex work and take more time."}
           </small>
         </div>

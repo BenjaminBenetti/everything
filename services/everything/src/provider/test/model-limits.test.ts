@@ -199,6 +199,7 @@ test("selection returns reported limits while the public catalog keeps only safe
   const [listed] = await service.list("owner", "openai-compatible");
   assert.deepEqual(Object.keys(listed!).sort(), [
     "defaultEffort",
+    "effortSource",
     "efforts",
     "id",
     "name",

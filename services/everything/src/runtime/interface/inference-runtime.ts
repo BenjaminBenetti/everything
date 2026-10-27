@@ -2,16 +2,19 @@ import type { Api, Model } from "@earendil-works/pi-ai";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { InferenceSelection } from "@everything/provider-contracts/inference";
 import type { ProviderId } from "@everything/provider-contracts";
-import type { ModelLimits } from "../../provider/interface/provider-models.js";
+import type { ModelMetadata } from "../../provider/interface/provider-models.js";
 
 /** Resolve runtime metadata independently of account availability and credentials. */
 export interface RuntimeModelCatalog {
-  /** Bind supported model capabilities, and any limits the provider reports, to its endpoint. */
+  /**
+   * Bind supported model capabilities, and any limits and effort levels the provider reports, to its
+   * endpoint. Model choices are described from the same binding, so only offered efforts are sent.
+   */
   resolve(
     provider: ProviderId,
     id: string,
     baseUrl: string,
-    limits?: ModelLimits,
+    limits?: ModelMetadata,
   ): Model<Api>;
 }
 

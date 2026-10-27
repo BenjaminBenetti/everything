@@ -1,5 +1,6 @@
 import type { ProviderId } from "@everything/provider-contracts";
 import type {
+  InferenceEffort,
   InferenceSelection,
   ProviderModel,
 } from "@everything/provider-contracts/inference";
@@ -26,8 +27,25 @@ export interface ModelLimits {
   readonly maxOutputTokens?: number;
 }
 
-/** Provider-advertised model identity and limits, independent of runtime implementation. */
-export interface DiscoveredModel extends ModelLimits {
+/**
+ * Effort levels a provider's model list reports for one model. Only levels its metadata covers are
+ * present; the runtime knows nothing more about the rest.
+ */
+export interface AdvertisedReasoning {
+  /** The provider's value to send for each covered level, or null where the model rejects it. */
+  readonly levels: Readonly<Partial<Record<InferenceEffort, string | null>>>;
+  /** The provider's default level, present only when the model accepts it. */
+  readonly defaultEffort?: InferenceEffort;
+}
+
+/** What a provider reports about one model beyond its identity; absent values are unknown. */
+export interface ModelMetadata extends ModelLimits {
+  /** Effort support from the provider's own model list, when it reports any usable metadata. */
+  readonly reasoning?: AdvertisedReasoning;
+}
+
+/** Provider-advertised model identity, limits, and effort support, independent of runtime implementation. */
+export interface DiscoveredModel extends ModelMetadata {
   readonly id: string;
   readonly name: string;
 }

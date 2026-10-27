@@ -241,3 +241,155 @@ test("local Qwen effort choices reach the compatible API and Default leaves the 
   }
   assert.equal(requests.length, 4);
 });
+
+test("every effort offered from a provider's listed levels reaches the request as that provider's value", async () => {
+  const capabilities = new PiModelCapabilities(await createModelRuntime());
+  const discovered = {
+    id: "gpt-6.1-terra",
+    name: "GPT-6.1 Terra",
+    reasoning: {
+      levels: {
+        off: "none",
+        minimal: null,
+        low: "low",
+        medium: null,
+        high: "high",
+        xhigh: "xhigh",
+        max: null,
+      },
+    },
+  };
+  const bodies: Record<string, unknown>[] = [];
+  const factory = new PiInferenceRuntimeFactory(
+    {
+      /** Only the API audience's own host is configured. */
+      async access() {
+        return {
+          credential: { accessToken: "oauth-owner" },
+          baseUrl: null,
+          model: null,
+        };
+      },
+    },
+    {
+      /** Return the discovered model with its listed levels, as selection validation does. */
+      async select() {
+        return discovered;
+      },
+    },
+    capabilities,
+    async (input, init) => {
+      assert.equal(String(input), "https://api.openai.com/v1/responses");
+      bodies.push(JSON.parse(String(init?.body)));
+      return stream([
+        { type: "response.created", response: { id: "response" } },
+        {
+          type: "response.completed",
+          response: { id: "response", status: "completed", output: [] },
+        },
+      ]);
+    },
+  );
+  const { efforts } = capabilities.describe("chatgpt", discovered);
+  assert.deepEqual(efforts, ["off", "low", "high", "xhigh"]);
+  for (const effort of efforts) {
+    const runtime = await factory.create("owner", {
+      provider: "chatgpt",
+      model: discovered.id,
+      effort,
+    });
+    await runtime.models.completeSimple(
+      runtime.model,
+      { messages: [{ role: "user", content: "Hello", timestamp: 1 }] },
+      effort === "off" ? {} : { reasoning: effort },
+    );
+    assert.equal(
+      (bodies.at(-1)!.reasoning as { effort: string }).effort,
+      effort === "off" ? "none" : effort,
+      effort,
+    );
+  }
+});
+
+test("a Claude model known only from its reported capabilities receives adaptive thinking with the chosen effort", async () => {
+  const requests: Record<string, unknown>[] = [];
+  const capabilities = new PiModelCapabilities(await createModelRuntime());
+  const discovered = {
+    id: "claude-next",
+    name: "Claude Next",
+    reasoning: {
+      levels: {
+        low: "low",
+        medium: "medium",
+        high: "high",
+        xhigh: null,
+        max: "max",
+      },
+    },
+  };
+  const factory = new PiInferenceRuntimeFactory(
+    {
+      /** The connection stores a versioned API address. */
+      async access() {
+        return {
+          credential: { apiKey: "test-claude-key" },
+          baseUrl: "https://api.anthropic.com/v1",
+          model: null,
+        };
+      },
+    },
+    {
+      /** Return the discovered model with its reported levels. */
+      async select() {
+        return discovered;
+      },
+    },
+    capabilities,
+    async (input, init) => {
+      assert.equal(new URL(String(input)).origin, "https://api.anthropic.com");
+      requests.push(JSON.parse(String(init?.body)));
+      return stream([
+        {
+          type: "message_start",
+          message: {
+            id: "message",
+            type: "message",
+            role: "assistant",
+            model: "claude-next",
+            content: [],
+            stop_reason: null,
+            stop_sequence: null,
+            usage: { input_tokens: 2, output_tokens: 0 },
+          },
+        },
+        {
+          type: "message_delta",
+          delta: { stop_reason: "end_turn", stop_sequence: null },
+          usage: { output_tokens: 0 },
+        },
+        { type: "message_stop" },
+      ]);
+    },
+  );
+  const { efforts } = capabilities.describe("anthropic", discovered);
+  assert.deepEqual(efforts, ["low", "medium", "high", "max"]);
+  for (const effort of efforts) {
+    // The model reports no way to turn thinking off, so Off was never offered.
+    if (effort === "off") continue;
+    const runtime = await factory.create("owner", {
+      provider: "anthropic",
+      model: discovered.id,
+      effort,
+    });
+    await runtime.models.completeSimple(
+      runtime.model,
+      { messages: [{ role: "user", content: "Hello", timestamp: 1 }] },
+      { reasoning: effort },
+    );
+    assert.deepEqual(requests.at(-1)!.thinking, {
+      type: "adaptive",
+      display: "summarized",
+    });
+    assert.deepEqual(requests.at(-1)!.output_config, { effort });
+  }
+});
