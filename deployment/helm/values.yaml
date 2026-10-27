@@ -437,6 +437,8 @@ services:
       ARTIFACT_SERVICE_URL: http://artifact:8081
       # The artifact host as teammate pods reach it, over plain HTTP, when view_app gives them a pass.
       ARTIFACT_HOST_URL: "http://artifact.{{ .Release.Namespace }}.svc.cluster.local:8080"
+      # The public apps host as teammate pods reach it; view_app opens public apps here, with no pass.
+      ARTIFACT_PUBLIC_APPS_HOST_URL: "http://artifact.{{ .Release.Namespace }}.svc.cluster.local:8082"
       ARTIFACT_CLIENT_ID: everything-artifact-client
       ARTIFACT_CLIENT_SECRET:
         secretName: artifact-auth

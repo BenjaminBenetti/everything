@@ -55,6 +55,10 @@ test("defaults the two ports and splits the artifact database address", () => {
 test("rejects invalid deployment input", () => {
   for (const override of [
     { ARTIFACT_ORIGIN: "https://artifacts.test/path" },
+    // Public apps lose their isolation if they share the artifact host's or the application's origin.
+    { PUBLIC_APPS_ORIGIN: "https://artifacts.everything.test" },
+    { PUBLIC_APPS_ORIGIN: "https://everything.test" },
+    { PUBLIC_APPS_ORIGIN: "https://ARTIFACTS.everything.test:443" },
     { CONTENT_DIRECTORY: "relative" },
     { ARTIFACT_NAMESPACE: "Not_A_Namespace" },
     { REGISTRY_PULL_HOST: "localhost:30500/path" },

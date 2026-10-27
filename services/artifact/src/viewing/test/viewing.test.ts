@@ -24,7 +24,7 @@ import { credentialHash } from "../model/view-credential.js";
 import { StaticSite } from "../service/static-site.js";
 import { ViewAccess } from "../service/view-access.js";
 import { ViewPasses } from "../service/view-passes.js";
-import { expire, memoryCredentials } from "./view-fixture.js";
+import { expire, issuePass, memoryCredentials } from "./view-fixture.js";
 
 test("static paths serve files, directory indexes, trailing-slash redirects, and 404.html", async () => {
   const artifacts = new MemoryArtifacts();
@@ -269,6 +269,8 @@ test("a teammate pass opens one existing artifact of its owner, is stored hashed
   const passes = new ViewPasses(new ArtifactLookup(artifacts), repository);
 
   const issued = await passes.issue(owner, "site", { path: "/docs/?tab=1" });
+  assert.equal(issued.visibility, "private");
+  if (issued.visibility !== "private") return;
   assert.match(issued.token, /^everything_view_[A-Za-z0-9_-]{43}$/);
   assert.equal(issued.path, "/site/docs/?tab=1");
   assert.equal(issued.signInPath, `/_teammate-access?token=${issued.token}`);
@@ -301,6 +303,29 @@ test("a teammate pass opens one existing artifact of its owner, is stored hashed
   assert.equal(await passes.find(issued.token), undefined);
   await passes.purge();
   assert.equal(storedPasses.length, 1, "only the expired pass is purged");
+});
+
+test("a public app needs no teammate pass: its view is a page on the public apps host, and nothing is stored", async () => {
+  const artifacts = new MemoryArtifacts();
+  artifacts.add("static", "site", { visibility: "public" });
+  const { passes: repository, storedPasses } = memoryCredentials();
+  const passes = new ViewPasses(new ArtifactLookup(artifacts), repository);
+
+  assert.deepEqual(
+    await passes.issue(owner, "site", { path: "/docs/?tab=1" }),
+    {
+      visibility: "public",
+      path: "/site/docs/?tab=1",
+    },
+  );
+  assert.deepEqual(storedPasses, []);
+  for (const path of ["//evil.test/", "no-slash"])
+    await assert.rejects(passes.issue(owner, "site", { path }), {
+      code: "INVALID_VIEW_PATH",
+    });
+  await assert.rejects(passes.issue("someone-else", "site", {}), {
+    code: "ARTIFACT_NOT_FOUND",
+  });
 });
 
 /** The artifact host with a static site, a running and a stopped app, and a recording proxy. */
@@ -362,7 +387,7 @@ async function teammateHost(context: {
 test("a teammate pass views its static or dynamic artifact as a bearer token, and nothing else", async (context) => {
   const { host, passes, storedPasses, forwarded } = await teammateHost(context);
   const bearer = (token: string) => ({ authorization: `Bearer ${token}` });
-  const sitePass = await passes.issue(owner, "site", {});
+  const sitePass = await issuePass(passes, owner, "site", {});
   const served = await host.inject({
     url: "/site/",
     headers: bearer(sitePass.token),
@@ -374,7 +399,7 @@ test("a teammate pass views its static or dynamic artifact as a bearer token, an
     assert.match(refused.body, /App not found/);
   }
 
-  const appPass = await passes.issue(owner, "app", {});
+  const appPass = await issuePass(passes, owner, "app", {});
   const proxied = await host.inject({
     method: "POST",
     url: "/app/api/items?limit=2",
@@ -407,7 +432,9 @@ test("a teammate pass views its static or dynamic artifact as a bearer token, an
 
 test("a teammate's browser link stores the pass in a cookie over plain HTTP and opens the page", async (context) => {
   const { host, passes, forwarded } = await teammateHost(context);
-  const pass = await passes.issue(owner, "app", { path: "/dashboard?x=1" });
+  const pass = await issuePass(passes, owner, "app", {
+    path: "/dashboard?x=1",
+  });
   const signedIn = await host.inject({ url: pass.signInPath });
   assert.equal(signedIn.statusCode, 303);
   assert.equal(signedIn.headers.location, "/app/dashboard?x=1");

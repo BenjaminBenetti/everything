@@ -1,3 +1,4 @@
+import type { PrivateArtifactViewPass } from "@everything/artifact-contracts";
 import type {
   ViewGrantRepository,
   ViewPassRepository,
@@ -8,6 +9,7 @@ import type {
   ViewPass,
   ViewSession,
 } from "../model/view-credential.js";
+import type { ViewPasses } from "../service/view-passes.js";
 
 /** In-memory view credentials, exposing stored records so tests can inspect and age them. */
 export interface MemoryCredentials {
@@ -102,4 +104,17 @@ export function expire(pass: ViewPass): void {
   Object.assign(pass, {
     expiresAt: new Date(Date.now() - 1000).toISOString(),
   });
+}
+
+/** Issue a teammate pass for a private app, failing the test if the app is public and gets none. */
+export async function issuePass(
+  passes: Pick<ViewPasses, "issue">,
+  ownerId: string,
+  reference: string,
+  input: { readonly path?: string } = {},
+): Promise<PrivateArtifactViewPass> {
+  const view = await passes.issue(ownerId, reference, input);
+  if (view.visibility !== "private")
+    throw new Error(`${reference} is public and has no pass`);
+  return view;
 }

@@ -22,9 +22,9 @@ import type { ViewAccess } from "../service/view-access.js";
 import type { ViewPasses } from "../service/view-passes.js";
 
 /**
- * What the artifact host needs to sign owners, teammates, and API callers in and serve their apps.
- * This host is credential-bearing: public apps are served to anyone by the separate public apps
- * host, so a public app's pages never run on this origin beside a signed-in cookie.
+ * What the artifact host needs to sign owners, teammates, and API callers in and serve their private
+ * apps. This host is credential-bearing: public apps are served to anyone by the separate public apps
+ * host, and this host serves them to no one, so a public app's pages never run on this origin.
  */
 export interface ArtifactHostDependencies extends ArtifactServingDependencies {
   readonly access: Pick<ViewAccess, "redeem" | "viewer">;
@@ -56,7 +56,7 @@ const ownerMessages = {
  */
 const signInLimit = { rateLimit: { max: 120, timeWindow: "1 minute" } };
 
-/** Methods that cannot change state, so they need no cross-origin protection. */
+/** Methods that cannot change state, so older browsers' requests with them need no Origin check. */
 const safeMethods = new Set(["GET", "HEAD", "OPTIONS"]);
 
 /** Whether the request is a browser navigation that can follow a redirect to another origin. */
@@ -69,29 +69,38 @@ function isNavigation(request: FastifyRequest): boolean {
 }
 
 /**
- * Whether an ambient-cookie request may change state. A session or pass cookie is sent automatically
- * by the browser, so a page on any other origin — including a public app — could use it to drive a
- * state-changing request to a private app. The browser sets Sec-Fetch-Site to the initiator's
- * relationship to this origin and forbids pages from setting it, so requiring same-origin blocks
- * every cross-origin initiator without inspecting paths. Browsers without Fetch Metadata fall back
- * to an Origin check against this host.
+ * Whether a request carrying the browser's session or pass cookie may proceed. The browser attaches
+ * that cookie to requests that pages on other origins make to this host, and a sibling origin such
+ * as the public apps host is the same site, so SameSite does not hold it back. The browser sets
+ * Sec-Fetch-* to describe the initiator and forbids pages from setting them. So the host accepts
+ * only this origin's own requests, the user's own visits, and top-level navigations, which open the
+ * app as a page the other origin cannot read. It refuses another origin's state changes, subresource
+ * loads such as scripts, styles, images, and fetches, frames, and embeds. Browsers without Fetch
+ * Metadata fall back to an Origin check for state changes.
  */
-function sameOriginOrSafe(
+function allowedWithCookie(
   request: FastifyRequest,
   artifactOrigin: string,
 ): boolean {
-  if (safeMethods.has(request.method)) return true;
   const site = request.headers["sec-fetch-site"];
-  if (typeof site === "string")
-    return site === "same-origin" || site === "none";
-  const origin = request.headers.origin;
-  return origin === undefined || origin === artifactOrigin;
+  if (typeof site !== "string") {
+    if (safeMethods.has(request.method)) return true;
+    const origin = request.headers.origin;
+    return origin === undefined || origin === artifactOrigin;
+  }
+  if (site === "same-origin" || site === "none") return true;
+  return (
+    (request.method === "GET" || request.method === "HEAD") &&
+    request.headers["sec-fetch-mode"] === "navigate" &&
+    (request.headers["sec-fetch-dest"] ?? "document") === "document"
+  );
 }
 
 /**
  * Register the artifact host: sign-in links for owners and teammates, API keys for external callers,
- * static files, and forwarding to dynamic apps. Only owners, teammate passes, and API keys are
- * served here; anonymous visitors of a public app are redirected to the public apps host.
+ * static files, and forwarding to dynamic apps. Only private apps are served here, to their owner,
+ * a teammate pass, or an API key; every request for a public app, with any credential or none, is
+ * redirected to the public apps host.
  */
 export async function artifactHostController(
   app: FastifyInstance,
@@ -127,6 +136,11 @@ export async function artifactHostController(
   ): Promise<ArtifactViewer | undefined> {
     const scope = await apiKeys.authenticate(slug, key);
     return scope && { ownerId: scope.ownerId, artifactId: scope.artifactId };
+  }
+
+  /** A public app's page on the public origin; the path always starts with `/`, after the slug. */
+  function publicAppUrl(slug: string, pathAndQuery: string): string {
+    return new URL(`/${slug}${pathAndQuery}`, publicAppsOrigin).toString();
   }
 
   /** Send a signed-out viewer through the application to get a view link for this private app. */
@@ -177,6 +191,12 @@ export async function artifactHostController(
         (await artifacts.getById({ ownerId: pass.ownerId }, pass.artifactId));
       if (!token || !pass || !artifact)
         return explain(reply, 403, hostMessages.passExpired);
+      // A public app opens on the public origin and needs no pass; the pass isn't stored for this
+      // host, and the link's token is not carried along.
+      if (artifact.visibility === "public")
+        return reply
+          .header("Cache-Control", "no-store")
+          .redirect(publicAppUrl(artifact.slug, pass.path), 303);
       passCredentials.write(
         request,
         reply,
@@ -213,27 +233,35 @@ export async function artifactHostController(
       queryStart === -1 ? request.url : request.url.slice(0, queryStart)
     ).slice(slug.length + 1);
     const query = queryStart === -1 ? "" : request.url.slice(queryStart);
+    // A public app never runs on this credentialed origin, whatever the request carries. Browsers
+    // isolate pages by origin, not by a cookie's path or a pass's scope, so a public app's page here
+    // could read every private app the same browser has open, or opens later, on this origin. Slugs
+    // are unique, so this is decided before any session, pass, or API key is read.
+    if (await artifacts.findBySlug(publicArtifacts, slug))
+      return toPublicOrigin(reply, slug, rawPath, query);
     // A request with an API key is judged by that key alone, never by cookies or passes.
     const apiKey = presentedApiKey(request);
     const passToken = passCredentials.read(request);
-    // Ambient session or pass cookies must not drive a cross-origin state change against a private app.
+    // Another origin's pages must not use the browser's session or pass cookie to load or change a private app.
     if (
       apiKey === undefined &&
       (cookie.read(request) !== undefined || passToken !== undefined) &&
-      !sameOriginOrSafe(request, artifactOrigin)
+      !allowedWithCookie(request, artifactOrigin)
     )
       return explain(reply, 403, hostMessages.crossOrigin);
     const signedIn =
       apiKey === undefined
         ? await viewer(request, passToken)
         : await keyViewer(slug, apiKey);
-    if (!signedIn)
-      return apiKey !== undefined
-        ? reply
-            .code(401)
-            .header("Cache-Control", "no-store")
-            .send(apiKeyRejection)
-        : await anonymous(request, reply, slug, rawPath, query, passToken);
+    if (!signedIn) {
+      if (apiKey !== undefined)
+        return reply
+          .code(401)
+          .header("Cache-Control", "no-store")
+          .send(apiKeyRejection);
+      if (passToken) return explain(reply, 401, hostMessages.passExpired);
+      return signIn(request, reply, slug, rawPath + query);
+    }
     const own = await artifacts.findBySlug({ ownerId: signedIn.ownerId }, slug);
     // A pass for another app, and a missing app, look the same: not found.
     if (
@@ -241,15 +269,9 @@ export async function artifactHostController(
       (signedIn.artifactId !== null && signedIn.artifactId !== own.id)
     )
       return explain(reply, 404, hostMessages.notFound);
-    // The owner's broad session must not run a public app's pages beside their private apps. Public
-    // apps open on the public origin for the owner too; only a pass (scoped to one app) and an API
-    // key (judged alone, answering a caller rather than a browser) are served here when public.
-    if (
-      apiKey === undefined &&
-      signedIn.artifactId === null &&
-      own.visibility === "public"
-    )
-      return toPublicOrigin(request, reply, slug, rawPath, query);
+    // The owner may have made the app public since the check above; the record served decides.
+    if (own.visibility === "public")
+      return toPublicOrigin(reply, slug, rawPath, query);
     return serveArtifact(
       request,
       reply,
@@ -261,37 +283,19 @@ export async function artifactHostController(
     );
   });
 
-  /** Send a browser to this app on the public origin, where public apps run isolated from private ones. */
+  /**
+   * Send any request for a public app to the same path on the public origin, where public apps run
+   * isolated from private ones. The redirect keeps the method and body for API callers, and is not
+   * cached, because the owner can make the app private again.
+   */
   function toPublicOrigin(
-    request: FastifyRequest,
     reply: FastifyReply,
     slug: string,
     rawPath: string,
     query: string,
   ): FastifyReply {
-    if (!isNavigation(request))
-      return explain(reply, 404, hostMessages.notFound);
     return reply
       .header("Cache-Control", "no-store")
-      .redirect(
-        new URL(`/${slug}${rawPath}${query}`, publicAppsOrigin).toString(),
-        302,
-      );
-  }
-
-  /** A request with no owner, pass, or key: point a public app's visitor at the public apps host. */
-  async function anonymous(
-    request: FastifyRequest,
-    reply: FastifyReply,
-    slug: string,
-    rawPath: string,
-    query: string,
-    passToken: string | undefined,
-  ): Promise<FastifyReply> {
-    const pub = await artifacts.findBySlug(publicArtifacts, slug);
-    if (pub && isNavigation(request))
-      return toPublicOrigin(request, reply, slug, rawPath, query);
-    if (passToken) return explain(reply, 401, hostMessages.passExpired);
-    return signIn(request, reply, slug, rawPath + query);
+      .redirect(publicAppUrl(slug, rawPath + query), 307);
   }
 }

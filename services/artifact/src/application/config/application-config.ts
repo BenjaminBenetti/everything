@@ -67,6 +67,16 @@ export function loadApplicationConfig(
     env: false,
     data: environment,
   });
+  // Public apps are isolated only on an origin of their own, apart from the app host and Everything.
+  const publicApps = new URL(settings.PUBLIC_APPS_ORIGIN).origin;
+  if (
+    [settings.ARTIFACT_ORIGIN, settings.PUBLIC_ORIGIN].some(
+      (other) => new URL(other).origin === publicApps,
+    )
+  )
+    throw new Error(
+      "PUBLIC_APPS_ORIGIN must differ from ARTIFACT_ORIGIN and PUBLIC_ORIGIN",
+    );
   const [databaseHost, databasePort] =
     settings.ARTIFACT_DATABASE_HOST.split(":");
   return {

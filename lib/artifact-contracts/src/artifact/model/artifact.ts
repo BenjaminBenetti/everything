@@ -319,10 +319,15 @@ export interface ArtifactViewPassInput {
 }
 
 /**
- * A short-lived pass with which a teammate views one artifact from inside the cluster, as the user
- * sees it. Paths are on the artifact host; the caller knows how its teammates reach that host.
+ * How a teammate views one artifact from inside the cluster, as the user sees it: a pass for a
+ * private artifact on the artifact host, or a public artifact's page on the public apps host, which
+ * needs no pass. The caller knows how its teammates reach each host.
  */
-export interface ArtifactViewPass {
+export type ArtifactViewPass = PrivateArtifactViewPass | PublicArtifactView;
+
+/** A short-lived pass with which a teammate views one private artifact on the artifact host. */
+export interface PrivateArtifactViewPass {
+  readonly visibility: "private";
   /** Secret to send as `Authorization: Bearer`; it opens only this artifact, until `expiresAt`. */
   readonly token: string;
   /** Path of the requested page on the artifact host, such as `/report/docs/`. */
@@ -330,6 +335,16 @@ export interface ArtifactViewPass {
   /** Path on the artifact host that stores the pass in a browser cookie, then opens `path`. */
   readonly signInPath: string;
   readonly expiresAt: string;
+}
+
+/**
+ * A public artifact's page, which anyone opens on the public apps host without a pass. The artifact
+ * host never serves a public artifact, so no pass is issued for one.
+ */
+export interface PublicArtifactView {
+  readonly visibility: "public";
+  /** Path of the requested page on the public apps host, such as `/report/docs/`. */
+  readonly path: string;
 }
 
 /** A failure body returned by the artifact service and the Everything API. */

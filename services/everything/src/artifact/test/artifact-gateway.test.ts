@@ -16,6 +16,7 @@ const tokens = { token: async () => "service-token" };
 const addresses = {
   url: "http://artifact:8081",
   hostUrl: "http://artifact.everything.svc.cluster.local:8080",
+  publicAppsHostUrl: "http://artifact.everything.svc.cluster.local:8082",
 };
 
 test("the gateway authenticates as the service and names the acting teammate", async () => {
@@ -197,6 +198,7 @@ test("teammate passes are issued for the owner's artifact and resolved on the in
       requests.push({ url: String(url), init });
       return Response.json(
         {
+          visibility: "private",
           token: "everything_view_secret",
           path: "/site/docs/",
           signInPath: "/_teammate-access?token=everything_view_secret",
@@ -218,6 +220,7 @@ test("teammate passes are issued for the owner's artifact and resolved on the in
     { path: "/docs/" },
   );
   assert.deepEqual(view, {
+    visibility: "private",
     url: "http://artifact.everything.svc.cluster.local:8080/site/docs/",
     browserUrl:
       "http://artifact.everything.svc.cluster.local:8080/_teammate-access?token=everything_view_secret",
@@ -241,5 +244,18 @@ test("teammate passes are issued for the owner's artifact and resolved on the in
   );
   await assert.rejects(missing.viewPass("owner", "gone", {}), {
     code: "ARTIFACT_NOT_FOUND",
+  });
+});
+
+test("a public app's view is its page on the in-cluster public apps host, with no pass", async () => {
+  const gateway = new HttpArtifactGateway(addresses, tokens, async () =>
+    Response.json(
+      { visibility: "public", path: "/site/docs/?tab=2" },
+      { status: 201 },
+    ),
+  );
+  assert.deepEqual(await gateway.viewPass("owner", "site", {}), {
+    visibility: "public",
+    url: "http://artifact.everything.svc.cluster.local:8082/site/docs/?tab=2",
   });
 });

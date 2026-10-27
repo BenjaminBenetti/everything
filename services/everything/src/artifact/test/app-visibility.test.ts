@@ -116,7 +116,11 @@ async function application(context: TestContext) {
     actor: string;
   }[] = [];
   const gateway = new HttpArtifactGateway(
-    { url: "http://artifact:8081", hostUrl: "http://artifact:8080" },
+    {
+      url: "http://artifact:8081",
+      hostUrl: "http://artifact:8080",
+      publicAppsHostUrl: "http://artifact:8082",
+    },
     { token: async () => "service-token" },
     async (url, init = {}) => {
       const headers = new Headers(init.headers);

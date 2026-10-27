@@ -71,7 +71,7 @@ export const hostMessages = {
   crossOrigin: {
     title: "This request was blocked",
     message:
-      "A change to this app must come from the app itself, not from another site or app. Open the app and try again.",
+      "Another site or app tried to load or change this app. Only the app's own pages can do that. Open the app directly and try again.",
   },
   passExpired: {
     title: "This teammate link has expired",

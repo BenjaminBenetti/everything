@@ -34,12 +34,14 @@ import type {
   TeammateArtifactView,
 } from "../interface/artifact-gateway.js";
 
-/** Where Everything reaches the artifact service, and where teammate pods reach its artifact host. */
+/** Where Everything reaches the artifact service, and where teammate pods reach its two hosts. */
 export interface ArtifactServiceAddresses {
   /** Base URL of the internal API. */
   readonly url: string;
   /** Origin of the artifact host inside the cluster. */
   readonly hostUrl: string;
+  /** Origin of the public apps host inside the cluster. */
+  readonly publicAppsHostUrl: string;
 }
 
 /** How one request is sent and what it expects back. */
@@ -299,7 +301,10 @@ export class HttpArtifactGateway
     return this.json(`${this.artifact(ownerId, reference)}/api-key`);
   }
 
-  /** Issue a teammate pass and resolve its paths on the in-cluster artifact host. */
+  /**
+   * Issue a teammate pass and resolve its paths on the in-cluster artifact host; a public app's page
+   * is on the in-cluster public apps host instead, and needs no pass.
+   */
   async viewPass(
     ownerId: string,
     reference: string,
@@ -309,7 +314,13 @@ export class HttpArtifactGateway
       `${this.artifact(ownerId, reference)}/view-passes`,
       { method: "POST", json: input },
     );
+    if (pass.visibility === "public")
+      return {
+        visibility: "public",
+        url: this.addresses.publicAppsHostUrl + pass.path,
+      };
     return {
+      visibility: "private",
       url: this.addresses.hostUrl + pass.path,
       browserUrl: this.addresses.hostUrl + pass.signInPath,
       token: pass.token,

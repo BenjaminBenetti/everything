@@ -21,6 +21,8 @@ function environment(): NodeJS.ProcessEnv {
     WORKSPACE_CLAIM_NAME: "everything-agents",
     ARTIFACT_SERVICE_URL: "http://artifact:8081",
     ARTIFACT_HOST_URL: "http://artifact.everything.svc.cluster.local:8080",
+    ARTIFACT_PUBLIC_APPS_HOST_URL:
+      "http://artifact.everything.svc.cluster.local:8082",
     ARTIFACT_CLIENT_ID: "artifact-client",
     ARTIFACT_CLIENT_SECRET: "test-only",
     FLEET_HOME: "/fleet",
@@ -189,6 +191,8 @@ test("rejects invalid deployment input", () => {
     { ARTIFACT_SERVICE_URL: "http://artifact:8081/path" },
     { ARTIFACT_HOST_URL: undefined },
     { ARTIFACT_HOST_URL: "http://artifact:8080/" },
+    { ARTIFACT_PUBLIC_APPS_HOST_URL: undefined },
+    { ARTIFACT_PUBLIC_APPS_HOST_URL: "http://artifact:8082/apps" },
     { ARTIFACT_CLIENT_SECRET: undefined },
     { FLEET_VERSION: "3.0.0" },
     { FLEET_RELEASE_URL: "https://releases.test/fleet/" },

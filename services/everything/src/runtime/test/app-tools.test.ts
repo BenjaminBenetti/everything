@@ -264,6 +264,7 @@ test("view_app returns a teammate pass with quoted curl and Chromium commands", 
     ) => {
       calls.push([actingContext.ownerId, reference, input]);
       return {
+        visibility: "private",
         url: `${host}/site/it's/`,
         browserUrl: `${host}/_teammate-access?token=everything_view_secret`,
         token: "everything_view_secret",
@@ -298,4 +299,34 @@ test("view_app returns a teammate pass with quoted curl and Chromium commands", 
     mainAgentPrompt({ id: agentId, name: "Ada", systemPrompt: "Help." }),
     new RegExp(`publish or deploy, open the app with ${appToolNames.view}`),
   );
+});
+
+test("view_app opens a public app on the public apps host with no pass in its commands", async () => {
+  const url = "http://artifact.everything.svc.cluster.local:8082/site/";
+  const workbench = {
+    /** A public app's view: its page on the public apps host. */
+    view: async () => ({ visibility: "public", url }),
+  } as unknown as ArtifactWorkbench;
+  const view = appTools(workbench, context).find(
+    (tool) => tool.name === appToolNames.view,
+  )!;
+  const result = await view.execute(
+    "call",
+    { app: "site" } as never,
+    undefined,
+    undefined,
+    undefined as never,
+  );
+  const reported = JSON.parse((result.content[0] as { text: string }).text);
+  assert.equal(reported.token, undefined);
+  assert.equal(reported.commands.fetch, `curl -sS -i '${url}'`);
+  assert.equal(
+    reported.commands.screenshot,
+    `chromium --headless --no-sandbox --window-size=1280,800 --screenshot=/tmp/screenshot.png '${url}'`,
+  );
+  assert.doesNotMatch(
+    JSON.stringify(reported),
+    /Authorization|_teammate-access/,
+  );
+  assert.match(view.description, /public apps host, which needs no pass/);
 });
