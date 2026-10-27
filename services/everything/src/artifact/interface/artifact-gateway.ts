@@ -12,6 +12,7 @@ import type {
   ArtifactView,
   ArtifactViewInput,
   ArtifactViewPassInput,
+  ArtifactVisibilityInput,
   CreateArtifactInput,
   DeployInput,
   PublishRevisionInput,
@@ -38,10 +39,17 @@ export interface LogChoice {
 }
 
 /**
- * A teammate's short-lived pass to one artifact, with links on the artifact host as teammate pods
- * reach it inside the cluster.
+ * How a teammate opens one artifact from its pod, as the user sees it: with a short-lived pass on the
+ * artifact host for a private app, or on the public apps host, without a pass, for a public app.
  */
-export interface TeammateArtifactView {
+export type TeammateArtifactView = TeammatePassView | TeammatePublicView;
+
+/**
+ * A teammate's short-lived pass to one private artifact, with links on the artifact host as teammate
+ * pods reach it inside the cluster.
+ */
+export interface TeammatePassView {
+  readonly visibility: "private";
   /** The requested page, for clients that send the token, such as curl. */
   readonly url: string;
   /** Stores the pass in a browser cookie, then opens `url`; it works until the pass expires. */
@@ -49,6 +57,13 @@ export interface TeammateArtifactView {
   /** Secret to send as `Authorization: Bearer`; it opens only this artifact. */
   readonly token: string;
   readonly expiresAt: string;
+}
+
+/** A public artifact's page on the public apps host, as teammate pods reach it; anyone can open it. */
+export interface TeammatePublicView {
+  readonly visibility: "public";
+  /** The requested page, for curl and Chromium alike. */
+  readonly url: string;
 }
 
 /** The artifact service's internal API, as Everything uses it. */
@@ -137,4 +152,17 @@ export interface ArtifactGateway {
     reference: string,
     input: ArtifactViewPassInput,
   ): Promise<TeammateArtifactView>;
+}
+
+/**
+ * The owner's change of who can open an app. It is kept apart from ArtifactGateway, which teammate
+ * tools use, so only the owner's own browser requests can reach it.
+ */
+export interface ArtifactVisibilityGateway {
+  /** Make the owner's app private or public, as the owner. */
+  setVisibility(
+    actor: ArtifactActor,
+    reference: string,
+    input: ArtifactVisibilityInput,
+  ): Promise<ArtifactDetails>;
 }

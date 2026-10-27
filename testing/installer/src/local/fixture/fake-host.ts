@@ -141,7 +141,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 case $url in
-  https://everything.internal/* | https://artifacts.everything.internal/* | https://images.everything.internal/*)
+  https://everything.internal/* | https://artifacts.everything.internal/* | https://public-apps.everything.internal/* | https://images.everything.internal/*)
     code=$(awk -F '\\t' -v url="$url" '$1 == url { print $2 }' "$FAKE_ENDPOINTS")
     [ -n "$code" ] || exit 60
     if [ -n "$write_out" ]; then printf '%s' "$code"; fi
@@ -300,6 +300,7 @@ export class FakeHost {
     this.setEndpoints({
       "https://everything.internal/health/ready": "200",
       "https://artifacts.everything.internal/": "404",
+      "https://public-apps.everything.internal/": "404",
       "https://images.everything.internal/v2/": "401",
     });
     this.prepareScript();
@@ -476,7 +477,12 @@ env | grep -E '^(KUBECONFIG|EVERYTHING_[A-Z_]+|PATH)=' | sort > "$FAKE_INSTALLER
 if [ -n "\${EVERYTHING_PRESET_SETTINGS:-}" ]; then cp "$EVERYTHING_PRESET_SETTINGS" "$FAKE_INSTALLER_LOG.preset"; fi
 read -r answer < /dev/tty
 echo "installer read: $answer" >&2
-if [ -n "\${FAKE_INSTALLER_DECLINE:-}" ]; then echo declined > "$EVERYTHING_RESULT_FILE"; fi
+if [ -n "\${FAKE_INSTALLER_DECLINE:-}" ]; then echo declined > "$EVERYTHING_RESULT_FILE"
+# The installer says so after installing a chart that serves public apps; a chart from before them,
+# FAKE_INSTALLER_LEGACY_CHART, leaves the result empty.
+elif [ -z "\${FAKE_INSTALLER_LEGACY_CHART:-}" ] && [ "\${FAKE_INSTALLER_STATUS:-0}" = 0 ]; then
+  echo public-apps > "$EVERYTHING_RESULT_FILE"
+fi
 exit "\${FAKE_INSTALLER_STATUS:-0}"
 `,
       { mode: 0o755 },

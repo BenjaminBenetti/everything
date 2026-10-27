@@ -34,7 +34,10 @@ export class ViewPasses {
   // Operations
   // ===========================================
 
-  /** Issue a pass that opens only this artifact; missing and other owners' artifacts look the same. */
+  /**
+   * Issue a pass that opens only this artifact; missing and other owners' artifacts look the same. A
+   * public artifact gets its page on the public apps host instead, and no pass is stored.
+   */
   async issue(
     ownerId: string,
     reference: string,
@@ -43,6 +46,8 @@ export class ViewPasses {
     const path = input.path ?? "/";
     if (!artifactPathPattern.test(path)) throw new InvalidViewPathError();
     const artifact = await this.artifacts.resolve(ownerId, reference);
+    if (artifact.visibility === "public")
+      return { visibility: "public", path: `/${artifact.slug}${path}` };
     const token = viewPassPrefix + randomBytes(32).toString("base64url");
     const expiresAt = new Date(Date.now() + viewPassLifetimeMs).toISOString();
     await this.passes.create({
@@ -53,6 +58,7 @@ export class ViewPasses {
       expiresAt,
     });
     return {
+      visibility: "private",
       token,
       path: `/${artifact.slug}${path}`,
       signInPath: `${viewPassSignInPath}?${new URLSearchParams({ token })}`,

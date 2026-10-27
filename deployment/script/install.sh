@@ -15,7 +15,11 @@
 #                               `# namespace:` line, fill in what the settings lack, so the installer
 #                               does not ask for them; it also leaves DNS to that script
 #   EVERYTHING_RESULT_FILE      a file the installer writes `declined` to when the person chooses not to
-#                               install or upgrade, so that script tells this apart from a failure
+#                               install or upgrade, so that script tells this apart from a failure; after
+#                               installing a chart that serves public apps, it writes `public-apps`
+#                               there, so that script checks and mentions public apps only then
+# A preset may hold settings for public apps, which charts from before them refuse; the installer
+# leaves those out for such a chart.
 set -euo pipefail
 
 # The version installed by default; the release workflow sets it in the copy it publishes. Empty
@@ -39,7 +43,7 @@ size_pattern='^[0-9]+(\.[0-9]+)?(Ki|Mi|Gi|Ti|Pi|Ei|k|M|G|T|P|E)?$'
 path_separator=$'\037'
 
 # Answers and working state, set as the installer runs.
-settings_file="" reuse=false settings_changed=false version="" namespace=""
+settings_file="" reuse=false settings_changed=false version="" namespace="" chart_public_apps=false
 preset=${EVERYTHING_PRESET_SETTINGS:-}
 work="" package="" chart_dir="" entries="" context="" first_install=false section=""
 new_username="" new_password="" first_user=""
@@ -108,6 +112,15 @@ begin_section() {
 }
 
 lowercase() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
+
+# The hostname browsers keep a host's cookies under: lowercase, without a trailing dot. They share
+# one hostname's cookies across all its ports.
+cookie_host() {
+  local host
+  host=$(lowercase "$1")
+  while [ "${host%.}" != "$host" ]; do host=${host%.}; done
+  printf '%s' "$host"
+}
 
 # ---------------------------------------------------------------------------------------------------
 # Settings entries: the settings file is a Helm values file of nested maps and quoted scalars, held
@@ -270,6 +283,37 @@ chart_credentials() {
   ' "$chart_dir/values.yaml"
 }
 
+# The settings under `global` that the chart's values declare, one per line.
+chart_globals() {
+  awk '
+    /^global:/ { inside = 1; next }
+    inside && /^[^ #]/ { exit }
+    inside && /^  [A-Za-z]+:/ { key = $1; sub(/:$/, "", key); print key }
+  ' "$chart_dir/values.yaml"
+}
+
+# Whether the chosen chart serves public apps: its values declare the public apps host's hostname,
+# origin, and Ingress. A chart from before public apps refuses those settings.
+detect_chart_features() {
+  local declared
+  declared=$(chart_globals)
+  chart_public_apps=false
+  if grep -qx externalPublicAppsHostname <<< "$declared" && grep -qx publicAppsOrigin <<< "$declared" &&
+    grep -qx publicAppsIngress <<< "$declared"; then
+    chart_public_apps=true
+  fi
+}
+
+# Entries for public apps' settings in the named entries file, which only a chart that serves
+# public apps accepts.
+public_apps_entries() {
+  SEPARATOR=$path_separator awk -F '\t' '
+    BEGIN { global = "global" ENVIRON["SEPARATOR"] }
+    $1 == global "externalPublicAppsHostname" || $1 == global "publicAppsOrigin" ||
+      $1 == global "publicAppsIngress" || index($1, global "publicAppsIngress" ENVIRON["SEPARATOR"]) == 1
+  ' "$1"
+}
+
 # `<claim><TAB><service><TAB><size>` for each disk the chart claims with the current settings; a
 # shared volume's claim names no service.
 chart_disks() {
@@ -331,6 +375,11 @@ load_settings() {
   if [ "$reuse" = true ]; then
     flatten_values "$settings_file" > "$entries"
     namespace=$(sed -n 's/^# namespace: *//p' "$settings_file" | head -n 1)
+    # A chart from before public apps would refuse saved settings for them; they are not dropped to
+    # fit it, so the person chooses another version or settings file.
+    if [ "$chart_public_apps" = false ] && [ -n "$(public_apps_entries "$entries")" ]; then
+      fail "$settings_file has settings for public apps, which version $version of Everything does not have. Choose a version with public apps, or another settings file; $settings_file is unchanged."
+    fi
   fi
   if [ -n "$preset" ]; then apply_preset; fi
   if [ -z "$namespace" ]; then
@@ -343,6 +392,17 @@ load_settings() {
 apply_preset() {
   [ -f "$preset" ] && [ -r "$preset" ] || fail "Cannot read the preset settings in $preset."
   flatten_values "$preset" > "$work/preset"
+  # A chart from before public apps refuses their settings, so it gets the preset without them: the
+  # public apps host's hostname and the whole of its Ingress's settings, and nothing else.
+  if [ "$chart_public_apps" = false ]; then
+    SEPARATOR=$path_separator awk -F '\t' '
+      BEGIN { global = "global" ENVIRON["SEPARATOR"] }
+      $1 == global "externalPublicAppsHostname" { next }
+      $1 == global "publicAppsIngress" || index($1, global "publicAppsIngress" ENVIRON["SEPARATOR"]) == 1 { next }
+      { print }
+    ' "$work/preset" > "$work/preset.supported"
+    mv "$work/preset.supported" "$work/preset"
+  fi
   # FILENAME, not NR == FNR, tells the files apart when no settings are saved yet.
   awk -F '\t' 'FILENAME == ARGV[1] { saved[$1] = 1; next } !($1 in saved)' "$entries" "$work/preset" \
     > "$work/preset.new"
@@ -382,7 +442,7 @@ ask_hostname() {
 }
 
 ask_hostnames() {
-  local app_host artifact_host registry_host domain
+  local app_host artifact_host public_apps_host registry_host domain
   if ! has_entry global externalHostname; then
     begin_section "Cluster settings"
     ask_hostname app_host "Hostname the application is served on, such as everything.example.com"
@@ -398,57 +458,127 @@ ask_hostnames() {
     begin_section "Cluster settings"
     while true; do
       ask_hostname artifact_host "Hostname for apps, another name on the same domain" "artifacts.$domain"
-      if [ "$artifact_host" != "$app_host" ]; then break; fi
+      if [ "$artifact_host" != "$(cookie_host "$app_host")" ]; then break; fi
       say "Apps need a hostname of their own."
     done
     set_entry "$(yaml_quote "$artifact_host")" global externalArtifactHostname
   fi
   artifact_host=$(setting global externalArtifactHostname)
+  public_apps_host=""
+  if [ "$chart_public_apps" = true ]; then ask_public_apps_hostname "$app_host" "$artifact_host" "$domain"; fi
   if ! has_entry global externalRegistryHostname; then
     begin_section "Cluster settings"
     while true; do
       ask_hostname registry_host "Hostname of the image registry nodes pull from" "images.$domain"
-      if [ "$registry_host" != "$app_host" ] && [ "$registry_host" != "$artifact_host" ]; then break; fi
+      if [ "$registry_host" != "$(cookie_host "$app_host")" ] && [ "$registry_host" != "$(cookie_host "$artifact_host")" ] &&
+        { [ -z "$public_apps_host" ] || [ "$registry_host" != "$(cookie_host "$public_apps_host")" ]; }; then break; fi
       say "The registry needs a hostname of its own."
     done
     set_entry "$(yaml_quote "$registry_host")" global externalRegistryHostname
   fi
 }
 
+# ask_public_apps_hostname <app host> <artifact host> <domain>: the public apps host's hostname, for a
+# chart that serves public apps, which needs one apart from the application's and the apps': browsers
+# share a hostname's cookies across ports, so a shared one would hand private apps' cookies to public
+# apps. It sets the caller's public_apps_host.
+ask_public_apps_hostname() {
+  local app_host=$1 artifact_host=$2 domain=$3 chosen
+  if ! has_entry global externalPublicAppsHostname; then
+    begin_section "Cluster settings"
+    while true; do
+      ask_hostname chosen "Hostname for public apps, a third name on the same domain" "public-apps.$domain"
+      if [ "$chosen" != "$(cookie_host "$app_host")" ] && [ "$chosen" != "$(cookie_host "$artifact_host")" ]; then break; fi
+      say "Public apps need a hostname of their own, apart from the application's and the apps', so a public app receives none of their cookies."
+    done
+    set_entry "$(yaml_quote "$chosen")" global externalPublicAppsHostname
+  fi
+  public_apps_host=$(setting global externalPublicAppsHostname)
+  # Saved or preset settings are checked too: the app service refuses to start with a shared hostname.
+  case $(cookie_host "$public_apps_host") in
+    "$(cookie_host "$app_host")" | "$(cookie_host "$artifact_host")")
+      fail "The settings give public apps the hostname $public_apps_host, which the application or apps also use; browsers share a hostname's cookies across its ports, so public apps need one of their own. Change global.externalPublicAppsHostname in $settings_file and run the installer again."
+      ;;
+  esac
+}
+
+# The Ingresses the installer sets a class and TLS for, as `<site>:<TLS Secret>`; the public apps
+# host's only for a chart that serves public apps.
+ingress_sites() {
+  echo ingress:everything-tls
+  echo artifactIngress:everything-artifacts-tls
+  if [ "$chart_public_apps" = true ]; then echo publicAppsIngress:everything-public-apps-tls; fi
+  echo registryIngress:everything-registry-tls
+}
+
 # The ingress class, TLS issuer, and storage class. Each is written even when left to the cluster's
-# default, so a later run knows it was answered.
+# default, so a later run knows it was answered. An answer fills only the Ingresses that lack that
+# setting: one whose class, TLS Secret, or issuer is saved or preset keeps it.
 ask_cluster_classes() {
-  local ingress_class issuer storage_class site
+  local ingress_class issuer storage_class site name
   if ! has_entry global ingress className; then
     begin_section "Cluster settings"
     ask ingress_class "Name of the ingress class to use (Enter for the cluster's default)"
-    for site in ingress artifactIngress registryIngress; do
-      set_entry "$(yaml_quote "$ingress_class")" global "$site" className
+    for site in $(ingress_sites); do
+      name=${site%%:*}
+      if ! has_entry global "$name" className; then
+        set_entry "$(yaml_quote "$ingress_class")" global "$name" className
+      fi
     done
     # ingress-nginx limits request bodies, and the registry receives whole image layers.
     case $ingress_class in
-      *nginx*) set_entry "'0'" global registryIngress annotations nginx.ingress.kubernetes.io/proxy-body-size ;;
+      *nginx*)
+        if ! has_entry global registryIngress annotations nginx.ingress.kubernetes.io/proxy-body-size; then
+          set_entry "'0'" global registryIngress annotations nginx.ingress.kubernetes.io/proxy-body-size
+        fi
+        ;;
     esac
   fi
   if ! has_entry global ingress tlsSecretName; then
     begin_section "Cluster settings"
     ask issuer "Name of the cert-manager ClusterIssuer to use for TLS (Enter if your ingress handles TLS)"
     # With an issuer, cert-manager fills each Ingress's TLS Secret; an empty name leaves TLS to the
-    # ingress controller.
-    for site in ingress:everything-tls artifactIngress:everything-artifacts-tls \
-      registryIngress:everything-registry-tls; do
+    # ingress controller. An Ingress whose TLS Secret is already set keeps its TLS as it is, and one
+    # with its own issuer keeps it.
+    for site in $(ingress_sites); do
+      name=${site%%:*}
+      if has_entry global "$name" tlsSecretName; then continue; fi
       if [ -n "$issuer" ]; then
-        set_entry "$(yaml_quote "$issuer")" global "${site%%:*}" annotations cert-manager.io/cluster-issuer
-        set_entry "'${site#*:}'" global "${site%%:*}" tlsSecretName
+        if ! has_entry global "$name" annotations cert-manager.io/cluster-issuer; then
+          set_entry "$(yaml_quote "$issuer")" global "$name" annotations cert-manager.io/cluster-issuer
+        fi
+        set_entry "'${site#*:}'" global "$name" tlsSecretName
       else
-        set_entry "''" global "${site%%:*}" tlsSecretName
+        set_entry "''" global "$name" tlsSecretName
       fi
     done
   fi
+  if [ "$chart_public_apps" = true ]; then fill_public_apps_ingress; fi
   if ! has_entry global storageClassName; then
     begin_section "Cluster settings"
     ask storage_class "Name of the storage class to use (Enter for the cluster's default)"
     set_entry "$(yaml_quote "$storage_class")" global storageClassName
+  fi
+}
+
+# Settings saved before the chart served public apps already answer the ingress class and TLS for
+# the other hosts. The public apps host takes the artifact host's, which runs in the same service,
+# and keeps whatever it has of its own.
+fill_public_apps_ingress() {
+  local issuer
+  if ! has_entry global publicAppsIngress className; then
+    set_entry "$(yaml_quote "$(setting global artifactIngress className)")" global publicAppsIngress className
+  fi
+  if ! has_entry global publicAppsIngress tlsSecretName; then
+    issuer=$(setting global artifactIngress annotations cert-manager.io/cluster-issuer)
+    if [ -n "$issuer" ]; then
+      if ! has_entry global publicAppsIngress annotations cert-manager.io/cluster-issuer; then
+        set_entry "$(yaml_quote "$issuer")" global publicAppsIngress annotations cert-manager.io/cluster-issuer
+      fi
+      set_entry "'everything-public-apps-tls'" global publicAppsIngress tlsSecretName
+    else
+      set_entry "''" global publicAppsIngress tlsSecretName
+    fi
   fi
 }
 
@@ -596,6 +726,7 @@ fetch_chart() {
   chart_dir=$work/chart
   mkdir "$chart_dir"
   tar -xzf "$package" -C "$chart_dir" --strip-components 1
+  detect_chart_features
 }
 
 install_release() {
@@ -623,6 +754,9 @@ EOF
   helm upgrade "$release" "$package" --install --kube-context "$context" --namespace "$namespace" \
     --values "$chart_dir/values.prod.yaml" --values "$settings_file" \
     --set-file "upgrades.settings=$work/upgrade-settings.yaml"
+  if [ -n "${EVERYTHING_RESULT_FILE:-}" ] && [ "$chart_public_apps" = true ]; then
+    echo public-apps > "$EVERYTHING_RESULT_FILE"
+  fi
 }
 
 # ---------------------------------------------------------------------------------------------------
@@ -718,15 +852,17 @@ setup_first_user() {
 }
 
 print_next_steps() {
-  local app_host
+  local app_host hosts
   app_host=$(setting global externalHostname)
   say ""
   if [ "$first_install" = true ]; then
     say "Everything $version is installed in namespace $namespace."
     # A preset comes from a script that also makes the hostnames resolve.
     if [ -z "$preset" ]; then
-      say "  Point DNS for $app_host, $(setting global externalArtifactHostname), and"
-      say "  $(setting global externalRegistryHostname) at your ingress controller."
+      hosts="$app_host, $(setting global externalArtifactHostname),"
+      if [ "$chart_public_apps" = true ]; then hosts="$hosts $(setting global externalPublicAppsHostname),"; fi
+      say "  Point DNS for $hosts"
+      say "  and $(setting global externalRegistryHostname) at your ingress controller."
     fi
   else
     say "Everything is upgraded to $version in namespace $namespace."

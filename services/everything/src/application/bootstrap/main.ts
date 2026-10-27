@@ -166,6 +166,7 @@ async function main(): Promise<void> {
     {
       url: config.artifactService.url,
       hostUrl: config.artifactService.hostUrl,
+      publicAppsHostUrl: config.artifactService.publicAppsHostUrl,
     },
     new KeycloakClientCredentials({
       protocolUrl: config.protocolUrl,

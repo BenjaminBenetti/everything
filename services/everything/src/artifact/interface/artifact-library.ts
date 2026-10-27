@@ -3,6 +3,7 @@ import type {
   ArtifactSummary,
   ArtifactView,
   ArtifactViewInput,
+  ArtifactVisibility,
 } from "@everything/artifact-contracts";
 
 /** The owner's app library and manual lifecycle controls. */
@@ -19,4 +20,10 @@ export interface ArtifactLibrary {
   delete(ownerId: string, id: string): Promise<void>;
   /** Show the current API key of the owner's app. */
   apiKey(ownerId: string, id: string): Promise<ArtifactApiKey>;
+  /** Make the owner's app private or public; callers must have verified the owner is signed in. */
+  setVisibility(
+    ownerId: string,
+    id: string,
+    visibility: ArtifactVisibility,
+  ): Promise<ArtifactSummary>;
 }

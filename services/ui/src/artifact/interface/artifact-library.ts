@@ -1,4 +1,7 @@
-import type { ArtifactSummary } from "@everything/artifact-contracts";
+import type {
+  ArtifactSummary,
+  ArtifactVisibility,
+} from "@everything/artifact-contracts";
 
 /** The artifacts the user can browse and open, independent of HTTP. */
 export interface ArtifactLibrary {
@@ -14,4 +17,9 @@ export interface ArtifactLibrary {
   delete(id: string): Promise<void>;
   /** Read a dynamic app's current API key, for showing it while the user asks to see it. */
   apiKey(id: string, signal?: AbortSignal): Promise<string>;
+  /** Make the app private or public, returning the app as the server saved it. */
+  setVisibility(
+    id: string,
+    visibility: ArtifactVisibility,
+  ): Promise<ArtifactSummary>;
 }

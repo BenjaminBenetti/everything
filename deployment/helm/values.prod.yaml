@@ -1,6 +1,6 @@
 # Remote clusters: images come from the registry the release workflow publishes to, and the cluster's
-# ingress controller exposes the application, the artifact host, and the artifact registry. Replace
-# the example hosts. TLS for the hosts is configured by the cluster, for example with each Ingress's
+# ingress controller exposes the application, the artifact host, the public apps host, and the
+# artifact registry. Replace the example hosts and set the public apps host's. TLS for the hosts is configured by the cluster, for example with each Ingress's
 # `annotations` for a certificate issuer and `tlsSecretName` for the Secret it issues. Nodes pull
 # from the artifact registry over HTTPS, so its certificate must be one they trust, and its Ingress
 # must accept image uploads of any size, for example with ingress-nginx's
@@ -27,12 +27,20 @@ global:
   # A sibling of the application's hostname, so the two are different origins on the same site.
   externalArtifactHostname: artifacts.example.com
   artifactOrigin: "https://{{ .Values.global.externalArtifactHostname }}"
+  # A third sibling hostname serving public apps on its own origin, isolated from private apps, such
+  # as public-apps.example.com. It has no default here: the chart refuses to render until it is set,
+  # so an upgrade from settings saved before public apps stops before changing anything, rather than
+  # sending public app links to a hostname that isn't the installation's. The installer asks for it.
+  externalPublicAppsHostname: ""
+  publicAppsOrigin: "https://{{ .Values.global.externalPublicAppsHostname }}"
   # Served by the artifact registry's own Ingress, which takes this host by default.
   externalRegistryHostname: images.example.com
   ingress:
     host: "{{ .Values.global.externalHostname }}"
   artifactIngress:
     host: "{{ .Values.global.externalArtifactHostname }}"
+  publicAppsIngress:
+    host: "{{ .Values.global.externalPublicAppsHostname }}"
 # Everything upgrades itself from the charts the release workflow publishes beside its images, once
 # the installer, or `--set-file upgrades.settings=<credentials file>` by hand, has saved the settings.
 upgrades:

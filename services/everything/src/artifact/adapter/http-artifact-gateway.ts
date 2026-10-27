@@ -15,6 +15,7 @@ import type {
   ArtifactViewInput,
   ArtifactViewPass,
   ArtifactViewPassInput,
+  ArtifactVisibilityInput,
   CreateArtifactInput,
   DeployInput,
   MissingContent,
@@ -27,17 +28,20 @@ import { ArtifactRequestFailure } from "../error/artifact-errors.js";
 import type {
   ArtifactActor,
   ArtifactGateway,
+  ArtifactVisibilityGateway,
   LogChoice,
   SourceChoice,
   TeammateArtifactView,
 } from "../interface/artifact-gateway.js";
 
-/** Where Everything reaches the artifact service, and where teammate pods reach its artifact host. */
+/** Where Everything reaches the artifact service, and where teammate pods reach its two hosts. */
 export interface ArtifactServiceAddresses {
   /** Base URL of the internal API. */
   readonly url: string;
   /** Origin of the artifact host inside the cluster. */
   readonly hostUrl: string;
+  /** Origin of the public apps host inside the cluster. */
+  readonly publicAppsHostUrl: string;
 }
 
 /** How one request is sent and what it expects back. */
@@ -54,7 +58,9 @@ const defaultTimeoutMs = 30_000;
 const transferTimeoutMs = 5 * 60_000;
 
 /** Calls the artifact service's internal API with a service-account token. */
-export class HttpArtifactGateway implements ArtifactGateway {
+export class HttpArtifactGateway
+  implements ArtifactGateway, ArtifactVisibilityGateway
+{
   // ===========================================
   // Construction
   // ===========================================
@@ -247,6 +253,19 @@ export class HttpArtifactGateway implements ArtifactGateway {
     });
   }
 
+  /** Make the owner's app private or public. */
+  setVisibility(
+    actor: ArtifactActor,
+    reference: string,
+    input: ArtifactVisibilityInput,
+  ): Promise<ArtifactDetails> {
+    return this.json(`${this.artifact(actor.ownerId, reference)}/visibility`, {
+      method: "PUT",
+      actor,
+      json: { visibility: input.visibility },
+    });
+  }
+
   /** Stop a published app while retaining its files and data. */
   stop(actor: ArtifactActor, reference: string): Promise<ArtifactDetails> {
     return this.json(`${this.artifact(actor.ownerId, reference)}/stop`, {
@@ -282,7 +301,10 @@ export class HttpArtifactGateway implements ArtifactGateway {
     return this.json(`${this.artifact(ownerId, reference)}/api-key`);
   }
 
-  /** Issue a teammate pass and resolve its paths on the in-cluster artifact host. */
+  /**
+   * Issue a teammate pass and resolve its paths on the in-cluster artifact host; a public app's page
+   * is on the in-cluster public apps host instead, and needs no pass.
+   */
   async viewPass(
     ownerId: string,
     reference: string,
@@ -292,7 +314,13 @@ export class HttpArtifactGateway implements ArtifactGateway {
       `${this.artifact(ownerId, reference)}/view-passes`,
       { method: "POST", json: input },
     );
+    if (pass.visibility === "public")
+      return {
+        visibility: "public",
+        url: this.addresses.publicAppsHostUrl + pass.path,
+      };
     return {
+      visibility: "private",
       url: this.addresses.hostUrl + pass.path,
       browserUrl: this.addresses.hostUrl + pass.signInPath,
       token: pass.token,

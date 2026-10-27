@@ -10,7 +10,11 @@ const appId = "89bb2d67-090d-405a-84f8-880d9231c9c2";
 test("browser actions derive ownership and authorship from authentication and require stopped deletion", async (context) => {
   const requests: { url: string; init: RequestInit }[] = [];
   const gateway = new HttpArtifactGateway(
-    { url: "http://artifact:8081", hostUrl: "http://artifact:8080" },
+    {
+      url: "http://artifact:8081",
+      hostUrl: "http://artifact:8080",
+      publicAppsHostUrl: "http://public-apps:8082",
+    },
     { token: async () => "service-token" },
     async (url, init = {}) => {
       requests.push({ url: String(url), init });
@@ -21,7 +25,9 @@ test("browser actions derive ownership and authorship from authentication and re
   );
   const server = authenticatedTestServer();
   context.after(() => server.close());
-  await artifactController(server, new ArtifactLibraryService(gateway));
+  await artifactController(server, new ArtifactLibraryService(gateway), () =>
+    assert.fail("no signed-in-only route requested"),
+  );
   for (const action of ["start", "stop", "delete"] as const) {
     const response = await server.inject({
       method: action === "delete" ? "DELETE" : "POST",
@@ -58,7 +64,11 @@ test("browser actions derive ownership and authorship from authentication and re
 test("manual action errors keep missing apps opaque and translate conflicts without leaking upstream details", async (context) => {
   let status = 404;
   const gateway = new HttpArtifactGateway(
-    { url: "http://artifact:8081", hostUrl: "http://artifact:8080" },
+    {
+      url: "http://artifact:8081",
+      hostUrl: "http://artifact:8080",
+      publicAppsHostUrl: "http://public-apps:8082",
+    },
     { token: async () => "service-token" },
     async () =>
       Response.json(
@@ -68,7 +78,9 @@ test("manual action errors keep missing apps opaque and translate conflicts with
   );
   const server = authenticatedTestServer();
   context.after(() => server.close());
-  await artifactController(server, new ArtifactLibraryService(gateway));
+  await artifactController(server, new ArtifactLibraryService(gateway), () =>
+    assert.fail("no signed-in-only route requested"),
+  );
   for (const [upstream, expected, code] of [
     [404, 404, "ARTIFACT_NOT_FOUND"],
     [409, 409, "APP_ACTION_CONFLICT"],
@@ -90,7 +102,11 @@ test("the owner's API key is read from the app service for that owner and is nev
   const requests: { url: string; init: RequestInit }[] = [];
   let status = 200;
   const gateway = new HttpArtifactGateway(
-    { url: "http://artifact:8081", hostUrl: "http://artifact:8080" },
+    {
+      url: "http://artifact:8081",
+      hostUrl: "http://artifact:8080",
+      publicAppsHostUrl: "http://public-apps:8082",
+    },
     { token: async () => "service-token" },
     async (url, init = {}) => {
       requests.push({ url: String(url), init });
@@ -104,7 +120,9 @@ test("the owner's API key is read from the app service for that owner and is nev
   );
   const server = authenticatedTestServer();
   context.after(() => server.close());
-  await artifactController(server, new ArtifactLibraryService(gateway));
+  await artifactController(server, new ArtifactLibraryService(gateway), () =>
+    assert.fail("no signed-in-only route requested"),
+  );
   const revealed = await server.inject({ url: `/artifacts/${appId}/api-key` });
   assert.equal(revealed.statusCode, 200);
   assert.equal(revealed.headers["cache-control"], "no-store");

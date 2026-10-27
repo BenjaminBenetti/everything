@@ -1,0 +1,5 @@
+# What a remote cluster's own settings add over values.prod.yaml before the chart renders: the public
+# apps host's hostname, which values.prod.yaml leaves unset. check-stack.sh and the chart tests render
+# values.prod.yaml with this file, as install.sh and in-app upgrades render it with the saved settings.
+global:
+  externalPublicAppsHostname: public-apps.example.com

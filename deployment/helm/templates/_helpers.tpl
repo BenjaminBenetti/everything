@@ -111,16 +111,17 @@ service's container security context unless it sets its own, and mounts the serv
 {{- end }}
 
 {{/*
-The URL at which other pods reach a service's exposed port, as `<scheme>://<service>.<namespace>
-.svc.cluster.local:<servicePort><path>`; empty when the service is turned off or absent, which a
-client setting built from it reads as no service.
+The URL at which other pods reach a service's exposed port, as `<scheme>://<Service>.<namespace>
+.svc.cluster.local:<servicePort><path>`, where the Service is the port's `serviceName` or else the
+service's; empty when the service is turned off or absent, which a client setting built from it
+reads as no service.
 */}}
 {{- define "stack.serviceUrl" -}}
 {{- $service := include "stack.service" (dict "root" .root "name" .name) | fromYaml -}}
 {{- if and (hasKey .root.Values.services .name) $service.enabled -}}
 {{- $port := required (printf "services.%s has no port %q" .name .port) (get $service.ports .port) -}}
 {{- $servicePort := required (printf "services.%s.ports.%s has no servicePort" .name .port) $port.servicePort -}}
-{{ .scheme }}://{{ .name }}.{{ .root.Release.Namespace }}.svc.cluster.local:{{ $servicePort }}{{ .path }}
+{{ .scheme }}://{{ $port.serviceName | default .name }}.{{ .root.Release.Namespace }}.svc.cluster.local:{{ $servicePort }}{{ .path }}
 {{- end -}}
 {{- end }}
 

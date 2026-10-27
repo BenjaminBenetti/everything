@@ -1,4 +1,9 @@
-import { expect, test, type BrowserContext } from "@playwright/test";
+import {
+  expect,
+  test,
+  type Browser,
+  type BrowserContext,
+} from "@playwright/test";
 
 /** A synthetic API key; no real app or key is involved. */
 const apiKey = `everything_app_key_${"T".repeat(21)}-${"e".repeat(21)}`;
@@ -24,6 +29,8 @@ function app(
       ...(index === 3 ? ["api-key"] : []),
     ],
     url: `http://localhost:8081/app-${index}/`,
+    publicUrl: `http://localhost:8082/app-${index}/`,
+    visibility: "private",
     release: status === "unpublished" ? 0 : 1,
     createdAt: new Date(Date.now() - 30 * 86_400_000).toISOString(),
     updatedAt: new Date(Date.now() - daysAgo * 86_400_000).toISOString(),
@@ -50,7 +57,10 @@ async function prepareApps(context: BrowserContext) {
       app(7, "Broken", "failing", 1),
     ],
     actions: [] as { id: string; action: string }[],
+    visibilityChanges: [] as { id: string; body: string; origin: string }[],
     keyReads: [] as string[],
+    failVisibility: false,
+    holdVisibility: false,
     failKey: false,
     failAction: false,
     failList: false,
@@ -122,6 +132,26 @@ async function prepareApps(context: BrowserContext) {
     }
     const path = new URL(route.request().url()).pathname.split("/");
     const id = path[3]!;
+    if (route.request().method() === "PUT" && path[4] === "visibility") {
+      state.visibilityChanges.push({
+        id,
+        body: route.request().postData() ?? "",
+        origin: (await route.request().headerValue("origin")) ?? "",
+      });
+      if (state.holdVisibility)
+        await new Promise<void>((resolve) => {
+          state.release = resolve;
+        });
+      if (state.failVisibility) {
+        await route.fulfill({ status: 503, json: {} });
+        return;
+      }
+      const target = state.apps.find((item) => item.id === id)!;
+      target.visibility = JSON.parse(route.request().postData()!).visibility;
+      target.updatedAt = new Date().toISOString();
+      await route.fulfill({ json: target });
+      return;
+    }
     const action = route.request().method() === "DELETE" ? "delete" : path[4]!;
     state.actions.push({ id, action });
     if (state.holdAction)
@@ -516,7 +546,9 @@ test("the whole card and keyboard open apps while pause and play never open a ta
   state.holdAction = true;
   await card.getByRole("button", { name: "Stop Planner", exact: true }).click();
   await expect(card.getByText("Stopping…", { exact: true })).toBeVisible();
-  await expect(card.getByRole("button")).toBeDisabled();
+  await expect(
+    card.getByRole("button", { name: "Stopping… Planner", exact: true }),
+  ).toBeDisabled();
   await expect(card.getByRole("link")).toHaveCount(0);
   await expect.poll(() => !!state.release).toBe(true);
   state.holdAction = false;
@@ -635,9 +667,243 @@ test("background updates reorder apps and stale controls disable until a success
   await expect(
     card.getByRole("button", { name: "Stop Notes", exact: true }),
   ).toBeDisabled();
+  await expect(
+    card.getByRole("button", {
+      name: "Private: change who can open Notes",
+      exact: true,
+    }),
+  ).toBeDisabled();
   state.failList = false;
   await page.getByRole("button", { name: "Try again", exact: true }).click();
   await expect(
     card.getByRole("button", { name: "Stop Notes", exact: true }),
   ).toBeEnabled();
+});
+
+/**
+ * A stand-in for the app host that answers as it does: a public app's page for anyone, and a sign-in
+ * notice for a private one. The real host is tested in the artifact service; this checks the link
+ * the Apps screen gives out and what a visitor gets from it.
+ */
+async function appHost(
+  context: BrowserContext,
+  apps: () => readonly {
+    publicUrl: string;
+    title: string;
+    visibility: string;
+  }[],
+): Promise<void> {
+  await context.route("http://localhost:8082/**", (route) => {
+    const app = apps().find((item) => route.request().url() === item.publicUrl);
+    return route.fulfill(
+      app?.visibility === "public"
+        ? {
+            contentType: "text/html",
+            body: `<h1>${app.title} for everyone</h1>`,
+          }
+        : {
+            status: 401,
+            contentType: "text/html",
+            body: "<h1>Sign in to view this app</h1>",
+          },
+    );
+  });
+}
+
+/** A separate browser with no Everything session, as someone the owner sends the link to. */
+async function visitor(
+  browser: Browser,
+  apps: () => readonly {
+    publicUrl: string;
+    title: string;
+    visibility: string;
+  }[],
+): Promise<BrowserContext> {
+  const context = await browser.newContext();
+  await appHost(context, apps);
+  return context;
+}
+
+test("an owner makes an app public from Apps, shares its link with a signed-out visitor, and makes it private again", async ({
+  page,
+  context,
+  browser,
+}) => {
+  const state = await prepareApps(context);
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await appHost(context, () => state.apps);
+  const guest = await visitor(browser, () => state.apps);
+  const guestPage = await guest.newPage();
+  const planner = state.apps.find((item) => item.title === "Planner")!;
+  await guestPage.goto(planner.publicUrl);
+  await expect(
+    guestPage.getByRole("heading", { name: "Sign in to view this app" }),
+  ).toBeVisible();
+
+  await page.goto("/apps");
+  const card = page.getByRole("article", { name: "Planner", exact: true });
+  const trigger = card.getByRole("button", {
+    name: "Private: change who can open Planner",
+    exact: true,
+  });
+  await expect(trigger).toHaveText("Private");
+  await expect(trigger).toHaveAttribute("aria-haspopup", "dialog");
+
+  // The confirmation explains what public means before anything changes; Escape leaves it private.
+  await trigger.click();
+  const dialog = page.getByRole("dialog", { name: "Make “Planner” public?" });
+  await expect(dialog).toContainText(
+    "Only you and your teammates can open this app.",
+  );
+  await expect(dialog).toContainText(
+    "Anyone with the link will be able to use",
+  );
+  await expect(dialog).toContainText("its endpoints");
+  await expect(dialog).toContainText("Everything API as you");
+  await expect(dialog).toContainText(
+    "people keep anything they’ve already downloaded",
+  );
+  const makePublic = dialog.getByRole("button", {
+    name: "Make public",
+    exact: true,
+  });
+  await expect(makePublic).toBeFocused();
+  await expect(makePublic).toBeInViewport();
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+  await expect(trigger).toBeFocused();
+  expect(state.visibilityChanges).toEqual([]);
+
+  // While the change is saving, nothing claims success and the dialog stays open.
+  await page.keyboard.press("Enter");
+  await expect(dialog).toBeVisible();
+  state.holdVisibility = true;
+  await makePublic.click();
+  await expect(
+    dialog.getByRole("button", { name: "Making public…", exact: true }),
+  ).toBeDisabled();
+  await expect(
+    dialog.getByRole("button", { name: "Cancel", exact: true }),
+  ).toBeDisabled();
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole("textbox")).toHaveCount(0);
+  await expect.poll(() => !!state.release).toBe(true);
+  state.holdVisibility = false;
+  state.release!();
+  state.release = undefined;
+
+  const shared = page.getByRole("dialog", { name: "“Planner” is public" });
+  await expect(shared).toContainText(
+    "Anyone with the link can use this app without signing in.",
+  );
+  await expect(shared.getByRole("status")).toHaveText(
+    "This app is public now. Anyone with the link can use it.",
+  );
+  const link = shared.getByRole("textbox", { name: "Public link" });
+  await expect(link).toHaveValue(planner.publicUrl);
+  await expect(link).toHaveAttribute("readonly", "");
+  expect(state.visibilityChanges).toEqual([
+    {
+      id: planner.id,
+      body: JSON.stringify({ visibility: "public" }),
+      origin: new URL(page.url()).origin,
+    },
+  ]);
+
+  await shared.getByRole("button", { name: "Copy link", exact: true }).click();
+  await expect(
+    shared.getByRole("button", { name: "Link copied", exact: true }),
+  ).toBeVisible();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
+    planner.publicUrl,
+  );
+  const opened = page.waitForEvent("popup");
+  await shared
+    .getByRole("link", { name: "Open link in a new tab", exact: true })
+    .click();
+  const popup = await opened;
+  expect(popup.url()).toBe(planner.publicUrl);
+  await expect(
+    popup.getByRole("heading", { name: "Planner for everyone" }),
+  ).toBeVisible();
+  await popup.close();
+
+  // The signed-out visitor now gets the app through the same link.
+  await guestPage.reload();
+  await expect(
+    guestPage.getByRole("heading", { name: "Planner for everyone" }),
+  ).toBeVisible();
+
+  await shared.getByRole("button", { name: "Close", exact: true }).click();
+  const publicTrigger = card.getByRole("button", {
+    name: "Public: change who can open Planner",
+    exact: true,
+  });
+  await expect(publicTrigger).toHaveText("Public");
+  await expect(publicTrigger).toBeFocused();
+
+  // Making it private again takes one confirmed request, and the visitor's next visit is refused.
+  await publicTrigger.click();
+  await shared
+    .getByRole("button", { name: "Make private", exact: true })
+    .click();
+  await expect(
+    page.getByRole("dialog", { name: "Make “Planner” public?" }),
+  ).toBeVisible();
+  await expect(page.getByRole("dialog").getByRole("status")).toHaveText(
+    "This app is private now. New visits need you or a teammate.",
+  );
+  expect(state.visibilityChanges.map((change) => change.body)).toEqual([
+    JSON.stringify({ visibility: "public" }),
+    JSON.stringify({ visibility: "private" }),
+  ]);
+  await page.keyboard.press("Escape");
+  await expect(trigger).toHaveText("Private");
+  await guestPage.reload();
+  await expect(
+    guestPage.getByRole("heading", { name: "Sign in to view this app" }),
+  ).toBeVisible();
+  await guest.close();
+});
+
+test("a failed visibility change says so, keeps the saved state, and can be retried", async ({
+  page,
+  context,
+}) => {
+  const state = await prepareApps(context);
+  await page.goto("/apps");
+  const card = page.getByRole("article", { name: "Dashboard", exact: true });
+  await card
+    .getByRole("button", {
+      name: "Private: change who can open Dashboard",
+      exact: true,
+    })
+    .click();
+  const dialog = page.getByRole("dialog", { name: "Make “Dashboard” public?" });
+  await expect(dialog).toContainText("won’t need its API key");
+  state.failVisibility = true;
+  await dialog
+    .getByRole("button", { name: "Make public", exact: true })
+    .click();
+  await expect(dialog.getByRole("alert")).toHaveText(
+    "Couldn’t make this app public. Check your connection and try again.",
+  );
+  await expect(dialog.getByRole("textbox")).toHaveCount(0);
+  await expect(dialog.getByRole("status")).toHaveText("");
+  await expect(
+    dialog.getByRole("button", { name: "Make public", exact: true }),
+  ).toBeEnabled();
+  state.failVisibility = false;
+  await dialog
+    .getByRole("button", { name: "Make public", exact: true })
+    .click();
+  await expect(
+    page.getByRole("dialog", { name: "“Dashboard” is public" }),
+  ).toBeVisible();
+  await expect(page.getByRole("dialog").getByRole("alert")).toHaveCount(0);
+  expect(state.visibilityChanges).toHaveLength(2);
+  expect(
+    state.apps.find((item) => item.title === "Dashboard")!.visibility,
+  ).toBe("public");
 });

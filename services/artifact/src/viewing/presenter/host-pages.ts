@@ -41,6 +41,11 @@ export const hostMessages = {
     message:
       "A teammate hasn't published or deployed this app yet. Check back later.",
   },
+  unavailable: {
+    title: "This app isn't available",
+    message:
+      "Its owner hasn't published it yet or has stopped it. Try again later.",
+  },
   stopped: {
     title: "This app is stopped",
     message:
@@ -62,6 +67,16 @@ export const hostMessages = {
   signInRequired: {
     title: "Sign in to view this app",
     message: "Open the app from Everything to sign in.",
+  },
+  crossOrigin: {
+    title: "This request was blocked",
+    message:
+      "Another site or app tried to load or change this app. Only the app's own pages can do that. Open the app directly and try again.",
+  },
+  wrongHost: {
+    title: "Open this app from Everything",
+    message:
+      "This address doesn't serve apps. Open the app from Apps in Everything, which links to its address.",
   },
   passExpired: {
     title: "This teammate link has expired",
