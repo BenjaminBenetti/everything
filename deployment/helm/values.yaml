@@ -24,7 +24,9 @@ global:
   # set by private apps, nor reach the private apps served on the artifact host. A different port is
   # not enough, since browsers share a hostname's cookies across its ports, and the artifact service
   # refuses to start with a shared hostname. Locally it is 127.0.0.1, which the forwarded port also
-  # answers on and browsers keep cookies for apart from localhost's.
+  # answers on and browsers keep cookies for apart from localhost's. Kubernetes refuses an IP address
+  # as an Ingress host, so the public apps host itself refuses requests for localhost, and the
+  # artifact host refuses 127.0.0.1. values.prod.yaml leaves it unset, for the installer to ask.
   externalPublicAppsHostname: 127.0.0.1
   publicAppsOrigin: "http://{{ .Values.global.externalPublicAppsHostname }}:8082"
   # Realm defined in services/keycloak/config/everything-realm.json.
@@ -440,10 +442,11 @@ services:
       WORKSPACE_CLAIM_NAME: '{{ include "stack.claimName" (dict "name" "everything" "volumeName" "agents") }}'
       ARTIFACT_SERVICE_URL: http://artifact:8081
       # The artifact host as teammate pods reach it, over plain HTTP, when view_app gives them a pass.
+      # The artifact service serves the artifact host on this hostname, in ARTIFACT_INTERNAL_HOSTNAMES.
       ARTIFACT_HOST_URL: "http://artifact.{{ .Release.Namespace }}.svc.cluster.local:8080"
       # The public apps host as teammate pods reach it; view_app opens public apps here, with no pass.
       # It has a Service of its own, so its hostname, and the cookies teammates' browsers send it,
-      # differ from the artifact host's.
+      # differ from the artifact host's; the artifact service serves it in PUBLIC_APPS_INTERNAL_HOSTNAMES.
       ARTIFACT_PUBLIC_APPS_HOST_URL: "http://public-apps.{{ .Release.Namespace }}.svc.cluster.local:8082"
       ARTIFACT_CLIENT_ID: everything-artifact-client
       ARTIFACT_CLIENT_SECRET:
@@ -783,6 +786,12 @@ services:
       PUBLIC_ORIGIN: "{{ tpl .Values.global.publicOrigin . }}"
       ARTIFACT_ORIGIN: "{{ tpl .Values.global.artifactOrigin . }}"
       PUBLIC_APPS_ORIGIN: "{{ tpl .Values.global.publicAppsOrigin . }}"
+      # Each viewer host answers only its origin's hostname and these, on which pods inside the cluster
+      # reach it: the Services that Everything's ARTIFACT_HOST_URL and ARTIFACT_PUBLIC_APPS_HOST_URL
+      # name. Any other hostname, such as localhost on the public apps host's port, is refused before
+      # a cookie is read or an app is served, so the two hosts never share a cookie hostname.
+      ARTIFACT_INTERNAL_HOSTNAMES: "artifact.{{ .Release.Namespace }}.svc.cluster.local"
+      PUBLIC_APPS_INTERNAL_HOSTNAMES: "public-apps.{{ .Release.Namespace }}.svc.cluster.local"
       OIDC_ISSUER: "{{ tpl .Values.global.publicOrigin . }}/auth/realms/{{ .Values.global.realm }}"
       OIDC_JWKS_URL: "http://keycloak:8080/auth/realms/{{ .Values.global.realm }}/protocol/openid-connect/certs"
       OIDC_AUDIENCE: everything-artifact

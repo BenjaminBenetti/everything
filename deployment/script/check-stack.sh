@@ -13,14 +13,24 @@ for script in "$chart"/files/*/*.sh; do
 done
 # Every render needs credentials; the development values provide them.
 credentials=(--values "$dev_values")
-# Development defaults, remote clusters, then the ci/ examples that exercise optional features.
-for values in "" "$chart/values.prod.yaml" "$chart"/ci/*-values.yaml; do
+# Development defaults, remote clusters with the settings their installation adds, then the ci/
+# examples that exercise optional features. Each entry lists its values files, separated by spaces.
+renders=("" "$chart/values.prod.yaml $chart/ci/remote-cluster-settings.yaml")
+for example in "$chart"/ci/*-values.yaml; do renders+=("$example"); done
+for files in "${renders[@]}"; do
   arguments=("${credentials[@]}")
-  if [ -n "$values" ]; then arguments+=(--values "$values"); fi
+  # shellcheck disable=SC2086 # The entry's words are its files.
+  for file in $files; do arguments+=(--values "$file"); done
   helm lint "$chart" --strict --quiet "${arguments[@]}"
   # Lint only warns about missing required values; rendering fails on them.
   render_stack "${arguments[@]}" > /dev/null
 done
+# values.prod.yaml alone, as settings saved before public apps leave it, must refuse to render.
+if refusal=$(render_stack "${credentials[@]}" --values "$chart/values.prod.yaml" 2>&1 > /dev/null) ||
+  [[ $refusal != *"Public apps need a hostname of their own"* ]]; then
+  echo "values.prod.yaml without a public apps hostname must refuse to render: $refusal" >&2
+  exit 1
+fi
 # The release workflow builds each image the chart builds from the workspace that names it, for the
 # platforms the workspace allows.
 stack_image_workspaces | while read -r image workspace; do

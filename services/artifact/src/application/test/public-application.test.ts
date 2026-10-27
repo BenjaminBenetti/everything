@@ -16,15 +16,18 @@ test("the artifact host never writes API keys or query strings to its logs", asy
   context.after(() => {
     process.stdout.write = write;
   });
-  const host = await createPublicApplication({
-    access: { viewer: async () => undefined },
-    cookie: new ViewCookie("http://localhost:8081"),
-    passes: { find: async () => undefined },
-    passCredentials: new ViewPassCredentials(),
-    apiKeys: { authenticate: async () => undefined },
-    artifacts: { findBySlug: async () => undefined },
-    publicOrigin: "http://localhost:8080",
-  } as unknown as ArtifactHostDependencies);
+  const host = await createPublicApplication(
+    {
+      access: { viewer: async () => undefined },
+      cookie: new ViewCookie("http://localhost:8081"),
+      passes: { find: async () => undefined },
+      passCredentials: new ViewPassCredentials(),
+      apiKeys: { authenticate: async () => undefined },
+      artifacts: { findBySlug: async () => undefined },
+      publicOrigin: "http://localhost:8080",
+    } as unknown as ArtifactHostDependencies,
+    ["localhost"],
+  );
   const response = await host.inject({
     url: `/hooks/webhook?api_key=${key}`,
     headers: { "x-api-key": key },

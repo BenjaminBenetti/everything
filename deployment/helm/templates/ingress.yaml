@@ -25,6 +25,15 @@ them, so a service can be reached on more than one origin.
 {{- end }}
 {{- range $site, $sitePaths := $paths }}
 {{- $ingress := (get $sites $site).settings }}
+{{- /*
+Public apps need a hostname the installation chose. values.prod.yaml sets none, so settings saved
+before public apps stop the render, and with it an install or upgrade, before anything changes. The
+schema allows the empty hostname so this one-line explanation, not a schema listing, reaches the
+person upgrading.
+*/}}
+{{- if and (eq $site "public-apps") (not $.Values.global.externalPublicAppsHostname) }}
+{{- fail "Public apps need a hostname of their own, global.externalPublicAppsHostname, with DNS pointing at your ingress. Nothing was changed. Run this version's installer, which asks for it, keeps your other settings, and finishes the upgrade." }}
+{{- end }}
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress

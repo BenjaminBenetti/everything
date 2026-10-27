@@ -25,8 +25,9 @@ import { ViewAccess } from "../service/view-access.js";
 import { ViewPasses } from "../service/view-passes.js";
 import { issuePass, memoryCredentials } from "./view-fixture.js";
 
+/** The development stack's origins: the artifact host on localhost, public apps on 127.0.0.1. */
 const artifactOrigin = "http://localhost:8081";
-const publicAppsOrigin = "http://localhost:8082";
+const publicAppsOrigin = "http://127.0.0.1:8082";
 
 /** Requests a browser navigation makes, so signed-out private requests redirect to sign in. */
 const navigation = { "sec-fetch-mode": "navigate" };
@@ -142,35 +143,47 @@ async function hosts(context: TestContext) {
       },
     } as ArtifactServingDependencies["proxy"],
   } satisfies ArtifactServingDependencies;
-  const host = await createPublicApplication({
-    ...serving,
-    access,
-    cookie: new ViewCookie(artifactOrigin),
-    passes,
-    passCredentials: new ViewPassCredentials(),
-    apiKeys: apps.apiKeys,
-    artifacts,
-    artifactOrigin,
-    publicOrigin: "http://localhost:8080",
-    publicAppsOrigin,
-  });
-  const publicApps = await createPublicAppsApplication({
-    ...serving,
-    artifacts,
-    publicOrigin: "http://localhost:8080",
-  });
+  const host = await createPublicApplication(
+    {
+      ...serving,
+      access,
+      cookie: new ViewCookie(artifactOrigin),
+      passes,
+      passCredentials: new ViewPassCredentials(),
+      apiKeys: apps.apiKeys,
+      artifacts,
+      artifactOrigin,
+      publicOrigin: "http://localhost:8080",
+      publicAppsOrigin,
+    },
+    ["localhost"],
+  );
+  const publicApps = await createPublicAppsApplication(
+    {
+      ...serving,
+      artifacts,
+      publicOrigin: "http://localhost:8080",
+    },
+    ["127.0.0.1"],
+  );
   await host.listen({ host: "127.0.0.1", port: 0 });
   await publicApps.listen({ host: "127.0.0.1", port: 0 });
   context.after(() => host.close());
   context.after(() => publicApps.close());
   const hostUrl = `http://127.0.0.1:${(host.server.address() as AddressInfo).port}`;
   const publicUrl = `http://127.0.0.1:${(publicApps.server.address() as AddressInfo).port}`;
-  /** Fetch from the artifact host over HTTP. */
+  /** Fetch from the artifact host over HTTP, under its own hostname as a browser does. */
   const visitHost = (path: string, init: Visit = {}) =>
-    send(hostUrl + path, init);
-  /** Fetch from the public apps host over HTTP. */
+    send(hostUrl + path, {
+      ...init,
+      headers: { host: new URL(artifactOrigin).host, ...init.headers },
+    });
+  /** Fetch from the public apps host over HTTP, under its own hostname as a browser does. */
   const visitPublic = (path: string, init: Visit = {}) =>
-    send(publicUrl + path, init);
+    send(publicUrl + path, {
+      ...init,
+      headers: { host: new URL(publicAppsOrigin).host, ...init.headers },
+    });
   /** Sign a browser in to the artifact host as an owner, as a view link does. */
   async function session(slug: string): Promise<string> {
     const view = await access.grant(owner, { slug });

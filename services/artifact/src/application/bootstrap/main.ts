@@ -212,29 +212,36 @@ async function main(): Promise<void> {
     new ProvisionedClientSecrets(deploymentRepository, capabilitySecrets),
     new AppResponseGuard(),
   );
-  const host = await createPublicApplication({
-    access,
-    cookie,
-    passes,
-    passCredentials,
-    apiKeys,
-    artifacts: artifactRepository,
-    site,
-    content,
-    proxy,
-    artifactOrigin: config.artifactOrigin,
-    publicOrigin: config.publicOrigin,
-    publicAppsOrigin: config.publicAppsOrigin,
-  });
+  // Each host serves only its own hostnames, which share no cookie host with the other's.
+  const host = await createPublicApplication(
+    {
+      access,
+      cookie,
+      passes,
+      passCredentials,
+      apiKeys,
+      artifacts: artifactRepository,
+      site,
+      content,
+      proxy,
+      artifactOrigin: config.artifactOrigin,
+      publicOrigin: config.publicOrigin,
+      publicAppsOrigin: config.publicAppsOrigin,
+    },
+    config.viewerHostnames.artifact,
+  );
   // Public apps are served on their own origin, with no sign-in, pass, or API key, so a public app's
   // pages run under a browser trust boundary separate from the artifact host's private apps.
-  const publicApps = await createPublicAppsApplication({
-    artifacts: artifactRepository,
-    site,
-    content,
-    proxy,
-    publicOrigin: config.publicOrigin,
-  });
+  const publicApps = await createPublicAppsApplication(
+    {
+      artifacts: artifactRepository,
+      site,
+      content,
+      proxy,
+      publicOrigin: config.publicOrigin,
+    },
+    config.viewerHostnames.publicApps,
+  );
 
   const tasks = [
     new PeriodicTask("Build monitoring", 3000, () => builds.monitor()),

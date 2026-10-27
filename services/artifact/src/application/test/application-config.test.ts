@@ -8,6 +8,8 @@ function environment(): NodeJS.ProcessEnv {
     PUBLIC_ORIGIN: "https://everything.test",
     ARTIFACT_ORIGIN: "https://artifacts.everything.test",
     PUBLIC_APPS_ORIGIN: "https://public-apps.everything.test",
+    ARTIFACT_INTERNAL_HOSTNAMES: "artifact.everything.svc.cluster.local",
+    PUBLIC_APPS_INTERNAL_HOSTNAMES: "public-apps.everything.svc.cluster.local",
     OIDC_ISSUER: "https://everything.test/auth/realms/everything",
     OIDC_JWKS_URL: "http://keycloak:8080/certs",
     OIDC_AUDIENCE: "everything-artifact",
@@ -60,6 +62,12 @@ test("rejects invalid deployment input", () => {
     { REGISTRY_PULL_HOST: "localhost:30500/path" },
     { REGISTRY_PASSWORD: undefined },
     { INTERNAL_PORT: "70000" },
+    { ARTIFACT_INTERNAL_HOSTNAMES: undefined },
+    { PUBLIC_APPS_INTERNAL_HOSTNAMES: "" },
+    { PUBLIC_APPS_INTERNAL_HOSTNAMES: "public-apps.everything.svc:8082" },
+    { PUBLIC_APPS_INTERNAL_HOSTNAMES: "http://public-apps" },
+    { ARTIFACT_INTERNAL_HOSTNAMES: "artifact,,artifact.everything" },
+    { ARTIFACT_INTERNAL_HOSTNAMES: "artifact.everything.1" },
   ])
     assert.throws(() =>
       loadApplicationConfig({ ...environment(), ...override }),
@@ -90,7 +98,7 @@ test("public apps need a cookie host apart from the artifact host's and the appl
   ])
     assert.throws(
       () => loadApplicationConfig({ ...environment(), ...override }),
-      /PUBLIC_APPS_ORIGIN needs a hostname apart/,
+      /PUBLIC_APPS_ORIGIN and PUBLIC_APPS_INTERNAL_HOSTNAMES need hostnames apart/,
       JSON.stringify(override),
     );
   for (const override of [
@@ -106,5 +114,53 @@ test("public apps need a cookie host apart from the artifact host's and the appl
     assert.equal(
       loadApplicationConfig({ ...environment(), ...override }).publicAppsOrigin,
       override.PUBLIC_APPS_ORIGIN ?? "https://public-apps.everything.test",
+    );
+});
+
+test("each viewer host serves its origin's hostname and its internal ones, which the other never serves", () => {
+  const config = loadApplicationConfig({
+    ...environment(),
+    PUBLIC_ORIGIN: "http://localhost:8080",
+    ARTIFACT_ORIGIN: "http://LOCALHOST.:8081",
+    PUBLIC_APPS_ORIGIN: "http://127.0.0.1:8082",
+    ARTIFACT_INTERNAL_HOSTNAMES:
+      "Artifact.Everything.svc.cluster.local.,artifact.everything.svc.cluster.local",
+    PUBLIC_APPS_INTERNAL_HOSTNAMES: "public-apps.everything.svc.cluster.local",
+  });
+  assert.deepEqual(config.viewerHostnames, {
+    artifact: ["localhost", "artifact.everything.svc.cluster.local"],
+    publicApps: ["127.0.0.1", "public-apps.everything.svc.cluster.local"],
+  });
+  // An internal hostname of one host that the other host, or the application, also serves would
+  // carry cookies between them, whatever its case, trailing dot, or the ports involved.
+  for (const override of [
+    {
+      PUBLIC_APPS_INTERNAL_HOSTNAMES:
+        "public-apps.everything.svc.cluster.local,Artifact.Everything.svc.cluster.local.",
+    },
+    { PUBLIC_APPS_INTERNAL_HOSTNAMES: "artifacts.everything.test" },
+    { PUBLIC_APPS_INTERNAL_HOSTNAMES: "everything.test." },
+    {
+      ARTIFACT_INTERNAL_HOSTNAMES:
+        "artifact.everything.svc.cluster.local,PUBLIC-APPS.everything.svc.cluster.local",
+    },
+    { ARTIFACT_INTERNAL_HOSTNAMES: "public-apps.everything.test" },
+    {
+      PUBLIC_ORIGIN: "http://localhost:8080",
+      ARTIFACT_ORIGIN: "http://localhost:8081",
+      PUBLIC_APPS_ORIGIN: "http://127.0.0.1:8082",
+      ARTIFACT_INTERNAL_HOSTNAMES: "127.0.0.1",
+    },
+    {
+      PUBLIC_ORIGIN: "http://localhost:8080",
+      ARTIFACT_ORIGIN: "http://localhost:8081",
+      PUBLIC_APPS_ORIGIN: "http://127.0.0.1:8082",
+      PUBLIC_APPS_INTERNAL_HOSTNAMES: "localhost",
+    },
+  ])
+    assert.throws(
+      () => loadApplicationConfig({ ...environment(), ...override }),
+      /need hostnames apart/,
+      JSON.stringify(override),
     );
 });

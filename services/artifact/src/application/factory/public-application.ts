@@ -10,14 +10,20 @@ import {
   publicAppsHostController,
   type PublicAppsHostDependencies,
 } from "../../viewing/controller/public-apps-host-controller.js";
+import { HostAdmission } from "../../viewing/handler/host-admission.js";
 import { hostMessages, hostPage } from "../../viewing/presenter/host-pages.js";
 
-/** Build a host app with the shared transport setup, then register its routes. */
+/**
+ * Build a host app that serves only requests for its own hostnames, with the shared transport setup,
+ * then register its routes.
+ */
 async function hostApplication(
+  hostnames: readonly string[],
   register: (app: FastifyInstance) => Promise<void>,
 ): Promise<FastifyInstance> {
   const app = Fastify({
-    // The scheme and client address come from the ingress's forwarded headers.
+    // The scheme and client address come from the ingress's forwarded headers. The hostname does not:
+    // HostAdmission reads the Host header itself, never the X-Forwarded-Host a caller can send.
     trustProxy: true,
     logger: {
       serializers: {
@@ -37,6 +43,8 @@ async function hostApplication(
       ],
     },
   });
+  // First of all: a request for another hostname is refused before cookies are even parsed.
+  new HostAdmission(hostnames).register(app);
   await app.register(fastifyCookie);
   // Only routes that opt in are limited: signed-in viewers browse artifacts without limits.
   await app.register(rateLimit, { global: false });
@@ -73,16 +81,29 @@ async function hostApplication(
   return app;
 }
 
-/** Compose the artifact host, served through the Ingress on the artifact origin. */
+/**
+ * Compose the artifact host, served through the Ingress on the artifact origin and inside the cluster
+ * on `hostnames`, the artifact host's cookie hosts, which share none with the public apps host's.
+ */
 export function createPublicApplication(
   dependencies: ArtifactHostDependencies,
+  hostnames: readonly string[],
 ): Promise<FastifyInstance> {
-  return hostApplication((app) => artifactHostController(app, dependencies));
+  return hostApplication(hostnames, (app) =>
+    artifactHostController(app, dependencies),
+  );
 }
 
-/** Compose the public apps host, served through its own Ingress on the public apps origin. */
+/**
+ * Compose the public apps host, served through its own Ingress on the public apps origin and inside
+ * the cluster on `hostnames`, its cookie hosts, which share none with the artifact host's or the
+ * application's.
+ */
 export function createPublicAppsApplication(
   dependencies: PublicAppsHostDependencies,
+  hostnames: readonly string[],
 ): Promise<FastifyInstance> {
-  return hostApplication((app) => publicAppsHostController(app, dependencies));
+  return hostApplication(hostnames, (app) =>
+    publicAppsHostController(app, dependencies),
+  );
 }

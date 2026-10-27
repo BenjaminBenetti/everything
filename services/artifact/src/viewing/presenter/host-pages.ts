@@ -73,6 +73,11 @@ export const hostMessages = {
     message:
       "Another site or app tried to load or change this app. Only the app's own pages can do that. Open the app directly and try again.",
   },
+  wrongHost: {
+    title: "Open this app from Everything",
+    message:
+      "This address doesn't serve apps. Open the app from Apps in Everything, which links to its address.",
+  },
   passExpired: {
     title: "This teammate link has expired",
     message:

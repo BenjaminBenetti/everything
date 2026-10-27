@@ -512,31 +512,44 @@ ingress_sites() {
 }
 
 # The ingress class, TLS issuer, and storage class. Each is written even when left to the cluster's
-# default, so a later run knows it was answered.
+# default, so a later run knows it was answered. An answer fills only the Ingresses that lack that
+# setting: one whose class, TLS Secret, or issuer is saved or preset keeps it.
 ask_cluster_classes() {
-  local ingress_class issuer storage_class site
+  local ingress_class issuer storage_class site name
   if ! has_entry global ingress className; then
     begin_section "Cluster settings"
     ask ingress_class "Name of the ingress class to use (Enter for the cluster's default)"
     for site in $(ingress_sites); do
-      set_entry "$(yaml_quote "$ingress_class")" global "${site%%:*}" className
+      name=${site%%:*}
+      if ! has_entry global "$name" className; then
+        set_entry "$(yaml_quote "$ingress_class")" global "$name" className
+      fi
     done
     # ingress-nginx limits request bodies, and the registry receives whole image layers.
     case $ingress_class in
-      *nginx*) set_entry "'0'" global registryIngress annotations nginx.ingress.kubernetes.io/proxy-body-size ;;
+      *nginx*)
+        if ! has_entry global registryIngress annotations nginx.ingress.kubernetes.io/proxy-body-size; then
+          set_entry "'0'" global registryIngress annotations nginx.ingress.kubernetes.io/proxy-body-size
+        fi
+        ;;
     esac
   fi
   if ! has_entry global ingress tlsSecretName; then
     begin_section "Cluster settings"
     ask issuer "Name of the cert-manager ClusterIssuer to use for TLS (Enter if your ingress handles TLS)"
     # With an issuer, cert-manager fills each Ingress's TLS Secret; an empty name leaves TLS to the
-    # ingress controller.
+    # ingress controller. An Ingress whose TLS Secret is already set keeps its TLS as it is, and one
+    # with its own issuer keeps it.
     for site in $(ingress_sites); do
+      name=${site%%:*}
+      if has_entry global "$name" tlsSecretName; then continue; fi
       if [ -n "$issuer" ]; then
-        set_entry "$(yaml_quote "$issuer")" global "${site%%:*}" annotations cert-manager.io/cluster-issuer
-        set_entry "'${site#*:}'" global "${site%%:*}" tlsSecretName
+        if ! has_entry global "$name" annotations cert-manager.io/cluster-issuer; then
+          set_entry "$(yaml_quote "$issuer")" global "$name" annotations cert-manager.io/cluster-issuer
+        fi
+        set_entry "'${site#*:}'" global "$name" tlsSecretName
       else
-        set_entry "''" global "${site%%:*}" tlsSecretName
+        set_entry "''" global "$name" tlsSecretName
       fi
     done
   fi

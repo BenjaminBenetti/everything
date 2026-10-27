@@ -125,9 +125,10 @@ function writeChart(version: string, publicApps: boolean): void {
       "global:",
       "  externalHostname: everything.example.com",
       "  externalArtifactHostname: artifacts.example.com",
+      // Like the published chart's, the public apps host's hostname is left for the settings to set.
       ...(publicApps
         ? [
-            "  externalPublicAppsHostname: public-apps.example.com",
+            '  externalPublicAppsHostname: ""',
             '  publicAppsOrigin: "https://{{ .Values.global.externalPublicAppsHostname }}"',
           ]
         : []),
@@ -151,6 +152,12 @@ function writeChart(version: string, publicApps: boolean): void {
       "",
     ].join("\n"),
   );
+  // Like the published chart, it refuses to render public apps without their hostname.
+  if (publicApps)
+    writeFileSync(
+      join(source, "templates/public-apps.yaml"),
+      '{{- if not .Values.global.externalPublicAppsHostname }}{{ fail "global.externalPublicAppsHostname is not set" }}{{- end }}\n',
+    );
   mkdirSync(join(host.directory, "charts"), { recursive: true });
   execFileSync("tar", [
     "-czf",
@@ -840,6 +847,163 @@ describe("install.sh", () => {
       saved,
       /^  externalPublicAppsHostname: 'public\.saved\.example\.com'$/m,
     );
+  });
+
+  test("fills only the Ingress settings each site lacks, keeping every saved and preset class, TLS Secret, and issuer", async () => {
+    const issuer = "cert-manager.io/cluster-issuer";
+    const cases = [
+      {
+        // Nothing answers the application's Ingress, so the installer asks for its class and issuer;
+        // the other sites keep what the saved settings, or else the preset, already set.
+        saved: [
+          "  artifactIngress:",
+          "    className: 'saved-artifact-class'",
+          "  publicAppsIngress:",
+          "    className: 'saved-public-class'",
+          "    annotations:",
+          "      cert-manager.io/cluster-issuer: 'saved-public-issuer'",
+          "    tlsSecretName: 'saved-public-tls'",
+        ],
+        preset: [
+          "  externalHostname: 'preset.example.com'",
+          "  artifactIngress:",
+          "    className: 'preset-artifact-class'",
+          "    annotations:",
+          "      cert-manager.io/cluster-issuer: 'preset-artifact-issuer'",
+          "    tlsSecretName: 'preset-artifact-tls'",
+          "  publicAppsIngress:",
+          "    className: 'preset-public-class'",
+          "    annotations:",
+          "      cert-manager.io/cluster-issuer: 'preset-public-issuer'",
+          "    tlsSecretName: 'preset-public-tls'",
+          "  registryIngress:",
+          "    className: 'preset-registry-class'",
+        ],
+        answers: ["nginx", "letsencrypt"],
+        expected: {
+          ingress: {
+            className: "nginx",
+            annotations: { [issuer]: "letsencrypt" },
+            tlsSecretName: "everything-tls",
+          },
+          artifactIngress: {
+            className: "saved-artifact-class",
+            annotations: { [issuer]: "preset-artifact-issuer" },
+            tlsSecretName: "preset-artifact-tls",
+          },
+          publicAppsIngress: {
+            className: "saved-public-class",
+            annotations: { [issuer]: "saved-public-issuer" },
+            tlsSecretName: "saved-public-tls",
+          },
+          registryIngress: {
+            className: "preset-registry-class",
+            annotations: {
+              "nginx.ingress.kubernetes.io/proxy-body-size": "0",
+              [issuer]: "letsencrypt",
+            },
+            tlsSecretName: "everything-registry-tls",
+          },
+        },
+      },
+      {
+        // The application's class is saved, so only TLS is asked for. TLS left to the controller, and
+        // a TLS Secret without an issuer, stay as they are; a preset issuer fills its site's.
+        saved: [
+          "  ingress:",
+          "    className: 'saved-class'",
+          "  artifactIngress:",
+          "    tlsSecretName: 'saved-artifact-tls'",
+          "  publicAppsIngress:",
+          "    className: 'saved-public-class'",
+          "    tlsSecretName: ''",
+        ],
+        preset: [
+          "  publicAppsIngress:",
+          "    annotations:",
+          "      cert-manager.io/cluster-issuer: 'preset-public-issuer'",
+          "    tlsSecretName: 'preset-public-tls'",
+        ],
+        answers: ["letsencrypt"],
+        expected: {
+          ingress: {
+            className: "saved-class",
+            annotations: { [issuer]: "letsencrypt" },
+            tlsSecretName: "everything-tls",
+          },
+          artifactIngress: { tlsSecretName: "saved-artifact-tls" },
+          publicAppsIngress: {
+            className: "saved-public-class",
+            annotations: { [issuer]: "preset-public-issuer" },
+            tlsSecretName: "",
+          },
+          registryIngress: {
+            annotations: { [issuer]: "letsencrypt" },
+            tlsSecretName: "everything-registry-tls",
+          },
+        },
+      },
+    ];
+    const preset = join(host.directory, "preset.yaml");
+    for (const { saved, preset: presetLines, answers, expected } of cases) {
+      writeFileSync(
+        settings,
+        [
+          "# namespace: everything",
+          "global:",
+          "  externalHostname: 'everything.example.com'",
+          "  externalArtifactHostname: 'artifacts.example.com'",
+          "  externalPublicAppsHostname: 'public-apps.example.com'",
+          "  externalRegistryHostname: 'images.example.com'",
+          ...saved,
+          "  storageClassName: ''",
+          "secrets:",
+          "  database-credentials:",
+          "    admin: 'saved-db-password'",
+          "services:",
+          "  postgres:",
+          "    volumes:",
+          "      data:",
+          "        persistentVolume:",
+          "          size: '30Gi'",
+          "",
+        ].join("\n"),
+      );
+      writeFileSync(
+        preset,
+        ["# namespace: preset", "global:", ...presetLines, ""].join("\n"),
+      );
+      for (const file of [
+        host.log,
+        `${host.log}.template-values`,
+        `${host.log}.upgrade-values`,
+      ])
+        writeFileSync(file, "");
+      const result = await runInstaller([settings, "", "", ...answers, "y"], {
+        EVERYTHING_PRESET_SETTINGS: preset,
+      });
+      assert.equal(result.status, 0, result.output);
+      const written = readFileSync(settings, "utf8");
+      // The settings file, the values the disks render with, the values the release installs
+      // with, and the settings kept in the cluster for in-app upgrades all hold the same settings.
+      for (const values of [
+        written,
+        givenSettings("template").at(-1)!,
+        givenSettings("upgrade").at(-1)!,
+        host.read(`${host.log}.upgrade-settings`),
+      ]) {
+        const global = globals(values);
+        for (const [site, settingsOfSite] of Object.entries(expected))
+          assert.deepEqual(global[site], settingsOfSite, site);
+        // Saved settings win over the preset's.
+        assert.equal(global.externalHostname, "everything.example.com");
+        assert.equal(
+          global.externalPublicAppsHostname,
+          "public-apps.example.com",
+        );
+      }
+      assert.match(written, /^# namespace: everything$/m);
+    }
   });
 
   test("tells its caller when the person declines to install, and whether the chart serves public apps", async () => {
