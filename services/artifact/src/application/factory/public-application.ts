@@ -6,11 +6,15 @@ import {
   artifactHostController,
   type ArtifactHostDependencies,
 } from "../../viewing/controller/artifact-host-controller.js";
+import {
+  publicAppsHostController,
+  type PublicAppsHostDependencies,
+} from "../../viewing/controller/public-apps-host-controller.js";
 import { hostMessages, hostPage } from "../../viewing/presenter/host-pages.js";
 
-/** Compose the artifact host, served through the Ingress on the artifact origin. */
-export async function createPublicApplication(
-  dependencies: ArtifactHostDependencies,
+/** Build a host app with the shared transport setup, then register its routes. */
+async function hostApplication(
+  register: (app: FastifyInstance) => Promise<void>,
 ): Promise<FastifyInstance> {
   const app = Fastify({
     // The scheme and client address come from the ingress's forwarded headers.
@@ -65,6 +69,20 @@ export async function createPublicApplication(
         hostPage(hostMessages.notFound.title, hostMessages.notFound.message),
       ),
   );
-  await artifactHostController(app, dependencies);
+  await register(app);
   return app;
+}
+
+/** Compose the artifact host, served through the Ingress on the artifact origin. */
+export function createPublicApplication(
+  dependencies: ArtifactHostDependencies,
+): Promise<FastifyInstance> {
+  return hostApplication((app) => artifactHostController(app, dependencies));
+}
+
+/** Compose the public apps host, served through its own Ingress on the public apps origin. */
+export function createPublicAppsApplication(
+  dependencies: PublicAppsHostDependencies,
+): Promise<FastifyInstance> {
+  return hostApplication((app) => publicAppsHostController(app, dependencies));
 }

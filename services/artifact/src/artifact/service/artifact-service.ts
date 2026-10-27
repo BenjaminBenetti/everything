@@ -23,6 +23,7 @@ import type { Artifact } from "../model/artifact.js";
 import {
   representDetails,
   representSummary,
+  type HostOrigins,
 } from "../presenter/artifact-presenter.js";
 import type { ArtifactLock } from "./artifact-lock.js";
 import type { ArtifactLookup } from "./artifact-lookup.js";
@@ -61,7 +62,7 @@ export class ArtifactService {
     },
     private readonly lookup: ArtifactLookup,
     private readonly lock: ArtifactLock,
-    private readonly artifactOrigin: string,
+    private readonly origins: HostOrigins,
   ) {}
 
   // ===========================================
@@ -79,7 +80,7 @@ export class ArtifactService {
         representSummary(
           artifact,
           runtimes.get(artifact.id),
-          this.artifactOrigin,
+          this.origins,
           artifact.liveDeployment === null
             ? undefined
             : await this.deployments.findByRelease(
@@ -213,7 +214,7 @@ export class ArtifactService {
       artifact,
       { revisions, builds, deployment },
       runtimes.get(artifact.id),
-      this.artifactOrigin,
+      this.origins,
     );
   }
 }

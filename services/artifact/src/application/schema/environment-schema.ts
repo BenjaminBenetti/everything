@@ -21,8 +21,16 @@ export const environmentSchema = Type.Object({
   PORT: Type.Integer({ minimum: 1, maximum: 65535, default: 8080 }),
   /** Port serving the internal API, reachable only inside the cluster. */
   INTERNAL_PORT: Type.Integer({ minimum: 1, maximum: 65535, default: 8081 }),
+  /** Port serving the public apps host, anonymous and credential-free, through its own Ingress. */
+  PUBLIC_APPS_PORT: Type.Integer({ minimum: 1, maximum: 65535, default: 8082 }),
   PUBLIC_ORIGIN: origin,
   ARTIFACT_ORIGIN: origin,
+  /**
+   * Origin that serves public apps to anyone. It is a different origin from the artifact host, so a
+   * public app's pages run under their own browser trust boundary and cannot reach the signed-in
+   * cookies or stored data of the artifact host, where private apps are served.
+   */
+  PUBLIC_APPS_ORIGIN: origin,
   OIDC_ISSUER: required,
   OIDC_JWKS_URL: required,
   OIDC_AUDIENCE: required,

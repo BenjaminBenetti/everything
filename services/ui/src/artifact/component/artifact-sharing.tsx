@@ -83,7 +83,7 @@ function SharingDialog({
   /** Copy the public link; if the browser refuses, select it so it can be copied by hand. */
   async function copyLink(): Promise<void> {
     try {
-      await navigator.clipboard.writeText(artifact.url);
+      await navigator.clipboard.writeText(artifact.publicUrl);
       setCopy("copied");
     } catch {
       setCopy("failed");
@@ -135,7 +135,7 @@ function SharingDialog({
                 ref={link}
                 id={linkId}
                 readOnly
-                value={artifact.url}
+                value={artifact.publicUrl}
                 onFocus={(event) => event.currentTarget.select()}
               />
               <IconButton
@@ -151,7 +151,7 @@ function SharingDialog({
               </IconButton>
               <a
                 className="icon-button"
-                href={artifact.url}
+                href={artifact.publicUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 aria-label="Open link in a new tab"

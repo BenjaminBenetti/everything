@@ -141,7 +141,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 case $url in
-  https://everything.internal/* | https://artifacts.everything.internal/* | https://images.everything.internal/*)
+  https://everything.internal/* | https://artifacts.everything.internal/* | https://public-apps.everything.internal/* | https://images.everything.internal/*)
     code=$(awk -F '\\t' -v url="$url" '$1 == url { print $2 }' "$FAKE_ENDPOINTS")
     [ -n "$code" ] || exit 60
     if [ -n "$write_out" ]; then printf '%s' "$code"; fi
@@ -300,6 +300,7 @@ export class FakeHost {
     this.setEndpoints({
       "https://everything.internal/health/ready": "200",
       "https://artifacts.everything.internal/": "404",
+      "https://public-apps.everything.internal/": "404",
       "https://images.everything.internal/v2/": "401",
     });
     this.prepareScript();

@@ -89,6 +89,7 @@ describe("install.sh", () => {
       "everything.example.com",
       "",
       "",
+      "",
       "nginx",
       "letsencrypt",
       "",
@@ -101,6 +102,7 @@ describe("install.sh", () => {
       "Namespace to install into",
       "Hostname the application is served on",
       "Hostname for apps",
+      "Hostname for public apps",
       "Hostname of the image registry",
       "ingress class",
       "ClusterIssuer",
@@ -116,6 +118,10 @@ describe("install.sh", () => {
     assert.match(
       saved,
       /^  externalArtifactHostname: 'artifacts\.example\.com'$/m,
+    );
+    assert.match(
+      saved,
+      /^  externalPublicAppsHostname: 'public-apps\.example\.com'$/m,
     );
     assert.match(
       saved,
@@ -141,6 +147,7 @@ describe("install.sh", () => {
         "global:",
         "  externalHostname: 'everything.internal'",
         "  externalArtifactHostname: 'artifacts.everything.internal'",
+        "  externalPublicAppsHostname: 'public-apps.everything.internal'",
         "  externalRegistryHostname: 'images.everything.internal'",
         "  ingress:",
         "    className: 'traefik'",
@@ -197,7 +204,7 @@ describe("install.sh", () => {
     const preset = join(host.directory, "preset.yaml");
     writeFileSync(
       preset,
-      "# namespace: local\nglobal:\n  externalHostname: 'everything.internal'\n  externalArtifactHostname: 'artifacts.example.com'\n  externalRegistryHostname: 'images.example.com'\n  ingress:\n    className: ''\n    tlsSecretName: ''\n  storageClassName: ''\n",
+      "# namespace: local\nglobal:\n  externalHostname: 'everything.internal'\n  externalArtifactHostname: 'artifacts.example.com'\n  externalPublicAppsHostname: 'public-apps.example.com'\n  externalRegistryHostname: 'images.example.com'\n  ingress:\n    className: ''\n    tlsSecretName: ''\n  storageClassName: ''\n",
     );
     const result = await runInstaller([settings, "", "", "", "", "y"], {
       EVERYTHING_PRESET_SETTINGS: preset,
@@ -217,7 +224,7 @@ describe("install.sh", () => {
     const preset = join(host.directory, "preset.yaml");
     writeFileSync(
       preset,
-      "# namespace: local\nglobal:\n  externalHostname: 'everything.internal'\n  externalArtifactHostname: 'artifacts.everything.internal'\n  externalRegistryHostname: 'images.everything.internal'\n  ingress:\n    className: 'traefik'\n    tlsSecretName: 'everything-local-tls'\n  storageClassName: 'local-path'\n",
+      "# namespace: local\nglobal:\n  externalHostname: 'everything.internal'\n  externalArtifactHostname: 'artifacts.everything.internal'\n  externalPublicAppsHostname: 'public-apps.everything.internal'\n  externalRegistryHostname: 'images.everything.internal'\n  ingress:\n    className: 'traefik'\n    tlsSecretName: 'everything-local-tls'\n  storageClassName: 'local-path'\n",
     );
     const env = {
       EVERYTHING_PRESET_SETTINGS: preset,

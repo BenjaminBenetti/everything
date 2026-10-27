@@ -149,7 +149,9 @@ test("the artifact host signs viewers in, serves files with validators, and expl
     site: new StaticSite(revisions),
     content: { open: async () => Readable.from(["hello"]) },
     proxy: {} as ArtifactProxy,
+    artifactOrigin: "http://localhost:8081",
     publicOrigin: "http://localhost:8080",
+    publicAppsOrigin: "http://localhost:8082",
   });
 
   const signedOut = await app.inject({
@@ -350,7 +352,9 @@ async function teammateHost(context: {
         return reply.send("from the app");
       },
     },
+    artifactOrigin: "http://localhost:8081",
     publicOrigin: "http://localhost:8080",
+    publicAppsOrigin: "http://localhost:8082",
   });
   return { host, passes, storedPasses, forwarded };
 }

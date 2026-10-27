@@ -48,16 +48,6 @@ export class ViewCookie {
     });
   }
 
-  /** Remove the session cookie with the same host, path, and transport policy as creation. */
-  clear(reply: FastifyReply): void {
-    reply.clearCookie(this.name, {
-      path: "/",
-      httpOnly: true,
-      secure: this.secure,
-      sameSite: "lax",
-    });
-  }
-
   /** Login cookies that must not reach an artifact's own server. */
   get privateCookies(): readonly string[] {
     return [this.name, ...applicationSessionCookies];

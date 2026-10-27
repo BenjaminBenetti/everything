@@ -142,6 +142,7 @@ async function application(context: TestContext) {
         database: false,
         capabilities: [],
         url: "https://artifacts.everything.test/planner/",
+        publicUrl: "https://public-apps.everything.test/planner/",
         visibility: visibility ?? "private",
         status: "running",
         release: 2,

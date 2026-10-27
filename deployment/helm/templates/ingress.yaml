@@ -1,18 +1,24 @@
 {{- /*
-One Ingress per site: the application's origin, the artifact host's separate origin, and the
-registry's hostname.
+One Ingress per site: the application's origin, the artifact host's separate origin, the public apps
+host's separate origin, and the registry's hostname. A service's `ingress` is one spec or a list of
+them, so a service can be reached on more than one origin.
 */ -}}
 {{- $sites := dict
   "application" (dict "name" .Release.Name "settings" .Values.global.ingress)
   "artifacts" (dict "name" (printf "%s-artifacts" .Release.Name) "settings" .Values.global.artifactIngress)
+  "public-apps" (dict "name" (printf "%s-public-apps" .Release.Name) "settings" .Values.global.publicAppsIngress)
   "registry" (dict "name" (printf "%s-registry" .Release.Name) "settings" .Values.global.registryIngress) }}
 {{- $paths := dict }}
 {{- range $name, $_ := .Values.services }}
 {{- $service := include "stack.service" (dict "root" $ "name" $name) | fromYaml }}
 {{- if and $service.enabled $service.ingress }}
-{{- $site := $service.ingress.site | default "application" }}
-{{- range $service.ingress.paths }}
-{{- $_ := set $paths $site (append (get $paths $site | default list) (dict "path" (tpl . $) "service" $name "port" $service.ingress.port)) }}
+{{- $specs := $service.ingress }}
+{{- if not (kindIs "slice" $specs) }}{{- $specs = list $specs }}{{- end }}
+{{- range $spec := $specs }}
+{{- $site := $spec.site | default "application" }}
+{{- range $spec.paths }}
+{{- $_ := set $paths $site (append (get $paths $site | default list) (dict "path" (tpl . $) "service" $name "port" $spec.port)) }}
+{{- end }}
 {{- end }}
 {{- end }}
 {{- end }}

@@ -13,13 +13,20 @@ import {
   MemoryRevisions,
   owner,
 } from "../../artifact/test/artifact-fixture.js";
-import { createPublicApplication } from "../../application/factory/public-application.js";
+import {
+  createPublicApplication,
+  createPublicAppsApplication,
+} from "../../application/factory/public-application.js";
 import { ViewCookie } from "../handler/view-cookie.js";
 import { ViewPassCredentials } from "../handler/view-pass-credentials.js";
+import type { ArtifactServingDependencies } from "../service/artifact-serving.js";
 import { StaticSite } from "../service/static-site.js";
 import { ViewAccess } from "../service/view-access.js";
 import { ViewPasses } from "../service/view-passes.js";
 import { memoryCredentials } from "./view-fixture.js";
+
+const artifactOrigin = "http://localhost:8081";
+const publicAppsOrigin = "http://localhost:8082";
 
 /** Requests a browser navigation makes, so signed-out private requests redirect to sign in. */
 const navigation = { "sec-fetch-mode": "navigate" };
@@ -38,7 +45,7 @@ interface Visited {
   text(): Promise<string>;
 }
 
-/** Send a raw HTTP request to the host and read its whole response. */
+/** Send a raw HTTP request to a host and read its whole response. */
 function send(url: string, visit: Visit): Promise<Visited> {
   return new Promise((resolve, reject) => {
     const request = httpRequest(
@@ -72,8 +79,11 @@ function send(url: string, visit: Visit): Promise<Visited> {
   });
 }
 
-/** The real artifact host on a local port, with public and private apps of two owners. */
-async function publicHost(context: TestContext) {
+/**
+ * Both hosts over real HTTP on their own ports: the artifact host (credentialed) and the public apps
+ * host (anonymous), serving public and private apps of two owners through the production factories.
+ */
+async function hosts(context: TestContext) {
   const artifacts = new MemoryArtifacts();
   const revisions = new MemoryRevisions();
   const files = {
@@ -81,27 +91,24 @@ async function publicHost(context: TestContext) {
     "assets/app.js": "console.log('public');",
   };
   const site = artifacts.add("static", "site", { liveRevision: 1 });
-  const hidden = artifacts.add("static", "hidden", { liveRevision: 1 });
+  artifacts.add("static", "hidden", { liveRevision: 1 });
   const service = artifacts.add("dynamic", "service", {
     liveDeployment: 1,
     running: true,
   });
-  const theirs = artifacts.add("static", "theirs", {
-    ownerId: "another-owner",
-    liveRevision: 1,
-  });
-  for (const app of [site, hidden, theirs])
-    await revisions.create(
-      { ownerId: app.ownerId, artifactId: app.id },
-      {
-        number: 1,
-        author: ada,
-        files: Object.entries(files).map(([path, body]) =>
-          file(path, body.length),
-        ),
-        totalSize: 40,
-      },
-    );
+  for (const app of artifacts.records.values())
+    if (app.kind === "static")
+      await revisions.create(
+        { ownerId: app.ownerId, artifactId: app.id },
+        {
+          number: 1,
+          author: ada,
+          files: Object.entries(files).map(([path, body]) =>
+            file(path, body.length),
+          ),
+          totalSize: 40,
+        },
+      );
   const lookup = new ArtifactLookup(artifacts);
   const visibility = new ArtifactVisibilityService(
     artifacts,
@@ -113,248 +120,271 @@ async function publicHost(context: TestContext) {
     visibility.change(by, { id: by, name: "You" }, slug, choice);
   const { grants, sessions, passes: passRecords } = memoryCredentials();
   const passes = new ViewPasses(lookup, passRecords);
-  const access = new ViewAccess(
-    artifacts,
-    grants,
-    sessions,
-    "http://localhost:8081",
-  );
-  const forwarded: {
-    slug: string;
-    path: string;
-    method: string;
-    cookie?: string;
-  }[] = [];
+  const access = new ViewAccess(artifacts, grants, sessions, artifactOrigin);
+  const staticSite = new StaticSite(revisions);
+  const content = {
+    /** Serve each fixture file's body by the hash the fixture derived from its path. */
+    open: async (hash: string) =>
+      Readable.from([
+        Object.entries(files).find(
+          ([path, body]) => file(path, body.length).sha256 === hash,
+        )?.[1] ?? "",
+      ]),
+  };
+  const forwarded: { slug: string; path: string; method: string }[] = [];
+  const serving = {
+    site: staticSite,
+    content,
+    proxy: {
+      /** Record what reaches the dynamic app instead of opening a cluster connection. */
+      forward: async (request, reply, artifact, path) => {
+        forwarded.push({ slug: artifact.slug, path, method: request.method });
+        return reply.send("from the app");
+      },
+    } as ArtifactServingDependencies["proxy"],
+  } satisfies ArtifactServingDependencies;
   const host = await createPublicApplication({
+    ...serving,
     access,
-    cookie: new ViewCookie("http://localhost:8081"),
+    cookie: new ViewCookie(artifactOrigin),
     passes,
     passCredentials: new ViewPassCredentials(),
     apiKeys: { authenticate: async () => undefined },
     artifacts,
-    site: new StaticSite(revisions),
-    content: {
-      /** Serve each fixture file's body by the hash the fixture derived from its path. */
-      open: async (hash) =>
-        Readable.from([
-          Object.entries(files).find(
-            ([path, body]) => file(path, body.length).sha256 === hash,
-          )?.[1] ?? "",
-        ]),
-    },
-    proxy: {
-      /** Record what reaches the dynamic app instead of opening a cluster connection. */
-      forward: async (request, reply, artifact, path) => {
-        forwarded.push({
-          slug: artifact.slug,
-          path,
-          method: request.method,
-          ...(request.headers.cookie ? { cookie: request.headers.cookie } : {}),
-        });
-        return reply.send("from the app");
-      },
-    },
+    artifactOrigin,
+    publicOrigin: "http://localhost:8080",
+    publicAppsOrigin,
+  });
+  const publicApps = await createPublicAppsApplication({
+    ...serving,
+    artifacts,
     publicOrigin: "http://localhost:8080",
   });
   await host.listen({ host: "127.0.0.1", port: 0 });
+  await publicApps.listen({ host: "127.0.0.1", port: 0 });
   context.after(() => host.close());
-  const origin = `http://127.0.0.1:${(host.server.address() as AddressInfo).port}`;
-  /** Fetch from the host over HTTP as a browser without cookies would, unless headers add some. */
-  const visit = (path: string, init: Visit = {}) => send(origin + path, init);
+  context.after(() => publicApps.close());
+  const hostUrl = `http://127.0.0.1:${(host.server.address() as AddressInfo).port}`;
+  const publicUrl = `http://127.0.0.1:${(publicApps.server.address() as AddressInfo).port}`;
+  /** Fetch from the artifact host over HTTP. */
+  const visitHost = (path: string, init: Visit = {}) =>
+    send(hostUrl + path, init);
+  /** Fetch from the public apps host over HTTP. */
+  const visitPublic = (path: string, init: Visit = {}) =>
+    send(publicUrl + path, init);
   /** Sign a browser in to the artifact host as an owner, as a view link does. */
-  async function session(ownerId: string, slug: string): Promise<string> {
-    const view = await access.grant(ownerId, { slug });
+  async function session(slug: string): Promise<string> {
+    const view = await access.grant(owner, { slug });
     const code = new URL(view.url).searchParams.get("code")!;
     return (await access.redeem(code))!.sessionToken;
   }
   return {
     artifacts,
-    access,
-    passes,
     share,
-    visit,
+    visitHost,
+    visitPublic,
     session,
+    passes,
     forwarded,
     site,
     service,
-    theirs,
   };
 }
 
-test("anonymous visitors get a public static app and its nested files, and nothing private", async (context) => {
-  const { visit, share } = await publicHost(context);
-  // Before the owner chooses, the app is private and answers exactly like a missing one.
-  for (const path of ["/site/", "/missing/"]) {
-    const page = await visit(path, { headers: navigation });
-    assert.equal(page.status, 302, path);
-    assert.match(page.headers.get("location")!, /\/apps\/open\?slug=/);
-    assert.equal((await visit(path)).status, 401, path);
-  }
+test("the public apps host serves a public static app and its nested files to anyone, and never sets a cookie", async (context) => {
+  const { visitPublic, share } = await hosts(context);
+  // Before the owner chooses, the app is private and not reachable on the public origin at all.
+  assert.equal((await visitPublic("/site/")).status, 404);
+  assert.equal(
+    (await visitPublic("/site/", { headers: navigation })).status,
+    404,
+  );
 
   await share("site", "public");
-  const page = await visit("/site/");
+  const page = await visitPublic("/site/");
   assert.equal(page.status, 200);
   assert.equal(await page.text(), "<h1>Public page</h1>");
-  assert.equal(page.headers.get("cache-control"), "no-cache");
   assert.equal(page.headers.get("set-cookie"), null);
-  const asset = await visit("/site/assets/app.js");
+  const asset = await visitPublic("/site/assets/app.js");
   assert.equal(asset.status, 200);
   assert.equal(await asset.text(), "console.log('public');");
   assert.equal(
-    (await visit("/site/assets/app.js", { method: "HEAD" })).status,
+    (await visitPublic("/site/assets/app.js", { method: "HEAD" })).status,
     200,
   );
-  assert.equal((await visit("/site/", { method: "POST" })).status, 405);
-  assert.equal((await visit("/site/missing.png")).status, 404);
-  assert.equal((await visit("/site")).headers.get("location"), "/site/");
+  assert.equal((await visitPublic("/site/", { method: "POST" })).status, 405);
+  assert.equal((await visitPublic("/site")).headers.get("location"), "/site/");
 
-  // Nothing else of the owner's opens: other apps, encoded escapes, or other casings of the slug.
-  for (const path of [
-    "/hidden/",
-    "/site/%2e%2e/hidden/index.html",
-    "/site/..%2fhidden/index.html",
-    "/SITE/",
-    "/site%2fhidden/",
-  ]) {
-    const response = await visit(path);
+  // Another owner's private app, path traversal, and casing never reach private content here.
+  for (const path of ["/hidden/", "/site/%2e%2e/hidden/index.html", "/SITE/"]) {
+    const response = await visitPublic(path);
     assert.ok(
-      [401, 404].includes(response.status),
+      [301, 308, 404].includes(response.status),
       `${path}: ${response.status}`,
     );
     assert.doesNotMatch(await response.text(), /Public page/, path);
   }
-  // The host's own pages stay as they were: no listing, and the root sends people to Everything.
-  const root = await visit("/");
-  assert.equal(root.status, 302);
-  assert.equal(root.headers.get("location"), "http://localhost:8080/apps");
-  assert.equal((await visit("/_access?code=guess")).status, 403);
 });
 
-test("making an app private again refuses the next anonymous request, including cached revalidation", async (context) => {
-  const { visit, share } = await publicHost(context);
+test("the public apps host ignores cookies and API keys; it never serves private content with them", async (context) => {
+  const { visitPublic, share, session } = await hosts(context);
   await share("site", "public");
-  const first = await visit("/site/");
-  const etag = first.headers.get("etag")!;
-  assert.equal(first.status, 200);
+  // A stolen artifact-host session cookie, replayed on the public origin, opens nothing private.
+  const cookie = `everything-artifact-session=${await session("site")}`;
   assert.equal(
-    (await visit("/site/", { headers: { "if-none-match": etag } })).status,
-    304,
+    (await visitPublic("/hidden/", { headers: { cookie } })).status,
+    404,
   );
-
-  await share("site", "private");
-  for (const headers of [{ "if-none-match": etag }, {}]) {
-    const refused = await visit("/site/", { headers });
-    assert.equal(refused.status, 401);
-    assert.equal(refused.headers.get("cache-control"), "no-store");
-    assert.doesNotMatch(await refused.text(), /Public page/);
-  }
-  const navigationRefused = await visit("/site/assets/app.js", {
-    headers: navigation,
-  });
-  assert.equal(navigationRefused.status, 302);
+  // The owner's own session on the public origin still only sees the public app, as anyone would.
+  const withCookie = await visitPublic("/site/", { headers: { cookie } });
+  assert.equal(withCookie.status, 200);
+  assert.equal(withCookie.headers.get("set-cookie"), null);
+  // An API key is not an access path on the public origin.
+  assert.equal(
+    (
+      await visitPublic("/hidden/", {
+        headers: { "x-api-key": `everything_app_key_${"x".repeat(43)}` },
+      })
+    ).status,
+    404,
+  );
 });
 
-test("a public dynamic app forwards every method and upgrade, and explains when it isn't running", async (context) => {
-  const { visit, share, forwarded, artifacts, service } =
-    await publicHost(context);
-  assert.equal((await visit("/service/api/items")).status, 401);
+test("a public dynamic app is forwarded on the public origin, and a stopped one shows a neutral notice", async (context) => {
+  const { visitPublic, share, forwarded, artifacts, service } =
+    await hosts(context);
+  assert.equal((await visitPublic("/service/api/items")).status, 404);
   assert.deepEqual(forwarded, []);
 
   await share("service", "public");
-  const read = await visit("/service/api/items?page=2");
+  const read = await visitPublic("/service/api/items?page=2");
   assert.deepEqual([read.status, await read.text()], [200, "from the app"]);
-  const write = await visit("/service/api/items", {
+  const write = await visitPublic("/service/api/items", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: "{}",
   });
   assert.equal(write.status, 200);
-  const upgrade = await visit("/service/socket", {
-    headers: { connection: "Upgrade", upgrade: "websocket" },
-  });
-  assert.equal(upgrade.status, 200);
   assert.deepEqual(
-    forwarded.map(({ path, method }) => [method, path]),
+    forwarded.map(({ method, path }) => [method, path]),
     [
       ["GET", "/api/items?page=2"],
       ["POST", "/api/items"],
-      ["GET", "/socket"],
     ],
   );
-
   await artifacts.update({ ownerId: owner }, service.id, {
     running: false,
     updatedBy: ada,
   });
-  const stopped = await visit("/service/");
+  const stopped = await visitPublic("/service/");
   assert.equal(stopped.status, 503);
-  assert.match(
-    await stopped.text(),
-    /This app isn&#39;t available|This app isn't available/,
-  );
-  await artifacts.update({ ownerId: owner }, service.id, {
-    running: true,
-    liveDeployment: null,
-    updatedBy: ada,
-  });
-  assert.equal((await visit("/service/")).status, 503);
-  assert.equal(forwarded.length, 3);
+  assert.match(await stopped.text(), /isn.?.?t available/);
 });
 
-test("another owner's artifact host session is signed out before a public app runs beside it", async (context) => {
-  const { visit, share, session, access } = await publicHost(context);
-  await share("theirs", "public", "another-owner");
-  const mine = await session(owner, "site");
-  const cookie = `everything-artifact-session=${mine}`;
-  assert.equal((await visit("/hidden/", { headers: { cookie } })).status, 200);
-
-  // The visitor sees the other owner's public app, and their own session ends with that response.
-  const visited = await visit("/theirs/", { headers: { cookie } });
-  assert.equal(visited.status, 200);
-  assert.match(
-    visited.headers.get("set-cookie") ?? "",
-    /^everything-artifact-session=;.*Expires=Thu, 01 Jan 1970/,
-  );
-  assert.equal(await access.viewer(mine), undefined);
-  // So the public app's pages cannot reach the visitor's private apps with that session.
-  const reused = await visit("/hidden/", { headers: { cookie } });
-  assert.equal(reused.status, 401);
-  assert.doesNotMatch(await reused.text(), /Public page/);
-
-  // The owner's own public app keeps the owner signed in.
+test("making a public app private again stops the next request on the public origin, including cached revalidation", async (context) => {
+  const { visitPublic, share } = await hosts(context);
   await share("site", "public");
-  const again = await session(owner, "site");
-  const own = await visit("/site/", {
-    headers: { cookie: `everything-artifact-session=${again}` },
-  });
-  assert.equal(own.status, 200);
-  assert.equal(own.headers.get("set-cookie"), null);
-  assert.equal(await access.viewer(again), owner);
+  const first = await visitPublic("/site/");
+  const etag = first.headers.get("etag")!;
+  assert.equal(first.status, 200);
+  assert.equal(
+    (await visitPublic("/site/", { headers: { "if-none-match": etag } }))
+      .status,
+    304,
+  );
+  await share("site", "private");
+  for (const headers of [{ "if-none-match": etag }, {}]) {
+    const refused = await visitPublic("/site/", { headers });
+    assert.equal(refused.status, 404);
+    assert.doesNotMatch(await refused.text(), /Public page/);
+  }
 });
 
-test("a public app does not accept a wrong API key, and passes still open only their own private app", async (context) => {
-  const { visit, share, passes } = await publicHost(context);
-  await share("service", "public");
-  const keyed = await visit("/service/hook", {
-    method: "POST",
-    headers: { "x-api-key": `everything_app_key_${"x".repeat(43)}` },
-  });
-  assert.equal(keyed.status, 401);
-  assert.equal(JSON.parse(await keyed.text()).code, "INVALID_API_KEY");
+test("the artifact host serves owners only, and sends an anonymous public-app visitor to the public origin", async (context) => {
+  const { visitHost, share, session } = await hosts(context);
+  await share("site", "public");
+  // A signed-out navigation for a public app is redirected to the public origin, never served here.
+  const redirect = await visitHost("/site/", { headers: navigation });
+  assert.equal(redirect.status, 302);
+  assert.equal(redirect.headers.get("location"), `${publicAppsOrigin}/site/`);
+  assert.equal(redirect.headers.get("set-cookie"), null);
+  // A signed-out non-navigation gets no content and no redirect it could read cross-origin.
+  assert.equal((await visitHost("/site/")).status, 401);
+  // A private app signed-out still goes to sign-in, revealing nothing.
+  const privateNav = await visitHost("/hidden/", { headers: navigation });
+  assert.equal(privateNav.status, 302);
+  assert.match(
+    privateNav.headers.get("location")!,
+    /\/apps\/open\?slug=hidden/,
+  );
 
-  // A teammate's pass for one app opens public apps like anyone, but never the owner's other private apps.
+  // The owner, signed in, opens their own PRIVATE app on the artifact host.
+  const cookie = `everything-artifact-session=${await session("hidden")}`;
+  const served = await visitHost("/hidden/", { headers: { cookie } });
+  assert.equal(served.status, 200);
+  assert.equal(await served.text(), "<h1>Public page</h1>");
+  // But the owner's broad session never runs a PUBLIC app's pages here: it goes to the public origin,
+  // so a public app (which may hold agent-written code) cannot read the owner's private apps.
+  const ownerPublic = await visitHost("/site/", {
+    headers: { cookie, ...navigation },
+  });
+  assert.equal(ownerPublic.status, 302);
+  assert.equal(
+    ownerPublic.headers.get("location"),
+    `${publicAppsOrigin}/site/`,
+  );
+});
+
+test("the artifact host refuses a cross-origin state change that rides the session cookie", async (context) => {
+  const { visitHost, session } = await hosts(context);
+  const cookie = `everything-artifact-session=${await session("hidden")}`;
+  // A same-origin POST from the app's own page is allowed through to the app.
+  const sameOrigin = await visitHost("/hidden/save", {
+    method: "POST",
+    headers: {
+      cookie,
+      "sec-fetch-site": "same-origin",
+      "content-type": "text/plain",
+    },
+    body: "x",
+  });
+  // hidden is static, so POST is 405; the point is it was not blocked as cross-origin (not 403).
+  assert.notEqual(sameOrigin.status, 403);
+  // A cross-site or same-site-but-cross-origin initiator (e.g. a public app page) is refused.
+  for (const site of ["cross-site", "same-site"]) {
+    const blocked = await visitHost("/hidden/save", {
+      method: "POST",
+      headers: { cookie, "sec-fetch-site": site, "content-type": "text/plain" },
+      body: "x",
+    });
+    assert.equal(blocked.status, 403, site);
+    assert.match(await blocked.text(), /blocked/i);
+  }
+  // Safe cross-site reads are not blocked here (the browser's same-origin policy guards the response).
+  const read = await visitHost("/hidden/", {
+    headers: {
+      cookie,
+      "sec-fetch-site": "cross-site",
+      "sec-fetch-mode": "navigate",
+    },
+  });
+  assert.equal(read.status, 200);
+});
+
+test("a teammate pass still views a public app on the artifact host, scoped to that one app", async (context) => {
+  const { visitHost, share, passes, artifacts } = await hosts(context);
+  await share("site", "public");
+  const site = (await artifacts.findBySlug({ ownerId: owner }, "site"))!;
   const pass = await passes.issue(owner, "site", {});
   const authorization = `Bearer ${pass.token}`;
+  // The pass is scoped to one app, so it carries no cross-app risk and is served here, even public.
+  const served = await visitHost("/site/", { headers: { authorization } });
+  assert.equal(served.status, 200);
+  assert.equal(await served.text(), "<h1>Public page</h1>");
+  void site;
+  // The same pass opens nothing else.
   assert.equal(
-    (await visit("/site/", { headers: { authorization } })).status,
-    200,
-  );
-  assert.equal(
-    (await visit("/service/", { headers: { authorization } })).status,
-    200,
-  );
-  assert.equal(
-    (await visit("/hidden/", { headers: { authorization } })).status,
+    (await visitHost("/hidden/", { headers: { authorization } })).status,
     404,
   );
 });

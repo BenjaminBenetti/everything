@@ -382,7 +382,7 @@ ask_hostname() {
 }
 
 ask_hostnames() {
-  local app_host artifact_host registry_host domain
+  local app_host artifact_host public_apps_host registry_host domain
   if ! has_entry global externalHostname; then
     begin_section "Cluster settings"
     ask_hostname app_host "Hostname the application is served on, such as everything.example.com"
@@ -404,11 +404,21 @@ ask_hostnames() {
     set_entry "$(yaml_quote "$artifact_host")" global externalArtifactHostname
   fi
   artifact_host=$(setting global externalArtifactHostname)
+  if ! has_entry global externalPublicAppsHostname; then
+    begin_section "Cluster settings"
+    while true; do
+      ask_hostname public_apps_host "Hostname for public apps, a third name on the same domain" "public-apps.$domain"
+      if [ "$public_apps_host" != "$app_host" ] && [ "$public_apps_host" != "$artifact_host" ]; then break; fi
+      say "Public apps need a hostname of their own, separate from the app host, so a public app cannot reach private apps."
+    done
+    set_entry "$(yaml_quote "$public_apps_host")" global externalPublicAppsHostname
+  fi
+  public_apps_host=$(setting global externalPublicAppsHostname)
   if ! has_entry global externalRegistryHostname; then
     begin_section "Cluster settings"
     while true; do
       ask_hostname registry_host "Hostname of the image registry nodes pull from" "images.$domain"
-      if [ "$registry_host" != "$app_host" ] && [ "$registry_host" != "$artifact_host" ]; then break; fi
+      if [ "$registry_host" != "$app_host" ] && [ "$registry_host" != "$artifact_host" ] && [ "$registry_host" != "$public_apps_host" ]; then break; fi
       say "The registry needs a hostname of its own."
     done
     set_entry "$(yaml_quote "$registry_host")" global externalRegistryHostname
@@ -422,7 +432,7 @@ ask_cluster_classes() {
   if ! has_entry global ingress className; then
     begin_section "Cluster settings"
     ask ingress_class "Name of the ingress class to use (Enter for the cluster's default)"
-    for site in ingress artifactIngress registryIngress; do
+    for site in ingress artifactIngress publicAppsIngress registryIngress; do
       set_entry "$(yaml_quote "$ingress_class")" global "$site" className
     done
     # ingress-nginx limits request bodies, and the registry receives whole image layers.
@@ -436,6 +446,7 @@ ask_cluster_classes() {
     # With an issuer, cert-manager fills each Ingress's TLS Secret; an empty name leaves TLS to the
     # ingress controller.
     for site in ingress:everything-tls artifactIngress:everything-artifacts-tls \
+      publicAppsIngress:everything-public-apps-tls \
       registryIngress:everything-registry-tls; do
       if [ -n "$issuer" ]; then
         set_entry "$(yaml_quote "$issuer")" global "${site%%:*}" annotations cert-manager.io/cluster-issuer
@@ -725,7 +736,8 @@ print_next_steps() {
     say "Everything $version is installed in namespace $namespace."
     # A preset comes from a script that also makes the hostnames resolve.
     if [ -z "$preset" ]; then
-      say "  Point DNS for $app_host, $(setting global externalArtifactHostname), and"
+      say "  Point DNS for $app_host, $(setting global externalArtifactHostname),"
+      say "  $(setting global externalPublicAppsHostname), and"
       say "  $(setting global externalRegistryHostname) at your ingress controller."
     fi
   else

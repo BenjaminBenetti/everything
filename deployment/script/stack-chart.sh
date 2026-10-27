@@ -14,6 +14,8 @@ local_port=8080
 local_origin=http://localhost:$local_port
 # The artifact host's entrypoint, forwarded to the same port; it matches global.artifactOrigin.
 artifact_local_port=8081
+# The public apps host's entrypoint, forwarded to the same port; it matches global.publicAppsOrigin.
+public_apps_local_port=8082
 
 # Render the release's manifests; extra arguments, such as --values, are passed to Helm.
 render_stack() {

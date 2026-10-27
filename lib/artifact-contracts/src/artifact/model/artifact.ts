@@ -169,8 +169,13 @@ export interface ArtifactSummary {
   readonly database: boolean;
   /** Capabilities enabled for the current deployment; empty before deployment and for static apps. */
   readonly capabilities: readonly ArtifactCapability[];
-  /** Link that opens the artifact on the artifact host; anyone can use it while the app is public. */
+  /** Link that opens the app on the artifact host, where the owner and teammates sign in. */
   readonly url: string;
+  /**
+   * Stable, token-free link on the public apps origin. It opens the app for anyone only while the
+   * app is public; while private it is not anonymously reachable. This is the link to share.
+   */
+  readonly publicUrl: string;
   /** Who can open the app; teammates can read it, and only the owner changes it, from Apps. */
   readonly visibility: ArtifactVisibility;
   readonly status: ArtifactStatus;

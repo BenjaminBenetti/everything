@@ -43,11 +43,17 @@ function statusOf(
   return runtime?.state ?? "stopped";
 }
 
+/** The origins an app's links are built on: the artifact host and the public apps host. */
+export interface HostOrigins {
+  readonly artifact: string;
+  readonly publicApps: string;
+}
+
 /** Present an artifact with its status and current deployment's public capability flags. */
 export function representSummary(
   artifact: Artifact,
   observed: ArtifactRuntime | undefined,
-  artifactOrigin: string,
+  origins: HostOrigins,
   deployment: Pick<ArtifactDeployment, "database" | "capabilities"> | undefined,
 ): ArtifactSummary {
   return {
@@ -58,7 +64,8 @@ export function representSummary(
     description: artifact.description,
     database: deployment?.database ?? false,
     capabilities: deployment?.capabilities ?? [],
-    url: `${artifactOrigin}/${artifact.slug}/`,
+    url: `${origins.artifact}/${artifact.slug}/`,
+    publicUrl: `${origins.publicApps}/${artifact.slug}/`,
     visibility: artifact.visibility,
     status: statusOf(artifact, runtimeOf(artifact, observed)),
     release: artifact.release,
@@ -74,7 +81,7 @@ export function representDetails(
   artifact: Artifact,
   history: ArtifactHistory,
   observed: ArtifactRuntime | undefined,
-  artifactOrigin: string,
+  origins: HostOrigins,
 ): ArtifactDetails {
   const deployment: ArtifactDeployment | null = history.deployment
     ? {
@@ -91,7 +98,7 @@ export function representDetails(
       }
     : null;
   return {
-    ...representSummary(artifact, observed, artifactOrigin, history.deployment),
+    ...representSummary(artifact, observed, origins, history.deployment),
     liveRevision: artifact.liveRevision,
     revisions: history.revisions,
     builds: history.builds,

@@ -7,6 +7,7 @@ function environment(): NodeJS.ProcessEnv {
   return {
     PUBLIC_ORIGIN: "https://everything.test",
     ARTIFACT_ORIGIN: "https://artifacts.everything.test",
+    PUBLIC_APPS_ORIGIN: "https://public-apps.everything.test",
     OIDC_ISSUER: "https://everything.test/auth/realms/everything",
     OIDC_JWKS_URL: "http://keycloak:8080/certs",
     OIDC_AUDIENCE: "everything-artifact",
@@ -38,7 +39,11 @@ function environment(): NodeJS.ProcessEnv {
 
 test("defaults the two ports and splits the artifact database address", () => {
   const config = loadApplicationConfig(environment());
-  assert.deepEqual([config.port, config.internalPort], [8080, 8081]);
+  assert.deepEqual(
+    [config.port, config.internalPort, config.publicAppsPort],
+    [8080, 8081, 8082],
+  );
+  assert.equal(config.publicAppsOrigin, "https://public-apps.everything.test");
   assert.deepEqual(config.artifactData, {
     database: "artifact_data",
     host: "postgres.everything.svc.cluster.local",

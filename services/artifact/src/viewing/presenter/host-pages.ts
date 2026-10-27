@@ -68,6 +68,11 @@ export const hostMessages = {
     title: "Sign in to view this app",
     message: "Open the app from Everything to sign in.",
   },
+  crossOrigin: {
+    title: "This request was blocked",
+    message:
+      "A change to this app must come from the app itself, not from another site or app. Open the app and try again.",
+  },
   passExpired: {
     title: "This teammate link has expired",
     message:

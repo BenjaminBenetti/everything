@@ -44,7 +44,10 @@ import { ViewAccess } from "../../viewing/service/view-access.js";
 import { ViewPasses } from "../../viewing/service/view-passes.js";
 import { loadApplicationConfig } from "../config/application-config.js";
 import { createInternalApplication } from "../factory/internal-application.js";
-import { createPublicApplication } from "../factory/public-application.js";
+import {
+  createPublicApplication,
+  createPublicAppsApplication,
+} from "../factory/public-application.js";
 import { PeriodicTask } from "../service/periodic-task.js";
 
 import { ArtifactLifecycleService } from "../../artifact/service/artifact-lifecycle-service.js";
@@ -155,7 +158,7 @@ async function main(): Promise<void> {
     { builds, workloads: reconciler },
     lookup,
     lock,
-    config.artifactOrigin,
+    { artifact: config.artifactOrigin, publicApps: config.publicAppsOrigin },
   );
 
   const internal = await createInternalApplication({
@@ -201,6 +204,14 @@ async function main(): Promise<void> {
   });
   const cookie = new ViewCookie(config.artifactOrigin);
   const passCredentials = new ViewPassCredentials();
+  const site = new StaticSite(revisionRepository);
+  // One proxy forwards to app pods for both hosts; it withholds the artifact host's cookies and passes.
+  const proxy = new ArtifactProxy(
+    config.cluster.artifactNamespace,
+    [...cookie.privateCookies, passCredentials.cookieName],
+    new ProvisionedClientSecrets(deploymentRepository, capabilitySecrets),
+    new AppResponseGuard(),
+  );
   const host = await createPublicApplication({
     access,
     cookie,
@@ -208,14 +219,20 @@ async function main(): Promise<void> {
     passCredentials,
     apiKeys,
     artifacts: artifactRepository,
-    site: new StaticSite(revisionRepository),
+    site,
     content,
-    proxy: new ArtifactProxy(
-      config.cluster.artifactNamespace,
-      [...cookie.privateCookies, passCredentials.cookieName],
-      new ProvisionedClientSecrets(deploymentRepository, capabilitySecrets),
-      new AppResponseGuard(),
-    ),
+    proxy,
+    artifactOrigin: config.artifactOrigin,
+    publicOrigin: config.publicOrigin,
+    publicAppsOrigin: config.publicAppsOrigin,
+  });
+  // Public apps are served on their own origin, with no sign-in, pass, or API key, so a public app's
+  // pages run under a browser trust boundary separate from the artifact host's private apps.
+  const publicApps = await createPublicAppsApplication({
+    artifacts: artifactRepository,
+    site,
+    content,
+    proxy,
     publicOrigin: config.publicOrigin,
   });
 
@@ -231,6 +248,7 @@ async function main(): Promise<void> {
   ];
   internal.addHook("onClose", async () => {
     await Promise.all(tasks.map((task) => task.stop()));
+    await publicApps.close();
     await host.close();
     await dataDatabase.destroy();
     await database.destroy();
@@ -238,6 +256,7 @@ async function main(): Promise<void> {
   closeOnTermination(internal);
   await internal.listen({ host: "0.0.0.0", port: config.internalPort });
   await host.listen({ host: "0.0.0.0", port: config.port });
+  await publicApps.listen({ host: "0.0.0.0", port: config.publicAppsPort });
   for (const task of tasks) task.start();
 }
 

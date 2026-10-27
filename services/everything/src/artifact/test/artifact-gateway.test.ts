@@ -123,6 +123,7 @@ test("browser endpoints list artifacts and open them, hiding artifact service de
     database: false,
     capabilities: [],
     url: "http://artifacts.test/for-owner",
+    publicUrl: "http://public.apps.test/for-owner",
     visibility: "private" as const,
     status: "live" as const,
     release: 1,

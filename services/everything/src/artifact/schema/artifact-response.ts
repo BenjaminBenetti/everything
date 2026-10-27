@@ -18,6 +18,7 @@ export const artifactSummaryResponse = Type.Object({
     Type.Union(artifactCapabilities.map((value) => Type.Literal(value))),
   ),
   url: Type.String(),
+  publicUrl: Type.String(),
   visibility: Type.Union(
     artifactVisibilities.map((value) => Type.Literal(value)),
   ),

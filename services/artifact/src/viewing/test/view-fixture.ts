@@ -59,16 +59,7 @@ export function memoryCredentials(): MemoryCredentials {
     sessions: {
       getById: async () => undefined,
       list: async () => [...sessions],
-      /** Delete one session by its token and ID, as signing out does. */
-      async delete(scope, id) {
-        const index = sessions.findIndex(
-          (entry) =>
-            entry.id === id &&
-            "tokenHash" in scope &&
-            entry.tokenHash === scope.tokenHash,
-        );
-        if (index >= 0) sessions.splice(index, 1);
-      },
+      delete: async () => {},
       async create(session) {
         sessions.push({
           ...session,

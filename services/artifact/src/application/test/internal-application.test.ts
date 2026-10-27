@@ -63,7 +63,10 @@ async function application(context: {
       },
       lookup,
       lock,
-      "http://artifacts.test",
+      {
+        artifact: "http://artifacts.test",
+        publicApps: "http://public.apps.test",
+      },
     ),
     lifecycle: new ArtifactLifecycleService(artifacts, lookup, lock, {
       reconcile: async () => {},

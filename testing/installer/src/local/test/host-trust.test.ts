@@ -27,7 +27,7 @@ afterEach(() => {
 const begin = "# BEGIN Everything local installer (install-k3s.sh)";
 const end = "# END Everything local installer";
 const mapping =
-  "127.0.0.1\teverything.internal artifacts.everything.internal images.everything.internal";
+  "127.0.0.1\teverything.internal artifacts.everything.internal public-apps.everything.internal images.everything.internal";
 const trusted = /no longer trusted on this computer/;
 
 /** Run the source copy with the fake installer, agreeing to the plan. */

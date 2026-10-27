@@ -29,6 +29,7 @@ function app(
       ...(index === 3 ? ["api-key"] : []),
     ],
     url: `http://localhost:8081/app-${index}/`,
+    publicUrl: `http://localhost:8082/app-${index}/`,
     visibility: "private",
     release: status === "unpublished" ? 0 : 1,
     createdAt: new Date(Date.now() - 30 * 86_400_000).toISOString(),
@@ -686,10 +687,14 @@ test("background updates reorder apps and stale controls disable until a success
  */
 async function appHost(
   context: BrowserContext,
-  apps: () => readonly { url: string; title: string; visibility: string }[],
+  apps: () => readonly {
+    publicUrl: string;
+    title: string;
+    visibility: string;
+  }[],
 ): Promise<void> {
-  await context.route("http://localhost:8081/**", (route) => {
-    const app = apps().find((item) => route.request().url() === item.url);
+  await context.route("http://localhost:8082/**", (route) => {
+    const app = apps().find((item) => route.request().url() === item.publicUrl);
     return route.fulfill(
       app?.visibility === "public"
         ? {
@@ -708,7 +713,11 @@ async function appHost(
 /** A separate browser with no Everything session, as someone the owner sends the link to. */
 async function visitor(
   browser: Browser,
-  apps: () => readonly { url: string; title: string; visibility: string }[],
+  apps: () => readonly {
+    publicUrl: string;
+    title: string;
+    visibility: string;
+  }[],
 ): Promise<BrowserContext> {
   const context = await browser.newContext();
   await appHost(context, apps);
@@ -726,7 +735,7 @@ test("an owner makes an app public from Apps, shares its link with a signed-out 
   const guest = await visitor(browser, () => state.apps);
   const guestPage = await guest.newPage();
   const planner = state.apps.find((item) => item.title === "Planner")!;
-  await guestPage.goto(planner.url);
+  await guestPage.goto(planner.publicUrl);
   await expect(
     guestPage.getByRole("heading", { name: "Sign in to view this app" }),
   ).toBeVisible();
@@ -792,7 +801,7 @@ test("an owner makes an app public from Apps, shares its link with a signed-out 
     "This app is public now. Anyone with the link can use it.",
   );
   const link = shared.getByRole("textbox", { name: "Public link" });
-  await expect(link).toHaveValue(planner.url);
+  await expect(link).toHaveValue(planner.publicUrl);
   await expect(link).toHaveAttribute("readonly", "");
   expect(state.visibilityChanges).toEqual([
     {
@@ -807,14 +816,14 @@ test("an owner makes an app public from Apps, shares its link with a signed-out 
     shared.getByRole("button", { name: "Link copied", exact: true }),
   ).toBeVisible();
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
-    planner.url,
+    planner.publicUrl,
   );
   const opened = page.waitForEvent("popup");
   await shared
     .getByRole("link", { name: "Open link in a new tab", exact: true })
     .click();
   const popup = await opened;
-  expect(popup.url()).toBe(planner.url);
+  expect(popup.url()).toBe(planner.publicUrl);
   await expect(
     popup.getByRole("heading", { name: "Planner for everyone" }),
   ).toBeVisible();

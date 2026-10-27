@@ -9,10 +9,14 @@ import {
 export interface ApplicationConfig {
   readonly port: number;
   readonly internalPort: number;
+  /** Port serving the public apps host, on its own origin. */
+  readonly publicAppsPort: number;
   /** Origin of the Everything application, where viewers sign in. */
   readonly publicOrigin: string;
-  /** Origin of the artifact host. */
+  /** Origin of the artifact host, where owners, teammates, and API keys open apps. */
   readonly artifactOrigin: string;
+  /** Origin that serves public apps to anyone, isolated from the artifact host. */
+  readonly publicAppsOrigin: string;
   readonly issuer: string;
   readonly jwksUrl: string;
   readonly audience: string;
@@ -68,8 +72,10 @@ export function loadApplicationConfig(
   return {
     port: settings.PORT,
     internalPort: settings.INTERNAL_PORT,
+    publicAppsPort: settings.PUBLIC_APPS_PORT,
     publicOrigin: settings.PUBLIC_ORIGIN,
     artifactOrigin: settings.ARTIFACT_ORIGIN,
+    publicAppsOrigin: settings.PUBLIC_APPS_ORIGIN,
     issuer: settings.OIDC_ISSUER,
     jwksUrl: settings.OIDC_JWKS_URL,
     audience: settings.OIDC_AUDIENCE,

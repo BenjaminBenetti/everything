@@ -26,6 +26,7 @@ function app(
     createdBy: { id: "ada", name: "Ada" },
     updatedBy: { id: "grace", name: "Grace" },
     url: `https://apps.test/${id}/`,
+    publicUrl: `https://public.apps.test/${id}/`,
     visibility: "private",
     release: 1,
     createdAt: "2026-10-01T10:00:00Z",

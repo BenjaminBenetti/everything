@@ -34,6 +34,7 @@ helm_sha256() {
 # them at 127.0.0.1, and the cluster's DNS points them at Traefik.
 app_host=everything.internal
 artifact_host=artifacts.everything.internal
+public_apps_host=public-apps.everything.internal
 registry_host=images.everything.internal
 namespace=everything
 release=everything
@@ -337,7 +338,7 @@ hosts_problem() {
 # anything. Lines between the markers may only map the local names, since removing the block
 # deletes them.
 hosts_block_problem() {
-  awk -v begin="$hosts_begin" -v end="$hosts_end" -v names="$app_host $artifact_host $registry_host" '
+  awk -v begin="$hosts_begin" -v end="$hosts_end" -v names="$app_host $artifact_host $public_apps_host $registry_host" '
     BEGIN { count = split(names, list, " "); for (i = 1; i <= count; i++) ours[list[i]] = 1 }
     # Misplaced markers are reported before other entries inside a block they leave open.
     function bad(why) { if (marker == "") marker = why " on line " NR }
@@ -365,7 +366,7 @@ check_hosts() {
   local hosts=$system_root/etc/hosts name problem
   problem=$(hosts_problem)
   [ -z "$problem" ] || fail "$problem"
-  for name in "$app_host" "$artifact_host" "$registry_host"; do
+  for name in "$app_host" "$artifact_host" "$public_apps_host" "$registry_host"; do
     if strip_hosts_block < "$hosts" | awk -v name="$name" '!/^[ \t]*#/ { for (i = 2; i <= NF; i++) if ($i == name) found = 1 } END { exit !found }'; then
       fail "/etc/hosts already maps $name; remove that line and rerun the installer."
     fi
@@ -415,7 +416,7 @@ explain_plan() {
     say "  - update the settings of the k3s it installed earlier, restarting k3s if they change"
   fi
   say "  - serve Everything's HTTPS port on 127.0.0.1:443 only, through k3s's Traefik"
-  say "  - map $app_host, $artifact_host, and $registry_host to 127.0.0.1 in /etc/hosts"
+  say "  - map $app_host, $artifact_host, $public_apps_host, and $registry_host to 127.0.0.1 in /etc/hosts"
   say "  - trust a certificate authority for those names only in the system certificate store and in k3s"
   say ""
   say "As you, it trusts that authority in Chrome, Chromium, and Firefox certificate databases in your"
@@ -519,7 +520,7 @@ certificate_current() {
   openssl verify -CAfile "$ca_dir/ca.pem" "$tls_dir/tls.crt" > /dev/null 2>&1 || return 1
   openssl x509 -in "$tls_dir/tls.crt" -noout -checkend 2592000 > /dev/null 2>&1 || return 1
   names=$(openssl x509 -in "$tls_dir/tls.crt" -noout -text)
-  grep -qF "DNS:$app_host" <<< "$names" && grep -qF "DNS:$artifact_host" <<< "$names" &&
+  grep -qF "DNS:$app_host" <<< "$names" && grep -qF "DNS:$artifact_host" <<< "$names" && grep -qF "DNS:$public_apps_host" <<< "$names" &&
     grep -qF "DNS:$registry_host" <<< "$names"
 }
 
@@ -529,12 +530,12 @@ make_certificate() {
     chmod 600 "$tls_dir/tls.key"
     return
   fi
-  say "Issuing the certificate for $app_host, $artifact_host, and $registry_host..."
+  say "Issuing the certificate for $app_host, $artifact_host, $public_apps_host, and $registry_host..."
   cat > "$work/leaf.ext" << EOF
 basicConstraints = critical, CA:FALSE
 keyUsage = critical, digitalSignature
 extendedKeyUsage = serverAuth
-subjectAltName = DNS:$app_host, DNS:$artifact_host, DNS:$registry_host
+subjectAltName = DNS:$app_host, DNS:$artifact_host, DNS:$public_apps_host, DNS:$registry_host
 authorityKeyIdentifier = keyid
 EOF
   (
@@ -736,7 +737,7 @@ write_hosts() {
   if [ "$1" = false ] && ! grep -qxF "$hosts_begin" "$work/hosts.before"; then return; fi
   strip_hosts_block < "$work/hosts.before" > "$work/hosts"
   if [ "$1" = true ]; then
-    printf '%s\n127.0.0.1\t%s %s %s\n%s\n' "$hosts_begin" "$app_host" "$artifact_host" "$registry_host" \
+    printf '%s\n127.0.0.1\t%s %s %s %s\n%s\n' "$hosts_begin" "$app_host" "$artifact_host" "$public_apps_host" "$registry_host" \
       "$hosts_end" >> "$work/hosts"
   fi
   if cmp -s "$work/hosts" "$work/hosts.before"; then return; fi
@@ -823,7 +824,7 @@ metadata:
   namespace: kube-system
 data:
   everything-local.override: |
-    rewrite name regex ^(everything|artifacts\.everything|images\.everything)\.internal\.?$ traefik.kube-system.svc.cluster.local. answer auto
+    rewrite name regex ^(everything|artifacts\.everything|public-apps\.everything|images\.everything)\.internal\.?$ traefik.kube-system.svc.cluster.local. answer auto
 EOF
   put_root_file 0600 "$work/everything-local-coredns.yaml" "$manifests/everything-local-coredns.yaml" || true
 }
@@ -953,8 +954,9 @@ write_preset() {
     echo "global:"
     echo "  externalHostname: '$app_host'"
     echo "  externalArtifactHostname: '$artifact_host'"
+    echo "  externalPublicAppsHostname: '$public_apps_host'"
     echo "  externalRegistryHostname: '$registry_host'"
-    for site in ingress artifactIngress registryIngress; do
+    for site in ingress artifactIngress publicAppsIngress registryIngress; do
       echo "  $site:"
       echo "    className: 'traefik'"
       echo "    annotations:"
@@ -1024,11 +1026,11 @@ wait_for_everything() {
 # Each name answers over HTTPS with the trusted certificate, as a browser on this computer sees it.
 verify_endpoints() {
   local url code
-  for url in "https://$app_host/health/ready" "https://$artifact_host/" "https://$registry_host/v2/"; do
+  for url in "https://$app_host/health/ready" "https://$artifact_host/" "https://$public_apps_host/" "https://$registry_host/v2/"; do
     code=$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --max-time 20 "$url") ||
       fail "$url did not answer with a trusted certificate."
     case "$url:$code" in
-      */health/ready:200 | */v2/:401 | "https://$artifact_host/":[2345]??) ;;
+      */health/ready:200 | */v2/:401 | "https://$artifact_host/":[2345]?? | "https://$public_apps_host/":[2345]??) ;;
       *) fail "$url answered HTTP $code." ;;
     esac
   done
@@ -1038,7 +1040,7 @@ print_summary() {
   say ""
   say "Everything is running on this computer."
   say "  Open https://$app_host and sign in with the user you created."
-  say "  Apps your teammates make open on https://$artifact_host."
+  say "  Apps your teammates make open on https://$artifact_host; public apps open on https://$public_apps_host."
   say "  Browsers that were open during the installation may need a restart to trust the certificate."
   if [ "$arch" = arm64 ]; then
     say "  Voice input is off: its speech service runs only on x86-64 computers."
