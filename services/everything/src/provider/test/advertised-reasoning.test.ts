@@ -88,7 +88,7 @@ test("an empty ChatGPT reasoning list reports that the model accepts no levels",
   assert.ok(Object.values(reasoning!.levels).every((value) => value === null));
 });
 
-test("Claude effort capabilities apply only with adaptive thinking, and minimal follows low", () => {
+test("Claude effort capabilities map each level, and minimal is dropped wherever low is", () => {
   assert.deepEqual(
     anthropicReasoning(
       claude({
@@ -102,7 +102,6 @@ test("Claude effort capabilities apply only with adaptive thinking, and minimal 
     ),
     {
       levels: {
-        minimal: "low",
         low: "low",
         medium: "medium",
         high: "high",
@@ -126,25 +125,62 @@ test("Claude effort capabilities apply only with adaptive thinking, and minimal 
   );
 });
 
-test("missing, unsupported, or malformed Claude effort capabilities report nothing", () => {
-  const complete = {
-    supported: true,
-    low: support(true),
-    medium: support(true),
-    high: support(true),
-    xhigh: support(true),
-    max: support(true),
-  };
+/** Complete Claude effort flags with every level supported. */
+const allEfforts = {
+  supported: true,
+  low: support(true),
+  medium: support(true),
+  high: support(true),
+  xhigh: support(true),
+  max: support(true),
+};
+
+test("missing or malformed Claude capabilities report nothing, so the catalog applies", () => {
   for (const capabilities of [
     null,
     undefined,
     {},
-    claude({ ...complete, supported: false }),
-    claude(complete, false),
-    { effort: complete },
-    claude({ ...complete, medium: undefined }),
-    claude({ ...complete, high: { supported: "yes" } }),
-    claude({ ...complete, max: null }),
+    { effort: allEfforts },
+    { effort: allEfforts, thinking: { supported: true } },
+    { effort: allEfforts, thinking: { types: { adaptive: support(true) } } },
+    claude({ ...allEfforts, supported: undefined }),
+    claude({ ...allEfforts, supported: "true" }),
+    claude({ ...allEfforts, medium: undefined }),
+    claude({ ...allEfforts, high: { supported: "yes" } }),
+    claude({ ...allEfforts, max: null }),
+    // A negative top-level flag still needs well-formed level flags to be trusted.
+    claude({ ...allEfforts, supported: false, low: undefined }),
   ])
-    assert.equal(anthropicReasoning(capabilities), undefined);
+    assert.equal(
+      anthropicReasoning(capabilities),
+      undefined,
+      JSON.stringify(capabilities),
+    );
+});
+
+test("Claude models reporting no effort, adaptive thinking, or thinking accept none of the levels", () => {
+  const none = {
+    minimal: null,
+    low: null,
+    medium: null,
+    high: null,
+    xhigh: null,
+    max: null,
+  };
+  for (const capabilities of [
+    // Effort withdrawn, even where a contradicting level flag says otherwise.
+    claude({ ...allEfforts, supported: false }),
+    // Adaptive thinking rejected: the runtime sends an effort only with it.
+    claude(allEfforts, false),
+    // Thinking reported unsupported overrides a contradicting adaptive flag.
+    {
+      effort: allEfforts,
+      thinking: { supported: false, types: { adaptive: support(true) } },
+    },
+  ])
+    assert.deepEqual(
+      anthropicReasoning(capabilities),
+      { levels: none },
+      JSON.stringify(capabilities),
+    );
 });

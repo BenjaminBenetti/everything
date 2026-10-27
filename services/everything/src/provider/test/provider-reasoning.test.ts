@@ -227,7 +227,7 @@ test("Claude models use their reported effort levels only where the runtime send
     ]),
   );
   assert.deepEqual(listed, {
-    "claude-next": ["provider", ["minimal", "low", "medium", "high", "max"]],
+    "claude-next": ["provider", ["low", "medium", "high", "max"]],
     "claude-opus-4-8": [
       "provider",
       ["off", "minimal", "low", "medium", "high", "max"],
@@ -239,7 +239,6 @@ test("Claude models use their reported effort levels only where the runtime send
     "claude-opus-5-5": ["catalog", ["low", "medium", "high", "xhigh", "max"]],
   });
   await assertAccepted(models, "anthropic", "claude-next", [
-    "minimal",
     "low",
     "medium",
     "high",

@@ -319,7 +319,6 @@ test("a Claude model known only from its reported capabilities receives adaptive
     name: "Claude Next",
     reasoning: {
       levels: {
-        minimal: "low",
         low: "low",
         medium: "medium",
         high: "high",
@@ -373,7 +372,7 @@ test("a Claude model known only from its reported capabilities receives adaptive
     },
   );
   const { efforts } = capabilities.describe("anthropic", discovered);
-  assert.deepEqual(efforts, ["minimal", "low", "medium", "high", "max"]);
+  assert.deepEqual(efforts, ["low", "medium", "high", "max"]);
   for (const effort of efforts) {
     // The model reports no way to turn thinking off, so Off was never offered.
     if (effort === "off") continue;
@@ -391,8 +390,6 @@ test("a Claude model known only from its reported capabilities receives adaptive
       type: "adaptive",
       display: "summarized",
     });
-    assert.deepEqual(requests.at(-1)!.output_config, {
-      effort: effort === "minimal" ? "low" : effort,
-    });
+    assert.deepEqual(requests.at(-1)!.output_config, { effort });
   }
 });

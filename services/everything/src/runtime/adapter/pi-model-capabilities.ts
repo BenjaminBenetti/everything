@@ -169,11 +169,25 @@ export class PiModelCapabilities
   }
 }
 
+/** Anthropic efforts Pi's managed-effort mode can send: fixed `high` at the root, and any in history. */
+const managedEfforts = ["low", "medium", "high", "xhigh", "max"] as const;
+
+/** Catalog compatibility flags that decide how Pi sends Claude effort. */
+interface ClaudeEffortCompat {
+  readonly forceAdaptiveThinking?: boolean;
+  readonly supportsMidConvoEffort?: boolean;
+}
+
 /**
  * A model's capabilities with the provider's effort levels applied, or undefined when they can't
  * steer what the runtime sends. Claude models the catalog runs with token-budget thinking ignore
  * Anthropic's effort levels, which only apply with adaptive thinking. Levels the provider doesn't
  * cover keep the catalog's support, and are unsupported for a model the catalog doesn't know.
+ *
+ * Pi's managed-effort mode always sends `high` at the request root, sends the chosen level in a
+ * trailing system message, and replays each earlier Claude reply's level before it. It is kept only
+ * when the provider accepts every level it can send; otherwise plain adaptive thinking sends just
+ * the chosen level, and a model accepting no level is sent no thinking or effort at all.
  */
 function advertisedModel(
   provider: ProviderId,
@@ -181,7 +195,7 @@ function advertisedModel(
   reasoning: AdvertisedReasoning,
 ): Partial<Model<Api>> | undefined {
   if (provider === "openai-compatible") return undefined;
-  const compat = catalog?.compat as { forceAdaptiveThinking?: boolean };
+  const compat = catalog?.compat as ClaudeEffortCompat | undefined;
   if (
     provider === "anthropic" &&
     catalog &&
@@ -201,13 +215,22 @@ function advertisedModel(
   const supported = Object.values(thinkingLevelMap).some(
     (value) => typeof value === "string",
   );
+  const managed =
+    compat?.supportsMidConvoEffort === true &&
+    managedEfforts.every((level) => thinkingLevelMap[level] === level);
   return {
     ...catalog,
     // A model accepting none of the runtime's levels runs at the provider's default.
     reasoning: supported,
     thinkingLevelMap,
-    ...(provider === "anthropic" && !catalog
-      ? { compat: { forceAdaptiveThinking: true } }
+    ...(provider === "anthropic"
+      ? {
+          compat: {
+            ...catalog?.compat,
+            forceAdaptiveThinking: true,
+            supportsMidConvoEffort: managed,
+          },
+        }
       : {}),
   } as Partial<Model<Api>>;
 }

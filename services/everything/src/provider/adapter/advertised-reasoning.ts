@@ -81,10 +81,12 @@ function supportFlag(value: unknown): boolean | undefined {
 
 /**
  * Effort levels from one Claude model's `capabilities`
- * (https://platform.claude.com/docs/en/api/models/list), or undefined when they are missing,
- * malformed, or don't control this model: the runtime sends an effort only with adaptive thinking.
- * Minimal is sent as `low`, so it follows low's support. Off isn't covered, because the runtime
- * turns thinking off differently by model.
+ * (https://platform.claude.com/docs/en/api/models/list), or undefined when the flags they depend
+ * on are missing or malformed. The runtime sends an effort only with adaptive thinking, so a model
+ * reporting no thinking, no adaptive thinking, or no effort accepts none of the levels; a reported
+ * `false` wins over any contradicting nested flag. Minimal is sent as `low`, so it is unsupported
+ * wherever low is and otherwise left to the catalog. Off isn't covered, because the runtime turns
+ * thinking off differently by model.
  */
 export function anthropicReasoning(
   capabilities: unknown,
@@ -92,10 +94,18 @@ export function anthropicReasoning(
   if (typeof capabilities !== "object" || capabilities === null)
     return undefined;
   const { effort, thinking } = capabilities as Record<string, unknown>;
-  const adaptive = (thinking as { types?: { adaptive?: unknown } } | null)
-    ?.types?.adaptive;
-  if (supportFlag(effort) !== true || supportFlag(adaptive) !== true)
+  const thinks = supportFlag(thinking);
+  const adaptive = supportFlag(
+    (thinking as { types?: { adaptive?: unknown } } | null)?.types?.adaptive,
+  );
+  const effortSupported = supportFlag(effort);
+  if (
+    thinks === undefined ||
+    adaptive === undefined ||
+    effortSupported === undefined
+  )
     return undefined;
+  const accepted = thinks && adaptive && effortSupported;
   const levels: Partial<Record<InferenceEffort, string | null>> = {};
   for (const level of anthropicLevels) {
     const value = (effort as Record<string, unknown>)[level];
@@ -103,7 +113,7 @@ export function anthropicReasoning(
     const supported =
       level === "xhigh" && value === null ? false : supportFlag(value);
     if (supported === undefined) return undefined;
-    levels[level] = supported ? level : null;
+    levels[level] = accepted && supported ? level : null;
   }
-  return { levels: { minimal: levels.low ? "low" : null, ...levels } };
+  return { levels: levels.low ? levels : { minimal: null, ...levels } };
 }
