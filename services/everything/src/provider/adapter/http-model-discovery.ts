@@ -13,6 +13,10 @@ import {
   advertisedLimits,
   serverPropsLimits,
 } from "./advertised-model-limits.js";
+import {
+  anthropicReasoning,
+  chatGptReasoning,
+} from "./advertised-reasoning.js";
 import { providerFetch } from "./provider-fetch.js";
 
 /** Discover account-specific catalogs through each configured provider's own endpoint. */
@@ -51,7 +55,7 @@ export class HttpModelDiscovery implements ProviderModelDiscovery {
     ];
   }
 
-  /** Follow the official SDK's pagination for the API key's available Claude models. */
+  /** Follow the official SDK's pagination for the API key's available Claude models and their efforts. */
   private async anthropic({
     credential,
   }: VerificationInput): Promise<DiscoveredModel[]> {
@@ -62,12 +66,21 @@ export class HttpModelDiscovery implements ProviderModelDiscovery {
       fetch: providerFetch(this.fetcher),
     });
     const models: DiscoveredModel[] = [];
-    for await (const model of client.models.list({ limit: 100 }))
-      models.push({ id: model.id, name: model.display_name });
+    for await (const model of client.models.list({ limit: 100 })) {
+      const reasoning = anthropicReasoning(model.capabilities);
+      models.push({
+        id: model.id,
+        name: model.display_name,
+        ...(reasoning ? { reasoning } : {}),
+      });
+    }
     return models;
   }
 
-  /** ChatGPT uses its account catalog; compatible servers may expose only their verified model. */
+  /**
+   * ChatGPT uses its account catalog, with any effort levels it lists; compatible servers may expose
+   * only their verified model.
+   */
   private async openai(
     provider: Exclude<ProviderId, "anthropic">,
     { credential, baseUrl, model }: VerificationInput,
@@ -93,10 +106,14 @@ export class HttpModelDiscovery implements ProviderModelDiscovery {
       };
       return result.models
         .filter((item) => item.visibility === "list")
-        .map((item) => ({
-          id: item.slug,
-          name: item.display_name || item.slug,
-        }));
+        .map((item) => {
+          const reasoning = chatGptReasoning(item);
+          return {
+            id: item.slug,
+            name: item.display_name || item.slug,
+            ...(reasoning ? { reasoning } : {}),
+          };
+        });
     }
     const result = (await response.json()) as { data: { id: string }[] };
     const models: DiscoveredModel[] = result.data

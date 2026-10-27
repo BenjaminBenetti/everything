@@ -45,6 +45,7 @@ test("model discovery applies ownership, validates model-specific efforts, and e
         name: "Account model",
         efforts: ["low", "medium", "high"],
         defaultEffort: "medium",
+        effortSource: "catalog",
         speeds: ["standard"],
       },
     ],
@@ -231,6 +232,7 @@ test("unknown models offer only the runtime default instead of guessed effort su
         name: "Custom",
         efforts: ["off"],
         defaultEffort: "off",
+        effortSource: "unknown",
         speeds: ["standard"],
       },
     );
@@ -269,6 +271,7 @@ test("compatible local model names expose their supported effort levels without 
         name: id,
         efforts: ["off", "low", "medium", "xhigh"],
         defaultEffort: "medium",
+        effortSource: "catalog",
         speeds: ["standard"],
       },
     ],

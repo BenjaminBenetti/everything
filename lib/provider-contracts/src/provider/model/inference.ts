@@ -19,6 +19,13 @@ export type InferenceEffort = (typeof inferenceEfforts)[number];
 export const inferenceSpeeds = ["standard", "fast"] as const;
 export type InferenceSpeed = (typeof inferenceSpeeds)[number];
 
+/**
+ * Where a model's effort levels come from: the provider's own model list, the runtime's bundled
+ * model catalog, or neither, in which case only the provider's default effort is offered.
+ */
+export const effortSources = ["provider", "catalog", "unknown"] as const;
+export type EffortSource = (typeof effortSources)[number];
+
 /** One complete choice, replaced atomically when a teammate is edited. */
 export interface InferenceSelection {
   readonly provider: ProviderId;
@@ -34,6 +41,8 @@ export interface ProviderModel {
   readonly name: string;
   readonly efforts: readonly InferenceEffort[];
   readonly defaultEffort: InferenceEffort;
+  /** Where `efforts` was learned, so a model without known effort levels can say so. */
+  readonly effortSource: EffortSource;
   /** Always includes standard; includes fast only where the provider documents it for this model. */
   readonly speeds: readonly InferenceSpeed[];
 }

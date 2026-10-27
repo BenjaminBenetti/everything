@@ -84,6 +84,7 @@ async function workspace(context: BrowserContext, existing?: Selection | null) {
       name: string;
       efforts: string[];
       defaultEffort: string;
+      effortSource?: string;
       speeds?: string[];
     }[],
     providers,
@@ -141,12 +142,14 @@ async function workspace(context: BrowserContext, existing?: Selection | null) {
                 name: "Reasoning model",
                 efforts: ["low", "medium", "high"],
                 defaultEffort: "medium",
+                effortSource: "catalog",
               },
               {
                 id: "fast-model",
                 name: "Fast model",
                 efforts: ["off"],
                 defaultEffort: "off",
+                effortSource: "catalog",
               },
               ...state.extraModels,
             ]
@@ -156,6 +159,7 @@ async function workspace(context: BrowserContext, existing?: Selection | null) {
                 name: "Local model",
                 efforts: ["low", "high"],
                 defaultEffort: "low",
+                effortSource: "catalog",
               },
             ],
       },
@@ -595,6 +599,43 @@ test("dropdown menus follow every theme and keep long model catalogs within the 
       state.extraModels.at(-1)!.name,
     );
   }
+});
+
+test("a model whose effort levels aren't known explains that the provider's default effort applies", async ({
+  page,
+  context,
+}) => {
+  const state = await workspace(context);
+  state.extraModels = [
+    {
+      id: "new-model",
+      name: "New model",
+      efforts: ["off"],
+      defaultEffort: "off",
+      effortSource: "unknown",
+    },
+  ];
+  await page.goto("/team");
+  await page.getByRole("button", { name: "New teammate", exact: true }).click();
+  await page.locator("summary").filter({ hasText: "Model settings" }).click();
+  await choose(page, "Provider", "ChatGPT");
+  await choose(page, "Model", "New model");
+  await expect(dropdown(page, "Effort level")).toHaveText(
+    "Default (no effort setting)",
+  );
+  await expectChoices(page, "Effort level", [
+    "Choose an effort level",
+    "Default (no effort setting)",
+  ]);
+  await expect(
+    page.getByText(
+      "This model’s effort levels aren’t known, so it uses the provider’s default effort.",
+    ),
+  ).toBeVisible();
+  await choose(page, "Model", "Fast model");
+  await expect(
+    page.getByText("This model does not expose an adjustable effort level."),
+  ).toBeVisible();
 });
 
 test("Fast mode is offered only on models that list it, starts off with a usage warning, saves the request, and turns off for other models", async ({

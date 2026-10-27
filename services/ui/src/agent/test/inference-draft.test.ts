@@ -17,6 +17,7 @@ const fastModel: ProviderModel = {
   name: "GPT-6.1 Sol",
   efforts: ["low", "medium", "high"],
   defaultEffort: "medium",
+  effortSource: "catalog",
   speeds: ["standard", "fast"],
 };
 const standardModel: ProviderModel = {
@@ -24,6 +25,7 @@ const standardModel: ProviderModel = {
   name: "o3-mini",
   efforts: ["low", "medium", "high"],
   defaultEffort: "low",
+  effortSource: "catalog",
   speeds: ["standard"],
 };
 
