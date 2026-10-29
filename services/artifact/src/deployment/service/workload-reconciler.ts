@@ -3,10 +3,29 @@ import type { ArtifactRepository } from "../../artifact/interface/artifact-repos
 import type { Artifact } from "../../artifact/model/artifact.js";
 import type { ArtifactLock } from "../../artifact/service/artifact-lock.js";
 import type { ArtifactCapabilities } from "../../capability/interface/artifact-capabilities.js";
-import { imageRepository } from "../../cluster/model/cluster-names.js";
+import {
+  credentialSecretName,
+  imageRepository,
+} from "../../cluster/model/cluster-names.js";
+import type { CredentialGrantRepository } from "../../credential/interface/credential-grant-repository.js";
+import type { CredentialSecrets } from "../../credential/interface/credential-secrets.js";
+import type { CredentialBinding } from "../../credential/model/credential-binding.js";
+import { holdsWithdrawnCredential } from "../../credential/model/credential-status.js";
 import type { ArtifactDatabases } from "../../database/interface/artifact-databases.js";
 import type { DeploymentRepository } from "../interface/deployment-repository.js";
 import type { WorkloadOrchestrator } from "../interface/workload-orchestrator.js";
+
+/** Names of the Secrets an app's current grants read from. */
+function grantedSecrets(
+  artifactId: string,
+  bindings: readonly CredentialBinding[],
+): ReadonlySet<string> {
+  return new Set(
+    bindings.map((binding) =>
+      credentialSecretName(artifactId, binding.credentialId, binding.version),
+    ),
+  );
+}
 
 /** Brings Kubernetes in line with each dynamic artifact's live deployment, stored in PostgreSQL. */
 export class WorkloadReconciler {
@@ -23,22 +42,43 @@ export class WorkloadReconciler {
     private readonly pullHost: string,
     private readonly capabilities: ArtifactCapabilities,
     private readonly lock: ArtifactLock,
+    private readonly grants: Pick<CredentialGrantRepository, "list">,
+    private readonly credentialSecrets: Pick<
+      CredentialSecrets,
+      "prune" | "stored"
+    >,
   ) {}
 
   // ===========================================
   // Operations
   // ===========================================
 
-  /** Run the live deployment, or stop the workload when the artifact is stopped or undeployed. */
+  /**
+   * Run the live deployment with the app's current credential grants, or stop the workload when the
+   * app is stopped or undeployed. Grants come only from their own table, never from a deployment
+   * record, so an earlier release can't bring back a withdrawn credential.
+   */
   async reconcile(artifact: Artifact): Promise<void> {
     if (artifact.kind !== "dynamic") return;
+    const scope = { ownerId: artifact.ownerId, artifactId: artifact.id };
     const deployment =
       artifact.liveDeployment === null
         ? undefined
-        : await this.deployments.findByRelease(
-            { ownerId: artifact.ownerId, artifactId: artifact.id },
-            artifact.liveDeployment,
-          );
+        : await this.deployments.findByRelease(scope, artifact.liveDeployment);
+    const bindings = await this.grants.list(scope);
+    // Withdrawing access comes first and depends on nothing else: any process holding a withdrawn
+    // credential or an older value is deleted, and copies no grant reads are removed, before the
+    // database, capabilities, or new workload are provisioned, any of which may fail. A rolling
+    // update would also keep the old pod until a new one is ready, and a new one may never be.
+    const held =
+      (await this.orchestrator.heldCredentials(artifact.id)).get(artifact.id) ??
+      [];
+    if (holdsWithdrawnCredential(held, bindings))
+      await this.orchestrator.stop(artifact.id);
+    await this.credentialSecrets.prune(
+      artifact.id,
+      grantedSecrets(artifact.id, bindings),
+    );
     if (!artifact.running || !deployment) {
       await this.orchestrator.stop(artifact.id);
       return;
@@ -57,6 +97,10 @@ export class WorkloadReconciler {
         .digest("hex")
         .slice(0, 16);
     }
+    const capabilities = await this.capabilities.reconcile(
+      artifact,
+      deployment.capabilities,
+    );
     await this.orchestrator.apply({
       artifactId: artifact.id,
       slug: artifact.slug,
@@ -71,14 +115,19 @@ export class WorkloadReconciler {
       },
       release: deployment.release,
       databaseFingerprint,
-      capabilities: await this.capabilities.reconcile(
-        artifact,
-        deployment.capabilities,
-      ),
+      capabilities,
+      credentials: bindings.map(({ env, credentialId, version }) => ({
+        env,
+        credentialId,
+        version,
+      })),
     });
   }
 
-  /** Reconcile every dynamic artifact, for example after a restart; one failure does not stop the rest. */
+  /**
+   * Reconcile every dynamic artifact, for example after a restart; one failure does not stop the
+   * rest. Credential Secrets left behind by deleted apps are removed afterwards.
+   */
   async reconcileAll(): Promise<void> {
     for (const artifact of await this.artifacts.list({ kind: "dynamic" }))
       await this.lock
@@ -96,13 +145,49 @@ export class WorkloadReconciler {
             code: (error as { code?: unknown }).code,
           }),
         );
+    await this.removeOrphanedCredentials().catch((error: unknown) =>
+      console.error("Credential cleanup failed", {
+        name: (error as Error).name,
+        code: (error as { code?: unknown }).code,
+      }),
+    );
   }
 
-  /** Revoke API clients and keys, then delete the artifact's Kubernetes objects, disk, role, and schema. */
+  /**
+   * Stop the app's processes and delete its credential copies first, then revoke API clients and
+   * keys and delete its Kubernetes objects, disk, role, and schema. A failure in a later step can't
+   * leave a process holding credentials.
+   */
   async remove(artifact: Artifact): Promise<void> {
     if (artifact.kind !== "dynamic") return;
+    await this.orchestrator.stop(artifact.id);
+    await this.credentialSecrets.prune(artifact.id, new Set());
     await this.capabilities.remove(artifact);
     await this.orchestrator.remove(artifact.id);
     await this.databases.remove(artifact.id);
+  }
+
+  // ===========================================
+  // Cleanup
+  // ===========================================
+
+  /** Delete credential Secrets of apps that no longer exist, confirming each under its lock. */
+  private async removeOrphanedCredentials(): Promise<void> {
+    const dynamicIds = async () =>
+      new Set(
+        (await this.artifacts.list({ kind: "dynamic" })).map(({ id }) => id),
+      );
+    const known = await dynamicIds();
+    const orphans = new Set(
+      (await this.credentialSecrets.stored())
+        .map((secret) => secret.artifactId)
+        .filter((artifactId) => !known.has(artifactId)),
+    );
+    for (const artifactId of orphans)
+      await this.lock.run(artifactId, async () => {
+        if ((await dynamicIds()).has(artifactId)) return;
+        await this.orchestrator.stop(artifactId);
+        await this.credentialSecrets.prune(artifactId, new Set());
+      });
   }
 }

@@ -20,7 +20,7 @@ export class PostgresDeploymentRepository
   // ===========================================
 
   /** Bind the ORM repository with newest-first listings. */
-  constructor(database: DataSource) {
+  constructor(database: Pick<DataSource, "getRepository">) {
     super(database.getRepository(DeploymentEntity), {
       order: { release: "DESC" },
     });

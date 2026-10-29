@@ -1,0 +1,32 @@
+meta {
+  name: Reject a duplicate credential name
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/v1/keys
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+  Authorization: Bearer {{outsiderToken}}
+}
+
+body:json {
+  {
+    "name": "{{credentialName}}",
+    "type": "generic",
+    "material": "bruno-sentinel-duplicate"
+  }
+}
+
+tests {
+  test("Reject a name already in use, from any account, without echoing the value", () => {
+    expect(res.status).to.equal(409);
+    expect(res.body.code).to.equal("KEY_NAME_TAKEN");
+    expect(JSON.stringify(res.body)).to.not.include("bruno-sentinel");
+  });
+}

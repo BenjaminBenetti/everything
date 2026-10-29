@@ -1,0 +1,22 @@
+meta {
+  name: Read the credential's apps
+  type: http
+  seq: 10
+}
+
+get {
+  url: {{baseUrl}}/v1/keys/{{credentialId}}/apps
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+tests {
+  test("List the apps that use it", () => {
+    expect(res.status).to.equal(200);
+    expect(res.body).to.deep.equal({ apps: [], otherApps: 0 });
+  });
+}

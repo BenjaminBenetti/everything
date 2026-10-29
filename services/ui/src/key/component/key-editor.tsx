@@ -1,5 +1,5 @@
 import { useId, useState, type FormEvent } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   keyLimits,
   keyTypes,
@@ -10,7 +10,9 @@ import { Button } from "@everything/ui/button";
 import { Dialog } from "@everything/ui/dialog";
 import { Select } from "@everything/ui/select";
 import { useSession } from "../../session/component/session-provider.js";
+import { credentialFailureMessage } from "../../artifact/model/credential-presentation.js";
 import { useKeyDirectory } from "./key-directory-provider.js";
+import { useWriteOnlySubmission } from "../hook/use-write-only-submission.js";
 import { KeyMaterialField } from "./key-material-field.js";
 import {
   keyFormats,
@@ -18,7 +20,11 @@ import {
   keyTypeOptions,
 } from "../model/key-formats.js";
 
-/** Create a key or rename metadata while keeping the secret in this dialog's local state only. */
+/**
+ * Create a key, or rename one and edit a generic credential's description. A new key's contents
+ * stay in this dialog's submission only, never in a shared cache, and are erased once saved or
+ * when the dialog closes.
+ */
 export function KeyEditor({
   item,
   onClose,
@@ -30,81 +36,121 @@ export function KeyEditor({
 }) {
   const [name, setName] = useState(item?.name ?? "");
   const [type, setType] = useState<KeyType>(item?.type ?? keyTypes[0].id);
-  const [material, setMaterial] = useState("");
+  const [description, setDescription] = useState(item?.description ?? "");
   const [reading, setReading] = useState(false);
   const [validation, setValidation] = useState("");
   const formId = useId();
   const directory = useKeyDirectory();
   const cache = useQueryClient();
   const { profile } = useSession();
-  const save = useMutation({
-    mutationFn: () =>
-      item
-        ? directory.rename(item.id, { name: name.trim() })
-        : directory.create({
-            name: name.trim(),
-            type,
-            material,
-          }),
-    onSuccess: async () => {
-      setMaterial("");
-      await cache.invalidateQueries({ queryKey: ["keys", profile?.subject] });
-      onSaved(item ? "Key renamed." : "Key added.");
-      onClose();
-    },
-  });
-  const busy = save.isPending || reading;
+  const submission = useWriteOnlySubmission<SavedKey>();
+  const saving = submission.state.status === "pending";
+  const failure =
+    submission.state.status === "failed" ? submission.state.error : undefined;
+  const generic = type === "generic";
+  const busy = saving || reading;
+
+  /** Erase any typed contents, then close. */
+  function close(): void {
+    submission.close();
+    onClose();
+  }
 
   /** Check the format without using the key and preserve drafts after failed requests. */
-  function submit(event: FormEvent<HTMLFormElement>): void {
+  async function submit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
     if (busy || !name.trim()) return;
     setValidation("");
     if (
       !item &&
-      (!keyFormats[type].accepts(material) ||
-        new TextEncoder().encode(material).length > keyLimits.materialLength)
+      (!keyFormats[type].accepts(submission.draft) ||
+        new TextEncoder().encode(submission.draft).length >
+          keyLimits.materialLength)
     ) {
-      setValidation("Upload or paste a supported key smaller than 32 KB.");
+      setValidation(keyFormats[type].submitMessage);
       return;
     }
-    save.mutate();
+    const keyName = name.trim();
+    const keyDescription = description.trim();
+    const outcome = await submission.submit((material) =>
+      item
+        ? directory.rename(item.id, {
+            name: keyName,
+            ...(generic ? { description: keyDescription } : {}),
+          })
+        : directory.create({
+            name: keyName,
+            type,
+            material,
+            ...(generic && keyDescription
+              ? { description: keyDescription }
+              : {}),
+          }),
+    );
+    if (outcome.status !== "succeeded") return;
+    await cache.invalidateQueries({ queryKey: ["keys", profile?.subject] });
+    onSaved(
+      item
+        ? generic
+          ? "Credential updated."
+          : "Key renamed."
+        : generic
+          ? "Credential added. Attach it to an app from Apps to give that app’s backend the value."
+          : "Key added.",
+    );
+    close();
   }
 
   return (
     <Dialog
-      title={item ? "Rename key" : "Add key"}
+      title={item ? (generic ? "Edit credential" : "Rename key") : "Add key"}
       description={
         item
-          ? "Choose a name that makes this key easy to find."
+          ? generic
+            ? "Change the name or description. The value stays as it is, and apps keep receiving it."
+            : "Choose a name that makes this key easy to find."
           : "Give your key a name, then upload a file or paste its contents."
       }
       dismissible={!busy}
-      onClose={onClose}
+      onClose={close}
       className="key-editor"
       footer={
         <div className="dialog-actions">
-          <Button variant="light" disabled={busy} onClick={onClose}>
+          <Button variant="light" disabled={busy} onClick={close}>
             Cancel
           </Button>
           <Button
             form={formId}
             type="submit"
-            disabled={busy || !name.trim() || (!item && !material.trim())}
+            disabled={
+              busy || !name.trim() || (!item && !submission.draft.trim())
+            }
           >
-            {save.isPending ? "Saving…" : item ? "Save name" : "Add key"}
+            {saving
+              ? "Saving…"
+              : item
+                ? generic
+                  ? "Save changes"
+                  : "Save name"
+                : "Add key"}
           </Button>
         </div>
       }
     >
-      <form id={formId} onSubmit={submit} aria-busy={busy}>
+      <form
+        id={formId}
+        onSubmit={(event) => void submit(event)}
+        aria-busy={busy}
+      >
         <label className="field">
           Key name
           <input
             autoFocus
             required
             maxLength={keyLimits.nameLength}
-            placeholder="e.g. Development server"
+            placeholder={
+              generic ? "e.g. slack-bot-token" : "e.g. Development server"
+            }
             value={name}
             disabled={busy}
             onChange={(event) => setName(event.target.value)}
@@ -113,30 +159,44 @@ export function KeyEditor({
         {item ? (
           <p className="muted">Type: {keyTypeLabel(item.type)}</p>
         ) : (
+          <div className="field">
+            <span>Type</span>
+            <Select
+              label="Key type"
+              value={type}
+              options={keyTypeOptions}
+              placeholder="Choose a type"
+              disabled={busy}
+              onValueChange={(value) => {
+                const next = keyTypes.find((entry) => entry.id === value);
+                if (next) {
+                  setType(next.id);
+                  setValidation("");
+                }
+              }}
+            />
+          </div>
+        )}
+        {generic && (
+          <label className="field">
+            Description (optional)
+            <input
+              maxLength={keyLimits.descriptionLength}
+              placeholder="What it’s for, such as which Slack workspace"
+              value={description}
+              disabled={busy}
+              onChange={(event) => setDescription(event.target.value)}
+            />
+          </label>
+        )}
+        {!item && (
           <>
-            <div className="field">
-              <span>Type</span>
-              <Select
-                label="Key type"
-                value={type}
-                options={keyTypeOptions}
-                placeholder="Choose a type"
-                disabled={busy}
-                onValueChange={(value) => {
-                  const next = keyTypes.find((entry) => entry.id === value);
-                  if (next) {
-                    setType(next.id);
-                    setValidation("");
-                  }
-                }}
-              />
-            </div>
             <KeyMaterialField
               type={type}
-              value={material}
-              disabled={save.isPending}
+              value={submission.draft}
+              disabled={saving}
               onChange={(value) => {
-                setMaterial(value);
+                submission.edit(value);
                 setValidation("");
               }}
               onFileName={(value) =>
@@ -147,13 +207,15 @@ export function KeyEditor({
               onReadingChange={setReading}
             />
             <p className="key-storage-note">
-              Key contents are encrypted when saved and won’t be shown again.
+              {generic
+                ? "The value is encrypted when saved and won’t be shown again. No app receives it until you or a teammate attach it, and the backend of an app it’s attached to can read it."
+                : "Key contents are encrypted when saved and won’t be shown again."}
             </p>
           </>
         )}
-        {(validation || save.isError) && (
+        {(validation || failure !== undefined) && (
           <p className="form-error" role="alert">
-            {validation || save.error?.message}
+            {validation || credentialFailureMessage(failure)}
           </p>
         )}
       </form>

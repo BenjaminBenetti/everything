@@ -26,6 +26,10 @@ import type { ViewAccess } from "../../viewing/service/view-access.js";
 import type { ViewPasses } from "../../viewing/service/view-passes.js";
 
 import { artifactLifecycleController } from "../../artifact/controller/artifact-lifecycle-controller.js";
+import { appCredentialController } from "../../credential/controller/app-credential-controller.js";
+import { credentialController } from "../../credential/controller/credential-controller.js";
+import type { AppCredentials } from "../../credential/service/app-credentials.js";
+import type { CredentialDistribution } from "../../credential/service/credential-distribution.js";
 import type { ArtifactLifecycleService } from "../../artifact/service/artifact-lifecycle-service.js";
 import { artifactVisibilityController } from "../../artifact/controller/artifact-visibility-controller.js";
 import type { ArtifactVisibilityService } from "../../artifact/service/artifact-visibility-service.js";
@@ -39,6 +43,11 @@ export interface InternalDependencies {
   readonly revisions: RevisionService;
   readonly builds: BuildService;
   readonly deployments: DeploymentService;
+  readonly credentials: Pick<AppCredentials, "attach" | "detach">;
+  readonly distribution: Pick<
+    CredentialDistribution,
+    "deliver" | "revoke" | "uses" | "inventory"
+  >;
   readonly content: ContentStore;
   readonly access: ViewAccess;
   readonly passes: ViewPasses;
@@ -69,6 +78,7 @@ export async function createInternalApplication(
           };
         },
       },
+      // Bodies are never logged; credential values travel only in request bodies.
       redact: ["req.headers.authorization"],
     },
     ajv: strictRequestValidation,
@@ -105,6 +115,12 @@ export async function createInternalApplication(
         dependencies.deployments,
         dependencies.artifacts,
       );
+      await appCredentialController(
+        scope,
+        dependencies.credentials,
+        dependencies.artifacts,
+      );
+      await credentialController(scope, dependencies.distribution);
       await contentController(scope, dependencies.content);
       await viewController(scope, dependencies.access);
       await viewPassController(scope, dependencies.passes);

@@ -79,6 +79,13 @@
   line-height: 1.6;
   margin-top: 12px;
 }
+.key-description {
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+  margin-top: 10px;
+  overflow-wrap: anywhere;
+}
 .new-key-card {
   min-height: 200px;
 }

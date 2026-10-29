@@ -46,6 +46,11 @@ test("database operations explicitly scope the shared installation and preserve 
     type: "ssh",
     createdAt: new Date().toISOString(),
     encryptedMaterial: "ciphertext",
+    description: null,
+    version: 1,
+    valueId: null,
+    updatedAt: new Date().toISOString(),
+    deletedAt: null,
   };
   context.mock.method(
     orm,
@@ -83,7 +88,10 @@ test("database operations explicitly scope the shared installation and preserve 
   assert.deepEqual(calls, [
     { ownerId: Not(IsNull()) },
     { ownerId: Not(IsNull()), id: "key" },
-    [{ ownerId: Not(IsNull()), id: "key" }, { name: "Renamed" }],
+    [
+      { ownerId: Not(IsNull()), id: "key", deletedAt: IsNull() },
+      { name: "Renamed" },
+    ],
     { ownerId: Not(IsNull()), id: "key" },
     record,
   ]);

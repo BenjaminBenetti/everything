@@ -5,14 +5,17 @@ import {
   type ArtifactDeploymentSettings,
   type DeployInput,
 } from "@everything/artifact-contracts";
-import type { ArtifactRepository } from "../../artifact/interface/artifact-repository.js";
 import type { Artifact } from "../../artifact/model/artifact.js";
 import type { ArtifactLock } from "../../artifact/service/artifact-lock.js";
 import {
   requireLatestRelease,
   type ArtifactLookup,
 } from "../../artifact/service/artifact-lookup.js";
-import type { AppApiKeyStore } from "../../capability/interface/app-api-key-store.js";
+import {
+  requireSeparateVariables,
+  requireValidGrants,
+  type AppCredentials,
+} from "../../credential/service/app-credentials.js";
 import { BuildNotReadyError } from "../../image/error/build-errors.js";
 import type { BuildRepository } from "../../image/interface/build-repository.js";
 import {
@@ -20,6 +23,7 @@ import {
   ReservedVariableError,
 } from "../error/deployment-errors.js";
 import type { DeploymentRepository } from "../interface/deployment-repository.js";
+import type { ReleaseStore } from "../interface/release-store.js";
 import type {
   LogOptions,
   WorkloadOrchestrator,
@@ -36,10 +40,12 @@ export class DeploymentService {
   // Construction
   // ===========================================
 
-  /** Inject storage, the reconciler, the orchestrator for logs, the per-artifact lock, and API keys. */
+  /** Inject storage, the release store, the reconciler, the orchestrator for logs, the lock, and credentials. */
   constructor(
-    private readonly artifacts: Pick<ArtifactRepository, "update">,
-    private readonly deployments: DeploymentRepository,
+    private readonly deployments: Pick<
+      DeploymentRepository,
+      "findByRelease" | "prune"
+    >,
     private readonly builds: Pick<
       BuildRepository,
       "findByNumber" | "latestSucceeded"
@@ -48,14 +54,21 @@ export class DeploymentService {
     private readonly orchestrator: Pick<WorkloadOrchestrator, "logs">,
     private readonly lookup: ArtifactLookup,
     private readonly lock: ArtifactLock,
-    private readonly apiKeys: Pick<AppApiKeyStore, "revoke">,
+    private readonly releases: ReleaseStore,
+    private readonly credentials: Pick<
+      AppCredentials,
+      "current" | "store" | "discardUngranted" | "redact"
+    >,
   ) {}
 
   // ===========================================
   // Operations
   // ===========================================
 
-  /** Record a deployment of a successful build as the next release, then run it. */
+  /**
+   * Record a deployment of a successful build as the next release, then run it. Supplied credentials
+   * replace the app's grants; omitted ones keep the current grants, never an earlier release's.
+   */
   async deploy(
     ownerId: string,
     actor: ArtifactAuthor,
@@ -64,6 +77,7 @@ export class DeploymentService {
   ): Promise<Artifact> {
     for (const name of Object.keys(input.env ?? {}))
       if (reserved.has(name)) throw new ReservedVariableError(name);
+    if (input.credentials) requireValidGrants(input.credentials);
     const { id } = await this.lookup.resolveKind(ownerId, reference, "dynamic");
     return this.lock.run(id, async () => {
       const artifact = await this.lookup.resolveKind(ownerId, id, "dynamic");
@@ -83,36 +97,66 @@ export class DeploymentService {
         settings.diskGi !== artifact.diskGi
       )
         throw new DiskSizeFixedError(artifact.diskGi);
+      // Check the final environment, including grants kept from before, before changing anything.
+      requireSeparateVariables(
+        settings.env,
+        input.credentials ?? (await this.credentials.current(scope)),
+      );
       const release = artifact.release + 1;
-      // Revoke before recording the change: a failure leaves the key working instead of revivable.
-      if (
-        live?.capabilities.includes("api-key") &&
-        !settings.capabilities.includes("api-key")
-      )
-        await this.apiKeys.revoke(scope);
-      await this.deployments.create(scope, {
-        ...settings,
-        release,
-        author: actor,
-        build: build.number,
-        imageDigest: build.imageDigest,
-      });
-      const updated = await this.artifacts.update({ ownerId }, id, {
-        release,
-        liveDeployment: release,
-        running: true,
-        diskGi: artifact.diskGi ?? settings.diskGi,
-        updatedBy: actor,
-      });
-      if (!updated)
-        throw new Error("The artifact disappeared during its deployment");
+      // Values are stored first, so a committed grant never names a missing copy. The grants, an
+      // API key revocation, the deployment, and the live release then commit together or not at
+      // all, so a failed deployment can't leave its grants or revocation in effect.
+      if (input.credentials)
+        await this.credentials.store(scope, input.credentials);
+      let updated: Artifact;
+      try {
+        updated = await this.releases.commit(scope, {
+          grants: input.credentials
+            ? {
+                bindings: input.credentials.map(
+                  ({ credentialId, env, version, valueId }) => ({
+                    credentialId,
+                    env,
+                    version,
+                    valueId,
+                  }),
+                ),
+                expectedGeneration: input.credentialGeneration,
+              }
+            : undefined,
+          revokeApiKey:
+            !!live?.capabilities.includes("api-key") &&
+            !settings.capabilities.includes("api-key"),
+          deployment: {
+            ...settings,
+            release,
+            author: actor,
+            build: build.number,
+            imageDigest: build.imageDigest,
+          },
+          changes: {
+            release,
+            liveDeployment: release,
+            running: true,
+            diskGi: artifact.diskGi ?? settings.diskGi,
+            updatedBy: actor,
+          },
+        });
+      } catch (error) {
+        if (input.credentials)
+          await this.credentials.discardUngranted(scope).catch(() => undefined);
+        throw error;
+      }
       await this.deployments.prune(scope, deploymentRetention, release);
       await this.reconciler.reconcile(updated);
       return updated;
     });
   }
 
-  /** Read recent output of the artifact's container. */
+  /**
+   * Read recent output of the artifact's container, hiding exact copies of its current credential
+   * values. Output the app transformed, or values it already printed elsewhere, can't be detected.
+   */
   async logs(
     ownerId: string,
     reference: string,
@@ -123,7 +167,10 @@ export class DeploymentService {
       reference,
       "dynamic",
     );
-    return this.orchestrator.logs(artifact.id, options);
+    return this.credentials.redact(
+      artifact,
+      await this.orchestrator.logs(artifact.id, options),
+    );
   }
 
   // ===========================================

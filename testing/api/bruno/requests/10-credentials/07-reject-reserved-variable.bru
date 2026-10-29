@@ -1,0 +1,30 @@
+meta {
+  name: Reject a reserved variable
+  type: http
+  seq: 7
+}
+
+post {
+  url: {{baseUrl}}/v1/artifacts/89bb2d67-090d-405a-84f8-880d9231c9c2/credentials
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+  Authorization: Bearer {{accessToken}}
+}
+
+body:json {
+  {
+    "credentialId": "{{credentialId}}",
+    "env": "PGPASSWORD"
+  }
+}
+
+tests {
+  test("Refuse variables Everything, PostgreSQL clients, or Kubernetes set", () => {
+    expect(res.status).to.equal(400);
+    expect(res.body.code).to.equal("RESERVED_CREDENTIAL_VARIABLE");
+  });
+}

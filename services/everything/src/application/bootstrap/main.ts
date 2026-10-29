@@ -45,6 +45,10 @@ import { KeyService } from "../../key/service/key-service.js";
 import { PostgresKeyRepository } from "../../key/repository/postgres-key-repository.js";
 import { PostgresSshKeyRepository } from "../../key/repository/postgres-ssh-key-repository.js";
 import { SshEnabledKeys } from "../../key/service/ssh-enabled-keys.js";
+import { PostgresGenericCredentialRepository } from "../../key/repository/postgres-generic-credential-repository.js";
+import { CredentialGrants } from "../../credential/service/credential-grants.js";
+import { CredentialRollouts } from "../../credential/service/credential-rollouts.js";
+import { CredentialSyncScheduler } from "../../credential/service/credential-sync-scheduler.js";
 import { createSshRuntime } from "../../ssh/factory/ssh-runtime.js";
 import {
   fleetGitAgentSocket,
@@ -175,6 +179,22 @@ async function main(): Promise<void> {
       clientSecret: config.artifactService.clientSecret,
     }),
   );
+  const genericCredentials = new PostgresGenericCredentialRepository(database);
+  const credentialRollouts = new CredentialRollouts(
+    genericCredentials,
+    new SessionCipher(config.sessionEncryptionKey),
+    artifactGateway,
+    (task) =>
+      console.warn(
+        `A credential ${task} couldn't finish; Everything will retry.`,
+      ),
+  );
+  const credentialGrants = new CredentialGrants(
+    genericCredentials,
+    new SessionCipher(config.sessionEncryptionKey),
+    artifactGateway,
+    credentialRollouts,
+  );
   const {
     host: fleet,
     clients: fleetClientAddress,
@@ -231,7 +251,7 @@ async function main(): Promise<void> {
     new PiSessionFactory(
       inference,
       workspaces,
-      new ArtifactWorkbench(artifactGateway),
+      new ArtifactWorkbench(artifactGateway, credentialGrants),
       new HttpWorkspaceTools(
         config.workspacePods.namespace,
         config.sessionEncryptionKey,
@@ -262,6 +282,8 @@ async function main(): Promise<void> {
       ),
       ssh.keys,
     ),
+    credentialGrants,
+    credentialRollouts,
     providers,
     models,
     chatGptRedirectUri: config.chatGptRedirectUri,
@@ -282,7 +304,7 @@ async function main(): Promise<void> {
       : new UnavailableUpgrades(),
     generalSettings,
     teammateOrder: new TeammateOrderService(generalSettingsRepository),
-    artifacts: new ArtifactLibraryService(artifactGateway),
+    artifacts: new ArtifactLibraryService(artifactGateway, credentialGrants),
     workers,
     workspaces: workspaceInstances,
     workspaceActivity,
@@ -313,6 +335,11 @@ async function main(): Promise<void> {
       recordWarning(message);
     },
   );
+  const credentialSync = new CredentialSyncScheduler(credentialRollouts, () =>
+    app.log.warn(
+      "Credentials couldn't be compared with apps; Everything will retry.",
+    ),
+  );
   const providerChecks = new ProviderCheckScheduler(
     new PostgresProviderCheckRepository(database),
     providers,
@@ -328,6 +355,7 @@ async function main(): Promise<void> {
   app.addHook("onClose", async () => {
     await summaries.close();
     await providerChecks.close();
+    await credentialSync.close();
     await monitors.close();
     await conversations.close();
     await workspaces.close();
@@ -342,6 +370,7 @@ async function main(): Promise<void> {
   await app.listen({ host: "0.0.0.0", port: config.port });
   summaries.start();
   providerChecks.start();
+  credentialSync.start();
   workspaces.start();
   fleet.start();
   fleetClientAddress?.start();

@@ -1,3 +1,4 @@
+import type { AppCredentialView } from "../../credential/service/app-credentials.js";
 import type {
   ArtifactBuild,
   ArtifactDeployment,
@@ -49,12 +50,13 @@ export interface HostOrigins {
   readonly publicApps: string;
 }
 
-/** Present an artifact with its status and current deployment's public capability flags. */
+/** Present an artifact with its status, current capability flags, and credential metadata. */
 export function representSummary(
   artifact: Artifact,
   observed: ArtifactRuntime | undefined,
   origins: HostOrigins,
   deployment: Pick<ArtifactDeployment, "database" | "capabilities"> | undefined,
+  credentials: AppCredentialView | undefined,
 ): ArtifactSummary {
   return {
     id: artifact.id,
@@ -64,6 +66,9 @@ export function representSummary(
     description: artifact.description,
     database: deployment?.database ?? false,
     capabilities: deployment?.capabilities ?? [],
+    credentials:
+      artifact.kind === "dynamic" ? (credentials?.credentials ?? []) : [],
+    credentialGeneration: credentials?.generation ?? 0,
     url: `${origins.artifact}/${artifact.slug}/`,
     publicUrl: `${origins.publicApps}/${artifact.slug}/`,
     visibility: artifact.visibility,
@@ -76,12 +81,13 @@ export function representSummary(
   };
 }
 
-/** Present an artifact with its recent history, live release, and runtime. */
+/** Present an artifact with its recent history, live release, runtime, and credentials. */
 export function representDetails(
   artifact: Artifact,
   history: ArtifactHistory,
   observed: ArtifactRuntime | undefined,
   origins: HostOrigins,
+  credentials: AppCredentialView | undefined,
 ): ArtifactDetails {
   const deployment: ArtifactDeployment | null = history.deployment
     ? {
@@ -98,7 +104,13 @@ export function representDetails(
       }
     : null;
   return {
-    ...representSummary(artifact, observed, origins, history.deployment),
+    ...representSummary(
+      artifact,
+      observed,
+      origins,
+      history.deployment,
+      credentials,
+    ),
     liveRevision: artifact.liveRevision,
     revisions: history.revisions,
     builds: history.builds,

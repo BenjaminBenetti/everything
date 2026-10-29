@@ -16,6 +16,11 @@ import {
   diskClaimName,
   managerName,
 } from "../../cluster/model/cluster-names.js";
+import {
+  credentialAnnotation,
+  parseCredentialEntries,
+} from "../../credential/model/credential-binding.js";
+import type { PodCredentials } from "../../credential/model/credential-status.js";
 import type { DatabaseConnection } from "../../database/interface/artifact-databases.js";
 import type {
   ArtifactWorkload,
@@ -128,6 +133,39 @@ export class KubernetesWorkloads implements WorkloadOrchestrator {
         runtimeFromPods(observed),
       ]),
     );
+  }
+
+  /**
+   * Read each pod's credential annotation. Pods that finished have no running process and are left
+   * out; pods being deleted are included, because their processes run until they stop.
+   */
+  async heldCredentials(
+    artifactId?: string,
+  ): Promise<ReadonlyMap<string, readonly PodCredentials[]>> {
+    const pods = await this.clients.core.listNamespacedPod({
+      namespace: this.settings.namespace,
+      labelSelector: [
+        `${artifactLabels.managedBy}=${managerName}`,
+        ...(artifactId ? [`${artifactLabels.artifactId}=${artifactId}`] : []),
+      ].join(","),
+    });
+    const byArtifact = new Map<string, PodCredentials[]>();
+    for (const pod of pods.items) {
+      const owner = pod.metadata?.labels?.[artifactLabels.artifactId];
+      const phase = pod.status?.phase;
+      if (!owner || phase === "Succeeded" || phase === "Failed") continue;
+      byArtifact.set(owner, [
+        ...(byArtifact.get(owner) ?? []),
+        {
+          ready: observe(pod).ready,
+          terminating: !!pod.metadata?.deletionTimestamp,
+          entries: parseCredentialEntries(
+            pod.metadata?.annotations?.[credentialAnnotation],
+          ),
+        },
+      ]);
+    }
+    return byArtifact;
   }
 
   /** Read the newest pod's container output; an absent or unstarted container yields nothing. */

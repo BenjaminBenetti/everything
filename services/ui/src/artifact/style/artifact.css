@@ -331,6 +331,108 @@
 }
 
 /* ===========================================
+   App credentials
+   =========================================== */
+.credential-dialog .dialog-body {
+  display: grid;
+  gap: 18px;
+}
+.credential-dialog-section {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+.credential-heading {
+  font-size: 12px;
+  font-weight: 600;
+}
+.credential-usage {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.credential-usage-error {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+}
+.credential-usage li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border-default);
+  border-radius: 10px;
+  background: var(--surface-subtle);
+}
+.credential-usage-app {
+  display: grid;
+  gap: 3px;
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.credential-usage-app code {
+  font-family:
+    ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+.credential-usage li .button {
+  flex: none;
+}
+.credential-status {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+.credential-status::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--status-ready);
+}
+.credential-status-applied::before {
+  background: var(--status-connected);
+}
+.credential-status-stopped::before {
+  background: var(--text-secondary);
+}
+.credential-status-missing::before,
+.credential-status-removing::before {
+  background: var(--status-disconnected);
+}
+.credential-notice {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+.credential-notice[role="note"] {
+  padding: 10px 12px;
+  border-left: 3px solid var(--status-ready);
+  border-radius: 6px;
+  background: var(--surface-subtle);
+}
+
+@media (max-width: 650px) {
+  .credential-usage li {
+    flex-wrap: wrap;
+  }
+  .credential-usage-app {
+    flex-basis: 100%;
+  }
+}
+
+/* ===========================================
    Sharing
    =========================================== */
 

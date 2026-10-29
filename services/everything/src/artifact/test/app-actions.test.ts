@@ -4,6 +4,7 @@ import { HttpArtifactGateway } from "../adapter/http-artifact-gateway.js";
 import { ArtifactLibraryService } from "../service/artifact-library-service.js";
 import { artifactController } from "../controller/artifact-controller.js";
 import { authenticatedTestServer } from "../../http/test/test-server.js";
+import { noCredentialGrants } from "../../credential/test/credential-fixture.js";
 
 const appId = "89bb2d67-090d-405a-84f8-880d9231c9c2";
 
@@ -25,8 +26,10 @@ test("browser actions derive ownership and authorship from authentication and re
   );
   const server = authenticatedTestServer();
   context.after(() => server.close());
-  await artifactController(server, new ArtifactLibraryService(gateway), () =>
-    assert.fail("no signed-in-only route requested"),
+  await artifactController(
+    server,
+    new ArtifactLibraryService(gateway, noCredentialGrants),
+    () => assert.fail("no signed-in-only route requested"),
   );
   for (const action of ["start", "stop", "delete"] as const) {
     const response = await server.inject({
@@ -78,8 +81,10 @@ test("manual action errors keep missing apps opaque and translate conflicts with
   );
   const server = authenticatedTestServer();
   context.after(() => server.close());
-  await artifactController(server, new ArtifactLibraryService(gateway), () =>
-    assert.fail("no signed-in-only route requested"),
+  await artifactController(
+    server,
+    new ArtifactLibraryService(gateway, noCredentialGrants),
+    () => assert.fail("no signed-in-only route requested"),
   );
   for (const [upstream, expected, code] of [
     [404, 404, "ARTIFACT_NOT_FOUND"],
@@ -120,8 +125,10 @@ test("the owner's API key is read from the app service for that owner and is nev
   );
   const server = authenticatedTestServer();
   context.after(() => server.close());
-  await artifactController(server, new ArtifactLibraryService(gateway), () =>
-    assert.fail("no signed-in-only route requested"),
+  await artifactController(
+    server,
+    new ArtifactLibraryService(gateway, noCredentialGrants),
+    () => assert.fail("no signed-in-only route requested"),
   );
   const revealed = await server.inject({ url: `/artifacts/${appId}/api-key` });
   assert.equal(revealed.statusCode, 200);

@@ -19,6 +19,8 @@ import {
   MemoryRevisions,
 } from "../../artifact/test/artifact-fixture.js";
 import { FileContentStore } from "../../content/service/file-content-store.js";
+import type { AppCredentials } from "../../credential/service/app-credentials.js";
+import type { CredentialDistribution } from "../../credential/service/credential-distribution.js";
 import type { DeploymentService } from "../../deployment/service/deployment-service.js";
 import type { BuildService } from "../../image/service/build-service.js";
 import { RevisionService } from "../../revision/service/revision-service.js";
@@ -67,6 +69,7 @@ async function application(context: {
         artifact: "http://artifacts.test",
         publicApps: "http://public.apps.test",
       },
+      { states: async () => new Map() },
     ),
     lifecycle: new ArtifactLifecycleService(artifacts, lookup, lock, {
       reconcile: async () => {},
@@ -75,6 +78,8 @@ async function application(context: {
     revisions: new RevisionService(artifacts, revisions, content, lookup, lock),
     builds: { source: async () => undefined } as unknown as BuildService,
     deployments: {} as DeploymentService,
+    credentials: {} as AppCredentials,
+    distribution: {} as CredentialDistribution,
     content,
     access: {
       grant: async (_owner, input) => ({ url: `view:${input.slug}` }),

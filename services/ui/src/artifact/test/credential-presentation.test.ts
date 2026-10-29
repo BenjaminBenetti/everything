@@ -1,0 +1,257 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { QueryClient, QueryObserver } from "@tanstack/react-query";
+import type { SavedKey } from "@everything/key-contracts";
+import {
+  appCredentialStatuses,
+  type CredentialUsage,
+  type CredentialUse,
+} from "@everything/artifact-contracts/credential";
+import {
+  attachableCredentials,
+  credentialFailureMessage,
+  credentialStatusLabels,
+  credentialVariableMessage,
+  deletionOutcome,
+  isSettledUsage,
+  removalFailureMessage,
+  replacementProgress,
+  suggestedVariable,
+  usageFollowDelay,
+  usageFollower,
+} from "../model/credential-presentation.js";
+import { HttpRequestError } from "../../http/model/http-request-error.js";
+
+/** A saved key with the given fields. */
+function key(changes: Partial<SavedKey>): SavedKey {
+  return {
+    id: changes.name ?? "key",
+    name: "key",
+    type: "generic",
+    createdAt: "2026-10-22T00:00:00Z",
+    ...changes,
+  };
+}
+
+/** One app's use of a credential. */
+function use(status: CredentialUse["status"]): CredentialUse {
+  return { appId: "app", slug: "app", title: "App", env: "TOKEN", status };
+}
+
+test("every credential status has its own plain label", () => {
+  const labels = appCredentialStatuses.map(
+    (status) => credentialStatusLabels[status],
+  );
+  assert.equal(new Set(labels).size, appCredentialStatuses.length);
+  assert.equal(credentialStatusLabels.applied, "In use");
+  assert.equal(credentialStatusLabels.removing, "Removing");
+});
+
+test("only the user's own generic credentials that aren't being deleted can be attached, by name", () => {
+  const keys = [
+    key({ name: "zeta", owned: true }),
+    key({ name: "alpha", owned: true }),
+    key({ name: "theirs", owned: false }),
+    key({ name: "gone", owned: true, status: "removing" }),
+    key({ name: "ssh", type: "ssh", owned: true }),
+  ];
+  assert.deepEqual(
+    attachableCredentials(keys).map(({ name }) => name),
+    ["alpha", "zeta"],
+  );
+});
+
+test("variable names are checked for syntax, length, and reserved names before sending", () => {
+  assert.equal(credentialVariableMessage("SLACK_BOT_TOKEN"), undefined);
+  assert.equal(credentialVariableMessage("_private"), undefined);
+  assert.match(credentialVariableMessage("")!, /Enter the environment/);
+  for (const invalid of ["1TOKEN", "SLACK-TOKEN", "A B", `T${"A".repeat(128)}`])
+    assert.match(credentialVariableMessage(invalid)!, /letters, digits/);
+  for (const reserved of [
+    "PORT",
+    "BASE_PATH",
+    "DATABASE_URL",
+    "APP_API_KEY",
+    "PGPASSWORD",
+    "EVERYTHING_TOKEN",
+    "KUBERNETES_SERVICE_HOST",
+  ])
+    assert.match(credentialVariableMessage(reserved)!, /Everything sets/);
+});
+
+test("suggested variable names follow the credential's name and avoid reserved ones", () => {
+  assert.equal(suggestedVariable("slack-bot-token"), "SLACK_BOT_TOKEN");
+  assert.equal(suggestedVariable("  Stripe key (live) "), "STRIPE_KEY_LIVE");
+  assert.equal(suggestedVariable("3scale"), "_3SCALE");
+  assert.equal(suggestedVariable("pg password"), "");
+  assert.equal(suggestedVariable("---"), "");
+});
+
+test("failures are described from the error code only, never the server's text", () => {
+  assert.match(
+    credentialFailureMessage(
+      new HttpRequestError(409, "generic", "KEY_NAME_TAKEN"),
+    ),
+    /already uses this name/,
+  );
+  assert.match(
+    credentialFailureMessage(
+      new HttpRequestError(400, "generic", "RESERVED_CREDENTIAL_VARIABLE"),
+    ),
+    /sets this variable name/,
+  );
+  assert.match(
+    credentialFailureMessage(new HttpRequestError(403, "generic")),
+    /Only the account that added it/,
+  );
+  assert.equal(
+    credentialFailureMessage(new HttpRequestError(500, "Please try again.")),
+    "Please try again.",
+  );
+  assert.doesNotMatch(
+    credentialFailureMessage(new Error("sentinel-secret leaked")),
+    /sentinel/,
+  );
+});
+
+test("outcomes never claim an app is done while it is still restarting or unreachable", () => {
+  assert.equal(isSettledUsage([use("applied"), use("stopped")]), true);
+  assert.equal(isSettledUsage([use("applied"), use("pending")]), false);
+  const unreachable = { complete: false, usage: null } as const;
+  assert.match(
+    replacementProgress(unreachable, undefined),
+    /^Saved\. Everything couldn’t reach your apps yet/,
+  );
+  // A later observation replaces the replacement's first answer, in both directions.
+  assert.match(
+    replacementProgress(unreachable, { apps: [use("pending")], otherApps: 0 }),
+    /^Saved\. Apps are restarting/,
+  );
+  assert.match(
+    replacementProgress(unreachable, { apps: [use("updating")], otherApps: 0 }),
+    /^Saved\. Apps are restarting/,
+  );
+  assert.equal(
+    replacementProgress(unreachable, { apps: [use("applied")], otherApps: 0 }),
+    "Saved. All apps use the new value.",
+  );
+  assert.match(
+    replacementProgress(
+      { complete: true, usage: { apps: [use("applied")], otherApps: 0 } },
+      { apps: [use("applied"), use("removing")], otherApps: 0 },
+    ),
+    /restarting/,
+  );
+  assert.match(
+    replacementProgress(unreachable, {
+      apps: [use("applied"), use("stopped")],
+      otherApps: 0,
+    }),
+    /stopped apps get it when they start/,
+  );
+  assert.match(
+    replacementProgress(unreachable, { apps: [], otherApps: 0 }),
+    /No app uses/,
+  );
+  assert.match(
+    deletionOutcome({ complete: true, usage: { apps: [], otherApps: 0 } }),
+    /No app receives it/,
+  );
+  assert.match(
+    deletionOutcome({
+      complete: false,
+      usage: { apps: [use("removing")], otherApps: 1 },
+    }),
+    /still being removed from 2 apps/,
+  );
+  assert.match(
+    deletionOutcome({ complete: false, usage: null }),
+    /keeps trying/,
+  );
+});
+
+test("followed usage is retried with a growing delay while unknown, and never treated as settled", () => {
+  const settled = { apps: [use("applied")], otherApps: 0 };
+  const changing = { apps: [use("removing")], otherApps: 0 };
+  assert.equal(
+    usageFollowDelay({ usage: undefined, failed: true, failures: 1 }),
+    2000,
+  );
+  assert.equal(
+    usageFollowDelay({ usage: undefined, failed: true, failures: 3 }),
+    8000,
+  );
+  assert.equal(
+    usageFollowDelay({ usage: undefined, failed: true, failures: 20 }),
+    30_000,
+  );
+  assert.equal(
+    usageFollowDelay({ usage: undefined, failed: false, failures: 0 }),
+    2000,
+  );
+  assert.equal(
+    usageFollowDelay({ usage: settled, failed: true, failures: 2 }),
+    4000,
+    "settled data that can no longer be refreshed is retried",
+  );
+  assert.equal(
+    usageFollowDelay({ usage: changing, failed: false, failures: 0 }),
+    2000,
+  );
+  assert.equal(
+    usageFollowDelay({ usage: settled, failed: false, failures: 0 }),
+    false,
+  );
+});
+
+test("a failed removal never claims nothing changed", () => {
+  for (const error of [
+    new HttpRequestError(503, "generic", "ARTIFACTS_UNAVAILABLE"),
+    new Error("network"),
+  ])
+    assert.match(removalFailureMessage(error), /may already be saved/);
+  assert.match(
+    removalFailureMessage(
+      new HttpRequestError(404, "generic", "CREDENTIAL_NOT_ATTACHED"),
+    ),
+    /already removed/,
+  );
+  for (const error of [
+    new HttpRequestError(503, "generic"),
+    new HttpRequestError(404, "generic", "CREDENTIAL_NOT_ATTACHED"),
+  ])
+    assert.match(removalFailureMessage(error), /Removing until/);
+});
+
+test("usage that keeps failing to load is read again less and less often, and resets once it loads", async () => {
+  const client = new QueryClient();
+  let reachable = false;
+  const observer = new QueryObserver(client, {
+    queryKey: ["usage"],
+    queryFn: async () => {
+      if (!reachable) throw new Error("apps unreachable");
+      return { apps: [use("pending")], otherApps: 0 };
+    },
+    retry: false,
+  });
+  const follow = usageFollower();
+  const state = () =>
+    client.getQueryCache().find<CredentialUsage>({ queryKey: ["usage"] })!
+      .state;
+  const delays: (number | false)[] = [];
+  const read = async () => {
+    await observer.refetch();
+    delays.push(follow(state()));
+  };
+  for (let attempt = 0; attempt < 5; attempt += 1) await read();
+  // React Query's own count restarts with each fetch, so it can't grow the delay by itself.
+  assert.equal(state().fetchFailureCount, 1);
+  reachable = true;
+  await read();
+  reachable = false;
+  await read();
+  assert.deepEqual(delays, [2000, 4000, 8000, 16_000, 30_000, 2000, 2000]);
+  // Asking again for the same failed read doesn't count it twice.
+  assert.equal(follow(state()), 2000);
+  client.clear();
+});

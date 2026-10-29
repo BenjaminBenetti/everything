@@ -4,6 +4,8 @@ import {
   artifactVisibilities,
 } from "@everything/artifact-contracts";
 
+import { appCredentialResponse } from "../../key/schema/key-response.js";
+
 const author = Type.Object({ id: Type.String(), name: Type.String() });
 
 /** One app as its owner sees it, without deployment secrets or internal service addresses. */
@@ -17,6 +19,7 @@ export const artifactSummaryResponse = Type.Object({
   capabilities: Type.Array(
     Type.Union(artifactCapabilities.map((value) => Type.Literal(value))),
   ),
+  credentials: Type.Array(appCredentialResponse),
   url: Type.String(),
   publicUrl: Type.String(),
   visibility: Type.Union(

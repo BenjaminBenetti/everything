@@ -18,6 +18,8 @@ import { TelemetryQueryService } from "../../telemetry/service/telemetry-query-s
 import { HttpArtifactGateway } from "../adapter/http-artifact-gateway.js";
 import { ArtifactLibraryService } from "../service/artifact-library-service.js";
 
+import { noCredentialGrants } from "../../credential/test/credential-fixture.js";
+
 const publicOrigin = "https://everything.test";
 const issuer = `${publicOrigin}/auth/realms/everything`;
 const audience = "everything-api";
@@ -145,6 +147,8 @@ async function application(context: TestContext) {
         description: "",
         database: false,
         capabilities: [],
+        credentials: [],
+        credentialGeneration: 0,
         url: "https://artifacts.everything.test/planner/",
         publicUrl: "https://public-apps.everything.test/planner/",
         visibility: visibility ?? "private",
@@ -187,6 +191,8 @@ async function application(context: TestContext) {
     publicOrigin,
     chatGptRedirectUri: "http://127.0.0.1:8080/v1/providers/chatgpt/callback",
     keys: unusedOperations(),
+    credentialGrants: unusedOperations(),
+    credentialRollouts: unusedOperations(),
     providers: unusedOperations(),
     models: unusedOperations(),
     agents: unusedOperations(),
@@ -197,7 +203,7 @@ async function application(context: TestContext) {
     subagents: unusedOperations(),
     updates: unusedOperations(),
     upgrades: unusedOperations(),
-    artifacts: new ArtifactLibraryService(gateway),
+    artifacts: new ArtifactLibraryService(gateway, noCredentialGrants),
     workers: unusedOperations(),
     generalSettings: unusedOperations(),
     teammateOrder: unusedOperations(),

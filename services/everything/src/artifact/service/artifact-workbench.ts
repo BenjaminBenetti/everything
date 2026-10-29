@@ -12,6 +12,12 @@ import type {
   ArtifactViewPassInput,
   DeployInput,
 } from "@everything/artifact-contracts";
+import type { CredentialBindingRequest } from "@everything/artifact-contracts/credential";
+import {
+  needsAlignment,
+  type CredentialCatalogEntry,
+  type CredentialGrants,
+} from "../../credential/service/credential-grants.js";
 import type {
   ArtifactActor,
   ArtifactGateway,
@@ -47,6 +53,12 @@ export interface CheckoutResult {
   readonly fileCount: number;
 }
 
+/** A teammate's deployment, naming credentials instead of carrying their values. */
+export type WorkbenchDeployInput = Omit<DeployInput, "credentials"> & {
+  /** Omit to keep the app's credentials; an empty list removes them. */
+  readonly credentials?: readonly CredentialBindingRequest[];
+};
+
 /** Longest a teammate may wait for a build in one tool call. */
 export const maximumBuildWaitSeconds = 60;
 
@@ -62,20 +74,30 @@ export class ArtifactWorkbench {
   // Construction
   // ===========================================
 
-  /** Use the artifact service through its gateway. */
-  constructor(private readonly gateway: ArtifactGateway) {}
+  /** Use the artifact service through its gateway, and credentials through their grants. */
+  constructor(
+    private readonly gateway: ArtifactGateway,
+    private readonly credentials: Pick<
+      CredentialGrants,
+      "resolve" | "named" | "catalog" | "align"
+    >,
+  ) {}
 
   // ===========================================
   // Records
   // ===========================================
 
   /** List every shared artifact. */
-  list(context: WorkbenchContext): Promise<ArtifactSummary[]> {
-    return this.gateway.list(context.ownerId);
+  async list(context: WorkbenchContext): Promise<ArtifactSummary[]> {
+    return Promise.all(
+      (await this.gateway.list(context.ownerId)).map((artifact) =>
+        this.named(artifact),
+      ),
+    );
   }
 
   /** Create an artifact on the teammate's behalf. */
-  create(
+  async create(
     context: WorkbenchContext,
     input: {
       slug: string;
@@ -84,26 +106,33 @@ export class ArtifactWorkbench {
       description?: string;
     },
   ): Promise<ArtifactDetails> {
-    return this.gateway.create(this.actor(context), {
-      slug: input.slug,
-      kind: input.kind,
-      title: input.title,
-      description: input.description ?? "",
-    });
+    return this.named(
+      await this.gateway.create(this.actor(context), {
+        slug: input.slug,
+        kind: input.kind,
+        title: input.title,
+        description: input.description ?? "",
+      }),
+    );
   }
 
   /** Describe one artifact. */
-  get(context: WorkbenchContext, reference: string): Promise<ArtifactDetails> {
-    return this.gateway.get(context.ownerId, reference);
+  async get(
+    context: WorkbenchContext,
+    reference: string,
+  ): Promise<ArtifactDetails> {
+    return this.named(await this.gateway.get(context.ownerId, reference));
   }
 
   /** Change descriptive fields. */
-  update(
+  async update(
     context: WorkbenchContext,
     reference: string,
     input: { title?: string; description?: string },
   ): Promise<ArtifactDetails> {
-    return this.gateway.update(this.actor(context), reference, input);
+    return this.named(
+      await this.gateway.update(this.actor(context), reference, input),
+    );
   }
 
   /** Delete an artifact. */
@@ -255,18 +284,64 @@ export class ArtifactWorkbench {
     return build;
   }
 
-  /** Deploy a build as the next release. */
-  deploy(
+  /**
+   * Deploy a build as the next release. Named credentials are resolved among the owner's own
+   * generic credentials and sent as grants; values never appear in the result. The app and its
+   * credential generation are read once, before the grants are authorized, and pinned for the whole
+   * operation: a refusal because apps hold another value of a credential is retried once after
+   * alignment with fresh values of the same credentials, but never with fresh authority, so a
+   * removal at any point after that read refuses the deployment.
+   */
+  async deploy(
     context: WorkbenchContext,
     reference: string,
-    input: DeployInput,
+    { credentials, ...input }: WorkbenchDeployInput,
   ): Promise<ArtifactDetails> {
-    return this.gateway.deploy(this.actor(context), reference, input);
+    const actor = this.actor(context);
+    if (!credentials?.length)
+      return this.named(
+        await this.gateway.deploy(actor, reference, {
+          ...input,
+          ...(credentials ? { credentials: [] } : {}),
+        }),
+      );
+    const app = await this.gateway.get(context.ownerId, reference);
+    let granted: string[] | undefined;
+    const attempt = async () => {
+      const grants = await this.credentials.resolve(
+        context.ownerId,
+        credentials,
+        granted,
+      );
+      granted = grants.map((grant) => grant.credentialId);
+      return this.gateway.deploy(actor, app.id, {
+        ...input,
+        credentials: grants,
+        credentialGeneration: app.credentialGeneration,
+      });
+    };
+    try {
+      return this.named(await attempt());
+    } catch (error) {
+      if (!needsAlignment(error) || !granted) throw error;
+      await this.credentials.align(granted);
+      return this.named(await attempt());
+    }
   }
 
   /** Stop a published app while retaining its release and data. */
-  stop(context: WorkbenchContext, reference: string): Promise<ArtifactDetails> {
-    return this.gateway.stop(this.actor(context), reference);
+  async stop(
+    context: WorkbenchContext,
+    reference: string,
+  ): Promise<ArtifactDetails> {
+    return this.named(await this.gateway.stop(this.actor(context), reference));
+  }
+
+  /** The generic credentials the teammate's owner can attach, and where their apps use them. */
+  listCredentials(
+    context: WorkbenchContext,
+  ): Promise<CredentialCatalogEntry[]> {
+    return this.credentials.catalog(context.ownerId);
   }
 
   /** Read a dynamic artifact's output. */
@@ -331,6 +406,14 @@ export class ArtifactWorkbench {
     return inWorkspace(context, () =>
       workspaceDirectory(context, directory, { mustExist }),
     );
+  }
+
+  /** Fill in the current names of an artifact's credentials. */
+  private async named<T extends ArtifactSummary>(artifact: T): Promise<T> {
+    return {
+      ...artifact,
+      credentials: await this.credentials.named(artifact.credentials ?? []),
+    };
   }
 
   /** The teammate acting on the owner's artifacts. */
