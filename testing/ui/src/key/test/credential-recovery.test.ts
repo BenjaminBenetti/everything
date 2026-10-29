@@ -94,6 +94,8 @@ function app(status?: string) {
         ]
       : [],
     url: "http://localhost:8081/slack-bot/",
+    publicUrl: "http://public.apps.test/slack-bot/",
+    visibility: "private",
     release: 1,
     createdAt: new Date(Date.now() - 86_400_000).toISOString(),
     updatedAt: new Date().toISOString(),

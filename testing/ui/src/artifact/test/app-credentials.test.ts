@@ -28,6 +28,8 @@ function app(index: number, title: string, kind: "dynamic" | "static") {
           ]
         : [],
     url: `http://localhost:8081/app-${index}/`,
+    publicUrl: `http://public.apps.test/app-${index}/`,
+    visibility: "private",
     release: 1,
     createdAt: new Date(Date.now() - 86_400_000).toISOString(),
     updatedAt: new Date().toISOString(),
