@@ -6,7 +6,7 @@ import { Table, type MigrationInterface, type QueryRunner } from "typeorm";
  * removal can't be committed after it. Existing grants and records keep no identity until their
  * next delivery; existing apps start at generation 0.
  */
-export class CredentialValues1792540800000 implements MigrationInterface {
+export class CredentialValues1792713600000 implements MigrationInterface {
   /** Add value identities and per-app generations. */
   async up(runner: QueryRunner): Promise<void> {
     await runner.query(

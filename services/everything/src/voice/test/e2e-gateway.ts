@@ -8,6 +8,7 @@ import {
   type HttpDependencies,
 } from "../../application/factory/http-application.js";
 import { createVoiceRuntime } from "../factory/voice-runtime.js";
+import { TelemetryQueryService } from "../../telemetry/service/telemetry-query-service.js";
 
 /**
  * A local gateway for browser end-to-end tests against a real streaming speech service: the
@@ -99,6 +100,10 @@ const dependencies: HttpDependencies = {
   workspaceActivity: unused(),
   voice: runtime.uploads,
   voiceStreams: runtime.streams,
+  telemetry: new TelemetryQueryService(
+    { enabled: false, retentionDays: 7 },
+    null,
+  ),
   readiness: async () => {},
 };
 const app = await createHttpApplication(dependencies);

@@ -35,6 +35,7 @@ export const ArtifactEntity = new EntitySchema<ArtifactRecord>({
     },
     running: { type: "boolean" },
     diskGi: { name: "disk_gi", type: "integer", nullable: true },
+    visibility: { type: "text", default: "private" },
   },
   indices: [{ name: "artifacts_owner", columns: ["ownerId"] }],
   checks: [
@@ -49,6 +50,10 @@ export const ArtifactEntity = new EntitySchema<ArtifactRecord>({
     {
       name: "artifacts_description_check",
       expression: `length(description) <= ${artifactLimits.descriptionLength}`,
+    },
+    {
+      name: "artifacts_visibility_check",
+      expression: "visibility IN ('private', 'public')",
     },
   ],
 });

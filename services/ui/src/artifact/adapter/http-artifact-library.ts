@@ -3,6 +3,7 @@ import type {
   ArtifactList,
   ArtifactSummary,
   ArtifactView,
+  ArtifactVisibility,
 } from "@everything/artifact-contracts";
 import type {
   AppCredentialList,
@@ -90,6 +91,17 @@ export class HttpArtifactLibrary implements ArtifactLibrary {
     return this.transport.request(
       `/v1/artifacts/${encodeURIComponent(id)}/credentials/${encodeURIComponent(env)}`,
       { method: "DELETE" },
+    );
+  }
+
+  /** Change who can open the app; only a same-origin request from the signed-in owner is accepted. */
+  setVisibility(
+    id: string,
+    visibility: ArtifactVisibility,
+  ): Promise<ArtifactSummary> {
+    return this.transport.request<ArtifactSummary>(
+      `/v1/artifacts/${encodeURIComponent(id)}/visibility`,
+      { method: "PUT", body: JSON.stringify({ visibility }) },
     );
   }
 

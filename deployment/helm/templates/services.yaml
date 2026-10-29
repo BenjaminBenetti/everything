@@ -1,28 +1,35 @@
+{{- /*
+One Service per service with exposed ports, named after it; a port with a `serviceName` is exposed by a
+Service of that name instead, selecting the same pods.
+*/ -}}
 {{- range $name, $_ := .Values.services }}
 {{- $service := include "stack.service" (dict "root" $ "name" $name) | fromYaml }}
 {{- $exposed := dict }}
 {{- range $portName, $port := $service.ports }}
 {{- if $port.servicePort }}
-{{- $_ := set $exposed $portName $port }}
+{{- $serviceName := $port.serviceName | default $name }}
+{{- $_ := set $exposed $serviceName (set (get $exposed $serviceName | default dict) $portName $port) }}
 {{- end }}
 {{- end }}
-{{- if and $service.enabled $exposed }}
+{{- if $service.enabled }}
 {{- $context := dict "root" $ "name" $name }}
+{{- range $serviceName, $ports := $exposed }}
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ $name }}
+  name: {{ $serviceName }}
   labels:
     {{- include "stack.labels" $context | nindent 4 }}
 spec:
   selector:
     {{- include "stack.selectorLabels" $context | nindent 4 }}
   ports:
-    {{- range $portName, $port := $exposed }}
+    {{- range $portName, $port := $ports }}
     - name: {{ $portName }}
       port: {{ $port.servicePort }}
       targetPort: {{ $portName }}
     {{- end }}
+{{- end }}
 {{- end }}
 {{- end }}

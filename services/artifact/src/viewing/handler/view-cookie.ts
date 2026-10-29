@@ -7,6 +7,10 @@ const applicationSessionCookies = [
   "__Host-everything-session",
 ];
 
+/** The artifact host's session cookie over HTTP; over HTTPS it is the `__Host-` form. */
+const artifactSessionCookie = "everything-artifact-session";
+const secureArtifactSessionCookie = `__Host-${artifactSessionCookie}`;
+
 /** Owns the artifact host's session cookie. */
 export class ViewCookie {
   // ===========================================
@@ -24,8 +28,8 @@ export class ViewCookie {
   constructor(artifactOrigin: string) {
     this.secure = new URL(artifactOrigin).protocol === "https:";
     this.name = this.secure
-      ? "__Host-everything-artifact-session"
-      : "everything-artifact-session";
+      ? secureArtifactSessionCookie
+      : artifactSessionCookie;
   }
 
   // ===========================================
@@ -48,8 +52,12 @@ export class ViewCookie {
     });
   }
 
-  /** Login cookies that must not reach an artifact's own server. */
+  /** Login cookies that must not reach an artifact's own server, under either scheme's name. */
   get privateCookies(): readonly string[] {
-    return [this.name, ...applicationSessionCookies];
+    return [
+      artifactSessionCookie,
+      secureArtifactSessionCookie,
+      ...applicationSessionCookies,
+    ];
   }
 }

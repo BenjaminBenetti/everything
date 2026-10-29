@@ -31,12 +31,15 @@ import { credentialController } from "../../credential/controller/credential-con
 import type { AppCredentials } from "../../credential/service/app-credentials.js";
 import type { CredentialDistribution } from "../../credential/service/credential-distribution.js";
 import type { ArtifactLifecycleService } from "../../artifact/service/artifact-lifecycle-service.js";
+import { artifactVisibilityController } from "../../artifact/controller/artifact-visibility-controller.js";
+import type { ArtifactVisibilityService } from "../../artifact/service/artifact-visibility-service.js";
 
 /** Use cases served by the internal API. */
 export interface InternalDependencies {
   readonly verifier: TokenVerifier;
   readonly artifacts: ArtifactService;
   readonly lifecycle: ArtifactLifecycleService;
+  readonly visibility: ArtifactVisibilityService;
   readonly revisions: RevisionService;
   readonly builds: BuildService;
   readonly deployments: DeploymentService;
@@ -94,6 +97,11 @@ export async function createInternalApplication(
       await artifactLifecycleController(
         scope,
         dependencies.lifecycle,
+        dependencies.artifacts,
+      );
+      await artifactVisibilityController(
+        scope,
+        dependencies.visibility,
         dependencies.artifacts,
       );
       await revisionController(

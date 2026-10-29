@@ -2,6 +2,7 @@ import type { OwnedEntity } from "@everything/persistence/entity";
 import type {
   ArtifactAuthor,
   ArtifactKind,
+  ArtifactVisibility,
 } from "@everything/artifact-contracts";
 
 /** A shared, linkable piece of work and the release that is live. */
@@ -23,6 +24,8 @@ export interface Artifact extends OwnedEntity {
   readonly running: boolean;
   /** Size of a dynamic artifact's disk, fixed once the disk exists. */
   readonly diskGi: number | null;
+  /** Who can open the app; private until its owner makes it public. */
+  readonly visibility: ArtifactVisibility;
 }
 
 /** Stored columns of an artifact, with each author flattened into an ID and a name. */
@@ -36,7 +39,10 @@ export interface ArtifactRecord extends Omit<
   readonly updatedByName: string;
 }
 
-/** Fields a release or edit may change; each change records the main agent that made it. */
+/**
+ * Fields a release or edit may change; each change records the main agent that made it. Visibility is
+ * deliberately absent: only the owner's own visibility change sets it, so no release or edit can.
+ */
 export type ArtifactChanges = Partial<
   Pick<
     Artifact,

@@ -196,6 +196,9 @@ test("a released installation runs the speech service's released image", async (
   const manifests = await render(
     "--values",
     path.join(chart, "values.prod.yaml"),
+    // What the installation's settings add, which values.prod.yaml needs before it renders.
+    "--values",
+    path.join(chart, "ci/remote-cluster-settings.yaml"),
   );
   const pod = find(manifests, "Deployment", "voice-asr")!.spec.template!.spec;
   for (const container of [...pod.initContainers!, ...pod.containers]) {

@@ -18,6 +18,17 @@ global:
   externalArtifactHostname: localhost
   # Locally the artifact host is a second port on localhost: a different origin on the same site.
   artifactOrigin: "http://{{ .Values.global.externalArtifactHostname }}:8081"
+  # Hostname of the public apps host, a third origin that serves apps the user has made public to
+  # anyone. Its hostname differs from the artifact host's and the application's, so a public app's
+  # pages run under their own browser trust boundary and receive none of the cookies, signed-in or
+  # set by private apps, nor reach the private apps served on the artifact host. A different port is
+  # not enough, since browsers share a hostname's cookies across its ports, and the artifact service
+  # refuses to start with a shared hostname. Locally it is 127.0.0.1, which the forwarded port also
+  # answers on and browsers keep cookies for apart from localhost's. Kubernetes refuses an IP address
+  # as an Ingress host, so the public apps host itself refuses requests for localhost, and the
+  # artifact host refuses 127.0.0.1. values.prod.yaml leaves it unset, for the installer to ask.
+  externalPublicAppsHostname: 127.0.0.1
+  publicAppsOrigin: "http://{{ .Values.global.externalPublicAppsHostname }}:8082"
   # Realm defined in services/keycloak/config/everything-realm.json.
   realm: everything
   # Secret holding the `admin`, `keycloak`, `everything`, and `artifact` database role passwords.
@@ -34,6 +45,12 @@ global:
     tlsSecretName: ""
   # The artifact host's Ingress, with the same settings; services join it with `ingress.site: artifacts`.
   artifactIngress:
+    className: ""
+    host: ""
+    annotations: {}
+    tlsSecretName: ""
+  # The public apps host's Ingress, with the same settings; joined with `ingress.site: public-apps`.
+  publicAppsIngress:
     className: ""
     host: ""
     annotations: {}
@@ -141,6 +158,25 @@ upgrades:
   # nowhere else.
   tokenAudience: "{{ .Release.Namespace }}-upgrader"
 
+# Telemetry: the errors, logs, and traces the Telemetry page shows. Everything exports them to the
+# openobserve service under `services` and reads them back through its own API, so only Everything
+# holds the storage's credentials, and each owner sees only their own records. Set
+# services.openobserve.enabled to false to run without telemetry.
+telemetry:
+  # Days of history OpenObserve keeps. Its compactor deletes older data within a few hours of it
+  # expiring. OpenObserve accepts 3 or more days; Everything allows up to 30.
+  retentionDays: 7
+  # Record the text of provider, SDK, and library error messages, redacted and cut to 400
+  # characters, so the Telemetry page can say what a failure said. On by default; such text can
+  # quote prompts and other private text, which redaction cannot reliably recognize, so set false to
+  # withhold it. Categories, codes, statuses, and request IDs are recorded either way.
+  includeErrorText: true
+  # Record previews of content, redacted for credentials and cut to 2,000 bytes each: the message a
+  # teammate turn answered, the arguments of tool calls, and SQL statements without their parameter
+  # values. Unset, it follows includeErrorText, so an installation that withholds error text
+  # withholds content too; set true or false to choose on its own.
+  includeContent: null
+
 # Volumes mounted by more than one service, such as files one service writes and another serves.
 # Each becomes a claim named after its key, kept on uninstall; services mount it with `sharedVolume`.
 # Shared storage needs an access mode and storage class that allow it, such as ReadWriteMany.
@@ -183,12 +219,13 @@ serviceDefaults:
   args: []
   # Variable name to a literal value, or to `{ secretName, key }` for a Secret value.
   env: {}
-  # Port name to `{ containerPort, servicePort? }`; ports with a servicePort are exposed by a Service
-  # named after the service.
+  # Port name to `{ containerPort, servicePort?, serviceName? }`; ports with a servicePort are exposed
+  # by a Service named after the service, or by a Service of the pods' own named `serviceName`, which
+  # gives other pods a hostname for that port alone.
   ports: {}
   # Route these path prefixes, rendered as templates, to the named exposed port, on the application's
-  # origin or, with `site: artifacts` or `site: registry`, on the artifact host or the registry's
-  # hostname.
+  # origin or, with `site: artifacts`, `site: public-apps`, or `site: registry`, on the artifact host,
+  # the public apps host, or the registry's hostname.
   #   ingress: { port: http, paths: [/v1] }
   ingress: {}
   # Kubernetes API access: namespace (rendered as a template) to RBAC rules. A service with access
@@ -405,7 +442,12 @@ services:
       WORKSPACE_CLAIM_NAME: '{{ include "stack.claimName" (dict "name" "everything" "volumeName" "agents") }}'
       ARTIFACT_SERVICE_URL: http://artifact:8081
       # The artifact host as teammate pods reach it, over plain HTTP, when view_app gives them a pass.
+      # The artifact service serves the artifact host on this hostname, in ARTIFACT_INTERNAL_HOSTNAMES.
       ARTIFACT_HOST_URL: "http://artifact.{{ .Release.Namespace }}.svc.cluster.local:8080"
+      # The public apps host as teammate pods reach it; view_app opens public apps here, with no pass.
+      # It has a Service of its own, so its hostname, and the cookies teammates' browsers send it,
+      # differ from the artifact host's; the artifact service serves it in PUBLIC_APPS_INTERNAL_HOSTNAMES.
+      ARTIFACT_PUBLIC_APPS_HOST_URL: "http://public-apps.{{ .Release.Namespace }}.svc.cluster.local:8082"
       ARTIFACT_CLIENT_ID: everything-artifact-client
       ARTIFACT_CLIENT_SECRET:
         secretName: artifact-auth
@@ -437,6 +479,16 @@ services:
       # Streaming voice input relays to the voice-asr service; empty, which turns streaming off, when
       # that service is turned off.
       VOICE_STREAM_URL: '{{ include "stack.serviceUrl" (dict "root" . "name" "voice-asr" "port" "http" "scheme" "ws" "path" "/v1/stream") }}'
+      # Telemetry goes to the openobserve service; empty, which turns telemetry off, when that service
+      # is turned off. The password is read from the telemetry-credentials volume, never the
+      # environment, so fleetd and the commands it runs don't inherit it.
+      TELEMETRY_URL: '{{ include "stack.serviceUrl" (dict "root" . "name" "openobserve" "port" "http" "scheme" "http" "path" "") }}'
+      TELEMETRY_USERNAME: everything@telemetry.local
+      TELEMETRY_PASSWORD_FILE: /var/run/secrets/telemetry/password
+      TELEMETRY_RETENTION_DAYS: "{{ .Values.telemetry.retentionDays }}"
+      TELEMETRY_INCLUDE_ERROR_TEXT: "{{ .Values.telemetry.includeErrorText }}"
+      TELEMETRY_INCLUDE_CONTENT: '{{ if kindIs "bool" .Values.telemetry.includeContent }}{{ .Values.telemetry.includeContent }}{{ else }}{{ .Values.telemetry.includeErrorText }}{{ end }}'
+      TELEMETRY_SERVICE_VERSION: "{{ .Chart.AppVersion }}"
     apiAccess:
       "{{ .Release.Namespace }}":
         - apiGroups: [apps]
@@ -555,6 +607,10 @@ services:
         mountPath: /var/run/secrets/upgrader
         serviceAccountToken:
           audience: "{{ tpl .Values.upgrades.tokenAudience . }}"
+      # OpenObserve's password, rendered by templates/telemetry-credentials.yaml.
+      telemetry-credentials:
+        mountPath: /var/run/secrets/telemetry
+        secret: telemetry-credentials
     sidecars:
       # The Docker engine fleetd builds devcontainer images with. It needs a privileged container,
       # and serves only the socket it shares with Everything's container.
@@ -726,8 +782,16 @@ services:
     env:
       PORT: "8080"
       INTERNAL_PORT: "8081"
+      PUBLIC_APPS_PORT: "8082"
       PUBLIC_ORIGIN: "{{ tpl .Values.global.publicOrigin . }}"
       ARTIFACT_ORIGIN: "{{ tpl .Values.global.artifactOrigin . }}"
+      PUBLIC_APPS_ORIGIN: "{{ tpl .Values.global.publicAppsOrigin . }}"
+      # Each viewer host answers only its origin's hostname and these, on which pods inside the cluster
+      # reach it: the Services that Everything's ARTIFACT_HOST_URL and ARTIFACT_PUBLIC_APPS_HOST_URL
+      # name. Any other hostname, such as localhost on the public apps host's port, is refused before
+      # a cookie is read or an app is served, so the two hosts never share a cookie hostname.
+      ARTIFACT_INTERNAL_HOSTNAMES: "artifact.{{ .Release.Namespace }}.svc.cluster.local"
+      PUBLIC_APPS_INTERNAL_HOSTNAMES: "public-apps.{{ .Release.Namespace }}.svc.cluster.local"
       OIDC_ISSUER: "{{ tpl .Values.global.publicOrigin . }}/auth/realms/{{ .Values.global.realm }}"
       OIDC_JWKS_URL: "http://keycloak:8080/auth/realms/{{ .Values.global.realm }}/protocol/openid-connect/certs"
       OIDC_AUDIENCE: everything-artifact
@@ -769,10 +833,20 @@ services:
       http: { containerPort: 8080, servicePort: 8080 }
       # The internal API, called by Everything and build jobs inside the cluster.
       internal: { containerPort: 8081, servicePort: 8081 }
+      # The public apps host, through the public apps Ingress, on its own origin. Its own Service gives
+      # teammate pods a hostname for it apart from the artifact host's.
+      public:
+        containerPort: 8082
+        servicePort: 8082
+        serviceName: public-apps
+    # Two Ingresses on separate origins: the artifact host, and the public apps host.
     ingress:
-      site: artifacts
-      port: http
-      paths: [/]
+      - site: artifacts
+        port: http
+        paths: [/]
+      - site: public-apps
+        port: public
+        paths: [/]
     apiAccess:
       "{{ tpl .Values.global.artifactNamespace . }}":
         - apiGroups: [apps]
@@ -810,6 +884,71 @@ services:
       content:
         mountPath: /content
         persistentVolume: { size: 10Gi }
+      tmp: { mountPath: /tmp, emptyDir: {} }
+
+  # Telemetry storage: OpenObserve (AGPL-3.0, github.com/openobserve/openobserve) run unchanged from
+  # its published image, for amd64 and arm64, as one node keeping its data on its own disk. Everything
+  # is its only client, through the private Service, with the root account templates/telemetry-
+  # credentials.yaml derives; it has no Ingress and makes no connections outside the cluster. Set
+  # `enabled: false` to run without telemetry; Everything then reports it as turned off.
+  openobserve:
+    # One copy owns its data directory and metadata database.
+    workload: StatefulSet
+    rolloutWave: 0
+    upstreamImage: docker.io/openobserve/openobserve:v1.1.2@sha256:4a154849432f75c4fb024de32fe34163c02406c905dab22bf8d213d2e3386392
+    terminationGracePeriodSeconds: 30
+    env:
+      ZO_HTTP_PORT: "5080"
+      ZO_DATA_DIR: /data
+      ZO_LOCAL_MODE: "true"
+      ZO_LOCAL_MODE_STORAGE: disk
+      ZO_COMPACT_DATA_RETENTION_DAYS: "{{ .Values.telemetry.retentionDays }}"
+      # Created with the data directory; Everything's TELEMETRY_USERNAME names the same account.
+      ZO_ROOT_USER_EMAIL: everything@telemetry.local
+      ZO_ROOT_USER_PASSWORD:
+        secretName: telemetry-credentials
+        key: password
+      # Nothing leaves the cluster: by default OpenObserve also reports usage to its makers and
+      # downloads GeoIP databases, LLM prices, and redaction patterns from the internet.
+      ZO_TELEMETRY: "false"
+      ZO_MMDB_DISABLE_DOWNLOAD: "true"
+      ZO_MODEL_PRICING_ENABLED: "false"
+      ZO_REGEX_PATTERNS_SOURCE_URL: ""
+      # Only the API Everything uses is served.
+      ZO_UI_ENABLED: "false"
+      ZO_SWAGGER_ENABLED: "false"
+      ZO_MCP_ENABLED: "false"
+      ZO_PROMETHEUS_ENABLED: "false"
+      # Everything's queries, which name owners and search terms, aren't kept.
+      ZO_QUERY_HISTORY_ENABLED: "false"
+      # Caches and in-memory tables sized for one installation's telemetry rather than a share of the
+      # node's memory; see deployment/documentation/telemetry.md for the measurements.
+      ZO_MEMORY_CACHE_MAX_SIZE: "64"
+      ZO_MEMORY_CACHE_DATAFUSION_MAX_SIZE: "128"
+      ZO_MEM_TABLE_MAX_SIZE: "64"
+      ZO_MAX_FILE_SIZE_IN_MEMORY: "16"
+    ports:
+      http: { containerPort: 5080, servicePort: 5080 }
+    probes:
+      startup:
+        httpGet: { path: /healthz, port: http }
+        failureThreshold: 60
+        periodSeconds: 2
+      readiness:
+        httpGet: { path: /healthz, port: http }
+        periodSeconds: 10
+      liveness:
+        httpGet: { path: /healthz, port: http }
+        periodSeconds: 20
+    # Measured at 30 MiB idle and under 100 MiB while ingesting and searching; the limit leaves room
+    # for compaction and larger searches.
+    resources:
+      requests: { cpu: 50m, memory: 128Mi }
+      limits: { cpu: "1", memory: 768Mi }
+    volumes:
+      data:
+        mountPath: /data
+        persistentVolume: { size: 5Gi }
       tmp: { mountPath: /tmp, emptyDir: {} }
 
   # Speech recognition for voice input: NVIDIA's Nemotron Speech Streaming English 0.6B model on the

@@ -1,8 +1,11 @@
 import path from "node:path";
 import envSchema from "env-schema";
 import { Value } from "typebox/value";
+import { sharesCookieHost } from "@everything/security/cookie-host";
 import type { FleetSettings } from "../../fleet/model/fleet-settings.js";
 import type { VoiceSettings } from "../../voice/model/voice-settings.js";
+import type { TelemetrySettings } from "../../telemetry/model/telemetry-settings.js";
+import { loadTelemetrySettingsOrUnavailable } from "../../telemetry/config/telemetry-config.js";
 import {
   environmentSchema,
   fleetChecksumsSchema,
@@ -35,11 +38,12 @@ export interface ApplicationConfig {
   };
   /**
    * The artifact service's internal API and the client credentials used to call it, and its artifact
-   * host as teammate pods reach it inside the cluster.
+   * host and public apps host as teammate pods reach them inside the cluster.
    */
   readonly artifactService: {
     readonly url: string;
     readonly hostUrl: string;
+    readonly publicAppsHostUrl: string;
     readonly clientId: string;
     readonly clientSecret: string;
   };
@@ -52,6 +56,8 @@ export interface ApplicationConfig {
   };
   /** The self-hosted speech recognition service and transcription limits; no service, no voice input. */
   readonly voice: VoiceSettings;
+  /** The in-cluster telemetry backend and its retention; no backend, no telemetry. */
+  readonly telemetry: TelemetrySettings;
 }
 
 /** Validate deployment settings with env-schema and normalize paths. */
@@ -63,6 +69,16 @@ export function loadApplicationConfig(
     env: false,
     data: environment,
   });
+  // Teammates' browsers open private apps on the artifact host and public apps on the public apps
+  // host; browsers send a hostname's cookies to every port, so they need different hostnames.
+  if (
+    [settings.ARTIFACT_HOST_URL, settings.PUBLIC_ORIGIN].some((other) =>
+      sharesCookieHost(other, settings.ARTIFACT_PUBLIC_APPS_HOST_URL),
+    )
+  )
+    throw new Error(
+      "ARTIFACT_PUBLIC_APPS_HOST_URL needs a hostname apart from ARTIFACT_HOST_URL's and PUBLIC_ORIGIN's, since browsers share cookies across ports",
+    );
   return {
     port: settings.PORT,
     issuer: settings.OIDC_ISSUER,
@@ -86,6 +102,7 @@ export function loadApplicationConfig(
     artifactService: {
       url: settings.ARTIFACT_SERVICE_URL,
       hostUrl: settings.ARTIFACT_HOST_URL,
+      publicAppsHostUrl: settings.ARTIFACT_PUBLIC_APPS_HOST_URL,
       clientId: settings.ARTIFACT_CLIENT_ID,
       clientSecret: settings.ARTIFACT_CLIENT_SECRET,
     },
@@ -122,6 +139,7 @@ export function loadApplicationConfig(
         queueTimeoutMs: settings.VOICE_QUEUE_TIMEOUT_MS,
       },
     },
+    telemetry: loadTelemetrySettingsOrUnavailable(environment),
     fleet: {
       home: path.resolve(settings.FLEET_HOME),
       release: {

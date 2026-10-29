@@ -29,6 +29,7 @@ import {
   fakeSpeechStream,
   type FakeStreamBehavior,
 } from "./fake-speech-stream.js";
+import { TelemetryQueryService } from "../../telemetry/service/telemetry-query-service.js";
 
 const agentId = "6f1c1f6e-8c7e-4c4b-9a43-2d8b8f7c8f11";
 const route = `/v1/agents/${agentId}/voice/stream`;
@@ -132,6 +133,10 @@ async function gateway(
     workspaceActivity: unusedOperations(),
     voice: runtime.uploads,
     voiceStreams: runtime.streams,
+    telemetry: new TelemetryQueryService(
+      { enabled: false, retentionDays: 7 },
+      null,
+    ),
     readiness: async () => {},
   };
   const app = await createHttpApplication(dependencies);

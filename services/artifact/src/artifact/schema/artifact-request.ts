@@ -3,6 +3,7 @@ import {
   artifactKinds,
   artifactLimits,
   artifactSlugPattern,
+  artifactVisibilities,
 } from "@everything/artifact-contracts";
 import { nonBlankText } from "../../http/schema/text-schema.js";
 
@@ -69,6 +70,19 @@ export const updateArtifactBody = Type.Object(
 
 /** Validated request body changing descriptive fields. */
 export type UpdateArtifactBody = Static<typeof updateArtifactBody>;
+
+/** The owner's choice of who can open an app, sent alone so no other change can carry it. */
+export const visibilityBody = Type.Object(
+  {
+    visibility: Type.Union(
+      artifactVisibilities.map((visibility) => Type.Literal(visibility)),
+    ),
+  },
+  { additionalProperties: false },
+);
+
+/** Validated choice of who can open an app. */
+export type VisibilityBody = Static<typeof visibilityBody>;
 
 /** Query choosing which source to check out. */
 export const sourceQuery = Type.Object(

@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Install Traefik as the development cluster's default ingress controller; safe to rerun.
-# The Everything chart's Ingresses use the default class: the application's on the `web` entrypoint
-# and the artifact host's on the `artifacts` entrypoint, which cluster:forward exposes locally, and
-# the registry's on the `websecure` entrypoint, which the cluster reaches by the registry's hostname.
+# The Everything chart's Ingresses use the default class: the application's on the `web` entrypoint,
+# the artifact host's on the `artifacts` entrypoint and the public apps host's on the `publicapps`
+# entrypoint, which cluster:forward exposes locally, and the registry's on the `websecure`
+# entrypoint, which the cluster reaches by the registry's hostname.
 set -euo pipefail
 
 helm repo add traefik https://traefik.github.io/charts --force-update >/dev/null
@@ -15,6 +16,10 @@ helm upgrade --install traefik traefik/traefik --version 41.7.1 \
     --set ports.artifacts.exposedPort=8081 \
     --set ports.artifacts.expose.default=true \
     --set ports.artifacts.protocol=TCP \
+    --set ports.publicapps.port=8082 \
+    --set ports.publicapps.exposedPort=8082 \
+    --set ports.publicapps.expose.default=true \
+    --set ports.publicapps.protocol=TCP \
     --set-string ports.websecure.transport.respondingTimeouts.readTimeout=0s \
     --wait
 

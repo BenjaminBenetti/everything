@@ -35,3 +35,30 @@ export class FastModeLimitedError extends ApplicationError {
     );
   }
 }
+
+/** A model request ended in an error; its diagnosis is in telemetry, never in the caller's message. */
+export class ModelRequestFailedError extends Error {
+  /** Keep the message the runtime has always used internally. */
+  constructor() {
+    super("Pi model request failed");
+    this.name = "ModelRequestFailedError";
+  }
+}
+
+/** Summarizing older context failed, so the turn could not continue. */
+export class CompactionFailedError extends Error {
+  /** Keep the message the runtime has always used internally. */
+  constructor() {
+    super("Pi context compaction failed");
+    this.name = "CompactionFailedError";
+  }
+}
+
+/** The teammate finished its turn, and the reminder that followed, without replying. */
+export class ReplyNotDeliveredError extends Error {
+  /** Keep the message the runtime has always used internally. */
+  constructor() {
+    super("The teammate did not deliver a reply");
+    this.name = "ReplyNotDeliveredError";
+  }
+}

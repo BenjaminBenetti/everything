@@ -1,4 +1,7 @@
-import type { ArtifactSummary } from "@everything/artifact-contracts";
+import type {
+  ArtifactSummary,
+  ArtifactVisibility,
+} from "@everything/artifact-contracts";
 import type {
   AppCredentialList,
   AttachCredentialInput,
@@ -25,4 +28,10 @@ export interface ArtifactLibrary {
   ): Promise<AppCredentialList>;
   /** Take the credential under a variable away from an app, restarting it without the value. */
   detachCredential(id: string, env: string): Promise<AppCredentialList>;
+
+  /** Make the app private or public, returning the app as the server saved it. */
+  setVisibility(
+    id: string,
+    visibility: ArtifactVisibility,
+  ): Promise<ArtifactSummary>;
 }

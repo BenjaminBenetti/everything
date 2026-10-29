@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import Fastify, { type FastifyInstance } from "fastify";
 import {
+  credentialSource,
   requireAuthentication,
   subject,
 } from "../handler/authentication-hook.js";
@@ -83,4 +84,64 @@ test("uses the verified identity per request and fails closed without leaking ve
       message: "A valid access token is required.",
     });
   }
+});
+
+test("records whether the verified token came from a bearer header or the server-owned session", async (context) => {
+  const app = Fastify();
+  context.after(() => app.close());
+  await app.register(async (protectedApi) => {
+    requireAuthentication(
+      protectedApi,
+      {
+        /** Accept the owner's token and an app token acting for the same owner. */
+        async verify(token) {
+          if (token === "user-token" || token === "app-token")
+            return { subject: "owner" };
+          throw new Error("invalid");
+        },
+      },
+      async (request) =>
+        request.headers.cookie === "session=browser" ? "user-token" : undefined,
+    );
+    protectedApi.get("/me", async (request) => ({
+      subject: subject(request),
+      source: credentialSource(request),
+    }));
+  });
+
+  const browser = await app.inject({
+    url: "/me",
+    headers: { cookie: "session=browser" },
+  });
+  assert.deepEqual(browser.json(), { subject: "owner", source: "session" });
+  for (const token of ["user-token", "app-token"]) {
+    const bearer = await app.inject({
+      url: "/me",
+      headers: { authorization: `Bearer ${token}` },
+    });
+    assert.deepEqual(bearer.json(), { subject: "owner", source: "bearer" });
+  }
+  // A header takes precedence over the session, so a bearer client never borrows the session's source.
+  const both = await app.inject({
+    url: "/me",
+    headers: { authorization: "Bearer app-token", cookie: "session=browser" },
+  });
+  assert.deepEqual(both.json(), { subject: "owner", source: "bearer" });
+  // Without a verified token there is no source at all, only the uniform rejection.
+  assert.equal(
+    (await app.inject({ url: "/me", headers: { cookie: "session=forged" } }))
+      .statusCode,
+    401,
+  );
+});
+
+test("reading the credential source outside an authenticated scope fails loudly", () => {
+  assert.throws(
+    () =>
+      credentialSource({
+        identity: { subject: "owner" },
+        credentialSource: null,
+      } as never),
+    /missing its authentication hook/,
+  );
 });

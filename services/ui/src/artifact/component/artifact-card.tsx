@@ -13,6 +13,8 @@ import type { AppCreator } from "../model/artifact-filters.js";
 import { ArtifactMetadata } from "./artifact-metadata.js";
 import { AppCredentialsDialog } from "./app-credentials-dialog.js";
 
+import { ArtifactSharing } from "./artifact-sharing.js";
+
 const pendingLabels: Record<AppAction, string> = {
   start: "Starting…",
   stop: "Stopping…",
@@ -45,7 +47,11 @@ export function ArtifactCard({
   const statusLabel = mutation.isPending
     ? pendingLabels[mutation.variables]
     : statusLabels[artifact.status];
-  const openPath = `/apps/open?slug=${encodeURIComponent(artifact.slug)}`;
+  // A public app opens on its own public origin; a private app opens through the signed-in app host.
+  const openPath =
+    artifact.visibility === "public"
+      ? artifact.publicUrl
+      : `/apps/open?slug=${encodeURIComponent(artifact.slug)}`;
   return (
     <article
       className="artifact-card"
@@ -90,6 +96,8 @@ export function ArtifactCard({
               <KeySquare aria-hidden="true" />
             </IconButton>
           )}
+
+          <ArtifactSharing artifact={artifact} unavailable={unavailable} />
           <IconButton
             label={`${mutation.isPending ? statusLabel : actionLabel} ${artifact.title}`}
             disabled={!canControl || artifact.status === "unpublished"}

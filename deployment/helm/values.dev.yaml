@@ -10,6 +10,9 @@ global:
   artifactIngress:
     annotations:
       traefik.ingress.kubernetes.io/router.entrypoints: artifacts
+  publicAppsIngress:
+    annotations:
+      traefik.ingress.kubernetes.io/router.entrypoints: publicapps
   # The registry's hostname is served over HTTPS on Traefik's `websecure` entrypoint, with Traefik's
   # self-signed default certificate. cluster:up makes the hostname reach Traefik from the node, and
   # the Corefile rule from .devcontainer/install-traefik.sh does the same for pods.

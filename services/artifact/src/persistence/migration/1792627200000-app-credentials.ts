@@ -5,7 +5,7 @@ import { Table, type MigrationInterface, type QueryRunner } from "typeorm";
  * record of every credential's newest delivered version and revocation. Values are never stored
  * here; existing apps start with no credentials.
  */
-export class AppCredentials1792454400000 implements MigrationInterface {
+export class AppCredentials1792627200000 implements MigrationInterface {
   /** Create grants removed with their app, and records that outlive every grant. */
   async up(runner: QueryRunner): Promise<void> {
     await runner.createTable(

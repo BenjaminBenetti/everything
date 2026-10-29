@@ -13,14 +13,24 @@ for script in "$chart"/files/*/*.sh; do
 done
 # Every render needs credentials; the development values provide them.
 credentials=(--values "$dev_values")
-# Development defaults, remote clusters, then the ci/ examples that exercise optional features.
-for values in "" "$chart/values.prod.yaml" "$chart"/ci/*-values.yaml; do
+# Development defaults, remote clusters with the settings their installation adds, then the ci/
+# examples that exercise optional features. Each entry lists its values files, separated by spaces.
+renders=("" "$chart/values.prod.yaml $chart/ci/remote-cluster-settings.yaml")
+for example in "$chart"/ci/*-values.yaml; do renders+=("$example"); done
+for files in "${renders[@]}"; do
   arguments=("${credentials[@]}")
-  if [ -n "$values" ]; then arguments+=(--values "$values"); fi
+  # shellcheck disable=SC2086 # The entry's words are its files.
+  for file in $files; do arguments+=(--values "$file"); done
   helm lint "$chart" --strict --quiet "${arguments[@]}"
   # Lint only warns about missing required values; rendering fails on them.
   render_stack "${arguments[@]}" > /dev/null
 done
+# values.prod.yaml alone, as settings saved before public apps leave it, must refuse to render.
+if refusal=$(render_stack "${credentials[@]}" --values "$chart/values.prod.yaml" 2>&1 > /dev/null) ||
+  [[ $refusal != *"Public apps need a hostname of their own"* ]]; then
+  echo "values.prod.yaml without a public apps hostname must refuse to render: $refusal" >&2
+  exit 1
+fi
 # The release workflow builds each image the chart builds from the workspace that names it, for the
 # platforms the workspace allows.
 stack_image_workspaces | while read -r image workspace; do
@@ -49,5 +59,12 @@ done
 gateway_image=$(sed -n 's/^    upstreamImage: \(ghcr.io\/benjaminbenetti\/fleet-man\/gateway:.*\)/\1/p' "$chart/values.yaml")
 if [[ $gateway_image != *":${fleet_version#v}@sha256:"* ]]; then
   echo "services.fleet-gateway must run the gateway image of Fleet $fleet_version, pinned by digest: $gateway_image" >&2
+  exit 1
+fi
+# Telemetry storage runs OpenObserve's published image unchanged, pinned by digest so every node of
+# either architecture runs the same build; deployment/script/test-telemetry.sh checks both platforms.
+openobserve_image=$(sed -n 's/^    upstreamImage: \(docker.io\/openobserve\/openobserve:.*\)/\1/p' "$chart/values.yaml")
+if [[ ! $openobserve_image =~ ^docker\.io/openobserve/openobserve:v[0-9.]+@sha256:[0-9a-f]{64}$ ]]; then
+  echo "services.openobserve must run OpenObserve's published image pinned by digest: $openobserve_image" >&2
   exit 1
 fi

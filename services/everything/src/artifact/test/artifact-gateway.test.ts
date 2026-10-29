@@ -17,6 +17,7 @@ const tokens = { token: async () => "service-token" };
 const addresses = {
   url: "http://artifact:8081",
   hostUrl: "http://artifact.everything.svc.cluster.local:8080",
+  publicAppsHostUrl: "http://public-apps.everything.svc.cluster.local:8082",
 };
 
 test("the gateway authenticates as the service and names the acting teammate", async () => {
@@ -129,6 +130,8 @@ test("browser endpoints list artifacts and open them, hiding artifact service de
     credentials: [],
     credentialGeneration: 0,
     url: "http://artifacts.test/for-owner",
+    publicUrl: "http://public.apps.test/for-owner",
+    visibility: "private" as const,
     status: "live" as const,
     release: 1,
     createdAt: "now",
@@ -142,6 +145,7 @@ test("browser endpoints list artifacts and open them, hiding artifact service de
       stop: async () => ({}) as ArtifactDetails,
       delete: async () => {},
       apiKey: async () => assert.fail("no key requested"),
+      setVisibility: async () => assert.fail("no visibility change requested"),
       list: async (ownerId) => {
         if (failures.length) throw failures.shift();
         return [{ ...summary, slug: `for-${ownerId}` }];
@@ -160,7 +164,9 @@ test("browser endpoints list artifacts and open them, hiding artifact service de
   );
   const app = authenticatedTestServer();
   context.after(() => app.close());
-  await artifactController(app, library);
+  await artifactController(app, library, () =>
+    assert.fail("no signed-in-only route requested"),
+  );
   const listed = await app.inject({ url: "/artifacts" });
   // The credential generation is internal; the public listing leaves it out.
   const { credentialGeneration: _generation, ...publicSummary } = summary;
@@ -203,6 +209,7 @@ test("teammate passes are issued for the owner's artifact and resolved on the in
       requests.push({ url: String(url), init });
       return Response.json(
         {
+          visibility: "private",
           token: "everything_view_secret",
           path: "/site/docs/",
           signInPath: "/_teammate-access?token=everything_view_secret",
@@ -224,6 +231,7 @@ test("teammate passes are issued for the owner's artifact and resolved on the in
     { path: "/docs/" },
   );
   assert.deepEqual(view, {
+    visibility: "private",
     url: "http://artifact.everything.svc.cluster.local:8080/site/docs/",
     browserUrl:
       "http://artifact.everything.svc.cluster.local:8080/_teammate-access?token=everything_view_secret",
@@ -321,4 +329,17 @@ test("credential calls reach the app service's credential endpoints, with a valu
       ["GET", "http://artifact:8081/internal/v1/credentials", null],
     ],
   );
+});
+
+test("a public app's view is its page on the in-cluster public apps host, with no pass", async () => {
+  const gateway = new HttpArtifactGateway(addresses, tokens, async () =>
+    Response.json(
+      { visibility: "public", path: "/site/docs/?tab=2" },
+      { status: 201 },
+    ),
+  );
+  assert.deepEqual(await gateway.viewPass("owner", "site", {}), {
+    visibility: "public",
+    url: "http://public-apps.everything.svc.cluster.local:8082/site/docs/?tab=2",
+  });
 });

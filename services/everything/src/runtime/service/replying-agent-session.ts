@@ -1,9 +1,12 @@
+import { context } from "@opentelemetry/api";
 import type { AgentSession } from "../interface/agent-session.js";
+import { withPromptSource } from "../../telemetry/service/telemetry-recorder.js";
 import {
   outcomeDeliveryPrompt,
   replyDeliveryPrompt,
 } from "../prompt/reply-delivery-prompt.js";
 import { sendMessageToolName } from "../model/message-delivery.js";
+import { ReplyNotDeliveredError } from "../error/runtime-errors.js";
 
 /** Require deliberate delivery for user turns without treating private model text as a reply. */
 export class ReplyingAgentSession implements AgentSession {
@@ -65,19 +68,30 @@ export class ReplyingAgentSession implements AgentSession {
   /**
    * Give an undelivered answer one corrective turn, then fail instead of silently completing. A turn
    * that replied early, such as confirming a task, but kept working after its last message gets one
-   * reminder to report the outcome.
+   * reminder to report the outcome. Telemetry is told which prompt is the user's message and which
+   * are reminders, never what either says.
    */
   async prompt(text: string): Promise<void> {
     this.stopped = false;
     const before = this.deliveredCount();
-    await this.session.prompt(text);
+    await this.promptFrom("message", text);
     if (this.stopped) return;
     if (this.deliveredCount() === before) {
-      await this.session.prompt(replyDeliveryPrompt);
+      await this.promptFrom("reminder", replyDeliveryPrompt);
       if (!this.stopped && this.deliveredCount() === before)
-        throw new Error("The teammate did not deliver a reply");
+        throw new ReplyNotDeliveredError();
     } else if (this.session.lastToolName !== sendMessageToolName)
-      await this.session.prompt(outcomeDeliveryPrompt);
+      await this.promptFrom("reminder", outcomeDeliveryPrompt);
+  }
+
+  /** Prompt the session with `text`, which comes from `source`. */
+  private promptFrom(
+    source: "message" | "reminder",
+    text: string,
+  ): Promise<void> {
+    return context.with(withPromptSource(source), () =>
+      this.session.prompt(text),
+    );
   }
 
   /** Stop delivery correction and pass through whether the caller also cancelled background work. */

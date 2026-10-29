@@ -21,6 +21,7 @@ import { VoiceRecordingInvalidError } from "../error/voice-errors.js";
 import { createVoiceRuntime } from "../factory/voice-runtime.js";
 import type { VoiceSettings } from "../model/voice-settings.js";
 import { ffmpegMissing, syntheticRecording } from "./synthetic-audio.js";
+import { TelemetryQueryService } from "../../telemetry/service/telemetry-query-service.js";
 
 const agentId = "6f1c1f6e-8c7e-4c4b-9a43-2d8b8f7c8f11";
 const foreignAgentId = "0b6a3c4e-5f1d-4e2a-8c9b-7d6e5f4a3b2c";
@@ -156,6 +157,10 @@ async function application(
     workspaceActivity: unusedOperations(),
     voice,
     voiceStreams: runtime.streams,
+    telemetry: new TelemetryQueryService(
+      { enabled: false, retentionDays: 7 },
+      null,
+    ),
     readiness: async () => {},
   };
   const app = await createHttpApplication(dependencies);

@@ -66,6 +66,15 @@ export const artifactCapabilities = ["everything-api", "api-key"] as const;
 /** A provisioned service capability available to a dynamic app. */
 export type ArtifactCapability = (typeof artifactCapabilities)[number];
 
+/**
+ * Who can open an app: privately, only its owner and their teammates; publicly, anyone with its
+ * link, without signing in. Every app starts private, and only its owner changes this, from Apps.
+ */
+export const artifactVisibilities = ["private", "public"] as const;
+
+/** Who can open an app. */
+export type ArtifactVisibility = (typeof artifactVisibilities)[number];
+
 /** The teammate or user that made a change; the name is recorded as it was at the time. */
 export interface ArtifactAuthor {
   readonly id: string;
@@ -175,8 +184,15 @@ export interface ArtifactSummary {
    * credential names the generation it was prepared against, and is refused if it moved on.
    */
   readonly credentialGeneration: number;
-  /** Link that opens the artifact on the artifact host. */
+  /** Link that opens the app on the artifact host, where the owner and teammates sign in. */
   readonly url: string;
+  /**
+   * Stable, token-free link on the public apps origin. It opens the app for anyone only while the
+   * app is public; while private it is not anonymously reachable. This is the link to share.
+   */
+  readonly publicUrl: string;
+  /** Who can open the app; teammates can read it, and only the owner changes it, from Apps. */
+  readonly visibility: ArtifactVisibility;
   readonly status: ArtifactStatus;
   /** Number of the live release; 0 before anything is published or deployed. */
   readonly release: number;
@@ -236,6 +252,14 @@ export interface CreateArtifactInput {
 export interface UpdateArtifactInput {
   readonly title?: string;
   readonly description?: string;
+}
+
+/**
+ * The owner's choice of who can open an app. It is a separate request from every create, edit, and
+ * release, so no teammate change can carry it; Everything accepts it only from the signed-in owner.
+ */
+export interface ArtifactVisibilityInput {
+  readonly visibility: ArtifactVisibility;
 }
 
 /** Publish uploaded files as a new revision of a static artifact. */
@@ -321,10 +345,15 @@ export interface ArtifactViewPassInput {
 }
 
 /**
- * A short-lived pass with which a teammate views one artifact from inside the cluster, as the user
- * sees it. Paths are on the artifact host; the caller knows how its teammates reach that host.
+ * How a teammate views one artifact from inside the cluster, as the user sees it: a pass for a
+ * private artifact on the artifact host, or a public artifact's page on the public apps host, which
+ * needs no pass. The caller knows how its teammates reach each host.
  */
-export interface ArtifactViewPass {
+export type ArtifactViewPass = PrivateArtifactViewPass | PublicArtifactView;
+
+/** A short-lived pass with which a teammate views one private artifact on the artifact host. */
+export interface PrivateArtifactViewPass {
+  readonly visibility: "private";
   /** Secret to send as `Authorization: Bearer`; it opens only this artifact, until `expiresAt`. */
   readonly token: string;
   /** Path of the requested page on the artifact host, such as `/report/docs/`. */
@@ -332,6 +361,16 @@ export interface ArtifactViewPass {
   /** Path on the artifact host that stores the pass in a browser cookie, then opens `path`. */
   readonly signInPath: string;
   readonly expiresAt: string;
+}
+
+/**
+ * A public artifact's page, which anyone opens on the public apps host without a pass. The artifact
+ * host never serves a public artifact, so no pass is issued for one.
+ */
+export interface PublicArtifactView {
+  readonly visibility: "public";
+  /** Path of the requested page on the public apps host, such as `/report/docs/`. */
+  readonly path: string;
 }
 
 /** A failure body returned by the artifact service and the Everything API. */

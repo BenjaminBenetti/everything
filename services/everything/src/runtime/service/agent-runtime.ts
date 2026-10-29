@@ -1,5 +1,8 @@
 import { randomUUID } from "node:crypto";
+import { context } from "@opentelemetry/api";
 import type { AgentSession } from "../interface/agent-session.js";
+import type { TelemetryScope } from "../../telemetry/model/telemetry-scope.js";
+import { TurnTelemetry, type TurnCancellation } from "./turn-telemetry.js";
 import type { SessionRuntimeStatus } from "../model/runtime-status.js";
 import {
   FastModeLimitedError,
@@ -29,13 +32,20 @@ export class AgentRuntime {
     "mainRunning" | "backgroundCount" | "compactionStartedAt"
   >;
   private completion: Promise<void> = Promise.resolve();
+  private cancellation: TurnCancellation | undefined;
 
   // ===========================================
   // Construction
   // ===========================================
 
-  /** Track a freshly opened session, idle until its first turn. */
-  constructor(private readonly session: AgentSession) {
+  /**
+   * Track a freshly opened session, idle until its first turn, recording its turns' telemetry for
+   * the owner and teammate in `scope`.
+   */
+  constructor(
+    private readonly session: AgentSession,
+    private readonly scope?: TelemetryScope,
+  ) {
     this.current = {
       status: "idle",
       compacting: false,
@@ -95,12 +105,14 @@ export class AgentRuntime {
       runId,
       error: null,
     };
-    this.completion = this.runTurn(text);
+    this.cancellation = undefined;
+    this.completion = this.runTurn(text, runId);
     return runId;
   }
 
   /** Abort selected work and settle the active user turn before accepting a replacement. */
   async stop(scope: "turn" | "all" = "all"): Promise<void> {
+    this.cancel(scope === "turn" ? "interrupted" : "stopped");
     await this.session.abort(scope);
     await this.completion;
     this.current = { ...this.current, status: "idle", error: null };
@@ -108,6 +120,7 @@ export class AgentRuntime {
 
   /** Stop active work and release the session's resources. */
   async close(): Promise<void> {
+    this.cancel("closed");
     await this.stop();
     await this.session.dispose();
   }
@@ -117,16 +130,30 @@ export class AgentRuntime {
   // ===========================================
 
   /** Begin prompting immediately, so an abort issued right after start reaches this turn, and record its outcome. */
-  private async runTurn(text: string): Promise<void> {
+  private async runTurn(text: string, runId: string): Promise<void> {
+    // `text` is what the owner sent to the conversation, so it is the turn's message.
+    const telemetry = new TurnTelemetry(
+      this.scope,
+      this.session.id,
+      runId,
+      text,
+    );
     try {
-      await this.session.prompt(text);
+      await context.with(telemetry.context, () => this.session.prompt(text));
+      telemetry.completed(this.cancellation);
       this.current = { ...this.current, status: "idle" };
     } catch (error) {
+      telemetry.failed(error, this.cancellation);
       this.current = {
         ...this.current,
         status: "error",
         error: failureText(error),
       };
     }
+  }
+
+  /** Remember why the running turn is ending early, keeping the first reason given. */
+  private cancel(reason: TurnCancellation): void {
+    if (this.current.status === "running") this.cancellation ??= reason;
   }
 }

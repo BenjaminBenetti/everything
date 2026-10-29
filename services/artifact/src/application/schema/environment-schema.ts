@@ -12,6 +12,11 @@ const kubernetesName = Type.String({
   maxLength: 253,
 });
 
+/** Hostnames separated by commas, without ports, such as `artifact.everything.svc.cluster.local`. */
+const hostnames = Type.String({
+  pattern: "^[A-Za-z0-9][A-Za-z0-9.-]*(,[A-Za-z0-9][A-Za-z0-9.-]*)*$",
+});
+
 /** A host with an optional port, such as `registry.example.com` or `registry:5000`. */
 const hostAndPort = Type.String({ pattern: "^[A-Za-z0-9.-]+(:[0-9]+)?$" });
 
@@ -21,8 +26,28 @@ export const environmentSchema = Type.Object({
   PORT: Type.Integer({ minimum: 1, maximum: 65535, default: 8080 }),
   /** Port serving the internal API, reachable only inside the cluster. */
   INTERNAL_PORT: Type.Integer({ minimum: 1, maximum: 65535, default: 8081 }),
+  /** Port serving the public apps host, anonymous and credential-free, through its own Ingress. */
+  PUBLIC_APPS_PORT: Type.Integer({ minimum: 1, maximum: 65535, default: 8082 }),
   PUBLIC_ORIGIN: origin,
   ARTIFACT_ORIGIN: origin,
+  /**
+   * Origin that serves public apps to anyone. Its hostname differs from the artifact host's and the
+   * application's, so a public app's pages run under their own browser trust boundary and receive
+   * none of the cookies, signed-in or app-owned, or stored data of the artifact host, where private
+   * apps are served. A different port is not enough: browsers share a hostname's cookies across ports.
+   */
+  PUBLIC_APPS_ORIGIN: origin,
+  /**
+   * Hostnames, besides ARTIFACT_ORIGIN's, on which pods inside the cluster reach the artifact host,
+   * such as its Service's, which teammates' view_app links name. The artifact host refuses requests
+   * for any hostname but these and its origin's.
+   */
+  ARTIFACT_INTERNAL_HOSTNAMES: hostnames,
+  /**
+   * Hostnames, besides PUBLIC_APPS_ORIGIN's, on which pods inside the cluster reach the public apps
+   * host, such as its own Service's. The public apps host refuses requests for any other hostname.
+   */
+  PUBLIC_APPS_INTERNAL_HOSTNAMES: hostnames,
   OIDC_ISSUER: required,
   OIDC_JWKS_URL: required,
   OIDC_AUDIENCE: required,

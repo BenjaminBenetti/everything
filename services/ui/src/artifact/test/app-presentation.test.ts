@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { ArtifactSummary } from "@everything/artifact-contracts";
-import { visibleApps } from "../model/artifact-presentation.js";
+import {
+  publicConsequences,
+  visibilityLabels,
+  visibleApps,
+} from "../model/artifact-presentation.js";
 import { allApps, appCreators } from "../model/artifact-filters.js";
 
 /** Build a minimal app summary for search and ordering cases. */
@@ -24,6 +28,8 @@ function app(
     createdBy: { id: "ada", name: "Ada" },
     updatedBy: { id: "grace", name: "Grace" },
     url: `https://apps.test/${id}/`,
+    publicUrl: `https://public.apps.test/${id}/`,
+    visibility: "private",
     release: 1,
     createdAt: "2026-10-01T10:00:00Z",
     status,
@@ -144,4 +150,25 @@ test("creator options preserve saved authors when the directory is unavailable a
   };
   assert.deepEqual(appCreators(apps, [current]), [current]);
   assert.deepEqual(appCreators([]), []);
+});
+
+test("making an app public explains link access, acting as the owner, and what can't be recalled", () => {
+  const plain = publicConsequences(app("plain", "running", 1));
+  assert.equal(plain.length, 2);
+  assert.match(plain[0]!, /Anyone with the link .* without signing in/);
+  assert.match(plain[0]!, /endpoints/);
+  assert.match(plain.at(-1)!, /private again at any time/);
+  assert.match(plain.at(-1)!, /already downloaded/);
+  const connected = publicConsequences({
+    ...app("connected", "running", 1),
+    capabilities: ["everything-api", "api-key"],
+  });
+  assert.match(connected.join(" "), /Everything API as you/);
+  assert.match(connected.join(" "), /won’t need its API key/);
+  assert.equal(visibilityLabels.private.name, "Private");
+  assert.match(visibilityLabels.public.meaning, /Anyone with the link/);
+  assert.doesNotMatch(
+    JSON.stringify([plain, connected, visibilityLabels]),
+    /artifact|agent/i,
+  );
 });

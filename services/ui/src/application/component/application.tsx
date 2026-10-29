@@ -42,6 +42,9 @@ import type { VoiceClient } from "../../voice/interface/voice-client.js";
 import type { MediaEnvironment } from "../../voice/interface/media-environment.js";
 import type { PcmCaptureEnvironment } from "../../voice/interface/pcm-capture.js";
 import { VoiceProvider } from "../../voice/component/voice-provider.js";
+import type { TelemetryClient } from "../../telemetry/interface/telemetry-client.js";
+import { TelemetryClientProvider } from "../../telemetry/component/telemetry-client-provider.js";
+import { TelemetryPage } from "../../telemetry/page/telemetry-page.js";
 
 /** Application composition accepts capabilities, making real and test transports interchangeable. */
 export function Application({
@@ -55,6 +58,7 @@ export function Application({
   upgrades,
   workspaces,
   keys,
+  telemetry,
   notifications,
   voice,
   media,
@@ -71,6 +75,7 @@ export function Application({
   upgrades: InstallationUpgrades;
   workspaces: WorkspaceDirectory;
   keys: KeyDirectory;
+  telemetry: TelemetryClient;
   notifications: DesktopNotifications;
   voice: VoiceClient;
   media: MediaEnvironment;
@@ -89,15 +94,17 @@ export function Application({
                     <InstallationUpgradesProvider upgrades={upgrades}>
                       <WorkspaceDirectoryProvider directory={workspaces}>
                         <KeyDirectoryProvider directory={keys}>
-                          <VoiceProvider
-                            client={voice}
-                            media={media}
-                            capture={capture}
-                          >
-                            <AuthenticatedRoutes
-                              notifications={notifications}
-                            />
-                          </VoiceProvider>
+                          <TelemetryClientProvider client={telemetry}>
+                            <VoiceProvider
+                              client={voice}
+                              media={media}
+                              capture={capture}
+                            >
+                              <AuthenticatedRoutes
+                                notifications={notifications}
+                              />
+                            </VoiceProvider>
+                          </TelemetryClientProvider>
                         </KeyDirectoryProvider>
                       </WorkspaceDirectoryProvider>
                     </InstallationUpgradesProvider>
@@ -157,6 +164,7 @@ function AuthenticatedRoutes({
               }
             />
             <Route path="keys" element={<KeysPage />} />
+            <Route path="telemetry" element={<TelemetryPage />} />
             <Route path="workspaces" element={<WorkspacesPage />} />
             <Route path="login" element={<Navigate replace to="/" />} />
             <Route path="*" element={<Navigate replace to="/" />} />

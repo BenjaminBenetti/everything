@@ -53,7 +53,9 @@ async function keyHost(context: { after: (cleanup: () => unknown) => void }) {
         return reply.send("from the app");
       },
     },
+    artifactOrigin: "http://localhost:8081",
     publicOrigin: "http://localhost:8080",
+    publicAppsOrigin: "http://localhost:8082",
   });
   /** A browser session for the owner, as a view link creates it. */
   async function session(): Promise<string> {

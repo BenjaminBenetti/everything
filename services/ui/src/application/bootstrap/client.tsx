@@ -1,5 +1,8 @@
 import { HttpKeyDirectory } from "../../key/adapter/http-key-directory.js";
 import "../../key/style/keys.css";
+import { HttpTelemetryClient } from "../../telemetry/adapter/http-telemetry-client.js";
+import "../../telemetry/style/telemetry.css";
+import "../../telemetry/style/telemetry-content.css";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
@@ -88,6 +91,9 @@ async function bootstrap(): Promise<void> {
                 new HttpWorkspaceDirectory(createAuthenticatedTransport())
               }
               keys={new HttpKeyDirectory(createAuthenticatedTransport())}
+              telemetry={
+                new HttpTelemetryClient(createAuthenticatedTransport())
+              }
               notifications={new BrowserDesktopNotifications()}
               voice={new HttpVoiceClient(createAuthenticatedTransport())}
               media={browserMedia()}

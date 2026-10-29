@@ -112,7 +112,8 @@ function allows(
 
 for (const values of [
   ["values.dev.yaml"],
-  ["values.dev.yaml", "values.prod.yaml"],
+  // A remote cluster: production values and what its installation's settings add.
+  ["values.dev.yaml", "values.prod.yaml", "ci/remote-cluster-settings.yaml"],
 ])
   test(`the upgrader can manage everything the chart renders, and grant what it grants (${values.join(", ")})`, async () => {
     const manifests = await render(...values);
@@ -206,7 +207,11 @@ for (const values of [
   });
 
 test("the upgrader holds no access beyond the namespaces and kinds the chart uses", async () => {
-  const manifests = await render("values.dev.yaml", "values.prod.yaml");
+  const manifests = await render(
+    "values.dev.yaml",
+    "values.prod.yaml",
+    "ci/remote-cluster-settings.yaml",
+  );
   const roles = manifests.filter(
     (manifest) =>
       (manifest.kind === "Role" || manifest.kind === "ClusterRole") &&

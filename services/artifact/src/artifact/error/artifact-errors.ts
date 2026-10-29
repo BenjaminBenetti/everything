@@ -89,3 +89,15 @@ export class AppMustBeStoppedError extends ApplicationError {
     super(409, "APP_MUST_BE_STOPPED", "Stop this app before deleting it.");
   }
 }
+
+/** Only the app's owner chooses who can open it; teammates and other callers are refused. */
+export class OwnerActionRequiredError extends ApplicationError {
+  /** Explain that the owner makes this change from Apps. */
+  constructor() {
+    super(
+      403,
+      "OWNER_ACTION_REQUIRED",
+      "Only the app's owner can change who can open it, from Apps in Everything.",
+    );
+  }
+}

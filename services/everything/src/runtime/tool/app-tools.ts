@@ -68,12 +68,17 @@ function shellQuote(value: string): string {
 /** The teammate pod's browser, run once per command without a display or sandbox. */
 const browser = "chromium --headless --no-sandbox";
 
-/** Ready-to-run commands that view an app from the teammate's pod with its pass. */
+/** Ready-to-run commands that view an app from the teammate's pod, with its pass when it is private. */
 function viewCommands(view: TeammateArtifactView) {
+  const pass =
+    view.visibility === "private"
+      ? ` -H ${shellQuote(`Authorization: Bearer ${view.token}`)}`
+      : "";
+  const page = view.visibility === "private" ? view.browserUrl : view.url;
   return {
-    fetch: `curl -sS -i -H ${shellQuote(`Authorization: Bearer ${view.token}`)} ${shellQuote(view.url)}`,
-    screenshot: `${browser} --window-size=1280,800 --screenshot=/tmp/screenshot.png ${shellQuote(view.browserUrl)}`,
-    renderedHtml: `${browser} --dump-dom ${shellQuote(view.browserUrl)}`,
+    fetch: `curl -sS -i${pass} ${shellQuote(view.url)}`,
+    screenshot: `${browser} --window-size=1280,800 --screenshot=/tmp/screenshot.png ${shellQuote(page)}`,
+    renderedHtml: `${browser} --dump-dom ${shellQuote(page)}`,
   };
 }
 
@@ -461,7 +466,7 @@ export function appTools(
       name: appToolNames.view,
       label: "View app",
       description:
-        "Open an app from your pod the way the user sees it, to check that a publish or deployment works: read its HTML, call its API, or take a screenshot. Returns a pass that works for a few minutes, only for this app, and only inside the cluster. Send token as an Authorization: Bearer header to url, or open browserUrl in Chromium, which signs the browser in and then opens the page; call again for a new pass or another page. The result includes ready-to-run curl and Chromium commands for bash. These links don't work for the user, so share the app's own link instead.",
+        "Open an app from your pod the way the user sees it, to check that a publish or deployment works: read its HTML, call its API, or take a screenshot. For a private app, returns a pass that works for a few minutes, only for this app, and only inside the cluster. Send token as an Authorization: Bearer header to url, or open browserUrl in Chromium, which signs the browser in and then opens the page; call again for a new pass or another page. For a public app, returns its url on the public apps host, which needs no pass. The result includes ready-to-run curl and Chromium commands for bash. These links don't work for the user, so share the app's own link instead.",
       parameters: Type.Object(
         {
           app: appReference,

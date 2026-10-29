@@ -25,3 +25,14 @@ export class SessionOriginRejected extends ApplicationError {
     );
   }
 }
+/** Some changes are made only by a person in the application, never by an app or teammate token. */
+export class SignedInUserRequired extends ApplicationError {
+  /** Point to the screen where the person makes the change. */
+  constructor() {
+    super(
+      403,
+      "SIGNED_IN_USER_REQUIRED",
+      "Only you can make this change, from Everything in your browser. Apps and teammates can't make it for you.",
+    );
+  }
+}

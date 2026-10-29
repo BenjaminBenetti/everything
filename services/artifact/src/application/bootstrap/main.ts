@@ -45,7 +45,10 @@ import { ViewAccess } from "../../viewing/service/view-access.js";
 import { ViewPasses } from "../../viewing/service/view-passes.js";
 import { loadApplicationConfig } from "../config/application-config.js";
 import { createInternalApplication } from "../factory/internal-application.js";
-import { createPublicApplication } from "../factory/public-application.js";
+import {
+  createPublicApplication,
+  createPublicAppsApplication,
+} from "../factory/public-application.js";
 import { PeriodicTask } from "../service/periodic-task.js";
 
 import { ArtifactLifecycleService } from "../../artifact/service/artifact-lifecycle-service.js";
@@ -53,6 +56,8 @@ import { KubernetesCredentialSecrets } from "../../credential/adapter/kubernetes
 import { PostgresCredentialGrantRepository } from "../../credential/repository/postgres-credential-grant-repository.js";
 import { AppCredentials } from "../../credential/service/app-credentials.js";
 import { CredentialDistribution } from "../../credential/service/credential-distribution.js";
+
+import { ArtifactVisibilityService } from "../../artifact/service/artifact-visibility-service.js";
 
 /** Assemble concrete adapters once at the process boundary and own their lifecycle. */
 async function main(): Promise<void> {
@@ -176,7 +181,7 @@ async function main(): Promise<void> {
     { builds, workloads: reconciler },
     lookup,
     lock,
-    config.artifactOrigin,
+    { artifact: config.artifactOrigin, publicApps: config.publicAppsOrigin },
     credentials,
   );
 
@@ -193,6 +198,7 @@ async function main(): Promise<void> {
       lock,
       reconciler,
     ),
+    visibility: new ArtifactVisibilityService(artifactRepository, lookup, lock),
     revisions: new RevisionService(
       artifactRepository,
       revisionRepository,
@@ -231,23 +237,44 @@ async function main(): Promise<void> {
   });
   const cookie = new ViewCookie(config.artifactOrigin);
   const passCredentials = new ViewPassCredentials();
-  const host = await createPublicApplication({
-    access,
-    cookie,
-    passes,
-    passCredentials,
-    apiKeys,
-    artifacts: artifactRepository,
-    site: new StaticSite(revisionRepository),
-    content,
-    proxy: new ArtifactProxy(
-      config.cluster.artifactNamespace,
-      [...cookie.privateCookies, passCredentials.cookieName],
-      new ProvisionedClientSecrets(deploymentRepository, capabilitySecrets),
-      new AppResponseGuard(),
-    ),
-    publicOrigin: config.publicOrigin,
-  });
+  const site = new StaticSite(revisionRepository);
+  // One proxy forwards to app pods for both hosts; it withholds the artifact host's cookies and passes.
+  const proxy = new ArtifactProxy(
+    config.cluster.artifactNamespace,
+    [...cookie.privateCookies, passCredentials.cookieName],
+    new ProvisionedClientSecrets(deploymentRepository, capabilitySecrets),
+    new AppResponseGuard(),
+  );
+  // Each host serves only its own hostnames, which share no cookie host with the other's.
+  const host = await createPublicApplication(
+    {
+      access,
+      cookie,
+      passes,
+      passCredentials,
+      apiKeys,
+      artifacts: artifactRepository,
+      site,
+      content,
+      proxy,
+      artifactOrigin: config.artifactOrigin,
+      publicOrigin: config.publicOrigin,
+      publicAppsOrigin: config.publicAppsOrigin,
+    },
+    config.viewerHostnames.artifact,
+  );
+  // Public apps are served on their own origin, with no sign-in, pass, or API key, so a public app's
+  // pages run under a browser trust boundary separate from the artifact host's private apps.
+  const publicApps = await createPublicAppsApplication(
+    {
+      artifacts: artifactRepository,
+      site,
+      content,
+      proxy,
+      publicOrigin: config.publicOrigin,
+    },
+    config.viewerHostnames.publicApps,
+  );
 
   const tasks = [
     new PeriodicTask("Build monitoring", 3000, () => builds.monitor()),
@@ -261,6 +288,7 @@ async function main(): Promise<void> {
   ];
   internal.addHook("onClose", async () => {
     await Promise.all(tasks.map((task) => task.stop()));
+    await publicApps.close();
     await host.close();
     await dataDatabase.destroy();
     await database.destroy();
@@ -268,6 +296,7 @@ async function main(): Promise<void> {
   closeOnTermination(internal);
   await internal.listen({ host: "0.0.0.0", port: config.internalPort });
   await host.listen({ host: "0.0.0.0", port: config.port });
+  await publicApps.listen({ host: "0.0.0.0", port: config.publicAppsPort });
   for (const task of tasks) task.start();
 }
 

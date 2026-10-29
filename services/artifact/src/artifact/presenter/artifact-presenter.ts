@@ -44,11 +44,17 @@ function statusOf(
   return runtime?.state ?? "stopped";
 }
 
-/** Present an artifact with its status, current deployment's capability flags, and credentials. */
+/** The origins an app's links are built on: the artifact host and the public apps host. */
+export interface HostOrigins {
+  readonly artifact: string;
+  readonly publicApps: string;
+}
+
+/** Present an artifact with its status, current capability flags, and credential metadata. */
 export function representSummary(
   artifact: Artifact,
   observed: ArtifactRuntime | undefined,
-  artifactOrigin: string,
+  origins: HostOrigins,
   deployment: Pick<ArtifactDeployment, "database" | "capabilities"> | undefined,
   credentials: AppCredentialView | undefined,
 ): ArtifactSummary {
@@ -63,7 +69,9 @@ export function representSummary(
     credentials:
       artifact.kind === "dynamic" ? (credentials?.credentials ?? []) : [],
     credentialGeneration: credentials?.generation ?? 0,
-    url: `${artifactOrigin}/${artifact.slug}/`,
+    url: `${origins.artifact}/${artifact.slug}/`,
+    publicUrl: `${origins.publicApps}/${artifact.slug}/`,
+    visibility: artifact.visibility,
     status: statusOf(artifact, runtimeOf(artifact, observed)),
     release: artifact.release,
     createdAt: artifact.createdAt,
@@ -78,7 +86,7 @@ export function representDetails(
   artifact: Artifact,
   history: ArtifactHistory,
   observed: ArtifactRuntime | undefined,
-  artifactOrigin: string,
+  origins: HostOrigins,
   credentials: AppCredentialView | undefined,
 ): ArtifactDetails {
   const deployment: ArtifactDeployment | null = history.deployment
@@ -99,7 +107,7 @@ export function representDetails(
     ...representSummary(
       artifact,
       observed,
-      artifactOrigin,
+      origins,
       history.deployment,
       credentials,
     ),

@@ -60,6 +60,30 @@ test("teammates get every app tool, each described for the model", () => {
   }
 });
 
+test("no teammate tool or tool input can make an app public, and the prompt says only the user can", () => {
+  const tools = appTools({} as ArtifactWorkbench, context);
+  assert.ok(
+    !tools.some((tool) => /public|visibility|share/i.test(tool.name)),
+    "no tool changes who can open an app",
+  );
+  for (const tool of tools) {
+    assert.equal(tool.parameters.additionalProperties, false, tool.name);
+    assert.doesNotMatch(
+      JSON.stringify(tool.parameters),
+      /visibility|\bpublic\b/i,
+      tool.name,
+    );
+  }
+  const prompt = mainAgentPrompt({
+    id: agentId,
+    name: "Ada",
+    systemPrompt: "Help.",
+  });
+  assert.match(prompt, /Apps are private/);
+  assert.match(prompt, /Only the user can make an app public/);
+  assert.match(prompt, /you can't/);
+});
+
 test("list_apps returns the shared apps under the name the model uses", async () => {
   const apps = [{ slug: "trip-planner", title: "Trip planner" }];
   const workbench = {
@@ -307,6 +331,7 @@ test("view_app returns a teammate pass with quoted curl and Chromium commands", 
     ) => {
       calls.push([actingContext.ownerId, reference, input]);
       return {
+        visibility: "private",
         url: `${host}/site/it's/`,
         browserUrl: `${host}/_teammate-access?token=everything_view_secret`,
         token: "everything_view_secret",
@@ -341,4 +366,34 @@ test("view_app returns a teammate pass with quoted curl and Chromium commands", 
     mainAgentPrompt({ id: agentId, name: "Ada", systemPrompt: "Help." }),
     new RegExp(`publish or deploy, open the app with ${appToolNames.view}`),
   );
+});
+
+test("view_app opens a public app on the public apps host with no pass in its commands", async () => {
+  const url = "http://public-apps.everything.svc.cluster.local:8082/site/";
+  const workbench = {
+    /** A public app's view: its page on the public apps host. */
+    view: async () => ({ visibility: "public", url }),
+  } as unknown as ArtifactWorkbench;
+  const view = appTools(workbench, context).find(
+    (tool) => tool.name === appToolNames.view,
+  )!;
+  const result = await view.execute(
+    "call",
+    { app: "site" } as never,
+    undefined,
+    undefined,
+    undefined as never,
+  );
+  const reported = JSON.parse((result.content[0] as { text: string }).text);
+  assert.equal(reported.token, undefined);
+  assert.equal(reported.commands.fetch, `curl -sS -i '${url}'`);
+  assert.equal(
+    reported.commands.screenshot,
+    `chromium --headless --no-sandbox --window-size=1280,800 --screenshot=/tmp/screenshot.png '${url}'`,
+  );
+  assert.doesNotMatch(
+    JSON.stringify(reported),
+    /Authorization|_teammate-access/,
+  );
+  assert.match(view.description, /public apps host, which needs no pass/);
 });

@@ -67,6 +67,12 @@ import {
   registerVoiceWebSocket,
   voiceController,
 } from "../../voice/controller/voice-controller.js";
+import type { TelemetryReader } from "../../telemetry/interface/telemetry-reader.js";
+import { telemetryController } from "../../telemetry/controller/telemetry-controller.js";
+import {
+  bindAuthenticatedRequest,
+  registerRequestTelemetry,
+} from "../../telemetry/handler/request-telemetry.js";
 
 /** Use cases and transport settings supplied by the composition root. */
 export interface HttpDependencies {
@@ -99,6 +105,7 @@ export interface HttpDependencies {
   readonly workspaceActivity: WorkspaceActivityReader;
   readonly voice: VoiceOperations;
   readonly voiceStreams: VoiceStreamOperations;
+  readonly telemetry: TelemetryReader;
   readonly readiness: ReadinessCheck;
 }
 
@@ -141,6 +148,7 @@ export async function createHttpApplication(
   // Only routes that opt in are limited: those reachable without authentication.
   await app.register(rateLimit, { global: false });
   app.setErrorHandler(errorHandler);
+  await registerRequestTelemetry(app);
   await healthController(app, dependencies.readiness);
   await chatGptCallbackController(
     app,
@@ -173,6 +181,10 @@ function protectedApi(
         (await dependencies.sessions.resolve(cookie.read(request)))
           ?.accessToken,
     );
+    // After authentication, so each request's trace is attributed to its verified owner only.
+    scope.addHook("onRequest", async (request) => {
+      bindAuthenticatedRequest(request);
+    });
     scope.addHook("onSend", async (_request, reply) => {
       reply.header("Cache-Control", "no-store");
     });
@@ -192,12 +204,15 @@ function protectedApi(
     await agentController(scope, dependencies.agents, dependencies.removal);
     await agentActivityController(scope, dependencies.agentActivity);
     await agentEditingController(scope, dependencies.profiles);
-    await artifactController(scope, dependencies.artifacts);
+    await artifactController(scope, dependencies.artifacts, (request) =>
+      cookie.requireSignedInUser(request),
+    );
     await settingsController(scope, dependencies.workers);
     await generalSettingsController(scope, dependencies.generalSettings);
     await teammateOrderController(scope, dependencies.teammateOrder);
     await workspaceInstanceController(scope, dependencies.workspaces);
     await workspaceActivityController(scope, dependencies.workspaceActivity);
+    await telemetryController(scope, dependencies.telemetry);
     await voiceController(
       scope,
       dependencies.voice,

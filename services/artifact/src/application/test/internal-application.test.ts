@@ -1,4 +1,5 @@
 import { ArtifactLifecycleService } from "../../artifact/service/artifact-lifecycle-service.js";
+import { ArtifactVisibilityService } from "../../artifact/service/artifact-visibility-service.js";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -64,12 +65,16 @@ async function application(context: {
       },
       lookup,
       lock,
-      "http://artifacts.test",
+      {
+        artifact: "http://artifacts.test",
+        publicApps: "http://public.apps.test",
+      },
       { states: async () => new Map() },
     ),
     lifecycle: new ArtifactLifecycleService(artifacts, lookup, lock, {
       reconcile: async () => {},
     }),
+    visibility: new ArtifactVisibilityService(artifacts, lookup, lock),
     revisions: new RevisionService(artifacts, revisions, content, lookup, lock),
     builds: { source: async () => undefined } as unknown as BuildService,
     deployments: {} as DeploymentService,
@@ -337,4 +342,216 @@ test("the owner's API key is revealed only with a service token, never cached, a
     [409, "APP_API_KEY_UNAVAILABLE"],
   );
   assert.doesNotMatch(disabled.body, /everything_app_key_/);
+});
+
+test("apps start private, only the owner's own request makes them public, and releases keep the choice", async (context) => {
+  const app = await application(context);
+  const owner = {
+    "x-everything-actor-id": "owner",
+    "x-everything-actor-name": "You",
+  };
+  const endpoint = "/internal/v1/owners/owner/artifacts/site";
+  // Every creation path ignores nothing silently: a body that names visibility is refused outright.
+  const smuggled = await app.inject({
+    method: "POST",
+    url: "/internal/v1/owners/owner/artifacts",
+    headers: { ...bearer, ...actor },
+    payload: {
+      slug: "site",
+      kind: "static",
+      title: "Site",
+      description: "",
+      visibility: "public",
+    },
+  });
+  assert.equal(smuggled.statusCode, 400);
+  const created = await app.inject({
+    method: "POST",
+    url: "/internal/v1/owners/owner/artifacts",
+    headers: { ...bearer, ...actor },
+    payload: { slug: "site", kind: "static", title: "Site", description: "" },
+  });
+  assert.equal(created.statusCode, 201);
+  assert.equal(created.json().visibility, "private");
+
+  // Edits, releases, and lifecycle requests cannot carry visibility either.
+  for (const [method, url, payload] of [
+    ["PATCH", endpoint, { title: "Site", visibility: "public" }],
+    ["PATCH", endpoint, { visibility: "public" }],
+    ["POST", `${endpoint}/revisions`, { files: [], visibility: "public" }],
+    ["POST", `${endpoint}/deployments`, { visibility: "public" }],
+    [
+      "POST",
+      `${endpoint}/builds`,
+      { files: [], dockerfile: "Dockerfile", buildArgs: {}, public: true },
+    ],
+  ] as const) {
+    const response = await app.inject({
+      method,
+      url,
+      headers: { ...bearer, ...actor },
+      payload,
+    });
+    assert.equal(response.statusCode, 400, `${method} ${url}`);
+  }
+
+  // A teammate acting for the owner is refused, and so is any other author.
+  for (const author of [actor, { ...actor, "x-everything-actor-id": "x" }]) {
+    const refused = await app.inject({
+      method: "PUT",
+      url: `${endpoint}/visibility`,
+      headers: { ...bearer, ...author },
+      payload: { visibility: "public" },
+    });
+    assert.deepEqual(
+      [refused.statusCode, refused.json().code],
+      [403, "OWNER_ACTION_REQUIRED"],
+    );
+  }
+  const unsigned = await app.inject({
+    method: "PUT",
+    url: `${endpoint}/visibility`,
+    headers: owner,
+    payload: { visibility: "public" },
+  });
+  assert.equal(unsigned.statusCode, 401);
+  for (const payload of [
+    { visibility: "everyone" },
+    { visibility: "public", ownerId: "owner" },
+    {},
+  ]) {
+    const malformed = await app.inject({
+      method: "PUT",
+      url: `${endpoint}/visibility`,
+      headers: { ...bearer, ...owner },
+      payload,
+    });
+    assert.equal(malformed.statusCode, 400);
+  }
+  // Another owner's scope cannot see the app, even when it names itself the author.
+  const foreign = await app.inject({
+    method: "PUT",
+    url: "/internal/v1/owners/other/artifacts/site/visibility",
+    headers: {
+      ...bearer,
+      "x-everything-actor-id": "other",
+      ...{ "x-everything-actor-name": "Other" },
+    },
+    payload: { visibility: "public" },
+  });
+  assert.equal(foreign.statusCode, 404);
+  assert.equal(
+    (await app.inject({ url: endpoint, headers: bearer })).json().visibility,
+    "private",
+  );
+
+  const madePublic = await app.inject({
+    method: "PUT",
+    url: `${endpoint}/visibility`,
+    headers: { ...bearer, ...owner },
+    payload: { visibility: "public" },
+  });
+  assert.equal(madePublic.statusCode, 200);
+  assert.deepEqual(
+    [madePublic.json().visibility, madePublic.json().updatedBy],
+    ["public", { id: "owner", name: "You" }],
+  );
+  assert.equal(
+    (
+      await app.inject({
+        method: "GET",
+        url: `${endpoint}/visibility`,
+        headers: bearer,
+      })
+    ).statusCode,
+    404,
+    "there is no read or GET form of the change",
+  );
+
+  // A teammate's later release, edit, stop, and start keep the owner's choice.
+  const body = "<h1>Public</h1>";
+  const sha256 = createHash("sha256").update(body).digest("hex");
+  await app.inject({
+    method: "PUT",
+    url: `/internal/v1/content/${sha256}`,
+    headers: { ...bearer, "content-type": "application/octet-stream" },
+    payload: body,
+  });
+  const released = await app.inject({
+    method: "POST",
+    url: `${endpoint}/revisions`,
+    headers: { ...bearer, ...actor },
+    payload: {
+      files: [
+        { path: "index.html", sha256, size: body.length, executable: false },
+      ],
+    },
+  });
+  assert.deepEqual(
+    [released.statusCode, released.json().visibility, released.json().status],
+    [201, "public", "live"],
+  );
+  for (const [method, url, payload] of [
+    ["PATCH", endpoint, { title: "Renamed" }],
+    ["POST", `${endpoint}/stop`, undefined],
+    ["POST", `${endpoint}/start`, undefined],
+  ] as const) {
+    const response = await app.inject({
+      method,
+      url,
+      headers: { ...bearer, ...actor },
+      ...(payload ? { payload } : {}),
+    });
+    assert.equal(response.statusCode, 200, `${method} ${url}`);
+    assert.equal(response.json().visibility, "public", `${method} ${url}`);
+  }
+  const listed = await app.inject({
+    url: "/internal/v1/owners/owner/artifacts",
+    headers: bearer,
+  });
+  assert.equal(listed.json().artifacts[0].visibility, "public");
+
+  // The owner can make it private again; repeating a choice changes nothing.
+  for (const visibility of ["private", "private"] as const) {
+    const changed = await app.inject({
+      method: "PUT",
+      url: `${endpoint}/visibility`,
+      headers: { ...bearer, ...owner },
+      payload: { visibility },
+    });
+    assert.deepEqual(
+      [changed.statusCode, changed.json().visibility],
+      [200, "private"],
+    );
+  }
+
+  // Deleting and recreating the slug gives a new, private app.
+  await app.inject({
+    method: "PUT",
+    url: `${endpoint}/visibility`,
+    headers: { ...bearer, ...owner },
+    payload: { visibility: "public" },
+  });
+  await app.inject({
+    method: "POST",
+    url: `${endpoint}/stop`,
+    headers: { ...bearer, ...owner },
+  });
+  const removed = await app.inject({
+    method: "DELETE",
+    url: endpoint + "?requireStopped=true",
+    headers: { ...bearer, ...owner },
+  });
+  assert.equal(removed.statusCode, 204);
+  const recreated = await app.inject({
+    method: "POST",
+    url: "/internal/v1/owners/owner/artifacts",
+    headers: { ...bearer, ...actor },
+    payload: { slug: "site", kind: "static", title: "Again", description: "" },
+  });
+  assert.deepEqual(
+    [recreated.statusCode, recreated.json().visibility],
+    [201, "private"],
+  );
+  assert.notEqual(recreated.json().id, created.json().id);
 });

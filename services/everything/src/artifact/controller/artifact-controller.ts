@@ -1,23 +1,33 @@
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import { subject } from "@everything/security/fastify";
 import type { ArtifactLibrary } from "../interface/artifact-library.js";
 import {
   artifactApiKeyResponse,
   artifactListResponse,
+  artifactSummaryResponse,
   artifactViewResponse,
 } from "../schema/artifact-response.js";
 import { noContentResponse } from "../../http/schema/http-response.js";
 import {
+  appVisibilityBody,
   artifactViewBody,
   appParams,
   type AppParams,
+  type AppVisibilityBody,
   type ArtifactViewBody,
 } from "../schema/artifact-request.js";
 
-/** Register the browser's artifact endpoints: the shared library and links that open artifacts. */
+/** Refuses a request unless a person signed in to the application in their browser made it. */
+export type SignedInUserCheck = (request: FastifyRequest) => void;
+
+/**
+ * Register the browser's artifact endpoints: the shared library, links that open artifacts, and the
+ * owner's lifecycle and sharing controls.
+ */
 export async function artifactController(
   app: FastifyInstance,
   artifacts: ArtifactLibrary,
+  requireSignedInUser: SignedInUserCheck,
 ): Promise<void> {
   app.get(
     "/artifacts",
@@ -81,6 +91,29 @@ export async function artifactController(
       reply
         .header("Cache-Control", "no-store")
         .send(await artifacts.apiKey(subject(request), request.params.appId)),
+  );
+
+  app.put<{ Params: AppParams; Body: AppVisibilityBody }>(
+    "/artifacts/:appId/visibility",
+    {
+      schema: {
+        summary: "Make an app private or public",
+        description:
+          "Only a person signed in to Everything in a browser can change this, from the application's own origin; app tokens, teammates, and other bearer tokens are refused even for the owner's own apps. A public app's link works for anyone without signing in, for its pages and endpoints; a private app opens only for you and your teammates. Apps start private, and later releases keep the choice.",
+        params: appParams,
+        body: appVisibilityBody,
+        response: { 200: artifactSummaryResponse },
+      },
+      onRequest: async (request) => {
+        requireSignedInUser(request);
+      },
+    },
+    async (request) =>
+      artifacts.setVisibility(
+        subject(request),
+        request.params.appId,
+        request.body.visibility,
+      ),
   );
 
   app.delete<{ Params: AppParams }>(

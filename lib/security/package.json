@@ -42,6 +42,10 @@
     "./session-cipher": {
       "types": "./build/session/service/session-cipher.d.ts",
       "default": "./build/session/service/session-cipher.js"
+    },
+    "./cookie-host": {
+      "types": "./build/session/model/cookie-host.d.ts",
+      "default": "./build/session/model/cookie-host.js"
     }
   },
   "scripts": {

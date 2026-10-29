@@ -15,13 +15,15 @@ import { ViewPasses1792108800000 } from "../migration/1792108800000-view-passes.
 import { StaticAppRunning1792195200000 } from "../migration/1792195200000-static-app-running.js";
 import { AppCapabilities1792281600000 } from "../migration/1792281600000-app-capabilities.js";
 import { AppApiKeys1792368000000 } from "../migration/1792368000000-app-api-keys.js";
-import { AppCredentials1792454400000 } from "../migration/1792454400000-app-credentials.js";
-import { CredentialValues1792540800000 } from "../migration/1792540800000-credential-values.js";
+import { AppCredentials1792627200000 } from "../migration/1792627200000-app-credentials.js";
+import { CredentialValues1792713600000 } from "../migration/1792713600000-credential-values.js";
 import {
   CredentialBindingEntity,
   CredentialGenerationEntity,
   CredentialRecordEntity,
 } from "../../credential/schema/credential-entities.js";
+
+import { AppVisibility1792454400000 } from "../migration/1792454400000-app-visibility.js";
 
 /** Connection settings for one PostgreSQL database. */
 export interface DatabaseConnectionSettings {
@@ -70,8 +72,9 @@ export function createArtifactDatabase(
       StaticAppRunning1792195200000,
       AppCapabilities1792281600000,
       AppApiKeys1792368000000,
-      AppCredentials1792454400000,
-      CredentialValues1792540800000,
+      AppVisibility1792454400000,
+      AppCredentials1792627200000,
+      CredentialValues1792713600000,
     ],
     migrationsTableName: "artifact_migrations",
     migrationsTransactionMode: "all",
