@@ -57,6 +57,7 @@ function fixture(
         role,
         text,
         createdAt: "",
+        attachments: [],
       };
       recorded.push(message);
       writes.push(`append:${role}:${text}`);
@@ -71,6 +72,7 @@ function fixture(
         role: "assistant" as const,
         text,
         createdAt: "",
+        attachments: [],
       };
       recorded.push(message);
       writes.push(`deliver:${text}`);
@@ -155,7 +157,7 @@ test("serializes rapid messages, interrupting earlier turns without overlapping 
   const f = fixture();
   await Promise.all(
     ["first", "second", "third"].map((text) =>
-      f.service.send("owner", "one", text),
+      f.service.send("owner", "one", { text: text }),
     ),
   );
   assert.deepEqual(
@@ -172,13 +174,13 @@ test("serializes rapid messages, interrupting earlier turns without overlapping 
 
 test("editing model settings reloads the runtime on the next turn without creating another conversation", async () => {
   const f = fixture();
-  await f.service.send("owner", "one", "Before editing");
+  await f.service.send("owner", "one", { text: "Before editing" });
   f.selectModel({
     provider: "anthropic",
     model: "selected-model",
     effort: "high",
   });
-  await f.service.send("owner", "one", "After editing");
+  await f.service.send("owner", "one", { text: "After editing" });
   assert.equal(f.metrics().created, 2);
   assert.equal(f.metrics().disposed, 1);
   assert.equal(f.metrics().peakConcurrency, 1);
@@ -193,7 +195,9 @@ test("editing model settings reloads the runtime on the next turn without creati
 
 test("user messages are appended without updates, and teammate replies are delivered with one", async () => {
   const f = fixture();
-  await f.service.send("owner", "one", "reply:Needs your choice: A or B?");
+  await f.service.send("owner", "one", {
+    text: "reply:Needs your choice: A or B?",
+  });
   while (f.writes.length < 2)
     await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(f.writes, [
@@ -206,21 +210,21 @@ test("user messages are appended without updates, and teammate replies are deliv
 test("different agents can run concurrently and shutdown aborts both", async () => {
   const f = fixture();
   await Promise.all([
-    f.service.send("owner", "one", "a"),
-    f.service.send("owner", "two", "b"),
+    f.service.send("owner", "one", { text: "a" }),
+    f.service.send("owner", "two", { text: "b" }),
   ]);
   assert.equal(f.metrics().peakConcurrency, 2);
   await f.service.close();
   assert.equal(f.running.size, 0);
   assert.equal(f.metrics().disposed, 2);
-  await assert.rejects(f.service.send("owner", "one", "late"), {
+  await assert.rejects(f.service.send("owner", "one", { text: "late" }), {
     code: "SHUTTING_DOWN",
   });
 });
 
 test("ownership is checked before reading messages or creating a runtime", async () => {
   const f = fixture();
-  await assert.rejects(f.service.send("outsider", "one", "steal"), {
+  await assert.rejects(f.service.send("outsider", "one", { text: "steal" }), {
     code: "AGENT_NOT_FOUND",
   });
   await assert.rejects(f.service.list("outsider", "one"), {
@@ -235,7 +239,7 @@ test("ownership is checked before reading messages or creating a runtime", async
 
 test("provider failures surface safe status and retain the user's saved message", async () => {
   const f = fixture();
-  await f.service.send("owner", "one", "error");
+  await f.service.send("owner", "one", { text: "error" });
   await new Promise((resolve) => setImmediate(resolve));
   const status = await f.service.status("owner", "one");
   assert.equal(status.status, "error");
@@ -246,7 +250,7 @@ test("provider failures surface safe status and retain the user's saved message"
 
 test("shutdown tolerates an agent deleted while shutdown waits for its lock", async () => {
   const f = fixture();
-  await f.service.send("owner", "one", "work");
+  await f.service.send("owner", "one", { text: "work" });
   await Promise.all([f.service.delete("owner", "one"), f.service.close()]);
   assert.equal(f.running.size, 0);
   assert.equal(f.metrics().disposed, 1);
@@ -254,7 +258,7 @@ test("shutdown tolerates an agent deleted while shutdown waits for its lock", as
 
 test("deletion stops the runtime, removes desired state, then cleans up the workspace", async () => {
   const f = fixture();
-  await f.service.send("owner", "one", "work");
+  await f.service.send("owner", "one", { text: "work" });
   await f.service.delete("owner", "one");
   assert.equal(f.running.size, 0);
   assert.deepEqual(f.lifecycle, [
@@ -262,7 +266,7 @@ test("deletion stops the runtime, removes desired state, then cleans up the work
     "definition-deleted:one",
     "files-removed:one",
   ]);
-  await assert.rejects(f.service.send("owner", "one", "later"), {
+  await assert.rejects(f.service.send("owner", "one", { text: "later" }), {
     code: "AGENT_NOT_FOUND",
   });
 });
@@ -285,7 +289,7 @@ test("status adds the teammate's running monitors after checking ownership, load
   const unloaded = await f.service.status("owner", "one");
   assert.equal(unloaded.monitorCount, 2, "monitors outlive a runtime reload");
   assert.equal(unloaded.mainRunning, false);
-  await f.service.send("owner", "one", "Keep going");
+  await f.service.send("owner", "one", { text: "Keep going" });
   const working = await f.service.status("owner", "one");
   assert.equal(working.mainRunning, true);
   assert.equal(working.monitorCount, 2);

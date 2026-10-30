@@ -48,6 +48,7 @@ export function piSubagentMessages(
         role: message.role,
         text,
         createdAt: entry.timestamp,
+        attachments: [],
       });
   }
   const end =

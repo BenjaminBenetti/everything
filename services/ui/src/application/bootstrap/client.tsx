@@ -30,6 +30,7 @@ import "../../conversation/style/conversation.css";
 import "../../conversation/style/message-markdown.css";
 import "../../update/style/updates.css";
 import { HttpConversationClient } from "../../conversation/adapter/http-conversation-client.js";
+import { HttpAttachmentClient } from "../../conversation/adapter/http-attachment-client.js";
 import { HttpUpdateClient } from "../../update/adapter/http-update-client.js";
 import { BrowserDesktopNotifications } from "../../notification/adapter/browser-desktop-notifications.js";
 import { HttpVoiceClient } from "../../voice/adapter/http-voice-client.js";
@@ -76,6 +77,9 @@ async function bootstrap(): Promise<void> {
               }
               conversations={
                 new HttpConversationClient(createAuthenticatedTransport())
+              }
+              attachments={
+                new HttpAttachmentClient(createAuthenticatedTransport())
               }
               updates={new HttpUpdateClient(createAuthenticatedTransport())}
               connections={

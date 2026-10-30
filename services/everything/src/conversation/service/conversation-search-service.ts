@@ -65,9 +65,9 @@ export class ConversationSearchService implements ConversationSearchReader {
   }
 }
 
-/** Center a bounded excerpt on a literal match and mark omitted text explicitly. */
+/** Center a bounded excerpt on a literal match and mark omitted text explicitly; attachment paths stay whole. */
 function excerpt(
-  { id, role, text, createdAt }: ConversationMessage,
+  { id, role, text, createdAt, attachments }: ConversationMessage,
   maximum: number,
   query?: string,
 ): ConversationExcerpt {
@@ -81,6 +81,7 @@ function excerpt(
     id,
     role,
     createdAt,
+    attachments,
     excerpt: `${start > 0 ? "…" : ""}${text.slice(start, end)}${end < text.length ? "…" : ""}`,
     truncated: start > 0 || end < text.length,
   };

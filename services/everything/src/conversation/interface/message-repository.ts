@@ -16,11 +16,15 @@ export interface MessageRepository extends Repository<
   ConversationMessage,
   MessageScope
 > {
-  /** Append a message without an update; teammate replies to the owner go through `deliver`. */
+  /**
+   * Append a message without an update, claiming the named unsent attachments of the same teammate
+   * atomically; teammate replies to the owner go through `deliver`.
+   */
   append(
     scope: MessageScope,
     role: MessageRole,
     text: string,
+    attachmentIds?: readonly string[],
   ): Promise<ConversationMessage>;
   /** Append a teammate's send_message reply and its unread update in one transaction. */
   deliver(scope: MessageScope, text: string): Promise<ConversationMessage>;

@@ -53,7 +53,13 @@ async function fixture() {
       record("messages", scope, id, before);
       return {
         messages: [
-          { id: "deadbeef", role: "user", text: "Task", createdAt: "now" },
+          {
+            id: "deadbeef",
+            role: "user",
+            text: "Task",
+            createdAt: "now",
+            attachments: [],
+          },
         ],
         nextCursor: "deadbeef",
       };

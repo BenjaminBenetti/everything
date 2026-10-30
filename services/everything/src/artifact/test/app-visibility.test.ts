@@ -200,6 +200,7 @@ async function application(context: TestContext) {
     profiles: unusedOperations(),
     removal: unusedOperations(),
     conversations: unusedOperations(),
+    attachments: unusedOperations(),
     subagents: unusedOperations(),
     updates: unusedOperations(),
     upgrades: unusedOperations(),

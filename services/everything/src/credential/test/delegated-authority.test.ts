@@ -49,8 +49,8 @@ test("an app's own token can't attach credentials directly, but can message the 
     ),
   );
   await conversationController(app, {
-    send: async (ownerId: string, id: string, text: string) => {
-      sent.push(`${ownerId}:${id}:${text}`);
+    send: async (ownerId: string, id: string, input: { text: string }) => {
+      sent.push(`${ownerId}:${id}:${input.text}`);
       return { messageId: "message", runId: "run" };
     },
   } as unknown as ConversationOperations);

@@ -50,7 +50,7 @@ function message(
   role: ChatMessage["role"] = "assistant",
   text = `Reply ${id}`,
 ): ChatMessage {
-  return { id, role, text, createdAt: second(delivered) };
+  return { id, role, text, createdAt: second(delivered), attachments: [] };
 }
 
 /** Claims that wait until the test releases them, like a busy cross-tab lock. */

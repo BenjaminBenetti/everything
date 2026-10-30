@@ -23,6 +23,8 @@ import { UpdateHistory1792627200000 } from "../migration/1792627200000-update-hi
 import { GeneralSettingsTeammateOrder1792800000000 } from "../migration/1792800000000-general-settings-teammate-order.js";
 import { GenericCredentials1792886400000 } from "../migration/1792886400000-generic-credentials.js";
 import { CredentialValueIds1792972800000 } from "../migration/1792972800000-credential-value-ids.js";
+import { AttachmentEntity } from "../../attachment/schema/attachment-entity.js";
+import { MessageAttachments1793059200000 } from "../migration/1793059200000-message-attachments.js";
 
 /** Connection settings for the service's own PostgreSQL database. */
 export interface DatabaseConnectionSettings {
@@ -49,6 +51,7 @@ export function createApplicationDatabase(
       KeyEntity,
       AgentEntity,
       MessageEntity,
+      AttachmentEntity,
       UpdateEntity,
       SessionEntity,
       ProviderEntity,
@@ -72,6 +75,7 @@ export function createApplicationDatabase(
       GeneralSettingsTeammateOrder1792800000000,
       GenericCredentials1792886400000,
       CredentialValueIds1792972800000,
+      MessageAttachments1793059200000,
     ],
     migrationsTableName: "everything_migrations",
     migrationsTransactionMode: "all",

@@ -11,6 +11,7 @@ function page(ids: number[], nextCursor: string | null): MessagePage {
       text: String(id),
       role: "user",
       createdAt: "2026-10-12T00:00:00Z",
+      attachments: [],
     })),
     nextCursor,
   };
