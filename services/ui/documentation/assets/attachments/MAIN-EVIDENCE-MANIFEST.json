@@ -1,0 +1,71 @@
+{
+  "testedHead": "66496e7f018a7868a9d14a4ae2b97690ac3f5aa2",
+  "browserTests": {
+    "passed": 3,
+    "unexpected": 0,
+    "flaky": 0,
+    "skipped": 0,
+    "nativeExit": 0,
+    "durationSeconds": 43.4
+  },
+  "mocked": [
+    "sign-in",
+    "in-memory records",
+    "model reply",
+    "unrelated chat endpoints"
+  ],
+  "real": [
+    "UI",
+    "upload",
+    "temporary-volume storage",
+    "send",
+    "history",
+    "conversation service",
+    "model-input builder"
+  ],
+  "artificialUploadDelay": "700\u2013900 ms per part",
+  "originalAttempt": "Interrupted by workspace restart; exit and results unknown, not a test assertion failure; original logs and empty outputs preserved",
+  "visualInspection": "PNG signatures/dimensions and DOM/assertions verified, not yet subjective pixel inspection; author should inspect before publishing",
+  "files": [
+    {
+      "name": "desktop-1-uploading.png",
+      "bytes": 73936,
+      "sha256": "2379d053513760f81856b3fe54da6122db9093ff69c357e6fbb737d1cde93a21"
+    },
+    {
+      "name": "desktop-2-ready.png",
+      "bytes": 78964,
+      "sha256": "43b2a6ad3fdd68092b57f5e881373ec424d8456db511da80c195b7c8c3801f12"
+    },
+    {
+      "name": "desktop-3-sent.png",
+      "bytes": 128524,
+      "sha256": "5de79208ef7d126db9d56d5327089d0dfcc76cd6a2de59f3bcd7e45beda497c2"
+    },
+    {
+      "name": "desktop-4-after-reload.png",
+      "bytes": 139685,
+      "sha256": "37dcbf59263e3651a98746413aee610bcd0540ea7d0e88e4c4ef655621a6bfd0"
+    },
+    {
+      "name": "phone-1-uploading.png",
+      "bytes": 196094,
+      "sha256": "d1c4c8468941a8b258020f7439c1bcf1899322d486e5989ba2ce5ffbc9aef554"
+    },
+    {
+      "name": "phone-2-ready.png",
+      "bytes": 192528,
+      "sha256": "06dedfa03d66f4b7fc9774ce9dab07d0714e3a1a207fe4f043baad5661829092"
+    },
+    {
+      "name": "phone-3-sent.png",
+      "bytes": 221034,
+      "sha256": "ed9d39a20b7cdb013dfc770137266782dfbc2cab6ca0a487bb503e1fed91ba5c"
+    },
+    {
+      "name": "delivery.json",
+      "bytes": 2452,
+      "sha256": "117e8890ac44795dba98a731508201e2783b8c855556fd50380e35d3a22aea43"
+    }
+  ]
+}
