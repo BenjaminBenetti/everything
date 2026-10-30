@@ -16,12 +16,16 @@ import type {
   ModelCapabilities,
   ModelMetadata,
 } from "../../provider/interface/provider-models.js";
+import { modelTokenLimit } from "../../provider/model/model-token-limit.js";
 import type { RuntimeModelCatalog } from "../interface/inference-runtime.js";
 import { compatibleModelMetadata } from "../model/compatible-model-metadata.js";
 import { fastModeModel } from "../model/fast-mode-support.js";
 
-/** Limits assumed for a model that neither its server nor Pi's catalog describes. */
-const unknownModelLimits = { contextWindow: 32768, maxTokens: 4096 } as const;
+/**
+ * Planning limits only when neither the provider nor Pi's catalog supplies a valid value.
+ * The decimal 200,000-token context is an unknown-model fallback, not a provider guarantee or floor.
+ */
+const unknownModelLimits = { contextWindow: 200000, maxTokens: 4096 } as const;
 
 /**
  * Response room for a model whose server reports its context but no response cap: a quarter of the
@@ -86,9 +90,9 @@ export class PiModelCapabilities
 
   /**
    * Bind catalog or local-model capabilities while retaining the endpoint's exact model identity.
-   * Limits and effort levels the provider reports win over the catalog, since a server may run a
-   * model with a smaller or larger context than its maximum, and an account's model list describes
-   * the model it actually serves.
+   * Valid provider limits win over valid catalog limits, even when smaller than the fallback.
+   * Only unknown limits use the fallback; output allowance is resolved separately from context.
+   * Effort levels the provider reports also win over the catalog for the model it actually serves.
    */
   resolve(
     provider: ProviderId,
@@ -97,15 +101,16 @@ export class PiModelCapabilities
     limits: ModelMetadata = {},
   ): Model<Api> {
     const { known } = this.known(provider, id, limits.reasoning);
+    const advertisedContext = modelTokenLimit(limits.contextWindow);
     const contextWindow =
-      limits.contextWindow ??
-      known?.contextWindow ??
+      advertisedContext ??
+      modelTokenLimit(known?.contextWindow) ??
       unknownModelLimits.contextWindow;
     const maxTokens = Math.min(
       contextWindow,
-      limits.maxOutputTokens ??
-        known?.maxTokens ??
-        (limits.contextWindow !== undefined
+      modelTokenLimit(limits.maxOutputTokens) ??
+        modelTokenLimit(known?.maxTokens) ??
+        (advertisedContext !== undefined
           ? responseRoom(contextWindow)
           : unknownModelLimits.maxTokens),
     );

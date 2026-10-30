@@ -4,6 +4,9 @@ import type { InferenceSelection } from "@everything/provider-contracts/inferenc
 import { PiInferenceRuntimeFactory } from "../adapter/pi-inference-runtime.js";
 import { PiModelCapabilities } from "../adapter/pi-model-capabilities.js";
 import { createModelRuntime } from "../factory/model-runtime.js";
+import { HttpModelDiscovery } from "../../provider/adapter/http-model-discovery.js";
+import { ProviderModelService } from "../../provider/service/provider-models.js";
+import type { ProviderAccess } from "../../provider/interface/provider-access.js";
 
 /** Encode provider events as a completed SSE response for the native SDKs. */
 function stream(events: { type: string; [key: string]: unknown }[]): Response {
@@ -16,6 +19,91 @@ function stream(events: { type: string; [key: string]: unknown }[]): Response {
     { headers: { "content-type": "text/event-stream" } },
   );
 }
+
+test("fresh selection and runtime creation use optional ChatGPT limits through the shared resolver", async () => {
+  const id = "unlisted-context-fixture";
+  let metadata: Record<string, number> = {};
+  const connections: ProviderAccess = {
+    /** Supply only a synthetic owner-scoped OAuth credential. */
+    async access(ownerId, provider) {
+      assert.equal(ownerId, "owner");
+      assert.equal(provider, "chatgpt");
+      return {
+        credential: { accessToken: "oauth-fixture" },
+        baseUrl: null,
+        model: null,
+      };
+    },
+  };
+  const capabilities = new PiModelCapabilities(await createModelRuntime());
+  const discovery = new HttpModelDiscovery(async (input, init) => {
+    assert.equal(String(input), "https://api.openai.com/v1/models");
+    assert.equal(
+      new Headers(init?.headers).get("authorization"),
+      "Bearer oauth-fixture",
+    );
+    return Response.json({
+      models: [{ slug: id, visibility: "list", ...metadata }],
+    });
+  });
+  const choices = new ProviderModelService(
+    connections,
+    discovery,
+    capabilities,
+  );
+  const bodies: Record<string, unknown>[] = [];
+  const factory = new PiInferenceRuntimeFactory(
+    connections,
+    choices,
+    capabilities,
+    async (input, init) => {
+      assert.equal(String(input), "https://api.openai.com/v1/responses");
+      bodies.push(JSON.parse(String(init?.body)));
+      return stream([
+        { type: "response.created", response: { id: "response" } },
+        {
+          type: "response.completed",
+          response: { id: "response", status: "completed", output: [] },
+        },
+      ]);
+    },
+  );
+  const [listed] = await choices.list("owner", "chatgpt");
+  assert.equal(listed!.id, id);
+  const selection: InferenceSelection = {
+    provider: "chatgpt",
+    model: id,
+    effort: listed!.defaultEffort,
+  };
+  const initial = await factory.create("owner", selection);
+  assert.equal(initial.model.contextWindow, 200000);
+  assert.equal(initial.model.maxTokens, 4096);
+  for (const contextWindow of [65536, 4096]) {
+    metadata = { context_window: contextWindow, max_output_tokens: 8192 };
+    const selected = await choices.select("owner", selection);
+    assert.equal(selected.contextWindow, contextWindow);
+    assert.equal(selected.maxOutputTokens, 8192);
+    const runtime = await factory.create("owner", selection);
+    assert.equal(runtime.model.contextWindow, contextWindow);
+    assert.equal(runtime.model.maxTokens, Math.min(contextWindow, 8192));
+    assert.equal(runtime.model.id, id);
+    assert.equal(runtime.model.provider, "openai");
+    assert.equal(runtime.model.api, "openai-responses");
+    assert.equal(runtime.model.baseUrl, "https://api.openai.com/v1");
+    await runtime.models.completeSimple(
+      runtime.model,
+      {
+        messages: [{ role: "user", content: "Hello", timestamp: 1 }],
+      },
+      { maxTokens: 2048 },
+    );
+    assert.equal(bodies.at(-1)!.model, id);
+    assert.equal(bodies.at(-1)!.max_output_tokens, undefined);
+  }
+  // Existing runtimes stay pinned until recreated; metadata refresh does not replace their history.
+  assert.equal(initial.model.contextWindow, 200000);
+  assert.equal(bodies.length, 2);
+});
 
 test("ChatGPT uses owner-specific OAuth with the public Responses protocol and selected effort", async () => {
   const requests: { body: Record<string, unknown>; token: string | null }[] =

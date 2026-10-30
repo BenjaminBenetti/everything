@@ -9,6 +9,23 @@ import { ProviderModelService } from "../service/provider-models.js";
 import { PiModelCapabilities } from "../../runtime/adapter/pi-model-capabilities.js";
 import { createModelRuntime } from "../../runtime/factory/model-runtime.js";
 
+/** Malformed wire values must remain unknown even when they bypass discovery's parser. */
+const invalidLimits: readonly unknown[] = [
+  undefined,
+  null,
+  "200000",
+  true,
+  {},
+  0,
+  -1,
+  1.5,
+  NaN,
+  Infinity,
+  -Infinity,
+  100_000_001,
+  Number.MAX_SAFE_INTEGER,
+];
+
 test("model lists report limits under each common server's field names", () => {
   for (const [entry, expected] of [
     [{ meta: { n_ctx: 262144 } }, { contextWindow: 262144 }],
@@ -45,6 +62,12 @@ test("training context, malformed values, and missing fields leave limits unknow
     "model",
   ])
     assert.deepEqual(advertisedLimits(entry), {}, JSON.stringify(entry));
+  for (const value of invalidLimits)
+    assert.deepEqual(
+      advertisedLimits({ context_window: value, max_output_tokens: value }),
+      {},
+      String(value),
+    );
 });
 
 test("llama.cpp props give the running context, and a response cap only when one is set", () => {
@@ -86,6 +109,54 @@ test("compatible discovery keeps each model's reported limits", async () => {
     ],
   );
   assert.deepEqual(requested, ["http://model.test/v1/models"]);
+});
+
+test("ChatGPT preserves validated optional limits without requiring them in its account catalog", async () => {
+  const requested: string[] = [];
+  const discovery = new HttpModelDiscovery(async (input, init) => {
+    requested.push(String(input));
+    assert.equal(
+      new Headers(init?.headers).get("authorization"),
+      "Bearer oauth-test",
+    );
+    assert.equal(init?.redirect, "error");
+    return Response.json({
+      models: [
+        {
+          slug: "reported",
+          visibility: "list",
+          context_window: 65536,
+          max_output_tokens: 8192,
+        },
+        { slug: "plain", display_name: "Plain", visibility: "list" },
+        {
+          slug: "invalid",
+          visibility: "list",
+          context_window: -1,
+          max_output_tokens: "8192",
+        },
+        { slug: "hidden", visibility: "hide", context_window: 262144 },
+      ],
+    });
+  });
+  assert.deepEqual(
+    await discovery.discover("chatgpt", {
+      credential: { accessToken: "oauth-test" },
+      baseUrl: null,
+      model: null,
+    }),
+    [
+      {
+        id: "reported",
+        name: "reported",
+        contextWindow: 65536,
+        maxOutputTokens: 8192,
+      },
+      { id: "plain", name: "Plain" },
+      { id: "invalid", name: "invalid" },
+    ],
+  );
+  assert.deepEqual(requested, ["https://api.openai.com/v1/models"]);
 });
 
 test("a single-model server without listed limits is asked for llama.cpp's running limits", async () => {
@@ -145,8 +216,8 @@ test("reported limits set the runtime context and response room, ahead of the ca
   };
   assert.deepEqual(
     resolve(),
-    [32768, 4096],
-    "unknown models stay conservative",
+    [200000, 4096],
+    "only an unknown context uses the decimal 200,000-token planning fallback",
   );
   assert.deepEqual(resolve({ contextWindow: 262144 }), [262144, 32768]);
   assert.deepEqual(resolve({ contextWindow: 16384 }), [16384, 4096]);
@@ -169,6 +240,106 @@ test("reported limits set the runtime context and response room, ahead of the ca
     16384,
     "the running server wins over the catalog",
   );
+});
+
+test("provider limits take priority while an exact small catalog model stays below the fallback", async () => {
+  const capabilities = new PiModelCapabilities(await createModelRuntime());
+  const catalog = capabilities.resolve(
+    "chatgpt",
+    "gpt-4",
+    "https://api.openai.com/v1",
+  );
+  assert.equal(catalog.contextWindow, 8192);
+  assert.equal(catalog.maxTokens, 8192);
+  const advertised = capabilities.resolve("chatgpt", "gpt-4", catalog.baseUrl, {
+    contextWindow: 4096,
+    maxOutputTokens: 1024,
+  });
+  assert.equal(advertised.contextWindow, 4096);
+  assert.equal(advertised.maxTokens, 1024);
+  assert.equal(advertised.id, catalog.id);
+  assert.equal(advertised.provider, "openai");
+  assert.equal(advertised.api, "openai-responses");
+  assert.equal(advertised.baseUrl, catalog.baseUrl);
+});
+
+test("invalid advertised limits fall back independently to the catalog or unknown defaults", async () => {
+  const capabilities = new PiModelCapabilities(await createModelRuntime());
+  for (const value of invalidLimits) {
+    const limits = {
+      contextWindow: value as number,
+      maxOutputTokens: value as number,
+    };
+    const known = capabilities.resolve("chatgpt", "gpt-4", "", limits);
+    assert.deepEqual(
+      [known.contextWindow, known.maxTokens],
+      [8192, 8192],
+      String(value),
+    );
+    const unknown = capabilities.resolve(
+      "chatgpt",
+      "unlisted-context-fixture",
+      "",
+      limits,
+    );
+    assert.deepEqual(
+      [unknown.contextWindow, unknown.maxTokens],
+      [200000, 4096],
+      String(value),
+    );
+    const contextOnly = capabilities.resolve(
+      "chatgpt",
+      "unlisted-context-fixture",
+      "",
+      {
+        ...limits,
+        contextWindow: 65536,
+      },
+    );
+    assert.deepEqual(
+      [contextOnly.contextWindow, contextOnly.maxTokens],
+      [65536, 16384],
+    );
+    const outputOnly = capabilities.resolve(
+      "chatgpt",
+      "unlisted-context-fixture",
+      "",
+      {
+        ...limits,
+        maxOutputTokens: 2048,
+      },
+    );
+    assert.deepEqual(
+      [outputOnly.contextWindow, outputOnly.maxTokens],
+      [200000, 2048],
+    );
+  }
+});
+
+test("invalid catalog limits cannot propagate into resolved budgets", async () => {
+  const original = (await createModelRuntime()).getModel("openai", "gpt-4");
+  assert.ok(original);
+  for (const value of invalidLimits) {
+    const malformed = {
+      ...original,
+      contextWindow: value as number,
+      maxTokens: value as number,
+    };
+    const capabilities = new PiModelCapabilities({
+      getModel: () => malformed,
+      getModels: () => [malformed],
+    });
+    const model = capabilities.resolve(
+      "chatgpt",
+      original.id,
+      original.baseUrl,
+    );
+    assert.deepEqual(
+      [model.contextWindow, model.maxTokens],
+      [200000, 4096],
+      String(value),
+    );
+  }
 });
 
 test("selection returns reported limits while the public catalog keeps only safe fields", async () => {

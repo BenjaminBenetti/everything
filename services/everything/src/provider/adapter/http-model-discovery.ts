@@ -111,6 +111,9 @@ export class HttpModelDiscovery implements ProviderModelDiscovery {
           return {
             id: item.slug,
             name: item.display_name || item.slug,
+            // SIWC documents identity fields, not guaranteed limits. Preserve optional limits
+            // only when the response supplies fields understood and validated by our parser.
+            ...advertisedLimits(item),
             ...(reasoning ? { reasoning } : {}),
           };
         });
