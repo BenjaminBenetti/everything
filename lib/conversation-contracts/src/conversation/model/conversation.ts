@@ -1,14 +1,21 @@
+import type { MessageAttachment } from "../../attachment/model/attachment.js";
+
 /** Message limits shared by the composer, API, persistence, and reply tool. */
 export const messageTextMaxLength = 32000;
 export const messagePageSize = 100;
 export const readReceiptMaxSize = 100;
 
-/** One saved message in a teammate's ongoing conversation. */
+/**
+ * One saved message in a teammate's ongoing conversation. A user message can carry attachments, and
+ * its text is then empty when the user sent only files.
+ */
 export interface ChatMessage {
   readonly id: string;
   readonly role: "user" | "assistant";
   readonly text: string;
   readonly createdAt: string;
+  /** Files sent with the message, in the order the user attached them. */
+  readonly attachments: readonly MessageAttachment[];
 }
 
 /** A chronological history page; the opaque cursor loads the preceding page. */

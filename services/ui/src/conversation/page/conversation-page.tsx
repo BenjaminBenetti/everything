@@ -155,7 +155,7 @@ function TeammateConversation({ agent }: { agent: Agent }) {
           name={agent.name}
           disabled={!agent.inference || snapshot.isPending || snapshot.isError}
           sending={send.isPending}
-          onSend={(text) => send.mutateAsync(text)}
+          onSend={(input) => send.mutateAsync(input)}
         />
       </div>
     </section>

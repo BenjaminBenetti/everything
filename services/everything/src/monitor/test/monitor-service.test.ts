@@ -427,12 +427,14 @@ test("the user's Stop and deletion refuse monitors the stopping runtime's tools 
         role,
         text,
         createdAt: "",
+        attachments: [],
       }),
       deliver: async (_scope, text) => ({
         id: text,
         role: "assistant",
         text,
         createdAt: "",
+        attachments: [],
       }),
       page: async () => ({ messages: [], nextCursor: null }),
     },
@@ -476,9 +478,9 @@ test("the user's Stop and deletion refuse monitors the stopping runtime's tools 
   );
   context.after(() => conversations.close());
 
-  await conversations.send(scope.ownerId, scope.agentId, "first");
+  await conversations.send(scope.ownerId, scope.agentId, { text: "first" });
   const kept = await monitors.start(scope, "main", { command: "sleep 20" });
-  await conversations.send(scope.ownerId, scope.agentId, "second");
+  await conversations.send(scope.ownerId, scope.agentId, { text: "second" });
   assert.equal(pod.running(kept.id), true, "A new user turn keeps monitors");
 
   const release = pod.holdCancel();
@@ -490,7 +492,7 @@ test("the user's Stop and deletion refuse monitors the stopping runtime's tools 
   assert.equal(pod.anyRunning(), false);
   assert.deepEqual(monitors.list(scope), []);
 
-  await conversations.send(scope.ownerId, scope.agentId, "third");
+  await conversations.send(scope.ownerId, scope.agentId, { text: "third" });
   const removed = await monitors.start(scope, "main", { command: "sleep 20" });
   pod.requests.length = 0;
   const releaseDeletion = pod.holdCancel();

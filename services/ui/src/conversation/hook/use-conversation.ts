@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { MessagePage } from "@everything/conversation-contracts";
 import { useSession } from "../../session/component/session-provider.js";
 import { useConversationClient } from "../component/conversation-provider.js";
+import type { MessageInput } from "../interface/conversation-client.js";
 import { prependHistory, refreshHistory } from "../model/message-history.js";
 import { useRecordAgentInteraction } from "../../agent/hook/use-recent-agents.js";
 
@@ -40,7 +41,7 @@ export function useConversation(agentId: string, targetMessageId?: string) {
       setHistory((current) => refreshHistory(current, snapshot.data.page));
   }, [snapshot.data]);
   const send = useMutation({
-    mutationFn: (text: string) => client.send(agentId, text),
+    mutationFn: (input: MessageInput) => client.send(agentId, input),
     retry: false,
     /** Refresh saved input, progress, and recency after the message has been persisted. */
     onSuccess: () => {

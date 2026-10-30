@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef } from "react";
 import type { ChatMessage } from "@everything/conversation-contracts";
 import { Button } from "@everything/ui/button";
 import { MessageMarkdown } from "./message-markdown.js";
+import { MessageAttachments } from "./message-attachments.js";
 import { useMessageReads } from "../hook/use-message-reads.js";
 
 /**
@@ -194,7 +195,11 @@ export function MessageHistory({
                 })}
               </time>
             </div>
-            <MessageMarkdown text={message.text} />
+            {message.text && <MessageMarkdown text={message.text} />}
+            <MessageAttachments
+              agentId={agentId}
+              attachments={message.attachments ?? []}
+            />
           </article>
         ))}
       </div>

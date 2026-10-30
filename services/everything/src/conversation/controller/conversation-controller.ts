@@ -48,7 +48,7 @@ export async function conversationController(
       schema: {
         summary: "Send a visible user message",
         description:
-          "Persists the message, interrupts the active main turn, and starts a new turn. Background subagents keep running. Returns before inference completes.",
+          "Persists the message with any attachments, interrupts the active main turn, and starts a new turn. Send text, attachmentIds from completed uploads, or both. The teammate receives each attachment's workspace path and size, never its contents, and reads files with its tools when needed. Background subagents keep running. Returns before inference completes.",
         params: agentParams,
         body: sendMessageBody,
         response: { 202: messageReceiptResponse },
@@ -61,7 +61,7 @@ export async function conversationController(
           await conversations.send(
             subject(request),
             request.params.agentId,
-            request.body.text,
+            request.body,
           ),
         ),
   );

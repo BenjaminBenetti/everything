@@ -48,6 +48,8 @@ import { FleetMcpClient } from "../../fleet/adapter/fleet-mcp-client.js";
 import { fleetCreationDefaults } from "../tool/fleet-creation-defaults.js";
 import type { MonitorOperations } from "../../monitor/interface/monitor-operations.js";
 import { monitorTools } from "../tool/monitor-tools.js";
+import type { WorkspaceImages } from "../../workspace/interface/workspace-images.js";
+import { imageTools } from "../tool/image-tools.js";
 
 /** Pi's per-agent configuration and session paths inside the agent's workspace. */
 interface AgentDirectories {
@@ -62,7 +64,10 @@ export class PiSessionFactory implements AgentSessionFactory {
   // Construction
   // ===========================================
 
-  /** Receive inference, workspace tools, Fleet, API documentation, conversation search, and optional interaction recording and monitors. */
+  /**
+   * Receive inference, workspace tools, Fleet, API documentation, conversation search, and optional
+   * interaction recording, monitors, and image viewing.
+   */
   constructor(
     private readonly inference: InferenceRuntimeFactory,
     private readonly workspaces: Pick<AgentWorkspaces, "directory" | "shared">,
@@ -73,6 +78,7 @@ export class PiSessionFactory implements AgentSessionFactory {
     private readonly conversationSearch: ConversationSearchReader,
     private readonly workspaceActivity?: WorkspaceActivityRecorder,
     private readonly monitors?: MonitorOperations,
+    private readonly images?: WorkspaceImages,
   ) {}
 
   // ===========================================
@@ -191,6 +197,7 @@ export class PiSessionFactory implements AgentSessionFactory {
       }),
       ...forkTools(messaging),
       ...workspaceTools(this.workspace, agent.id),
+      ...(this.images ? imageTools(this.images, agent.id) : []),
       // Completion events return to this teammate whichever session in its family started them.
       ...(this.monitors
         ? monitorTools(

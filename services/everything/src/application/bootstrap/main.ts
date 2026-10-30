@@ -20,6 +20,12 @@ import { PostgresAgentActivityRepository } from "../../agent/repository/postgres
 import { AgentEditingService } from "../../agent/service/agent-editing-service.js";
 import { PostgresMessageRepository } from "../../conversation/repository/postgres-message-repository.js";
 import { ConversationService } from "../../conversation/service/conversation-service.js";
+import { PostgresAttachmentRepository } from "../../attachment/repository/postgres-attachment-repository.js";
+import { WorkspaceAttachmentFiles } from "../../attachment/adapter/workspace-attachment-files.js";
+import { AttachmentService } from "../../attachment/service/attachment-service.js";
+import { AttachmentExpiry } from "../../attachment/service/attachment-expiry.js";
+import { AttachmentExpiryScheduler } from "../../attachment/service/attachment-expiry-scheduler.js";
+import { FileSystemWorkspaceImages } from "../../workspace/adapter/file-system-workspace-images.js";
 import { ConversationSearchService } from "../../conversation/service/conversation-search-service.js";
 import { SubagentService } from "../../subagent/service/subagent-service.js";
 import { PiSubagentArchives } from "../../subagent/adapter/pi-subagent-archives.js";
@@ -261,9 +267,16 @@ async function main(): Promise<void> {
       new ConversationSearchService(messages),
       workspaceActivity,
       monitors,
+      new FileSystemWorkspaceImages(workspaces),
     ),
     workspaces,
     monitors,
+  );
+  const attachmentRepository = new PostgresAttachmentRepository(database);
+  // Uploads land in the same volume folders the teammate pods mount, at the paths they see.
+  const attachmentFiles = new WorkspaceAttachmentFiles(
+    config.agentsDirectory,
+    workspaceFiles,
   );
   subagents = new SubagentService(
     conversations,
@@ -294,6 +307,11 @@ async function main(): Promise<void> {
     ),
     removal: conversations,
     conversations,
+    attachments: new AttachmentService(
+      agents,
+      attachmentRepository,
+      attachmentFiles,
+    ),
     subagents,
     updates: new UpdateService(updates, generalSettings),
     upgrades: config.upgrader.url
@@ -350,12 +368,22 @@ async function main(): Promise<void> {
       recordWarning(message);
     },
   );
+  const attachmentExpiry = new AttachmentExpiryScheduler(
+    new AttachmentExpiry(attachmentRepository, attachmentFiles),
+    () => {
+      const message =
+        "Expired attachments couldn't be removed; removal will retry.";
+      app.log.warn(message);
+      recordWarning(message);
+    },
+  );
   // Waiting on the speech services would hold shutdown open, so transcriptions and streams stop first.
   app.addHook("preClose", async () => voice.close());
   app.addHook("onClose", async () => {
     await summaries.close();
     await providerChecks.close();
     await credentialSync.close();
+    await attachmentExpiry.close();
     await monitors.close();
     await conversations.close();
     await workspaces.close();
@@ -371,6 +399,7 @@ async function main(): Promise<void> {
   summaries.start();
   providerChecks.start();
   credentialSync.start();
+  attachmentExpiry.start();
   workspaces.start();
   fleet.start();
   fleetClientAddress?.start();

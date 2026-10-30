@@ -12,7 +12,13 @@ const id = "10000000-0000-4000-8000-000000000001";
 
 /** Build visible chat fixtures with a predictable identity and timestamp. */
 function message(text: string): ConversationMessage {
-  return { id, role: "user", text, createdAt: "2026-10-01T12:00:00.000Z" };
+  return {
+    id,
+    role: "user",
+    text,
+    createdAt: "2026-10-01T12:00:00.000Z",
+    attachments: [],
+  };
 }
 
 test("search bounds long matches and neighbors, retains metadata and cursors, and uses the caller's scope", async () => {
@@ -76,6 +82,7 @@ test("short messages stay whole even when their match is near the end", async ()
         id,
         role: original.role,
         createdAt: original.createdAt,
+        attachments: [],
         excerpt: original.text,
         truncated: false,
       },

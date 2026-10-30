@@ -1,6 +1,15 @@
-import { useReducer, type FormEvent, type KeyboardEvent } from "react";
-import { ArrowUp } from "lucide-react";
-import { Button } from "@everything/ui/button";
+import {
+  useEffect,
+  useReducer,
+  useRef,
+  useState,
+  type ClipboardEvent,
+  type DragEvent,
+  type FormEvent,
+  type KeyboardEvent,
+} from "react";
+import { ArrowUp, Paperclip } from "lucide-react";
+import { Button, IconButton } from "@everything/ui/button";
 import { InputSurface } from "@everything/ui/input-surface";
 import { messageTextMaxLength } from "@everything/conversation-contracts";
 import { useComposerSize } from "../hook/use-composer-size.js";
@@ -15,11 +24,21 @@ import {
   VoiceStatus,
   voiceStatusId,
 } from "../../voice/component/voice-controls.js";
+import { useAttachmentDrafts } from "../hook/use-attachment-drafts.js";
+import { ComposerAttachments } from "./composer-attachments.js";
+import type { MessageInput } from "../interface/conversation-client.js";
+
+/** Whether a drag carries files from the computer, rather than text or a link. */
+function carriesFiles(event: DragEvent): boolean {
+  return [...event.dataTransfer.types].includes("Files");
+}
 
 /**
  * Size the field to its draft, keep failed sends editable, and expose sending as an explicit action.
  * Dictation shows its words in the draft while it listens and adds its final transcript for review;
- * it never sends, and its provisional words are never part of what is sent.
+ * it never sends, and its provisional words are never part of what is sent. Files are attached with
+ * the paperclip, by dropping them on the composer, or by pasting them; sending waits until every file
+ * has uploaded, and a message can be only files.
  */
 export function MessageComposer({
   agentId,
@@ -32,7 +51,7 @@ export function MessageComposer({
   name: string;
   disabled: boolean;
   sending: boolean;
-  onSend: (text: string) => Promise<unknown>;
+  onSend: (input: MessageInput) => Promise<unknown>;
 }) {
   const [composer, dispatch] = useReducer(
     composerReducer,
@@ -49,7 +68,34 @@ export function MessageComposer({
     dispatch,
     disabled,
   });
-  const canSend = !!written.trim() && !disabled && !sending;
+  const attachments = useAttachmentDrafts(agentId);
+  const picker = useRef<HTMLInputElement>(null);
+  const [dragging, setDragging] = useState(false);
+  const waiting = attachments.uploading > 0;
+  const stopped = attachments.failed > 0;
+  const canSend =
+    (!!written.trim() || attachments.readyIds.length > 0) &&
+    !waiting &&
+    !stopped &&
+    !disabled &&
+    !sending;
+  useEffect(() => {
+    /** A file dropped beside the composer would otherwise open in the tab and lose the draft. */
+    function ignoreFileDrop(event: globalThis.DragEvent): void {
+      if (event.dataTransfer?.types.includes("Files")) event.preventDefault();
+    }
+    window.addEventListener("dragover", ignoreFileDrop);
+    window.addEventListener("drop", ignoreFileDrop);
+    return () => {
+      window.removeEventListener("dragover", ignoreFileDrop);
+      window.removeEventListener("drop", ignoreFileDrop);
+    };
+  }, []);
+  const attachmentStatus = waiting
+    ? "Uploading files. You can send when they finish."
+    : stopped
+      ? "Retry or remove files that didn’t upload to send."
+      : "";
 
   /** Clear only the submitted draft after persistence succeeds, retaining text typed during the request. */
   async function submit(event: FormEvent<HTMLFormElement>): Promise<void> {
@@ -59,9 +105,14 @@ export function MessageComposer({
     // its provisional words out of the draft.
     dictation.cancel();
     const submitted = written;
+    const files = attachments.readyKeys;
     try {
-      await onSend(submitted.trim());
+      await onSend({
+        text: submitted.trim(),
+        attachmentIds: attachments.readyIds,
+      });
       dispatch({ type: "sent", submitted });
+      attachments.sent(files);
     } catch {
       // The conversation controller presents the failed request; the draft remains editable.
     }
@@ -80,13 +131,53 @@ export function MessageComposer({
     }
   }
 
+  /** Add pasted files, such as a screenshot, leaving pasted text to the field. */
+  function paste(event: ClipboardEvent<HTMLTextAreaElement>): void {
+    const pasted = [...event.clipboardData.files];
+    if (!pasted.length || disabled) return;
+    event.preventDefault();
+    attachments.add(pasted);
+  }
+
   return (
     <InputSurface
       as="form"
       className="chat-composer"
+      data-dragging={dragging || undefined}
       onSubmit={(event) => void submit(event)}
+      onDragOver={(event) => {
+        if (disabled || !carriesFiles(event)) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "copy";
+        setDragging(true);
+      }}
+      onDragLeave={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null))
+          setDragging(false);
+      }}
+      onDrop={(event) => {
+        if (disabled || !carriesFiles(event)) return;
+        event.preventDefault();
+        setDragging(false);
+        attachments.add([...event.dataTransfer.files]);
+      }}
     >
       {dictation.offered && <VoiceStatus voice={voice} />}
+      <ComposerAttachments
+        items={attachments.items}
+        problems={attachments.problems}
+        onRetry={attachments.retry}
+        onRemove={attachments.remove}
+        onDismissProblems={attachments.dismissProblems}
+      />
+      {/* Stays mounted, even when empty, so screen readers announce why sending waits. */}
+      <p
+        id="composer-attachment-status"
+        className="chat-attachment-summary"
+        role="status"
+      >
+        {attachmentStatus}
+      </p>
       <label className="sr-only" htmlFor="chat-message">
         Message {name}
       </label>
@@ -106,6 +197,7 @@ export function MessageComposer({
           })
         }
         onKeyDown={keyDown}
+        onPaste={paste}
         onKeyUp={dictation.keyUp}
         onSelect={dictation.select}
         onBlur={dictation.blur}
@@ -116,7 +208,9 @@ export function MessageComposer({
         disabled={disabled}
         placeholder={`Message ${name}…`}
         aria-describedby={
-          dictation.offered ? `composer-help ${voiceStatusId}` : "composer-help"
+          dictation.offered
+            ? `composer-help composer-attachment-status ${voiceStatusId}`
+            : "composer-help composer-attachment-status"
         }
       />
       <div className="chat-composer-actions">
@@ -130,6 +224,27 @@ export function MessageComposer({
             </span>
           )}
         </p>
+        <input
+          ref={picker}
+          type="file"
+          multiple
+          hidden
+          tabIndex={-1}
+          aria-hidden="true"
+          onChange={(event) => {
+            attachments.add([...(event.target.files ?? [])]);
+            // Let the same file be chosen again after it is removed.
+            event.target.value = "";
+          }}
+        />
+        <IconButton
+          label="Attach files"
+          className="attach-button"
+          disabled={disabled}
+          onClick={() => picker.current?.click()}
+        >
+          <Paperclip aria-hidden="true" />
+        </IconButton>
         {dictation.offered && (
           <VoiceButton
             voice={voice}

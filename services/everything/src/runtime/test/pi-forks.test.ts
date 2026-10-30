@@ -293,6 +293,15 @@ for (const copyContext of [undefined, false, true]) {
           return { query: input.query, matches: [], nextCursor: null };
         },
       },
+      undefined,
+      undefined,
+      {
+        /** Attachments are viewed in the same teammate's workspace from any session in its family. */
+        async read(agentId) {
+          assert.equal(agentId, "teammate");
+          throw new Error("Unexpected image read");
+        },
+      },
     );
     const definition: AgentDefinition = {
       id: "teammate",
@@ -335,6 +344,12 @@ for (const copyContext of [undefined, false, true]) {
       firstFork.tools.map((tool) => tool.function.name).sort(),
       requests[0]!.body.tools.map((tool) => tool.function.name).sort(),
     );
+    // Forks open the user's attachments with the same workspace and image tools as main.
+    for (const name of ["file_read", "bash", "image_view"])
+      assert.ok(
+        firstFork.tools.some((tool) => tool.function.name === name),
+        name,
+      );
 
     await session.abort("turn");
     await session.prompt("Another user question while the fork works");

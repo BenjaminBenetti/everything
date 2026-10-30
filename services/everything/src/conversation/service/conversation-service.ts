@@ -9,10 +9,15 @@ import {
 import { AgentRuntime } from "../../runtime/service/agent-runtime.js";
 import { ReplyingAgentSession } from "../../runtime/service/replying-agent-session.js";
 import type { AgentWorkspaces } from "../../workspace/interface/agent-workspaces.js";
-import { ServiceShuttingDownError } from "../error/conversation-errors.js";
+import {
+  EmptyMessageError,
+  ServiceShuttingDownError,
+} from "../error/conversation-errors.js";
 import type { ConversationOperations } from "../interface/conversation-operations.js";
 import type { ConversationMessageStore } from "../interface/message-repository.js";
 import type { MessagePage, MessageReceipt } from "../model/message.js";
+import type { SendMessageBody } from "../schema/message-request.js";
+import { userMessagePrompt } from "../../runtime/prompt/user-message-prompt.js";
 import { AgentLock } from "./agent-lock.js";
 import type { SubagentScope } from "../../subagent/interface/subagent-operations.js";
 import type {
@@ -65,12 +70,16 @@ export class ConversationService
     return this.messages.page({ ownerId, agentId }, before);
   }
 
-  /** Interrupt the main turn, retain background forks, and persist and start the new user input. */
+  /**
+   * Interrupt the main turn, retain background forks, and persist and start the new user input. The
+   * message and its attachments are saved together; the turn receives their paths, not their contents.
+   */
   async send(
     ownerId: string,
     agentId: string,
-    text: string,
+    { text = "", attachmentIds = [] }: SendMessageBody,
   ): Promise<MessageReceipt> {
+    if (!text.trim() && !attachmentIds.length) throw new EmptyMessageError();
     return this.locks.run(agentId, async () => {
       if (this.closing) throw new ServiceShuttingDownError();
       const agent = await this.agents.get(ownerId, agentId);
@@ -80,8 +89,14 @@ export class ConversationService
         { ownerId, agentId },
         "user",
         text,
+        attachmentIds,
       );
-      return { messageId: message.id, runId: runtime.start(text) };
+      return {
+        messageId: message.id,
+        runId: runtime.start(
+          userMessagePrompt(message.text, message.attachments),
+        ),
+      };
     });
   }
 

@@ -194,6 +194,7 @@ test("app-authenticated subagent API runs private Pi sessions, wakes main, survi
             role: "assistant" as const,
             text,
             createdAt: new Date().toISOString(),
+            attachments: [],
           };
           visible.push(message);
           return message;
