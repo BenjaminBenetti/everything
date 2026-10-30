@@ -1,7 +1,5 @@
 import type { ModelLimits } from "../interface/provider-models.js";
-
-/** Largest token count accepted from a provider, so a malformed value can't produce absurd limits. */
-const maximumTokens = 100_000_000;
+import { modelTokenLimit } from "../model/model-token-limit.js";
 
 /**
  * Where model lists report the context a model runs with, preferring the running size over the
@@ -43,12 +41,7 @@ function tokens(source: unknown, path: readonly string[]): number | undefined {
     if (typeof value !== "object" || value === null) return undefined;
     value = (value as Record<string, unknown>)[key];
   }
-  return typeof value === "number" &&
-    Number.isInteger(value) &&
-    value > 0 &&
-    value <= maximumTokens
-    ? value
-    : undefined;
+  return modelTokenLimit(value);
 }
 
 /** Limits from whichever of `paths` comes first in `source`. */
