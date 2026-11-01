@@ -1,6 +1,8 @@
 # Focused model-information browser evidence
 
-Run this committed harness in main's existing Chromium environment. The implementation worker has no launchable Chromium; do not install or repair browsers there. The harness has not been executed in Chromium by the worker, so screenshots and browser assertions remain pending until main records a native exit and inspects the captures.
+Main ran this committed harness at exact source `5c9767c434a6f621c3ca166bb429d77ca5732349`: **4/4 passed in 45.6 seconds, native exit 0, no retries**, using its existing Chromium, one worker and a process-scoped 256 MiB Node heap. The [four screenshots, original manifest, hashes and author visual inspection](../../../services/ui/documentation/assets/model-info/README.md) are now recorded separately from implementation tests. The implementation worker has no launchable Chromium and did not rerun, install or repair it.
+
+The production UI/panels are real, while **all HTTP/API/authentication/model metadata/records/model replies are intercepted synthetic fixtures**. These captures do not prove actual provider discovery, backend state, live vision, pod restart or security isolation. The older upload screenshots have a different real-upload/temp-storage provenance and remain unchanged. The commands below document how the isolated run was configured; they are not a request for another run.
 
 Build the source at the exact handoff commit first:
 
@@ -28,4 +30,4 @@ Expected artifacts beneath `$model_info_run`:
 - `evidence/phone-context.png` and `phone-documentation.png`.
 - `playwright/` for failure artifacts if any. The explicit evidence directory is not Playwright's cleared output directory.
 
-Phone captures scroll the existing compact details panel to show the context and documentation note; these are separate views, not a composite. Record the source SHA, command/native exit, test conclusions, viewport/emulation, and asset hashes. Visually inspect the actual captures before committing evidence or updating PR30. Keep the seven older upload screenshots and their source/provenance unchanged. Browser screenshot completion will resume the same Codex author under a new finishing receipt.
+Phone captures scroll the existing compact details panel to show the context and documentation note; these are separate views, not a composite. The evidence README records the tested source, main's native exit/test conclusions, viewport/emulation, asset hashes and the same Codex author's inspection of all four actual images. The seven older upload screenshots and their source/provenance remain unchanged. The earlier implementation task's evidence-pending failed receipt is preserved; this finishing task records the completed evidence delivery independently.
