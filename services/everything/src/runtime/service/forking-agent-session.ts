@@ -52,6 +52,7 @@ export class ForkingAgentSession implements AgentSession {
     private readonly factory: SessionForkFactory,
     private readonly now: () => number = () => performance.now(),
     private readonly history?: SessionForkHistory,
+    readonly modelInfo?: AgentSession["modelInfo"],
   ) {
     this.root = new SessionMailbox(session);
   }

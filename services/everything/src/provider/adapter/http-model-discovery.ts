@@ -18,6 +18,11 @@ import {
   chatGptReasoning,
 } from "./advertised-reasoning.js";
 import { providerFetch } from "./provider-fetch.js";
+import {
+  anthropicImageInput,
+  compatibleImageInput,
+} from "./advertised-image-input.js";
+import { modelTokenLimit } from "../model/model-token-limit.js";
 
 /** Discover account-specific catalogs through each configured provider's own endpoint. */
 export class HttpModelDiscovery implements ProviderModelDiscovery {
@@ -68,9 +73,15 @@ export class HttpModelDiscovery implements ProviderModelDiscovery {
     const models: DiscoveredModel[] = [];
     for await (const model of client.models.list({ limit: 100 })) {
       const reasoning = anthropicReasoning(model.capabilities);
+      const imageInput = anthropicImageInput(model.capabilities);
+      // The first-party Models API's max_input_tokens bounds our context planning budget.
+      // Keep response allowance policy separate; do not import max_tokens as a new override.
+      const contextWindow = modelTokenLimit(model.max_input_tokens);
       models.push({
         id: model.id,
         name: model.display_name,
+        ...(imageInput !== undefined ? { imageInput } : {}),
+        ...(contextWindow !== undefined ? { contextWindow } : {}),
         ...(reasoning ? { reasoning } : {}),
       });
     }
@@ -127,11 +138,15 @@ export class HttpModelDiscovery implements ProviderModelDiscovery {
             item.id,
           ),
       )
-      .map((item) => ({
-        id: item.id,
-        name: item.id,
-        ...advertisedLimits(item),
-      }));
+      .map((item) => {
+        const imageInput = compatibleImageInput(item);
+        return {
+          id: item.id,
+          name: item.id,
+          ...advertisedLimits(item),
+          ...(imageInput !== undefined ? { imageInput } : {}),
+        };
+      });
     // A single-model llama.cpp server lists only the context the model was trained with.
     const [only] = models;
     if (

@@ -2,10 +2,13 @@ import type {
   Agent,
   CreateAgentInput,
   UpdateAgentInput,
+  AgentModelInfo,
 } from "@everything/agent-contracts";
 
 /** The UI can manage definitions without gaining any conversation operations. */
 export interface AgentDirectory {
+  /** Read resolved selection and applied runtime metadata without starting work. */
+  modelInfo(id: string, signal?: AbortSignal): Promise<AgentModelInfo>;
   /** List the authenticated user's saved definitions. */
   list(signal?: AbortSignal): Promise<Agent[]>;
   /** Read the owner's three most recently opened or messaged teammates. */

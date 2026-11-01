@@ -18,6 +18,7 @@ import {
 } from "../../agent/service/agent-activity-service.js";
 import { PostgresAgentActivityRepository } from "../../agent/repository/postgres-agent-activity-repository.js";
 import { AgentEditingService } from "../../agent/service/agent-editing-service.js";
+import { AgentModelInfoService } from "../../agent/service/agent-model-info-service.js";
 import { PostgresMessageRepository } from "../../conversation/repository/postgres-message-repository.js";
 import { ConversationService } from "../../conversation/service/conversation-service.js";
 import { PostgresAttachmentRepository } from "../../attachment/repository/postgres-attachment-repository.js";
@@ -307,6 +308,12 @@ async function main(): Promise<void> {
     ),
     removal: conversations,
     conversations,
+    modelInfo: new AgentModelInfoService(
+      agents,
+      models,
+      capabilities,
+      conversations,
+    ),
     attachments: new AttachmentService(
       agents,
       attachmentRepository,

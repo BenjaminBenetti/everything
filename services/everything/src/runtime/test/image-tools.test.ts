@@ -80,7 +80,7 @@ test("a model without vision receives no pixels and an honest explanation", asyn
     assert.equal(result.content[0]!.type, "text");
     assert.match(
       (result.content[0] as { text: string }).text,
-      /can't view images, so the image wasn't loaded/,
+      /unavailable or unconfirmed.*image wasn't loaded/,
     );
   }
   assert.equal(reads, 0);

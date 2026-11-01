@@ -40,7 +40,7 @@ export function imageTools(images: WorkspaceImages, agentId: string) {
         const model = context?.model;
         if (!model?.input.includes("image"))
           return text(
-            "Your current model can't view images, so the image wasn't loaded. Tell the user you can't see pictures with this model; you can still inspect the file with bash, for example its size or metadata.",
+            "Image input is unavailable or unconfirmed for your current model, so the image wasn't loaded. Tell the user the picture has not been viewed. You can still inspect the file with bash, for example its size or metadata.",
           );
         const image = await images.read(agentId, input.path, signal);
         const resized = await resizeImage(

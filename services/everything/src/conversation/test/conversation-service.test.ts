@@ -11,6 +11,7 @@ import type {
 import type { ConversationMessageStore } from "../interface/message-repository.js";
 import type { ConversationMessage } from "../model/message.js";
 import { ConversationService } from "../service/conversation-service.js";
+import type { EffectiveModel } from "@everything/provider-contracts/inference";
 
 /** Build controllable test doubles for testing concurrency independently of Pi and PostgreSQL. */
 function fixture(
@@ -26,6 +27,7 @@ function fixture(
   let disposed = 0;
   let peakConcurrency = 0;
   let inference: AgentDefinition["inference"] = null;
+  let modelInfo: EffectiveModel | undefined;
   const agents: Pick<AgentCatalog, "get" | "delete"> = {
     /** Reject identities that do not own the definition. */
     async get(ownerId, id) {
@@ -93,6 +95,7 @@ function fixture(
       created++;
       return {
         id: "session-" + agent.id,
+        modelInfo,
         compacting: false,
         compactionStartedAt: null,
         lastToolName: undefined,
@@ -146,12 +149,63 @@ function fixture(
     selectModel(selection: AgentDefinition["inference"]) {
       inference = selection;
     },
+    /** Change what the provider will report on the next session opening. */
+    advertise(info: EffectiveModel) {
+      modelInfo = info;
+    },
     /** Read counters after asynchronous work settles. */
     metrics() {
       return { created, disposed, peakConcurrency };
     },
   };
 }
+
+test("applied model info stays pinned across metadata reads and identical saves until actual runtime recreation", async () => {
+  const f = fixture();
+  const selection = {
+    provider: "chatgpt",
+    model: "gpt-6.1-terra",
+    effort: "off",
+  } as const;
+  const initial: EffectiveModel = {
+    provider: "chatgpt",
+    model: selection.model,
+    contextWindow: 200000,
+    contextSource: "fallback",
+    imageInput: true,
+    imageSource: "documentation",
+  };
+  f.selectModel(selection);
+  f.advertise(initial);
+  assert.equal(await f.service.appliedModel("owner", "one"), null);
+  await f.service.send("owner", "one", { text: "first" });
+  assert.deepEqual(await f.service.appliedModel("owner", "one"), initial);
+  const fresh = {
+    ...initial,
+    contextWindow: 16384,
+    contextSource: "provider" as const,
+  };
+  f.advertise(fresh);
+  f.selectModel({ ...selection });
+  await f.service.send("owner", "one", { text: "same settings" });
+  assert.deepEqual(await f.service.appliedModel("owner", "one"), initial);
+  assert.equal(f.metrics().created, 1);
+  f.selectModel({ ...selection, effort: "low" });
+  await f.service.send("owner", "one", { text: "changed settings" });
+  assert.deepEqual(await f.service.appliedModel("owner", "one"), fresh);
+  assert.equal(f.metrics().created, 2);
+  await assert.rejects(
+    f.service.appliedModel("stranger", "one"),
+    AgentNotFoundError,
+  );
+  await f.service.close();
+  assert.equal(await f.service.appliedModel("owner", "one"), null);
+  assert.equal(
+    f.recorded.length,
+    3,
+    "runtime recreation preserves one conversation's history",
+  );
+});
 
 test("serializes rapid messages, interrupting earlier turns without overlapping them", async () => {
   const f = fixture();

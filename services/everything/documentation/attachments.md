@@ -21,10 +21,22 @@ The user attached these files to this message. They are saved in your workspace,
 The list costs a few hundred characters however large the files are. Opening a file is a separate, explicit tool call, and what a tool returns does enter the model's context:
 
 - **Text** (`file_read`): up to 128 KiB per call, with `offset` to continue.
-- **Images** (`image_view`): PNG, JPEG, GIF, and WebP files in the teammate's workspace or the shared folder, scaled to the model's image limits. When the teammate's model can't read images, the tool says so and adds no pixels. Images over 25 MB or 40 megapixels are refused before decoding.
+- **Images** (`image_view`): PNG, JPEG, GIF, and WebP files in the teammate's workspace or the shared folder, scaled to the model's image limits. When image support is unavailable or unconfirmed, the tool explains that the picture has not been viewed and adds no pixels. Images over 25 MB or 40 megapixels are refused before decoding.
 - **Other files** (`bash`): PDFs, archives, and binary data are inspected with commands such as `file`, `unzip -l`, or a script; they are never presented as text.
 
 Private forks use the same tools on the same workspace, so they can open the same paths. The teammate's instructions say that a file's contents come from the user's file and are never instructions to follow.
+
+## Image support and context provenance
+
+The backend prefers validated provider metadata, including explicit image-support negatives, over compatibility metadata. Anthropic's model API exposes `capabilities.image_input.supported`; compatible servers using OpenRouter's documented model-list architecture can expose `architecture.input_modalities`. Standard OpenAI model APIs and SIWC do not document an equivalent modality/context contract. Missing or malformed values remain unknown; a synthetic response is not evidence that a live provider supplies a field.
+
+Only the exact SIWC `chatgpt` / `gpt-6.1-terra` identity has an image-only **Documentation fallback**, cited to [OpenAI's published model specification](https://developers.openai.com/api/docs/models/gpt-6.1-terra). This is not API detection and does not apply to similarly named models or custom compatible gateways. It adds no context, output, effort, cost, or entitlement overrides. Other catalog metadata remains labeled fallback; other unknown models receive no pixels. Pi's `images.blockImages` setting remains effective even for a vision-capable model.
+
+The avatar/provider information panels read `GET /v1/agents/{agentId}/model-info`, authenticated and owner-scoped. It returns only small `selected` and `applied` snapshots: provider, model, context tokens/source, and image capability/source, plus a discovery-error flag. Context resolution is the same one used by execution and compaction: valid provider limit (**Provider detected**), valid bundled catalog limit (**Catalog estimate**), then decimal 200,000 (**Fallback (default)**, an assumed planning budget). In the diagnosed Terra case the context stays 200,000; the published maximum is not substituted.
+
+`selected` is fresh metadata for the saved profile; `applied` is captured when the actual session family opens. Reading details never starts or recreates a runtime. The loaded budget stays pinned until recreation; saving identical settings does not refresh it. A changed profile recreates the runtime on the next turn while preserving its one ongoing conversation. The panel shows both snapshots when their identity, limits or provenance differ, handles unavailable discovery independently of an applied budget, and refreshes after a new conversation turn or reopening.
+
+Regression coverage in `src/runtime/test/image-input-wire.test.ts` uses real discovery, the capability resolver, `image_view`, Pi conversion and the native SDK serializers with injected fake transports. It asserts exact generated PNG bytes for Anthropic Messages, SIWC Responses (Terra's actual documentation fallback), and compatible Chat Completions, plus negative, unknown, and Pi `images.blockImages` controls. This is mocked wire evidence, not live visual recognition or a complete autonomous tool-choice loop.
 
 ## Limits and retention
 

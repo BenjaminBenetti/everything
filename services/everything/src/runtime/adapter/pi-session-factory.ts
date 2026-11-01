@@ -150,6 +150,7 @@ export class PiSessionFactory implements AgentSessionFactory {
       },
       undefined,
       histories,
+      inference.info,
     );
     try {
       for (const { manager, parentId } of await histories.restore())

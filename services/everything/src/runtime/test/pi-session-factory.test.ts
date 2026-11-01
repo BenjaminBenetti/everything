@@ -168,6 +168,9 @@ test("Pi sends only the teammate's initial context, applies saved inference, and
   };
   const session = await factory.create(definition, async () => {});
   context.after(() => session.dispose());
+  assert.equal(session.modelInfo?.provider, "openai-compatible");
+  assert.equal(session.modelInfo?.model, "o3-mini");
+  assert.equal(session.modelInfo?.contextSource, "catalog");
   await session.prompt("First message");
   assert.equal(requests[0]?.body.model, "o3-mini");
   assert.equal(requests[0]?.body.reasoning_effort, "high");

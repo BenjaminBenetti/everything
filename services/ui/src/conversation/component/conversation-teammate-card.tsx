@@ -5,6 +5,7 @@ import type { MainActivity } from "../model/main-activity.js";
 import { TeammatePresence } from "./teammate-presence.js";
 import { effortLabels } from "../../agent/model/inference-options.js";
 import { providerOptions } from "../../provider/model/provider-options.js";
+import { AgentModelDetails } from "../../agent/component/agent-model-details.js";
 
 /**
  * Show teammate details with an animated background indicator only while its count is positive; the
@@ -63,6 +64,7 @@ export function ConversationTeammateCard({
           {backgroundCount} background
         </p>
       )}
+      <AgentModelDetails agent={agent} />
     </aside>
   );
 }

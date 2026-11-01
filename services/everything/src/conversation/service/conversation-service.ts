@@ -1,4 +1,5 @@
 import type { AgentCatalog } from "../../agent/interface/agent-catalog.js";
+import type { EffectiveModel } from "@everything/provider-contracts/inference";
 import type { AgentRemoval } from "../../agent/interface/agent-removal.js";
 import type { AgentDefinition } from "../../agent/model/agent.js";
 import type { AgentSessionFactory } from "../../runtime/interface/agent-session.js";
@@ -39,6 +40,7 @@ export class ConversationService
 
   private readonly runtimes = new Map<string, AgentRuntime>();
   private readonly runtimeDefinitions = new Map<string, string>();
+  private readonly runtimeModels = new Map<string, EffectiveModel>();
   private readonly locks = new AgentLock();
   private closing = false;
 
@@ -59,6 +61,17 @@ export class ConversationService
   // ===========================================
   // Operations
   // ===========================================
+
+  /** Read only an existing runtime's applied capabilities, after ownership and lifecycle checks. */
+  appliedModel(
+    ownerId: string,
+    agentId: string,
+  ): Promise<EffectiveModel | null> {
+    return this.locks.run(agentId, async () => {
+      await this.agents.get(ownerId, agentId);
+      return this.runtimeModels.get(agentId) ?? null;
+    });
+  }
 
   /** Read a page of visible history only after verifying ownership. */
   async list(
@@ -183,6 +196,7 @@ export class ConversationService
       { ownerId: agent.ownerId, agentId: agent.id },
     );
     this.runtimes.set(agent.id, runtime);
+    if (session.modelInfo) this.runtimeModels.set(agent.id, session.modelInfo);
     this.runtimeDefinitions.set(agent.id, definition);
     return runtime;
   }
@@ -203,6 +217,7 @@ export class ConversationService
     await runtime.close();
     this.runtimes.delete(agentId);
     this.runtimeDefinitions.delete(agentId);
+    this.runtimeModels.delete(agentId);
   }
 
   /** Persist a message the agent deliberately sent to its owner, together with its unread update. */

@@ -40,6 +40,14 @@ export function useConversation(agentId: string, targetMessageId?: string) {
     if (snapshot.data)
       setHistory((current) => refreshHistory(current, snapshot.data.page));
   }, [snapshot.data]);
+  const runId = snapshot.data?.runtime.runId;
+  useEffect(() => {
+    // A new turn may recreate the runtime after a profile change. Reading details never recreates it.
+    if (runId)
+      void queries.invalidateQueries({
+        queryKey: ["agent-model-info", profile?.subject, agentId],
+      });
+  }, [runId, queries, profile?.subject, agentId]);
   const send = useMutation({
     mutationFn: (input: MessageInput) => client.send(agentId, input),
     retry: false,

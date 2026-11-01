@@ -139,6 +139,40 @@
 }
 
 /* ===========================================
+   Backend model context and provenance
+   =========================================== */
+.model-info {
+  margin-top: 18px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-default);
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.model-info .eyebrow {
+  margin: 12px 0 6px;
+}
+.model-info-identity {
+  margin: 0 0 8px;
+}
+.model-info-values {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+}
+.model-info-values > div {
+  display: grid;
+  grid-template-columns: minmax(80px, 0.8fr) minmax(0, 1.4fr);
+  gap: 10px;
+}
+.model-info-values dt {
+  color: var(--text-secondary);
+}
+.model-info-values dd {
+  margin: 0;
+}
+
+/* ===========================================
    Avatar catalog picker
    =========================================== */
 .avatar-search {

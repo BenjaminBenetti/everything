@@ -6,6 +6,7 @@ import { Dialog } from "@everything/ui/dialog";
 import { providerOptions } from "../../provider/model/provider-options.js";
 import { effortLabels, fastModeLabels } from "../model/inference-options.js";
 import { Link } from "react-router-dom";
+import { AgentModelDetails } from "./agent-model-details.js";
 
 /** Inspect a saved profile with separated editing and deletion actions. */
 export function AgentDetails({
@@ -73,6 +74,7 @@ export function AgentDetails({
       >
         Open chat
       </Link>
+      <AgentModelDetails agent={agent} />
     </Dialog>
   );
 }
