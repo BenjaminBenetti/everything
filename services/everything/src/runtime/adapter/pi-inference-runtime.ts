@@ -139,7 +139,14 @@ export class PiInferenceRuntimeFactory implements InferenceRuntimeFactory {
     });
     // Pi checks availability before opening a session; request authentication is resolved above.
     await models.setRuntimeApiKey(model.provider, "owner-scoped-connection");
-    return { models, model: models.getModel(model.provider, model.id)! };
+    return {
+      models,
+      model: {
+        ...models.getModel(model.provider, model.id)!,
+        resolution: model.resolution,
+      },
+      info: model.resolution,
+    };
   }
 
   /** Official SDKs expect different base paths; only compatible servers accept a custom address. */

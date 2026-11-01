@@ -4,10 +4,6 @@ import {
   agentParams,
   type AgentParams,
 } from "../../agent/schema/agent-request.js";
-import {
-  sendMessageBody,
-  type SendMessageBody,
-} from "../../conversation/schema/message-request.js";
 import type { SubagentOperations } from "../interface/subagent-operations.js";
 import {
   subagentListResponse,
@@ -18,9 +14,11 @@ import { noContentResponse } from "../../http/schema/http-response.js";
 import {
   createSubagentBody,
   subagentHistoryQuery,
+  subagentMessageBody,
   subagentParams,
   type CreateSubagentBody,
   type SubagentHistoryQuery,
+  type SubagentMessageBody,
   type SubagentParams,
 } from "../schema/subagent-request.js";
 
@@ -112,7 +110,7 @@ export async function subagentController(
       return reply.code(204).send();
     },
   );
-  app.post<{ Params: SubagentParams; Body: SendMessageBody }>(
+  app.post<{ Params: SubagentParams; Body: SubagentMessageBody }>(
     `${item}/messages`,
     {
       schema: {
@@ -120,7 +118,7 @@ export async function subagentController(
         description:
           "Wakes an idle or stopped subagent, or queues behind its current turn without interrupting it. Queued input enters history when its turn starts and can be lost on stop or restart. Does not create a user message in main's conversation.",
         params: subagentParams,
-        body: sendMessageBody,
+        body: subagentMessageBody,
         response: { 202: subagentResponse },
       },
     },

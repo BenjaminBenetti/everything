@@ -157,6 +157,7 @@ test("a teammate's monitor tool returns within the turn and its completion wakes
         role,
         text,
         createdAt: new Date().toISOString(),
+        attachments: [],
       }),
       deliver: async (_scope, text) => {
         const message = {
@@ -164,6 +165,7 @@ test("a teammate's monitor tool returns within the turn and its completion wakes
           role: "assistant" as const,
           text,
           createdAt: new Date().toISOString(),
+          attachments: [],
         };
         visible.push(message);
         return message;
@@ -205,7 +207,7 @@ test("a teammate's monitor tool returns within the turn and its completion wakes
     await rm(directory, { recursive: true, force: true });
   });
 
-  await conversations.send("owner", agentId, "RUN_MONITOR");
+  await conversations.send("owner", agentId, { text: "RUN_MONITOR" });
   // The main turn ends while the command is still waiting for its release file.
   await until(async () => {
     const status = await conversations.status("owner", agentId);
@@ -245,7 +247,7 @@ test("a teammate's monitor tool returns within the turn and its completion wakes
 
   // The user's Stop action ends a running monitor without a completion event.
   await unlink(`${commands}-release`);
-  await conversations.send("owner", agentId, "RUN_MONITOR");
+  await conversations.send("owner", agentId, { text: "RUN_MONITOR" });
   await until(() => monitors.list({ ownerId: "owner", agentId }).length === 1);
   const [stopped] = monitors.list({ ownerId: "owner", agentId });
   await conversations.interrupt("owner", agentId);
@@ -256,7 +258,7 @@ test("a teammate's monitor tool returns within the turn and its completion wakes
   assert.ok(visible.slice(2).every(({ text }) => text === "Monitor started"));
 
   // A completion queued behind the user's Stop on the teammate lock is withdrawn, not delivered.
-  await conversations.send("owner", agentId, "RUN_MONITOR");
+  await conversations.send("owner", agentId, { text: "RUN_MONITOR" });
   await until(() => monitors.list({ ownerId: "owner", agentId }).length === 1);
   const shown = visible.length;
   let release!: () => void;

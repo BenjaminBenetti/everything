@@ -3,6 +3,7 @@ import type {
   InferenceEffort,
   InferenceSelection,
   ProviderModel,
+  EffectiveModel,
 } from "@everything/provider-contracts/inference";
 import type { VerificationInput } from "./connection-verifier.js";
 
@@ -40,8 +41,15 @@ export interface AdvertisedReasoning {
 
 /** What a provider reports about one model beyond its identity; absent values are unknown. */
 export interface ModelMetadata extends ModelLimits {
+  /** Validated provider-declared image input support; absent means unknown. */
+  readonly imageInput?: boolean;
   /** Effort support from the provider's own model list, when it reports any usable metadata. */
   readonly reasoning?: AdvertisedReasoning;
+}
+
+/** Resolve public budgets and capability provenance through the runtime's own rules. */
+export interface ModelResolution {
+  effective(provider: ProviderId, model: DiscoveredModel): EffectiveModel;
 }
 
 /** Provider-advertised model identity, limits, and effort support, independent of runtime implementation. */

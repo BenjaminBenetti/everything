@@ -9,12 +9,14 @@ import {
   inferenceEfforts,
   type EffortSource,
   type ProviderModel,
+  type EffectiveModel,
 } from "@everything/provider-contracts/inference";
 import type {
   AdvertisedReasoning,
   DiscoveredModel,
   ModelCapabilities,
   ModelMetadata,
+  ModelResolution,
 } from "../../provider/interface/provider-models.js";
 import { modelTokenLimit } from "../../provider/model/model-token-limit.js";
 import type { RuntimeModelCatalog } from "../interface/inference-runtime.js";
@@ -43,7 +45,7 @@ interface KnownModel {
 
 /** Keep the model picker and execution on Pi's same capability definitions. */
 export class PiModelCapabilities
-  implements ModelCapabilities, RuntimeModelCatalog
+  implements ModelCapabilities, RuntimeModelCatalog, ModelResolution
 {
   // ===========================================
   // Construction
@@ -57,6 +59,11 @@ export class PiModelCapabilities
   // ===========================================
   // Model projection
   // ===========================================
+
+  /** Project exactly the resolution used to build a runtime, without creating a session. */
+  effective(provider: ProviderId, model: DiscoveredModel): EffectiveModel {
+    return this.resolve(provider, model.id, "", model).resolution;
+  }
 
   /**
    * Show only effort levels that Pi can apply, preferring the levels the provider lists for this
@@ -99,13 +106,43 @@ export class PiModelCapabilities
     id: string,
     baseUrl: string,
     limits: ModelMetadata = {},
-  ): Model<Api> {
+  ): Model<Api> & { readonly resolution: EffectiveModel } {
     const { known } = this.known(provider, id, limits.reasoning);
     const advertisedContext = modelTokenLimit(limits.contextWindow);
     const contextWindow =
       advertisedContext ??
       modelTokenLimit(known?.contextWindow) ??
       unknownModelLimits.contextWindow;
+    const contextSource =
+      advertisedContext !== undefined
+        ? "provider"
+        : modelTokenLimit(known?.contextWindow) !== undefined
+          ? "catalog"
+          : "fallback";
+    // This exact SIWC identity has documented image input. No context/output/effort overrides:
+    // https://developers.openai.com/api/docs/models/gpt-6.1-terra
+    // It is a documentation fallback, never API detection or a claim about compatible gateways.
+    const documented = provider === "chatgpt" && id === "gpt-6.1-terra";
+    const providerImage =
+      typeof limits.imageInput === "boolean" ? limits.imageInput : undefined;
+    const catalogImage =
+      Array.isArray(known?.input) &&
+      known.input.includes("text") &&
+      known.input.every(
+        (modality) => modality === "text" || modality === "image",
+      )
+        ? known.input.includes("image")
+        : undefined;
+    const imageInput =
+      providerImage ?? (documented ? true : catalogImage) ?? null;
+    const imageSource =
+      providerImage !== undefined
+        ? "provider"
+        : documented
+          ? "documentation"
+          : catalogImage !== undefined
+            ? "catalog"
+            : "unknown";
     const maxTokens = Math.min(
       contextWindow,
       modelTokenLimit(limits.maxOutputTokens) ??
@@ -117,9 +154,17 @@ export class PiModelCapabilities
     return {
       name: id,
       reasoning: false,
-      input: ["text"],
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
       ...known,
+      input: imageInput === true ? ["text", "image"] : ["text"],
+      resolution: {
+        provider,
+        model: id,
+        contextWindow,
+        contextSource,
+        imageInput,
+        imageSource,
+      },
       contextWindow,
       maxTokens,
       id,

@@ -89,6 +89,7 @@ const dependencies: HttpDependencies = {
   profiles: unused(),
   removal: unused(),
   conversations: unused(),
+  attachments: unused(),
   subagents: unused(),
   updates: unused(),
   upgrades: unused(),

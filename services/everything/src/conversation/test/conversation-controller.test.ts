@@ -23,14 +23,20 @@ async function fixture(
       calls.push(`list:${ownerId}:${id}${before ? `:${before}` : ""}`);
       return {
         messages: [
-          { id: "message", role: "user", text: "hi", createdAt: "now" },
+          {
+            id: "message",
+            role: "user",
+            text: "hi",
+            createdAt: "now",
+            attachments: [],
+          },
         ],
         nextCursor: null,
       };
     },
     /** Acknowledge the accepted message and its run. */
-    async send(ownerId, id, text) {
-      calls.push(`send:${ownerId}:${id}:${text}`);
+    async send(ownerId, id, input) {
+      calls.push(`send:${ownerId}:${id}:${JSON.stringify(input)}`);
       return { messageId: "message", runId: "run" };
     },
     /** Report the supplied runtime snapshot for the authenticated teammate. */
@@ -58,7 +64,7 @@ test("accepts a visible message and acknowledges its run", async (context) => {
   });
   assert.equal(response.statusCode, 202);
   assert.deepEqual(response.json(), { messageId: "message", runId: "run" });
-  assert.deepEqual(calls, [`send:owner:${agentId}:hello`]);
+  assert.deepEqual(calls, [`send:owner:${agentId}:{"text":"hello"}`]);
 });
 
 test("runtime responses preserve main activity, the monitor count, and the server compaction timestamp", async (context) => {

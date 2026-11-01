@@ -11,6 +11,10 @@
       "types": "./build/conversation/model/conversation.d.ts",
       "default": "./build/conversation/model/conversation.js"
     },
+    "./attachment": {
+      "types": "./build/attachment/model/attachment.d.ts",
+      "default": "./build/attachment/model/attachment.js"
+    },
     "./voice": {
       "types": "./build/voice/model/voice.d.ts",
       "default": "./build/voice/model/voice.js"

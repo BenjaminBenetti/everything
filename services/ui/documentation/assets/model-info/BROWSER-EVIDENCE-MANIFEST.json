@@ -1,0 +1,61 @@
+{
+  "testedSourceHead": "5c9767c434a6f621c3ca166bb429d77ca5732349",
+  "tests": {
+    "passed": 4,
+    "unexpected": 0,
+    "flaky": 0,
+    "skipped": 0,
+    "errors": 0,
+    "retries": 0,
+    "nativeExit": 0,
+    "durationSeconds": 45.6
+  },
+  "real": "Production UI and avatar/provider/context/details panels",
+  "mocked": [
+    "HTTP API responses",
+    "authentication",
+    "model metadata",
+    "records",
+    "model replies"
+  ],
+  "noLiveProviderOrBackendClaim": true,
+  "phone": "Chromium iPhone 13 emulation, CSS 390x664 at scale 3",
+  "domChecks": [
+    "200,000 tokens Fallback (default)",
+    "Supported with Documentation fallback and non-API-detected caveat",
+    "No 1,050,000 context claim in model-info panel",
+    "Selected 16,384 Provider detected vs applied 200,000 Fallback",
+    "Discovery error/reopen/Catalog estimate 8,192 cases"
+  ],
+  "visualInspection": "PNG signatures/dimensions/hashes and browser DOM assertions verified; same Codex author should visually inspect these pixels before publishing",
+  "files": [
+    {
+      "name": "desktop-context.png",
+      "bytes": 93233,
+      "width": 1440,
+      "height": 960,
+      "sha256": "be911e90fcb4cbd1790ff46c4eff11f86876db869ee39b0a180d3ab5adf500cd"
+    },
+    {
+      "name": "desktop-documentation.png",
+      "bytes": 93290,
+      "width": 1440,
+      "height": 960,
+      "sha256": "c2221a4d373a42846ddc83c70bff97940c9cae4eda5ba881d1b6a26c414185bd"
+    },
+    {
+      "name": "phone-context.png",
+      "bytes": 161667,
+      "width": 1170,
+      "height": 1992,
+      "sha256": "73b955a401bbcaded08bce85b1a2fb83942e553d5bb9dfc81720a3719550eb82"
+    },
+    {
+      "name": "phone-documentation.png",
+      "bytes": 170738,
+      "width": 1170,
+      "height": 1992,
+      "sha256": "fafe92880af1d1438de4da8c6d33c7466cfc4469ef5e0c9a53d18a2dc9eba9e5"
+    }
+  ]
+}

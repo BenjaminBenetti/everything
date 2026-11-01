@@ -1,4 +1,5 @@
 import type { AgentCatalog } from "../../agent/interface/agent-catalog.js";
+import type { EffectiveModel } from "@everything/provider-contracts/inference";
 import type { AgentRemoval } from "../../agent/interface/agent-removal.js";
 import type { AgentDefinition } from "../../agent/model/agent.js";
 import type { AgentSessionFactory } from "../../runtime/interface/agent-session.js";
@@ -9,10 +10,15 @@ import {
 import { AgentRuntime } from "../../runtime/service/agent-runtime.js";
 import { ReplyingAgentSession } from "../../runtime/service/replying-agent-session.js";
 import type { AgentWorkspaces } from "../../workspace/interface/agent-workspaces.js";
-import { ServiceShuttingDownError } from "../error/conversation-errors.js";
+import {
+  EmptyMessageError,
+  ServiceShuttingDownError,
+} from "../error/conversation-errors.js";
 import type { ConversationOperations } from "../interface/conversation-operations.js";
 import type { ConversationMessageStore } from "../interface/message-repository.js";
 import type { MessagePage, MessageReceipt } from "../model/message.js";
+import type { SendMessageBody } from "../schema/message-request.js";
+import { userMessagePrompt } from "../../runtime/prompt/user-message-prompt.js";
 import { AgentLock } from "./agent-lock.js";
 import type { SubagentScope } from "../../subagent/interface/subagent-operations.js";
 import type {
@@ -34,6 +40,7 @@ export class ConversationService
 
   private readonly runtimes = new Map<string, AgentRuntime>();
   private readonly runtimeDefinitions = new Map<string, string>();
+  private readonly runtimeModels = new Map<string, EffectiveModel>();
   private readonly locks = new AgentLock();
   private closing = false;
 
@@ -55,6 +62,17 @@ export class ConversationService
   // Operations
   // ===========================================
 
+  /** Read only an existing runtime's applied capabilities, after ownership and lifecycle checks. */
+  appliedModel(
+    ownerId: string,
+    agentId: string,
+  ): Promise<EffectiveModel | null> {
+    return this.locks.run(agentId, async () => {
+      await this.agents.get(ownerId, agentId);
+      return this.runtimeModels.get(agentId) ?? null;
+    });
+  }
+
   /** Read a page of visible history only after verifying ownership. */
   async list(
     ownerId: string,
@@ -65,12 +83,16 @@ export class ConversationService
     return this.messages.page({ ownerId, agentId }, before);
   }
 
-  /** Interrupt the main turn, retain background forks, and persist and start the new user input. */
+  /**
+   * Interrupt the main turn, retain background forks, and persist and start the new user input. The
+   * message and its attachments are saved together; the turn receives their paths, not their contents.
+   */
   async send(
     ownerId: string,
     agentId: string,
-    text: string,
+    { text = "", attachmentIds = [] }: SendMessageBody,
   ): Promise<MessageReceipt> {
+    if (!text.trim() && !attachmentIds.length) throw new EmptyMessageError();
     return this.locks.run(agentId, async () => {
       if (this.closing) throw new ServiceShuttingDownError();
       const agent = await this.agents.get(ownerId, agentId);
@@ -80,8 +102,14 @@ export class ConversationService
         { ownerId, agentId },
         "user",
         text,
+        attachmentIds,
       );
-      return { messageId: message.id, runId: runtime.start(text) };
+      return {
+        messageId: message.id,
+        runId: runtime.start(
+          userMessagePrompt(message.text, message.attachments),
+        ),
+      };
     });
   }
 
@@ -168,6 +196,7 @@ export class ConversationService
       { ownerId: agent.ownerId, agentId: agent.id },
     );
     this.runtimes.set(agent.id, runtime);
+    if (session.modelInfo) this.runtimeModels.set(agent.id, session.modelInfo);
     this.runtimeDefinitions.set(agent.id, definition);
     return runtime;
   }
@@ -188,6 +217,7 @@ export class ConversationService
     await runtime.close();
     this.runtimes.delete(agentId);
     this.runtimeDefinitions.delete(agentId);
+    this.runtimeModels.delete(agentId);
   }
 
   /** Persist a message the agent deliberately sent to its owner, together with its unread update. */

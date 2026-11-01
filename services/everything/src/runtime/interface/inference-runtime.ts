@@ -1,6 +1,9 @@
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import type { InferenceSelection } from "@everything/provider-contracts/inference";
+import type {
+  EffectiveModel,
+  InferenceSelection,
+} from "@everything/provider-contracts/inference";
 import type { ProviderId } from "@everything/provider-contracts";
 import type { ModelMetadata } from "../../provider/interface/provider-models.js";
 
@@ -15,13 +18,16 @@ export interface RuntimeModelCatalog {
     id: string,
     baseUrl: string,
     limits?: ModelMetadata,
-  ): Model<Api>;
+  ): Model<Api> & { readonly resolution?: EffectiveModel };
 }
 
 /** An isolated Pi model runtime containing one owner's explicit selection. */
 export interface InferenceRuntime {
+  readonly info?: EffectiveModel | undefined;
   readonly models: ModelRuntime;
-  readonly model: Model<Api>;
+  readonly model: Model<Api> & {
+    readonly resolution?: EffectiveModel | undefined;
+  };
 }
 
 /** Prepare inference independently of workspace and session persistence. */

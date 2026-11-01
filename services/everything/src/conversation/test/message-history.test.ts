@@ -50,6 +50,7 @@ test("history pages use scoped insertion cursors, preserve tied timestamps, and 
             ? { sequence: LessThan(String(upperBound)) }
             : {}),
         },
+        relations: { attachments: true },
         order: { sequence: "DESC" },
         take: messagePageSize + 1,
       });
@@ -69,6 +70,7 @@ test("history pages use scoped insertion cursors, preserve tied timestamps, and 
     role: "user",
     text: "106",
     createdAt: "2026-10-12T00:00:00Z",
+    attachments: [],
   });
   upperBound = 106;
   const middle = await repository.page(scope, latest.nextCursor!);

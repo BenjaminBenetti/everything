@@ -11,6 +11,7 @@ import type {
 import type { ConversationMessageStore } from "../interface/message-repository.js";
 import type { ConversationMessage } from "../model/message.js";
 import { ConversationService } from "../service/conversation-service.js";
+import type { EffectiveModel } from "@everything/provider-contracts/inference";
 
 /** Build controllable test doubles for testing concurrency independently of Pi and PostgreSQL. */
 function fixture(
@@ -26,6 +27,7 @@ function fixture(
   let disposed = 0;
   let peakConcurrency = 0;
   let inference: AgentDefinition["inference"] = null;
+  let modelInfo: EffectiveModel | undefined;
   const agents: Pick<AgentCatalog, "get" | "delete"> = {
     /** Reject identities that do not own the definition. */
     async get(ownerId, id) {
@@ -57,6 +59,7 @@ function fixture(
         role,
         text,
         createdAt: "",
+        attachments: [],
       };
       recorded.push(message);
       writes.push(`append:${role}:${text}`);
@@ -71,6 +74,7 @@ function fixture(
         role: "assistant" as const,
         text,
         createdAt: "",
+        attachments: [],
       };
       recorded.push(message);
       writes.push(`deliver:${text}`);
@@ -91,6 +95,7 @@ function fixture(
       created++;
       return {
         id: "session-" + agent.id,
+        modelInfo,
         compacting: false,
         compactionStartedAt: null,
         lastToolName: undefined,
@@ -144,6 +149,10 @@ function fixture(
     selectModel(selection: AgentDefinition["inference"]) {
       inference = selection;
     },
+    /** Change what the provider will report on the next session opening. */
+    advertise(info: EffectiveModel) {
+      modelInfo = info;
+    },
     /** Read counters after asynchronous work settles. */
     metrics() {
       return { created, disposed, peakConcurrency };
@@ -151,11 +160,58 @@ function fixture(
   };
 }
 
+test("applied model info stays pinned across metadata reads and identical saves until actual runtime recreation", async () => {
+  const f = fixture();
+  const selection = {
+    provider: "chatgpt",
+    model: "gpt-6.1-terra",
+    effort: "off",
+  } as const;
+  const initial: EffectiveModel = {
+    provider: "chatgpt",
+    model: selection.model,
+    contextWindow: 200000,
+    contextSource: "fallback",
+    imageInput: true,
+    imageSource: "documentation",
+  };
+  f.selectModel(selection);
+  f.advertise(initial);
+  assert.equal(await f.service.appliedModel("owner", "one"), null);
+  await f.service.send("owner", "one", { text: "first" });
+  assert.deepEqual(await f.service.appliedModel("owner", "one"), initial);
+  const fresh = {
+    ...initial,
+    contextWindow: 16384,
+    contextSource: "provider" as const,
+  };
+  f.advertise(fresh);
+  f.selectModel({ ...selection });
+  await f.service.send("owner", "one", { text: "same settings" });
+  assert.deepEqual(await f.service.appliedModel("owner", "one"), initial);
+  assert.equal(f.metrics().created, 1);
+  f.selectModel({ ...selection, effort: "low" });
+  await f.service.send("owner", "one", { text: "changed settings" });
+  assert.deepEqual(await f.service.appliedModel("owner", "one"), fresh);
+  assert.equal(f.metrics().created, 2);
+  await assert.rejects(
+    f.service.appliedModel("stranger", "one"),
+    AgentNotFoundError,
+  );
+  await f.service.close();
+  assert.equal(await f.service.appliedModel("owner", "one"), null);
+  assert.equal(
+    f.recorded.length,
+    3,
+    "runtime recreation preserves one conversation's history",
+  );
+});
+
 test("serializes rapid messages, interrupting earlier turns without overlapping them", async () => {
   const f = fixture();
   await Promise.all(
     ["first", "second", "third"].map((text) =>
-      f.service.send("owner", "one", text),
+      f.service.send("owner", "one", { text: text }),
     ),
   );
   assert.deepEqual(
@@ -172,13 +228,13 @@ test("serializes rapid messages, interrupting earlier turns without overlapping 
 
 test("editing model settings reloads the runtime on the next turn without creating another conversation", async () => {
   const f = fixture();
-  await f.service.send("owner", "one", "Before editing");
+  await f.service.send("owner", "one", { text: "Before editing" });
   f.selectModel({
     provider: "anthropic",
     model: "selected-model",
     effort: "high",
   });
-  await f.service.send("owner", "one", "After editing");
+  await f.service.send("owner", "one", { text: "After editing" });
   assert.equal(f.metrics().created, 2);
   assert.equal(f.metrics().disposed, 1);
   assert.equal(f.metrics().peakConcurrency, 1);
@@ -193,7 +249,9 @@ test("editing model settings reloads the runtime on the next turn without creati
 
 test("user messages are appended without updates, and teammate replies are delivered with one", async () => {
   const f = fixture();
-  await f.service.send("owner", "one", "reply:Needs your choice: A or B?");
+  await f.service.send("owner", "one", {
+    text: "reply:Needs your choice: A or B?",
+  });
   while (f.writes.length < 2)
     await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(f.writes, [
@@ -206,21 +264,21 @@ test("user messages are appended without updates, and teammate replies are deliv
 test("different agents can run concurrently and shutdown aborts both", async () => {
   const f = fixture();
   await Promise.all([
-    f.service.send("owner", "one", "a"),
-    f.service.send("owner", "two", "b"),
+    f.service.send("owner", "one", { text: "a" }),
+    f.service.send("owner", "two", { text: "b" }),
   ]);
   assert.equal(f.metrics().peakConcurrency, 2);
   await f.service.close();
   assert.equal(f.running.size, 0);
   assert.equal(f.metrics().disposed, 2);
-  await assert.rejects(f.service.send("owner", "one", "late"), {
+  await assert.rejects(f.service.send("owner", "one", { text: "late" }), {
     code: "SHUTTING_DOWN",
   });
 });
 
 test("ownership is checked before reading messages or creating a runtime", async () => {
   const f = fixture();
-  await assert.rejects(f.service.send("outsider", "one", "steal"), {
+  await assert.rejects(f.service.send("outsider", "one", { text: "steal" }), {
     code: "AGENT_NOT_FOUND",
   });
   await assert.rejects(f.service.list("outsider", "one"), {
@@ -235,7 +293,7 @@ test("ownership is checked before reading messages or creating a runtime", async
 
 test("provider failures surface safe status and retain the user's saved message", async () => {
   const f = fixture();
-  await f.service.send("owner", "one", "error");
+  await f.service.send("owner", "one", { text: "error" });
   await new Promise((resolve) => setImmediate(resolve));
   const status = await f.service.status("owner", "one");
   assert.equal(status.status, "error");
@@ -246,7 +304,7 @@ test("provider failures surface safe status and retain the user's saved message"
 
 test("shutdown tolerates an agent deleted while shutdown waits for its lock", async () => {
   const f = fixture();
-  await f.service.send("owner", "one", "work");
+  await f.service.send("owner", "one", { text: "work" });
   await Promise.all([f.service.delete("owner", "one"), f.service.close()]);
   assert.equal(f.running.size, 0);
   assert.equal(f.metrics().disposed, 1);
@@ -254,7 +312,7 @@ test("shutdown tolerates an agent deleted while shutdown waits for its lock", as
 
 test("deletion stops the runtime, removes desired state, then cleans up the workspace", async () => {
   const f = fixture();
-  await f.service.send("owner", "one", "work");
+  await f.service.send("owner", "one", { text: "work" });
   await f.service.delete("owner", "one");
   assert.equal(f.running.size, 0);
   assert.deepEqual(f.lifecycle, [
@@ -262,7 +320,7 @@ test("deletion stops the runtime, removes desired state, then cleans up the work
     "definition-deleted:one",
     "files-removed:one",
   ]);
-  await assert.rejects(f.service.send("owner", "one", "later"), {
+  await assert.rejects(f.service.send("owner", "one", { text: "later" }), {
     code: "AGENT_NOT_FOUND",
   });
 });
@@ -285,7 +343,7 @@ test("status adds the teammate's running monitors after checking ownership, load
   const unloaded = await f.service.status("owner", "one");
   assert.equal(unloaded.monitorCount, 2, "monitors outlive a runtime reload");
   assert.equal(unloaded.mainRunning, false);
-  await f.service.send("owner", "one", "Keep going");
+  await f.service.send("owner", "one", { text: "Keep going" });
   const working = await f.service.status("owner", "one");
   assert.equal(working.mainRunning, true);
   assert.equal(working.monitorCount, 2);

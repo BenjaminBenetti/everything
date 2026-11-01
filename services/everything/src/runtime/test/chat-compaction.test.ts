@@ -338,6 +338,7 @@ test("Pi calls conversation search after compaction and reopening to recover omi
             role: "user",
             text: original,
             createdAt: "2026-10-01T12:00:00.000Z",
+            attachments: [],
           },
         ],
         nextCursor: null,

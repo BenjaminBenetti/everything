@@ -23,6 +23,13 @@ export const createSubagentBody = Type.Object(
 );
 export type CreateSubagentBody = Static<typeof createSubagentBody>;
 
+/** A private text message for a background teammate; attachments belong to the user's conversation. */
+export const subagentMessageBody = Type.Object(
+  { text: nonBlankText(messageTextMaxLength) },
+  { additionalProperties: false },
+);
+export type SubagentMessageBody = Static<typeof subagentMessageBody>;
+
 /** Page native transcript messages using opaque IDs rather than filesystem locations. */
 export const subagentHistoryQuery = Type.Object(
   {

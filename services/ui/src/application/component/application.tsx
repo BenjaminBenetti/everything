@@ -26,6 +26,7 @@ import { WorkspaceShell } from "../../workspace/component/workspace-shell.js";
 import type { ProviderConnections } from "../../provider/interface/provider-connections.js";
 import { ProviderConnectionsProvider } from "../../provider/component/provider-connections-context.js";
 import type { ConversationClient } from "../../conversation/interface/conversation-client.js";
+import type { AttachmentClient } from "../../conversation/interface/attachment-client.js";
 import { ConversationProvider } from "../../conversation/component/conversation-provider.js";
 import { ConversationPage } from "../../conversation/page/conversation-page.js";
 import type { WorkspaceSettings } from "../../settings/interface/workspace-settings.js";
@@ -53,6 +54,7 @@ export function Application({
   artifacts,
   connections,
   conversations,
+  attachments,
   updates,
   settings,
   upgrades,
@@ -70,6 +72,7 @@ export function Application({
   artifacts: ArtifactLibrary;
   connections: ProviderConnections;
   conversations: ConversationClient;
+  attachments: AttachmentClient;
   updates: UpdateClient;
   settings: WorkspaceSettings;
   upgrades: InstallationUpgrades;
@@ -88,7 +91,10 @@ export function Application({
         <AgentDirectoryProvider directory={directory}>
           <ArtifactLibraryProvider library={artifacts}>
             <ProviderConnectionsProvider connections={connections}>
-              <ConversationProvider client={conversations}>
+              <ConversationProvider
+                client={conversations}
+                attachments={attachments}
+              >
                 <UpdateProvider client={updates}>
                   <WorkspaceSettingsProvider settings={settings}>
                     <InstallationUpgradesProvider upgrades={upgrades}>

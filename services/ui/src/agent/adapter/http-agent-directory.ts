@@ -3,6 +3,7 @@ import type {
   AgentList,
   CreateAgentInput,
   UpdateAgentInput,
+  AgentModelInfo,
 } from "@everything/agent-contracts";
 import type { JsonTransport } from "../../http/interface/json-transport.js";
 import type { AgentDirectory } from "../interface/agent-directory.js";
@@ -19,6 +20,14 @@ export class HttpAgentDirectory implements AgentDirectory {
   // ===========================================
   // Operations
   // ===========================================
+
+  /** Resolve only small public capability snapshots; credentials stay on the backend. */
+  modelInfo(id: string, signal?: AbortSignal): Promise<AgentModelInfo> {
+    return this.transport.request(
+      `/v1/agents/${encodeURIComponent(id)}/model-info`,
+      signal ? { signal } : {},
+    );
+  }
 
   /** Read the recent teammate list in server-defined interaction order. */
   async recent(signal?: AbortSignal): Promise<Agent[]> {

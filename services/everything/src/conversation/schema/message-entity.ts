@@ -3,7 +3,7 @@ import { baseColumns } from "@everything/persistence/schema";
 import { messageTextMaxLength } from "../model/message.js";
 import type { MessageRecord } from "../model/message-record.js";
 
-/** Map visible messages and the agent relation carrying ownership. */
+/** Map visible messages, the agent relation carrying ownership, and the files sent with them. */
 export const MessageEntity = new EntitySchema<MessageRecord>({
   name: "MessageRecord",
   tableName: "messages",
@@ -29,6 +29,11 @@ export const MessageEntity = new EntitySchema<MessageRecord>({
         foreignKeyConstraintName: "messages_agent_id_fkey",
       },
     },
+    attachments: {
+      type: "one-to-many",
+      target: "AttachmentRecord",
+      inverseSide: "message",
+    },
   },
   indices: [
     { name: "messages_agent_sequence", columns: ["agentId", "sequence"] },
@@ -40,8 +45,9 @@ export const MessageEntity = new EntitySchema<MessageRecord>({
       expression: "role IN ('user', 'assistant')",
     },
     {
+      // A user message may carry only attachments; teammate replies always have text.
       name: "messages_text_check",
-      expression: `length(text) BETWEEN 1 AND ${messageTextMaxLength}`,
+      expression: `length(text) <= ${messageTextMaxLength} AND (role = 'user' OR length(text) >= 1)`,
     },
   ],
 });

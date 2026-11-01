@@ -1,5 +1,14 @@
 import type { AgentAvatarId } from "./avatar.js";
 import type { InferenceSelection } from "@everything/provider-contracts/inference";
+import type { EffectiveModel } from "@everything/provider-contracts/inference";
+
+/** Fresh saved-selection metadata and the independently pinned runtime, if loaded. */
+export interface AgentModelInfo {
+  readonly selected: EffectiveModel | null;
+  readonly applied: EffectiveModel | null;
+  /** Discovery failed; applied metadata remains available independently. */
+  readonly selectionError: boolean;
+}
 
 /** Public agent field limits shared by HTTP validation and browser forms. */
 export const agentLimits = {

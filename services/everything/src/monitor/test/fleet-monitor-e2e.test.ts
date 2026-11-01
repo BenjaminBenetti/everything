@@ -197,6 +197,7 @@ test(
           role,
           text,
           createdAt: new Date().toISOString(),
+          attachments: [],
         }),
         deliver: async (_scope, text) => {
           const message = {
@@ -204,6 +205,7 @@ test(
             role: "assistant" as const,
             text,
             createdAt: new Date().toISOString(),
+            attachments: [],
           };
           visible.push(message);
           return message;
@@ -239,7 +241,7 @@ test(
     ): Promise<string> {
       const before = started.length;
       pending.push(input);
-      await conversations.send("owner", agentId, "RUN_MONITOR");
+      await conversations.send("owner", agentId, { text: "RUN_MONITOR" });
       await eventually(async () => {
         const status = await conversations.status("owner", agentId);
         return started.length > before && status.status === "idle";

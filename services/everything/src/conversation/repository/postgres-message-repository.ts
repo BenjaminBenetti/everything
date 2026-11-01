@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
+  IsNull,
   LessThan,
   MoreThan,
   ILike,
@@ -24,6 +25,13 @@ import type { MessageRecord } from "../model/message-record.js";
 import { MessageEntity } from "../schema/message-entity.js";
 import { UpdateEntity } from "../../update/schema/update-entity.js";
 import type { ConversationSearchInput } from "../schema/conversation-search.js";
+import { AttachmentEntity } from "../../attachment/schema/attachment-entity.js";
+import { AttachmentUnavailableError } from "../../attachment/error/attachment-errors.js";
+import type { AttachmentRecord } from "../../attachment/model/attachment.js";
+import { representMessageAttachment } from "../../attachment/presenter/attachment-presenter.js";
+
+/** Visible messages are always read with the files sent with them. */
+const withAttachments = { attachments: true } as const;
 
 /** Persist chat through ORM relations with transactional ownership checks. */
 export class PostgresMessageRepository
@@ -45,15 +53,21 @@ export class PostgresMessageRepository
   // Operations
   // ===========================================
 
-  /** Verify and lock the parent while inserting so concurrent deletion cannot invalidate ownership. */
+  /**
+   * Verify and lock the parent while inserting so concurrent deletion cannot invalidate ownership, and
+   * claim the attachments in the same transaction, so a message is saved with all of them or not at all.
+   */
   async append(
     scope: MessageScope,
     role: MessageRole,
     text: string,
+    attachmentIds: readonly string[] = [],
   ): Promise<ConversationMessage> {
-    return serializableTransaction(this.orm.manager, async (manager) =>
-      this.toEntity(await this.insert(manager, scope, role, text)),
-    );
+    return serializableTransaction(this.orm.manager, async (manager) => {
+      const message = await this.insert(manager, scope, role, text);
+      const attachments = await this.attach(manager, message, attachmentIds);
+      return this.toEntity({ ...message, attachments });
+    });
   }
 
   /** Commit the reply and its unread update together, so neither exists without the other. */
@@ -84,6 +98,7 @@ export class PostgresMessageRepository
     }
     const records = await this.orm.find({
       where,
+      relations: withAttachments,
       order: { sequence: "DESC" },
       take: messagePageSize + 1,
     });
@@ -120,6 +135,7 @@ export class PostgresMessageRepository
         text: ILike(`%${literal}%`),
         ...(role ? { role } : {}),
       },
+      relations: withAttachments,
       order: { sequence: "DESC" },
       take: limit + 1,
     });
@@ -146,10 +162,12 @@ export class PostgresMessageRepository
     const [before, after] = await Promise.all([
       this.orm.findOne({
         where: { ...where, sequence: LessThan(anchor.sequence) },
+        relations: withAttachments,
         order: { sequence: "DESC" },
       }),
       this.orm.findOne({
         where: { ...where, sequence: MoreThan(anchor.sequence) },
+        relations: withAttachments,
         order: { sequence: "ASC" },
       }),
     ]);
@@ -195,6 +213,37 @@ export class PostgresMessageRepository
     return message;
   }
 
+  /**
+   * Claim each named attachment for the message, in order. Each must be a complete, unsent upload of
+   * the same teammate, whose owner `insert` already verified; anything else fails the whole message.
+   */
+  private async attach(
+    manager: EntityManager,
+    message: MessageRecord,
+    attachmentIds: readonly string[],
+  ): Promise<AttachmentRecord[]> {
+    const repository = manager.getRepository(AttachmentEntity);
+    const attached: AttachmentRecord[] = [];
+    for (const [position, id] of attachmentIds.entries()) {
+      const record = await repository.findOne({
+        where: {
+          id,
+          agentId: message.agentId,
+          status: "ready",
+          messageId: IsNull(),
+        },
+        lock: { mode: "pessimistic_write" },
+      });
+      if (!record) throw new AttachmentUnavailableError();
+      await repository.update(
+        { id: record.id },
+        { messageId: message.id, position },
+      );
+      attached.push({ ...record, messageId: message.id, position });
+    }
+    return attached;
+  }
+
   // ===========================================
   // Domain policy
   // ===========================================
@@ -207,13 +256,22 @@ export class PostgresMessageRepository
     return { agentId, agent: { ownerId } };
   }
 
-  /** Exclude the relation, foreign key, and ordering counter from visible chat. */
+  /** Exclude the relation, foreign key, and ordering counter from visible chat; attachments keep their order. */
   protected toEntity({
     id,
     role,
     text,
     createdAt,
+    attachments = [],
   }: MessageRecord): ConversationMessage {
-    return { id, role, text, createdAt };
+    return {
+      id,
+      role,
+      text,
+      createdAt,
+      attachments: [...attachments]
+        .sort((first, second) => (first.position ?? 0) - (second.position ?? 0))
+        .map(representMessageAttachment),
+    };
   }
 }

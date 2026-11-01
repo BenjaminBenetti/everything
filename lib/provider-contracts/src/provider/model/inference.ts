@@ -26,6 +26,23 @@ export type InferenceSpeed = (typeof inferenceSpeeds)[number];
 export const effortSources = ["provider", "catalog", "unknown"] as const;
 export type EffortSource = (typeof effortSources)[number];
 
+/** Provenance of the context budget actually used by the runtime. */
+export type ContextSource = "provider" | "catalog" | "fallback";
+
+/** Provenance of image support; unknown never grants permission to send pixels. */
+export type ImageSource = "provider" | "documentation" | "catalog" | "unknown";
+
+/** Small, credential-free snapshot of one backend resolution, also used for compaction. */
+export interface EffectiveModel {
+  readonly provider: ProviderId;
+  readonly model: string;
+  readonly contextWindow: number;
+  readonly contextSource: ContextSource;
+  /** Null means unconfirmed, rather than a provider-declared lack of support. */
+  readonly imageInput: boolean | null;
+  readonly imageSource: ImageSource;
+}
+
 /** One complete choice, replaced atomically when a teammate is edited. */
 export interface InferenceSelection {
   readonly provider: ProviderId;

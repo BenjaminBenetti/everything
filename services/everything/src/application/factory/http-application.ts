@@ -23,8 +23,12 @@ import type { ArtifactLibrary } from "../../artifact/interface/artifact-library.
 import { agentEditingController } from "../../agent/controller/agent-editing-controller.js";
 import type { AgentEditing } from "../../agent/interface/agent-editing.js";
 import type { AgentCatalog } from "../../agent/interface/agent-catalog.js";
+import type { AgentModelInfoReader } from "../../agent/interface/agent-model-info.js";
+import { agentModelInfoController } from "../../agent/controller/agent-model-info-controller.js";
 import type { AgentRemoval } from "../../agent/interface/agent-removal.js";
 import { conversationController } from "../../conversation/controller/conversation-controller.js";
+import { attachmentController } from "../../attachment/controller/attachment-controller.js";
+import type { AttachmentOperations } from "../../attachment/interface/attachment-operations.js";
 import type { ConversationOperations } from "../../conversation/interface/conversation-operations.js";
 import {
   healthController,
@@ -90,10 +94,12 @@ export interface HttpDependencies {
   readonly providers: ProviderConnections;
   readonly models: Pick<ProviderModels, "list">;
   readonly agents: Omit<AgentCatalog, "delete">;
+  readonly modelInfo?: AgentModelInfoReader;
   readonly agentActivity: AgentActivity;
   readonly profiles: AgentEditing;
   readonly removal: AgentRemoval;
   readonly conversations: ConversationOperations;
+  readonly attachments: AttachmentOperations;
   readonly subagents: SubagentOperations;
   readonly updates: UpdateOperations;
   readonly upgrades: UpgradeOperations;
@@ -198,11 +204,14 @@ function protectedApi(
     await providerController(scope, dependencies.providers);
     await providerModelController(scope, dependencies.models);
     await conversationController(scope, dependencies.conversations);
+    await attachmentController(scope, dependencies.attachments);
     await subagentController(scope, dependencies.subagents);
     await updateController(scope, dependencies.updates);
     await upgradeController(scope, dependencies.upgrades);
     await agentController(scope, dependencies.agents, dependencies.removal);
     await agentActivityController(scope, dependencies.agentActivity);
+    if (dependencies.modelInfo)
+      await agentModelInfoController(scope, dependencies.modelInfo);
     await agentEditingController(scope, dependencies.profiles);
     await artifactController(scope, dependencies.artifacts, (request) =>
       cookie.requireSignedInUser(request),

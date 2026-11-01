@@ -42,7 +42,7 @@ test("serves deep links and probes without swallowing API or asset misses", asyn
     );
     assert.match(
       String(response.headers["content-security-policy"]),
-      /img-src 'self' data: https:/,
+      /img-src 'self' data: https: blob:/,
     );
     // Voice input may use the microphone on the application's own origin, never in an embedded frame.
     assert.equal(response.headers["permissions-policy"], "microphone=(self)");

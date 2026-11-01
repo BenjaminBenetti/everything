@@ -1,12 +1,19 @@
 import { Type } from "typebox";
 import { messagePageSize } from "@everything/conversation-contracts";
+import { messageAttachmentResponse } from "../../attachment/schema/attachment-response.js";
 
 /** IDs can be native transcript cursors or visible message UUIDs. */
 export const chatMessageResponse = Type.Object({
   id: Type.String(),
   role: Type.Union([Type.Literal("user"), Type.Literal("assistant")]),
-  text: Type.String(),
+  text: Type.String({
+    description: "Empty for a user message that carries only attachments.",
+  }),
   createdAt: Type.String(),
+  attachments: Type.Array(messageAttachmentResponse, {
+    description:
+      "Files sent with the message, in the order they were attached.",
+  }),
 });
 
 /** Chronological messages and an opaque cursor for the preceding page. */
