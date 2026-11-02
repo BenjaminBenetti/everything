@@ -1,7 +1,9 @@
-import { memo, useId, useMemo, type ComponentProps } from "react";
+import { memo, useId, useMemo, useState, type ComponentProps } from "react";
 import Markdown, { type Components, type ExtraProps } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkBreaks from "remark-breaks";
+
+import { workspaceImageReference } from "../model/workspace-image-reference.js";
 
 const plugins = [remarkGfm, remarkBreaks];
 
@@ -57,12 +59,19 @@ function MarkdownImage({
   alt,
   ...props
 }: ComponentProps<"img"> & ExtraProps) {
-  if (!src) return <span>{alt}</span>;
+  const [missing, setMissing] = useState(false);
+  if (!src || missing)
+    return (
+      <span className="chat-markdown-image-unavailable">
+        {alt ? `${alt} (image unavailable)` : "Image unavailable"}
+      </span>
+    );
   return (
     <img
       {...props}
       src={src}
       alt={alt ?? ""}
+      onError={() => setMissing(true)}
       loading="lazy"
       decoding="async"
       referrerPolicy="no-referrer"
@@ -75,7 +84,13 @@ function MarkdownImage({
 // ===========================================
 
 /** Render stored text with GitHub-style formatting, literal HTML, and safe default URL handling. */
-function MessageMarkdownContent({ text }: { text: string }) {
+function MessageMarkdownContent({
+  text,
+  agentId,
+}: {
+  text: string;
+  agentId?: string | undefined;
+}) {
   const id = useId();
   const components = useMemo<Components>(
     () => ({
@@ -107,9 +122,15 @@ function MessageMarkdownContent({ text }: { text: string }) {
       },
       table: MarkdownTable,
       pre: MarkdownCodeBlock,
-      img: MarkdownImage,
+      img: (props) => (
+        <MarkdownImage
+          {...props}
+          key={props.src}
+          src={workspaceImageReference(props.src, agentId)}
+        />
+      ),
     }),
-    [id],
+    [id, agentId],
   );
   return (
     <div className="chat-markdown">

@@ -195,7 +195,12 @@ export function MessageHistory({
                 })}
               </time>
             </div>
-            {message.text && <MessageMarkdown text={message.text} />}
+            {message.text && (
+              <MessageMarkdown
+                text={message.text}
+                agentId={message.role === "assistant" ? agentId : undefined}
+              />
+            )}
             <MessageAttachments
               agentId={agentId}
               attachments={message.attachments ?? []}

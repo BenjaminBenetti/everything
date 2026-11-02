@@ -159,3 +159,12 @@
   outline: 2px solid var(--border-active);
   outline-offset: 2px;
 }
+
+/* Workspace references and remote Markdown images fit the conversation on small screens. */
+.chat-markdown img {
+  max-width: 100%;
+  height: auto;
+}
+.chat-markdown-image-unavailable {
+  color: var(--text-secondary);
+}

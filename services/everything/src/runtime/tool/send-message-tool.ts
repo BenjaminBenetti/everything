@@ -15,7 +15,7 @@ export function sendMessageTool(
     label: "Send message",
     description: privateReply
       ? "Send a private message to the session that forked you. Use this for progress, questions, and results. Your parent decides what to share with the user."
-      : "Send a deliberate, user-visible message to the conversation. Markdown is supported, including headings, bold and italic text, lists, links, blockquotes, fenced code blocks, and tables. Raw HTML is displayed as text.",
+      : "Send a deliberate, user-visible message to the conversation. Markdown is supported, including headings, bold and italic text, lists, links, blockquotes, fenced code blocks, and tables. Raw HTML is displayed as text. To display a PNG, JPEG, GIF, or WebP in your own workspace, use an explicit image: ![Chart](plots/chart.png), relative to your workspace root, or an absolute path inside your own workspace. Hidden files/folders and links are unavailable. Bare paths and ordinary links do not display images. References show the current file; moving, deleting or replacing it affects old messages, so use versioned filenames for lasting history.",
     parameters: Type.Object(
       {
         text: Type.String({
