@@ -20,6 +20,8 @@ export const AttachmentEntity = new EntitySchema<AttachmentRecord>({
     position: { type: "smallint", nullable: true },
     name: { type: "text" },
     size: { type: "integer" },
+    inputSize: { name: "input_size", type: "integer" },
+    encodePng: { name: "encode_png", type: "boolean", default: false },
     received: { type: "integer" },
     status: { type: "text" },
     kind: { type: "text", nullable: true },
@@ -70,12 +72,12 @@ export const AttachmentEntity = new EntitySchema<AttachmentRecord>({
     },
     {
       name: "attachments_size_check",
-      expression: `size BETWEEN 0 AND ${attachmentLimits.maxFileBytes} AND received BETWEEN 0 AND size`,
+      expression: `size BETWEEN 0 AND ${attachmentLimits.maxFileBytes} AND input_size BETWEEN 0 AND ${attachmentLimits.maxFileBytes} AND received BETWEEN 0 AND input_size`,
     },
     {
       name: "attachments_status_check",
       expression:
-        "(status = 'uploading' AND message_id IS NULL) OR (status = 'ready' AND received = size AND kind IS NOT NULL AND media_type IS NOT NULL)",
+        "(status = 'uploading' AND message_id IS NULL) OR (status = 'ready' AND received = input_size AND kind IS NOT NULL AND media_type IS NOT NULL)",
     },
     {
       name: "attachments_kind_check",

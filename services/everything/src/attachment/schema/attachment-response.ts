@@ -29,9 +29,17 @@ export const attachmentUploadResponse = Type.Object({
   id: Type.String({ format: "uuid" }),
   name: Type.String(),
   size: Type.Integer({ minimum: 0 }),
+  inputSize: Type.Optional(
+    Type.Integer({
+      minimum: 0,
+      description:
+        "Original declared upload bytes; size is final stored bytes once ready.",
+    }),
+  ),
   received: Type.Integer({
     minimum: 0,
-    description: "Bytes saved so far; the next part starts here.",
+    description:
+      "Original input bytes saved so far; the next part starts here.",
   }),
   status: Type.Union([Type.Literal("uploading"), Type.Literal("ready")]),
   kind: Type.Union([attachmentKind, Type.Null()]),

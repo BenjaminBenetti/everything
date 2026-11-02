@@ -1,0 +1,181 @@
+{
+  "testedSourceHead": "2c953f4e7a22b401c8a297a14ddc4ab96354e3da",
+  "helperExecutionManifestSha256": "9ef2734234df104f6f1281ffc5183604dd57c818874d83f7cb61efb5a60d061d",
+  "tests": {
+    "passed": 2,
+    "unexpected": 0,
+    "flaky": 0,
+    "skipped": 0,
+    "errors": 0,
+    "workers": 1,
+    "retry": 0,
+    "nativeCommandExit": 0,
+    "monitorExit": 0,
+    "commandSeconds": 33.759,
+    "reporterSeconds": 32.339855
+  },
+  "firstAttempt": {
+    "nativeBrowserExit": "unknown",
+    "completedResults": false,
+    "cause": "not established; monitor disappeared after desktop start",
+    "preserved": true
+  },
+  "recovery": "Exactly one authorized browser-only recovery, same source/assertions/security/default encoder; reused verified install/build/native module load; fresh fixture/ports5198/18298; no model retry",
+  "real": [
+    "Production UI and handlers",
+    "upload/content/ready/send/history/session/runtime HTTP",
+    "local Sharp codec",
+    "workspace files"
+  ],
+  "fixtures": [
+    "Authentication",
+    "in-memory records not PostgreSQL",
+    "model",
+    "unrelated UI metadata"
+  ],
+  "externalHttpBlocked": true,
+  "phone": "Chromium iPhone 13 emulation, synthetic ClipboardEvent; not real phone or OS clipboard",
+  "desktop": "File input through production picker handler; not native OS dialog",
+  "storageVerification": {
+    "sourceBytes": 1815417,
+    "storedBytes": 240202,
+    "width": 1280,
+    "height": 720,
+    "savedPercent": 86.76876992999405,
+    "sourceSha256": "9950faf71f2c821ed515ebfb6e01c3035637503d5ea5edd23adf1fb23213f114",
+    "storedSha256": "18268f7cea12fd47ab9eb5e31c48a873f93dd9e360b3c50864c4c4a979b986f5",
+    "permanentFilesPerAttachment": 1,
+    "privatePartials": 0
+  },
+  "visualInspection": "PNG/file metadata verified; same Sol primary author should inspect all four original screenshots and reference source/stored pair before publishing",
+  "files": [
+    {
+      "name": "desktop-ready.png",
+      "bytes": 69695,
+      "sha256": "4c1fb1143203a37d7dce0a1e4c62b89408e403778e58ac8ece1da77bcb3dde53",
+      "type": "PNG",
+      "width": 1440,
+      "height": 960
+    },
+    {
+      "name": "desktop-sent.png",
+      "bytes": 153543,
+      "sha256": "e1f3f13a73427b554b176072056879a648668d2dd240376e5b5d72aa74f32609",
+      "type": "PNG",
+      "width": 1440,
+      "height": 960
+    },
+    {
+      "name": "phone-ready.png",
+      "bytes": 725166,
+      "sha256": "c0bb39df1f59bf129645cab26030ea5140d96005178af337fe8a32c28c218060",
+      "type": "PNG",
+      "width": 1170,
+      "height": 1992
+    },
+    {
+      "name": "phone-sent.png",
+      "bytes": 815300,
+      "sha256": "ee69d029d712a5b4352595792e60cae4d538b50764d3806219c05dd359a943b9",
+      "type": "PNG",
+      "width": 1170,
+      "height": 1992
+    },
+    {
+      "name": "desktop-png-webp.json",
+      "bytes": 1022,
+      "sha256": "a889fd789ff7fc09f87037d1cb0791d8f5d8820effd01b34098bab50401cbb05",
+      "type": "JSON",
+      "value": {
+        "sourceBytes": 1815417,
+        "storedBytes": 240202,
+        "inputSize": 1815417,
+        "received": 1815417,
+        "uploadProgressMax": 1815417,
+        "heldOffset": 1048576,
+        "width": 1280,
+        "height": 720,
+        "sourceSha256": "9950faf71f2c821ed515ebfb6e01c3035637503d5ea5edd23adf1fb23213f114",
+        "storedSha256": "18268f7cea12fd47ab9eb5e31c48a873f93dd9e360b3c50864c4c4a979b986f5",
+        "ready": {
+          "id": "f93b00c0-df23-4034-b8e1-9a7d226389b6",
+          "name": "desktop-capture.webp",
+          "size": 240202,
+          "received": 1815417,
+          "status": "ready",
+          "kind": "image",
+          "mediaType": "image/webp",
+          "path": "/workspace/5d0c6a52-8b8e-4c55-9c1a-3f1d2e7b9a10/attachments/f93b00c0-df23-4034-b8e1-9a7d226389b6/desktop-capture.webp",
+          "inputSize": 1815417
+        },
+        "permanentFiles": 1,
+        "privatePartials": 0,
+        "allUploadContentSendHistoryHttpReal": true,
+        "codecReal": true,
+        "mockScope": "Auth, in-memory records, model and unrelated UI routes; external HTTP blocked",
+        "interaction": "File input through production picker handler"
+      }
+    },
+    {
+      "name": "phone-png-webp.json",
+      "bytes": 1031,
+      "sha256": "d7467842b4ae6840e1296f947eb06eea8e3b10f88f99767fab24883104a1ba97",
+      "type": "JSON",
+      "value": {
+        "sourceBytes": 1815417,
+        "storedBytes": 240202,
+        "inputSize": 1815417,
+        "received": 1815417,
+        "uploadProgressMax": 1815417,
+        "heldOffset": 1048576,
+        "width": 1280,
+        "height": 720,
+        "sourceSha256": "9950faf71f2c821ed515ebfb6e01c3035637503d5ea5edd23adf1fb23213f114",
+        "storedSha256": "18268f7cea12fd47ab9eb5e31c48a873f93dd9e360b3c50864c4c4a979b986f5",
+        "ready": {
+          "id": "47dcaedc-c27b-4d71-8ab7-4ba4e0384f2f",
+          "name": "phone-capture.webp",
+          "size": 240202,
+          "received": 1815417,
+          "status": "ready",
+          "kind": "image",
+          "mediaType": "image/webp",
+          "path": "/workspace/5d0c6a52-8b8e-4c55-9c1a-3f1d2e7b9a10/attachments/47dcaedc-c27b-4d71-8ab7-4ba4e0384f2f/phone-capture.webp",
+          "inputSize": 1815417
+        },
+        "permanentFiles": 1,
+        "privatePartials": 0,
+        "allUploadContentSendHistoryHttpReal": true,
+        "codecReal": true,
+        "mockScope": "Auth, in-memory records, model and unrelated UI routes; external HTTP blocked",
+        "interaction": "Synthetic ClipboardEvent through production paste handler"
+      }
+    }
+  ],
+  "referenceOnlyDoNotPublish": [
+    {
+      "name": "reference-only/browser-source.png",
+      "bytes": 1815417,
+      "sha256": "9950faf71f2c821ed515ebfb6e01c3035637503d5ea5edd23adf1fb23213f114",
+      "publication": false
+    },
+    {
+      "name": "reference-only/browser-stored.webp",
+      "bytes": 240202,
+      "sha256": "18268f7cea12fd47ab9eb5e31c48a873f93dd9e360b3c50864c4c4a979b986f5",
+      "publication": false
+    },
+    {
+      "name": "reference-only/initial-model-input-1.txt",
+      "bytes": 622,
+      "sha256": "da098e688ee1e9550499cd164f8f9076b681d3fd3b42fb1bc6b5033c0dc7793f",
+      "publication": false
+    },
+    {
+      "name": "reference-only/initial-model-input-2.txt",
+      "bytes": 618,
+      "sha256": "816853813208dad90012e594ef6b7f7215587bfb2eb8b156b8ec54981f243c55",
+      "publication": false
+    }
+  ]
+}

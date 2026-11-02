@@ -6,9 +6,9 @@ import type {
 
 /** Show an upload's progress without its message relation or timestamps. */
 export function representUpload(attachment: Attachment): AttachmentUpload {
-  const { id, name, size, received, status, kind, mediaType, path } =
+  const { id, name, size, inputSize, received, status, kind, mediaType, path } =
     attachment;
-  return { id, name, size, received, status, kind, mediaType, path };
+  return { id, name, size, inputSize, received, status, kind, mediaType, path };
 }
 
 /** Show a sent attachment as the small reference a message carries. */

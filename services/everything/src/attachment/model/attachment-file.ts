@@ -22,6 +22,14 @@ export const attachmentSniffBytes = 8 * 1024;
 /** Longest name a stored file is given, extension included. */
 const storedNameLength = 120;
 
+/** Replace a display name's last extension while preserving its existing safety/length rules. */
+export function webpName(name: string): string {
+  const cleaned = displayName(name);
+  const dot = cleaned.lastIndexOf(".");
+  const stem = dot > 0 ? cleaned.slice(0, dot) : cleaned;
+  return [...stem].slice(0, attachmentLimits.nameLength - 5).join("") + ".webp";
+}
+
 /** Removal of uploads that were abandoned or never sent, and how often to look for them. */
 export const attachmentRetention = {
   /** An upload that receives no bytes for this long was abandoned. */

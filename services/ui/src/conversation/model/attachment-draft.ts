@@ -20,6 +20,8 @@ export interface DraftAttachment {
   readonly key: string;
   readonly name: string;
   readonly size: number;
+  /** Original-byte allowance, independent from a ready file's encoded size. */
+  readonly inputSize: number;
   readonly status: DraftStatus;
   /** Bytes the server has saved. */
   readonly received: number;
@@ -61,6 +63,14 @@ export function draftReducer(
           ? {
               ...item,
               upload: action.upload,
+              name:
+                action.upload.status === "ready"
+                  ? action.upload.name
+                  : item.name,
+              size:
+                action.upload.status === "ready"
+                  ? action.upload.size
+                  : item.size,
               received: action.upload.received,
               status: action.upload.status === "ready" ? "ready" : "uploading",
               error: null,
@@ -92,6 +102,7 @@ export function draftReducer(
             key: upload.id,
             name: upload.name,
             size: upload.size,
+            inputSize: upload.inputSize ?? upload.size,
             received: upload.received,
             upload,
             // This page doesn't have the file of an upload begun elsewhere, so it can't continue it.
@@ -119,6 +130,7 @@ export function draftFor(
     key,
     name: file.name,
     size: file.size,
+    inputSize: file.size,
     status: "uploading",
     received: 0,
     upload: null,
@@ -141,7 +153,7 @@ export function admitFiles<
   const accepted: T[] = [];
   const problems: string[] = [];
   let count = current.length;
-  let total = current.reduce((sum, item) => sum + item.size, 0);
+  let total = current.reduce((sum, item) => sum + item.inputSize, 0);
   for (const file of files) {
     if (file.size > attachmentLimits.maxFileBytes)
       problems.push(

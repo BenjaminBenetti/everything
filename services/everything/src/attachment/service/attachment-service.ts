@@ -6,6 +6,8 @@ import {
   AttachmentLimitError,
   AttachmentNotFoundError,
   AttachmentOffsetError,
+  AttachmentStorageError,
+  AttachmentTooLargeError,
 } from "../error/attachment-errors.js";
 import type { AttachmentFiles } from "../interface/attachment-files.js";
 import type {
@@ -23,10 +25,10 @@ import {
 import {
   attachmentLocation,
   attachmentPath,
-  attachmentSniffBytes,
   classifyAttachment,
   displayName,
   storedFileName,
+  webpName,
 } from "../model/attachment-file.js";
 import { representUpload } from "../presenter/attachment-presenter.js";
 import type { CreateAttachmentBody } from "../schema/attachment-request.js";
@@ -66,7 +68,7 @@ export class AttachmentService implements AttachmentOperations {
       const unsent = await this.attachments.unsent(scope);
       if (unsent.length >= attachmentLimits.maxFiles)
         throw new AttachmentLimitError("count");
-      const pending = unsent.reduce((total, item) => total + item.size, 0);
+      const pending = unsent.reduce((total, item) => total + item.inputSize, 0);
       if (pending + size > attachmentLimits.maxTotalBytes)
         throw new AttachmentLimitError("total");
       const location = {
@@ -111,19 +113,31 @@ export class AttachmentService implements AttachmentOperations {
       if (attachment.status !== "uploading")
         throw new AttachmentCompleteError();
       if (offset !== attachment.received) throw new AttachmentOffsetError();
+      // Recover a process interruption between canonical preparation/publication and ready metadata.
+      if (attachment.received === attachment.inputSize) {
+        for await (const part of body)
+          if (part.byteLength) throw new AttachmentTooLargeError();
+        return representUpload(await this.finish(scope, attachment, signal));
+      }
       const written = await this.files.append(
         attachment.id,
         offset,
         body,
-        Math.min(attachmentLimits.maxChunkBytes, attachment.size - offset),
+        Math.min(attachmentLimits.maxChunkBytes, attachment.inputSize - offset),
         signal,
       );
       const received = offset + written;
-      return representUpload(
-        received < attachment.size
-          ? await this.attachments.progress(scope, attachmentId, received)
-          : await this.finish(scope, { ...attachment, received }),
-      );
+      try {
+        return representUpload(
+          received < attachment.inputSize
+            ? await this.attachments.progress(scope, attachmentId, received)
+            : await this.finish(scope, { ...attachment, received }, signal),
+        );
+      } catch (error) {
+        if (signal?.aborted && error === signal.reason)
+          await this.files.rewind(attachment.id, offset);
+        throw error;
+      }
     });
   }
 
@@ -192,19 +206,57 @@ export class AttachmentService implements AttachmentOperations {
   private async finish(
     scope: AttachmentOwnerScope,
     attachment: Attachment,
+    signal?: AbortSignal,
   ): Promise<Attachment> {
-    const location = this.locate(scope.agentId, attachment);
+    let location = this.locate(scope.agentId, attachment);
+    let published = false;
+    let recorded = false;
     try {
-      const facts = classifyAttachment(
-        await this.files.head(attachment.id, attachmentSniffBytes),
+      // Canonical path is persisted while uploading. A committed file can safely finish after restart.
+      if (
+        attachment.kind &&
+        attachment.mediaType &&
+        attachment.received === attachment.inputSize
+      ) {
+        const recovered = await this.files.open(location);
+        if (recovered) {
+          published = true;
+          recovered.stream.destroy();
+          if (recovered.size !== attachment.size)
+            throw new AttachmentStorageError();
+          return await this.attachments.complete(scope, attachment.id, {
+            kind: attachment.kind,
+            mediaType: attachment.mediaType,
+          });
+        }
+      }
+      const prepared = await this.files.prepare(
+        location,
+        attachment.inputSize,
+        signal,
+        attachment.encodePng,
       );
-      await this.files.publish(location);
+      const facts = classifyAttachment(prepared.head);
+      location = prepared.location;
+      signal?.throwIfAborted();
+      await this.attachments.prepare(scope, attachment.id, {
+        ...facts,
+        name: prepared.encoded ? webpName(attachment.name) : attachment.name,
+        size: prepared.size,
+        path: attachmentPath(location),
+      });
+      recorded = true;
+      // From this commit point finish even if the HTTP response closes; a retry/list sees ready.
+      await this.files.publish(location, prepared.encoded);
+      published = true;
       return await this.attachments.complete(scope, attachment.id, facts);
     } catch (error) {
+      if (!recorded && signal?.aborted && error === signal.reason) throw error;
       await this.attachments
         .removeUnsent(scope, attachment.id)
         .catch(() => undefined);
-      await this.removeFiles(scope.agentId, attachment);
+      await this.files.discard(attachment.id);
+      if (published) await this.files.remove(location);
       throw error;
     }
   }

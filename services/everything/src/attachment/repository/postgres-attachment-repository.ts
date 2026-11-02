@@ -19,6 +19,7 @@ import type {
   AttachmentRepository,
   LocatedAttachment,
   NewAttachment,
+  PreparedAttachment,
 } from "../interface/attachment-repository.js";
 import type {
   Attachment,
@@ -69,6 +70,8 @@ export class PostgresAttachmentRepository
         await repository.save(
           repository.create({
             ...attachment,
+            inputSize: attachment.size,
+            encodePng: true,
             agentId: agent.id,
             messageId: null,
             position: null,
@@ -92,6 +95,18 @@ export class PostgresAttachmentRepository
     return this.updateUploading(scope, id, { received });
   }
 
+  /** Persist the actual final path before it can appear in the workspace. */
+  async prepare(
+    scope: AttachmentOwnerScope,
+    id: string,
+    facts: PreparedAttachment,
+  ): Promise<Attachment> {
+    return this.updateUploading(scope, id, (record) => ({
+      ...facts,
+      received: record.inputSize,
+    }));
+  }
+
   /** Complete an unfinished upload found within scope with what its bytes showed. */
   async complete(
     scope: AttachmentOwnerScope,
@@ -99,7 +114,7 @@ export class PostgresAttachmentRepository
     { kind, mediaType }: { kind: AttachmentKind; mediaType: string },
   ): Promise<Attachment> {
     return this.updateUploading(scope, id, (record) => ({
-      received: record.size,
+      received: record.inputSize,
       status: "ready",
       kind,
       mediaType,
@@ -238,6 +253,8 @@ export class PostgresAttachmentRepository
     createdAt,
     name,
     size,
+    inputSize,
+    encodePng,
     received,
     status,
     kind,
@@ -251,6 +268,8 @@ export class PostgresAttachmentRepository
       createdAt,
       name,
       size,
+      inputSize,
+      encodePng,
       received,
       status,
       kind,

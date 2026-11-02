@@ -231,7 +231,9 @@ test("@desktop files upload into the teammate's workspace and only their paths r
   await expect(
     sent.getByRole("list", { name: "Attached files" }),
   ).toBeVisible();
-  await expect(sent.getByRole("img", { name: files.image.name })).toBeVisible();
+  await expect(
+    sent.getByRole("img", { name: "whiteboard sketch.webp" }),
+  ).toBeVisible();
   await expect(
     sent.getByRole("link", { name: new RegExp(`Download ${files.text.name}`) }),
   ).toBeVisible();
@@ -239,13 +241,14 @@ test("@desktop files upload into the teammate's workspace and only their paths r
   await expect(chat.tray).toHaveCount(0);
   await page.screenshot({ path: `${evidence}desktop-3-sent.png` });
 
-  // The files are in the teammate's workspace with exactly the bytes chosen.
+  // PNGs use canonical WebP storage; the other files retain exactly the chosen bytes.
   const saved = await workspaceFiles();
   const byName = (suffix: string) =>
     [...saved.entries()].find(([location]) => location.endsWith(suffix));
-  expect(byName("/whiteboard_sketch.png")?.[1].equals(files.image.buffer)).toBe(
-    true,
-  );
+  const encoded = byName("/whiteboard_sketch.webp")?.[1];
+  expect(encoded?.subarray(8, 12).toString("ascii")).toBe("WEBP");
+  expect(encoded!.length).toBeLessThan(files.image.buffer.length);
+  expect(byName("/whiteboard_sketch.png")).toBeUndefined();
   expect(byName("/Q3_signups.csv")?.[1].equals(files.text.buffer)).toBe(true);
   expect(byName("/sensor-dump.bin")?.[1].equals(files.binary.buffer)).toBe(
     true,
@@ -278,7 +281,7 @@ test("@desktop files upload into the teammate's workspace and only their paths r
   await page.reload();
   const reloaded = page.locator("article.chat-message.user").last();
   await expect(
-    reloaded.getByRole("img", { name: files.image.name }),
+    reloaded.getByRole("img", { name: "whiteboard sketch.webp" }),
   ).toBeVisible();
   await expect(
     reloaded.getByText(`/workspace/${agentId}/attachments/`).first(),
@@ -351,7 +354,9 @@ test("@phone attachments are usable on a phone, before and after sending", async
   await page.screenshot({ path: `${evidence}phone-2-ready.png` });
   await chat.send.click();
   const sent = page.locator("article.chat-message.user").last();
-  await expect(sent.getByRole("img", { name: files.image.name })).toBeVisible();
+  await expect(
+    sent.getByRole("img", { name: "whiteboard sketch.webp" }),
+  ).toBeVisible();
   await expect(page.getByText("(Mocked model reply.)").last()).toBeVisible();
   // Nothing overflows the phone's width.
   expect(

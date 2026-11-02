@@ -14,6 +14,7 @@ import type {
   AttachmentStore,
   LocatedAttachment,
   NewAttachment,
+  PreparedAttachment,
 } from "../interface/attachment-repository.js";
 import type {
   Attachment,
@@ -84,6 +85,8 @@ export class MemoryAttachments
     const now = this.tick();
     const row: Row = {
       ...attachment,
+      inputSize: attachment.size,
+      encodePng: true,
       agentId: scope.agentId,
       createdAt: now,
       updatedAt: now,
@@ -102,6 +105,17 @@ export class MemoryAttachments
     return this.update(scope, id, { received });
   }
 
+  /** Record the final path while the upload is still unavailable to senders. */
+  async prepare(
+    scope: AttachmentOwnerScope,
+    id: string,
+    facts: PreparedAttachment,
+  ) {
+    const row = this.visible(scope, id);
+    if (!row) throw new AttachmentNotFoundError();
+    return this.update(scope, id, { ...facts, received: row.inputSize });
+  }
+
   /** Complete an upload in progress. */
   async complete(
     scope: AttachmentOwnerScope,
@@ -113,7 +127,7 @@ export class MemoryAttachments
     return this.update(scope, id, {
       ...facts,
       status: "ready",
-      received: row.size,
+      received: row.inputSize,
     });
   }
 

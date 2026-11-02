@@ -25,6 +25,7 @@ import { GenericCredentials1792886400000 } from "../migration/1792886400000-gene
 import { CredentialValueIds1792972800000 } from "../migration/1792972800000-credential-value-ids.js";
 import { AttachmentEntity } from "../../attachment/schema/attachment-entity.js";
 import { MessageAttachments1793059200000 } from "../migration/1793059200000-message-attachments.js";
+import { AttachmentInputSize1793577600000 } from "../migration/1793577600000-attachment-input-size.js";
 
 /** Connection settings for the service's own PostgreSQL database. */
 export interface DatabaseConnectionSettings {
@@ -76,6 +77,7 @@ export function createApplicationDatabase(
       GenericCredentials1792886400000,
       CredentialValueIds1792972800000,
       MessageAttachments1793059200000,
+      AttachmentInputSize1793577600000,
     ],
     migrationsTableName: "everything_migrations",
     migrationsTransactionMode: "all",
