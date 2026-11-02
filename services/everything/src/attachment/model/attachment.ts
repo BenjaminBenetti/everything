@@ -13,6 +13,10 @@ export {
 
 /** A file the user attached for a teammate: uploading, uploaded and unsent, or sent with a message. */
 export interface Attachment extends BaseEntity, AttachmentUpload {
+  /** Immutable original-byte reservation; size becomes the actual stored size on completion. */
+  readonly inputSize: number;
+  /** Server-only policy set on new reservations; historical uploads, including in-flight ones, stay original. */
+  readonly encodePng: boolean;
   /** The message that carries it; null until it is sent. */
   readonly messageId: string | null;
   /** When the upload began or last received bytes, so abandoned uploads can be removed. */

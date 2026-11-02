@@ -7,6 +7,14 @@ export interface AttachmentContent {
   readonly stream: Readable;
 }
 
+/** A validated complete upload, still private until publish; the record can first save its final path. */
+export interface PreparedAttachmentFile {
+  readonly location: AttachmentLocation;
+  readonly size: number;
+  readonly head: Uint8Array;
+  readonly encoded: boolean;
+}
+
 /**
  * Where attachment bytes are kept: a partial upload out of every teammate's reach, then the complete
  * file at its server-chosen path in the teammate's workspace.
@@ -28,8 +36,17 @@ export interface AttachmentFiles {
   ): Promise<number>;
   /** Read up to `bytes` from the start of the partial file. */
   head(id: string, bytes: number): Promise<Uint8Array>;
+  /** Prepare an optional smaller WebP without exposing it in the teammate's workspace. */
+  prepare(
+    location: AttachmentLocation,
+    inputSize: number,
+    signal?: AbortSignal,
+    encodePng?: boolean,
+  ): Promise<PreparedAttachmentFile>;
+  /** Roll back an aborted final part; remove only its private encoded candidate. */
+  rewind(id: string, offset: number): Promise<void>;
   /** Move the complete partial file to its path in the teammate's workspace. */
-  publish(location: AttachmentLocation): Promise<void>;
+  publish(location: AttachmentLocation, encoded?: boolean): Promise<void>;
   /** Remove the partial file; a missing one is ignored. */
   discard(id: string): Promise<void>;
   /** Remove a published file and its folder; a missing one is ignored. */

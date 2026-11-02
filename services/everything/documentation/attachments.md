@@ -13,7 +13,7 @@ The model input for a message is the text the owner wrote, followed by one line 
 ```
 <attachments>
 The user attached these files to this message. They are saved in your workspace, where your forks can open them too; …
-1. /workspace/5d0c6a52-8b8e-4c55-9c1a-3f1d2e7b9a10/attachments/5fd9c8be-e505-45eb-b05d-3988a9e1f13f/whiteboard.png — "whiteboard.png", image/png, 131.0 KB; look at it with image_view.
+1. /workspace/5d0c6a52-8b8e-4c55-9c1a-3f1d2e7b9a10/attachments/5fd9c8be-e505-45eb-b05d-3988a9e1f13f/whiteboard.webp — "whiteboard.webp", image/webp, 31.0 KB; look at it with image_view.
 2. /workspace/5d0c6a52-8b8e-4c55-9c1a-3f1d2e7b9a10/attachments/852ba4be-ed04-4637-b28d-48b11961c773/Q3_notes.csv — "Q3 notes.csv", text/plain, 18 bytes; read it with file_read.
 </attachments>
 ```
@@ -40,6 +40,8 @@ Regression coverage in `src/runtime/test/image-input-wire.test.ts` uses real dis
 
 ## Limits and retention
 
+New eligible static PNG uploads use local WebP encoding with standard defaults at the same pixel dimensions. Only a smaller valid result replaces the PNG; unsupported/animated/no-benefit files stay original. Existing ready files and reservations are unchanged. Original input bytes still determine upload progress, offsets and limits; ready metadata describes the actual stored bytes. See [PNG encoding, measurements and browser handoff](png-webp-uploads.md).
+
 | Limit                     | Value                                                             |
 | ------------------------- | ----------------------------------------------------------------- |
 | One file                  | 25 MB; empty files are allowed                                    |
@@ -58,7 +60,7 @@ Uploads are sent in parts, each a separate request that finishes well within the
 
 - Every upload, part, listing, download, and removal is authenticated and scoped to a teammate the caller owns; another owner's or another teammate's attachment, and a forged ID, are indistinguishable from a missing one. Sending a message checks each attachment again, in the same transaction that saves the message: it must be a complete, unsent upload of that teammate.
 - The server chooses every path. The browser sends only a display name and a size; its media type and any path are not accepted. The stored file name keeps only ASCII letters, digits, dot, dash, and underscore, starts with a letter or digit, and lives in a folder named for the attachment's ID, so no name can reach a hidden file, configuration, `AGENTS.md`, or anything outside the folder.
-- Everything's container sees every teammate's folder on the shared volume, so files are placed through directory descriptors opened without following links, and linked instead of renamed so nothing existing is replaced. A link a teammate places in its own workspace can't redirect a write, read, or removal to another teammate's files or to Everything's state.
+- Everything's container sees every teammate's folder on the shared volume. A complete private publication directory is renamed atomically through no-follow directory descriptors; existing nonempty folders, files and links are refused. A link a teammate places in its own workspace can't redirect a write, read, or removal to another teammate's files or to Everything's state.
 - Kinds come from the file's first bytes. Only PNG, JPEG, GIF, and WebP display inline, with `Content-Security-Policy: default-src 'none'; sandbox` and `X-Content-Type-Options: nosniff`; everything else, including SVG and HTML, downloads as `application/octet-stream`. File names in `Content-Disposition` are percent-encoded. A signed-in browser can load files only from Everything's own pages, so other sites and apps can't embed them.
 - Uploads are never executed or unpacked, and file contents are never logged.
 
@@ -78,6 +80,8 @@ Upload parts from the browser are at most 1 MiB, within ingress-nginx's default 
 | `POST /v1/agents/{agentId}/messages`                         | Send `{ text }`, `{ attachmentIds }`, or both      |
 
 Messages in `GET /v1/agents/{agentId}/messages` include `attachments`, each with its `id`, `name`, `size`, `kind`, `mediaType`, and `path`. Text-only requests and responses are otherwise unchanged.
+
+Upload responses add `inputSize` for original input accounting. `received` remains an original-byte offset; ready `size` is the final stored byte count. Ready converted names, MIME types and paths use WebP consistently.
 
 ## Testing the browser flow
 

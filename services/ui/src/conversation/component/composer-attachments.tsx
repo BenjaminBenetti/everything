@@ -10,8 +10,8 @@ function statusText(item: DraftAttachment): string {
     case "failed":
       return item.error ?? "Upload stopped";
     case "uploading":
-      return item.size
-        ? `Uploading, ${Math.floor((item.received / item.size) * 100)}%`
+      return item.inputSize
+        ? `Uploading, ${Math.floor((item.received / item.inputSize) * 100)}%`
         : "Uploading";
   }
 }
@@ -77,7 +77,7 @@ export function ComposerAttachments({
                 {item.status === "uploading" && (
                   <progress
                     className="chat-attachment-progress"
-                    max={item.size || 1}
+                    max={item.inputSize || 1}
                     value={item.received}
                   />
                 )}

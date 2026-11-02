@@ -36,6 +36,8 @@ function record(
     updatedAt: "2026-10-30T00:00:00.000Z",
     name: `${id}.txt`,
     size: 3,
+    inputSize: 3,
+    encodePng: false,
     received: 3,
     status: "ready",
     kind: "text",
@@ -211,6 +213,8 @@ test("uploads are created only for the owner's teammate and removed only while u
   agent = { id: "teammate", ownerId: "owner" };
   const created = await repository.create(scope, upload);
   assert.equal(created.status, "uploading");
+  assert.equal(created.inputSize, upload.size);
+  assert.equal(created.encodePng, true);
   assert.equal(saved[0]!.agentId, "teammate");
   assert.equal(saved[0]!.messageId, null);
   await assert.rejects(
@@ -223,6 +227,77 @@ test("uploads are created only for the owner's teammate and removed only while u
   assert.deepEqual(removed, ["draft"]);
   stored = null;
   assert.equal(await repository.removeUnsent(scope, "forged"), undefined);
+});
+
+test("preparation and completion retain original progress while publishing canonical stored metadata within owner scope", async (context) => {
+  const database = new DataSource({
+    type: "postgres",
+    entities: [AttachmentEntity],
+  });
+  const repository = new PostgresAttachmentRepository(database);
+  let stored = record("converted", {
+    name: "capture.png",
+    inputSize: 12000,
+    size: 12000,
+    received: 8192,
+    status: "uploading",
+    kind: null,
+    mediaType: null,
+    encodePng: true,
+  });
+  const lookups: FindOptionsWhere<AttachmentRecord>[] = [];
+  transactions(
+    context,
+    database.getRepository(AttachmentEntity).manager,
+    new Map([
+      [
+        AttachmentEntity,
+        {
+          findOneBy: async (where: FindOptionsWhere<AttachmentRecord>) => {
+            lookups.push(where);
+            return stored;
+          },
+          update: async (
+            where: { id: string },
+            changes: Partial<AttachmentRecord>,
+          ) => {
+            assert.equal(where.id, stored.id);
+            stored = { ...stored, ...changes };
+          },
+        },
+      ],
+    ]),
+  );
+  const prepared = await repository.prepare(scope, stored.id, {
+    name: "capture.webp",
+    size: 1000,
+    path: "/workspace/teammate/attachments/converted/capture.webp",
+    kind: "image",
+    mediaType: "image/webp",
+  });
+  assert.equal(prepared.status, "uploading");
+  assert.equal(prepared.inputSize, 12000);
+  assert.equal(prepared.received, 12000);
+  assert.equal(prepared.size, 1000);
+  assert.equal(prepared.name, "capture.webp");
+  const ready = await repository.complete(scope, stored.id, {
+    kind: "image",
+    mediaType: "image/webp",
+  });
+  assert.equal(ready.status, "ready");
+  assert.equal(ready.received, 12000);
+  assert.equal(ready.size, 1000);
+  assert.equal(ready.path, prepared.path);
+  assert.equal(ready.encodePng, true);
+  assert.deepEqual(
+    lookups,
+    Array.from({ length: 2 }, () => ({
+      agentId: "teammate",
+      agent: { ownerId: "owner" },
+      id: "converted",
+      status: "uploading",
+    })),
+  );
 });
 
 test("saving a message claims each named attachment of the same teammate, in order, or none at all", async (context) => {

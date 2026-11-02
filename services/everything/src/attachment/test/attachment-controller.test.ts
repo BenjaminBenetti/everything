@@ -121,7 +121,11 @@ test("only sniffed raster images display inline; markup named as an image downlo
   const { app, upload } = await fixture(context);
   const image = await upload("photo.png", pngBytes);
   const shown = await app.inject({ url: `${base}/${image.id}/content` });
-  assert.equal(shown.headers["content-type"], "image/png");
+  assert.equal(shown.headers["content-type"], "image/webp");
+  assert.equal(image.name, "photo.webp");
+  assert.equal(image.inputSize, pngBytes.length);
+  assert.equal(image.received, pngBytes.length);
+  assert.equal(Number(shown.headers["content-length"]), image.size);
   assert.match(String(shown.headers["content-disposition"]), /^inline;/);
   for (const [name, body] of [
     [

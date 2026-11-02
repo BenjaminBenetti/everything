@@ -15,6 +15,15 @@ export interface NewAttachment {
   readonly path: string;
 }
 
+/** Canonical metadata recorded before publication, so crash/expiry cleanup has the right path. */
+export interface PreparedAttachment {
+  readonly name: string;
+  readonly size: number;
+  readonly path: string;
+  readonly kind: AttachmentKind;
+  readonly mediaType: string;
+}
+
 /** Cutoffs after which unsent attachments are removed. */
 export interface AttachmentExpiry {
   /** Uploads that received no bytes since then were abandoned. */
@@ -43,6 +52,12 @@ export interface AttachmentRepository extends Repository<
     scope: AttachmentOwnerScope,
     id: string,
     received: number,
+  ): Promise<Attachment>;
+  /** Save final facts while still unclaimable; input-byte accounting never changes. */
+  prepare(
+    scope: AttachmentOwnerScope,
+    id: string,
+    facts: PreparedAttachment,
   ): Promise<Attachment>;
   /** Mark an upload complete with what its bytes showed it to be. */
   complete(
@@ -76,7 +91,13 @@ export interface AttachmentRepository extends Repository<
 /** Upload use cases need lookups, progress, and removal of unsent files. */
 export type AttachmentStore = Pick<
   AttachmentRepository,
-  "getById" | "create" | "progress" | "complete" | "unsent" | "removeUnsent"
+  | "getById"
+  | "create"
+  | "progress"
+  | "prepare"
+  | "complete"
+  | "unsent"
+  | "removeUnsent"
 >;
 
 /** Expiry needs only the internal maintenance queries. */

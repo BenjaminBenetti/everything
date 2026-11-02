@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { ComposerAttachments } from "../component/composer-attachments.js";
 import {
   attachmentLimits,
   type AttachmentUpload,
@@ -180,4 +183,66 @@ test("sizes read naturally", () => {
   assert.equal(formatSize(12_634), "12.3 KB");
   assert.equal(formatSize(1_258_291), "1.2 MB");
   assert.equal(formatSize(25 * 1024 * 1024), "25 MB");
+});
+
+test("canonical ready WebP metadata replaces input name/size while original-byte admission and progress remain", () => {
+  const mb = 1024 * 1024;
+  const initial = draftFor(
+    "png",
+    { name: "capture.png", size: 25 * mb, type: "image/png" },
+    () => "blob:source",
+  );
+  const canonical = upload("converted", {
+    name: "capture.webp",
+    inputSize: 25 * mb,
+    size: 512,
+    received: 25 * mb,
+    status: "ready",
+    kind: "image",
+    mediaType: "image/webp",
+    path: "/workspace/a/attachments/converted/capture.webp",
+  });
+  const ready = draftReducer([initial], {
+    type: "progressed",
+    key: "png",
+    upload: canonical,
+  })[0]!;
+  assert.equal(ready.name, "capture.webp");
+  assert.equal(ready.size, 512);
+  assert.equal(ready.inputSize, 25 * mb);
+  assert.equal(ready.received, 25 * mb);
+  const current = Array.from({ length: 4 }, (_, index) => ({
+    ...ready,
+    key: String(index),
+  }));
+  assert.equal(
+    admitFiles(current, [{ name: "extra", size: 1 }]).accepted.length,
+    0,
+  );
+  const restored = draftReducer([], {
+    type: "restored",
+    uploads: [canonical],
+    preview: () => "/real-content",
+  })[0]!;
+  assert.equal(restored.name, "capture.webp");
+  assert.equal(restored.size, 512);
+  assert.equal(restored.inputSize, 25 * mb);
+  const render = (item: DraftAttachment) =>
+    renderToStaticMarkup(
+      createElement(ComposerAttachments, {
+        items: [item],
+        problems: [],
+        onRetry() {},
+        onRemove() {},
+        onDismissProblems() {},
+      }),
+    );
+  assert.match(render(ready), /capture.webp: 512 bytes, ready to send/);
+  const pending = render({
+    ...ready,
+    status: "uploading",
+    received: 12.5 * mb,
+  });
+  assert.match(pending, /Uploading, 50%/);
+  assert.match(pending, /max="26214400"/);
 });

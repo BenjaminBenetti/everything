@@ -66,6 +66,7 @@ test("files keep their exact bytes from parts to their path in the teammate's wo
     );
     assert.deepEqual(await readFile(saved), expected, fileName);
     assert.equal((await stat(saved)).mode & 0o777, 0o644);
+    assert.equal((await stat(path.dirname(saved))).mode & 0o777, 0o755);
     const opened = await volume.files.open(target);
     assert.equal(opened?.size, expected.length);
     const streamed: Buffer[] = [];

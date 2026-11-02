@@ -62,7 +62,7 @@ test("uploads in parts land at a server-chosen path in the teammate's workspace 
   const text = Buffer.from("name,amount\nAda,3\n");
   const files = [
     ["Quarterly report.csv", text, "text", "text/plain"],
-    ["photo.png", pngBytes, "image", "image/png"],
+    ["photo.png", pngBytes, "image", "image/webp"],
     ["firmware.bin", binaryBytes, "binary", "application/octet-stream"],
   ] as const;
   for (const [name, bytes, kind, mediaType] of files) {
@@ -71,14 +71,21 @@ test("uploads in parts land at a server-chosen path in the teammate's workspace 
     assert.equal(result.received, bytes.length);
     assert.equal(result.kind, kind);
     assert.equal(result.mediaType, mediaType);
-    assert.equal(result.name, name);
+    assert.equal(result.name, name === "photo.png" ? "photo.webp" : name);
+    assert.equal(result.inputSize, bytes.length);
     assert.match(
       result.path,
       new RegExp(
         `^/workspace/${agentId}/attachments/${result.id}/[A-Za-z0-9][A-Za-z0-9._-]*$`,
       ),
     );
-    assert.deepEqual(await readFile(volume.local(result.path)), bytes);
+    const stored = await readFile(volume.local(result.path));
+    assert.equal(stored.length, result.size);
+    if (name === "photo.png") {
+      assert.ok(stored.length < bytes.length);
+      assert.equal(stored.toString("ascii", 8, 12), "WEBP");
+      assert.ok(result.path.endsWith("/photo.webp"));
+    } else assert.deepEqual(stored, bytes);
   }
   assert.equal(
     (await upload("Quarterly report.csv", text)).path.endsWith(

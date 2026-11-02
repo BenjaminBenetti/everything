@@ -1,11 +1,11 @@
 import { constants } from "node:fs";
 import {
   copyFile,
-  link,
   lstat,
   mkdir,
   open,
   readdir,
+  rename,
   rm,
   rmdir,
   unlink,
@@ -22,22 +22,29 @@ import {
 import type {
   AttachmentContent,
   AttachmentFiles,
+  PreparedAttachmentFile,
 } from "../interface/attachment-files.js";
-import type { AttachmentLocation } from "../model/attachment.js";
+import {
+  attachmentLimits,
+  type AttachmentLocation,
+} from "../model/attachment.js";
+import type { AttachmentImageEncoder } from "../interface/attachment-image-encoder.js";
+import { PngWebpEncoder } from "./png-webp-encoder.js";
 import {
   attachmentFolder,
   attachmentPath,
   attachmentStagingFolder,
+  attachmentSniffBytes,
+  storedFileName,
+  storedFileNamePattern,
+  webpName,
 } from "../model/attachment-file.js";
 
 const partialSuffix = ".part";
 const uuidPattern =
   /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
 const partialPattern =
-  /^([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})\.part$/;
-
-/** Hard links can't be made on some storage; the file is then copied instead. */
-const linkUnsupported = new Set(["EPERM", "EXDEV", "ENOTSUP", "EOPNOTSUPP"]);
+  /^([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})\.(part|webp|publish)$/;
 
 /**
  * Attachment files on the workspace volume that Everything's container shares with teammate pods.
@@ -58,6 +65,7 @@ export class WorkspaceAttachmentFiles implements AttachmentFiles {
   constructor(
     root: string,
     private readonly workspaces: Pick<AgentWorkspaces, "directory">,
+    private readonly encoder: AttachmentImageEncoder = new PngWebpEncoder(),
   ) {
     this.staging = path.join(path.resolve(root), attachmentStagingFolder);
   }
@@ -135,6 +143,92 @@ export class WorkspaceAttachmentFiles implements AttachmentFiles {
   /** Remove a partial file, ignoring one that's already gone. */
   async discard(id: string): Promise<void> {
     await rm(this.partial(id), { force: true });
+    await rm(this.encoded(id), { force: true });
+    await this.discardPublication(id);
+  }
+
+  /** Only complete bounded regular files enter the codec; every temporary byte stays controller-private. */
+  async prepare(
+    location: AttachmentLocation,
+    inputSize: number,
+    signal?: AbortSignal,
+    encodePng = true,
+  ): Promise<PreparedAttachmentFile> {
+    attachmentPath(location);
+    const file = await open(
+      this.partial(location.id),
+      constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+    );
+    try {
+      const info = await file.stat();
+      if (
+        !info.isFile() ||
+        info.size !== inputSize ||
+        info.size > attachmentLimits.maxFileBytes
+      )
+        throw new AttachmentStorageError();
+      signal?.throwIfAborted();
+      const head = Buffer.alloc(Math.min(attachmentSniffBytes, info.size));
+      await readAll(file, head);
+      const original = { location, size: info.size, head, encoded: false };
+      if (!encodePng) return original;
+      if (
+        head.length < 8 ||
+        !head
+          .subarray(0, 8)
+          .equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
+      )
+        return original;
+      const bytes = Buffer.alloc(info.size);
+      await readAll(file, bytes);
+      const webp = await this.encoder.webp(bytes, signal);
+      signal?.throwIfAborted();
+      if (!webp || webp.byteLength >= bytes.length) return original;
+      await rm(this.encoded(location.id), { force: true });
+      const encoded = await open(
+        this.encoded(location.id),
+        constants.O_WRONLY |
+          constants.O_CREAT |
+          constants.O_EXCL |
+          constants.O_NOFOLLOW,
+        0o644,
+      );
+      try {
+        await writeAll(encoded, webp, 0);
+        await encoded.sync();
+      } finally {
+        await encoded.close();
+      }
+      signal?.throwIfAborted();
+      return {
+        location: {
+          ...location,
+          fileName: storedFileName(webpName(location.fileName)),
+        },
+        size: webp.byteLength,
+        head: webp.subarray(0, attachmentSniffBytes),
+        encoded: true,
+      };
+    } finally {
+      await file.close();
+    }
+  }
+
+  /** An abort before metadata preparation restores the exact original input offset for retry. */
+  async rewind(id: string, offset: number): Promise<void> {
+    await rm(this.encoded(id), { force: true });
+    const file = await open(
+      this.partial(id),
+      constants.O_WRONLY | constants.O_NOFOLLOW,
+    );
+    try {
+      const info = await file.stat();
+      if (!info.isFile() || info.size < offset)
+        throw new AttachmentOffsetError();
+      await file.truncate(offset);
+    } finally {
+      await file.close();
+    }
   }
 
   /** Partial files untouched since `before`, so one being created right now is never swept. */
@@ -145,16 +239,16 @@ export class WorkspaceAttachmentFiles implements AttachmentFiles {
         throw error;
       },
     );
-    const stale: string[] = [];
+    const stale = new Set<string>();
     for (const entry of entries) {
       const id = partialPattern.exec(entry)?.[1];
       if (!id) continue;
       const info = await lstat(path.join(this.staging, entry)).catch(
         () => undefined,
       );
-      if (info && info.mtimeMs < before) stale.push(id);
+      if (info && info.mtimeMs < before) stale.add(id);
     }
-    return stale;
+    return [...stale];
   }
 
   // ===========================================
@@ -162,30 +256,69 @@ export class WorkspaceAttachmentFiles implements AttachmentFiles {
   // ===========================================
 
   /**
-   * Link the partial file into a folder named for the attachment. Linking never replaces an existing
-   * entry, and the folders are reached by descriptor, so the file lands exactly at its path or the
-   * upload fails.
+   * Copy from an opened no-follow source descriptor into a controller-private directory, then rename
+   * that directory atomically through a no-follow workspace parent. Teammates never see a partially
+   * copied file; existing nonempty folders, files and links are never replaced.
    */
-  async publish(location: AttachmentLocation): Promise<void> {
+  async publish(location: AttachmentLocation, encoded = false): Promise<void> {
     attachmentPath(location);
-    const partial = this.partial(location.id);
+    const file = await open(
+      encoded ? this.encoded(location.id) : this.partial(location.id),
+      constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+    ).catch(() => {
+      throw new AttachmentStorageError();
+    });
+    let published = false;
+    const opened: FileHandle[] = [];
     try {
+      if (!(await file.stat()).isFile()) throw new AttachmentStorageError();
+      await this.discardPublication(location.id);
+      const prepared = this.publication(location.id);
+      await mkdir(prepared, { mode: 0o700 });
+      const privateFolder = await openDirectory(prepared);
+      opened.push(privateFolder);
+      // Read only from the opened source FD. Copy remains invisible to every teammate.
+      const candidate = path.join(
+        descriptorPath(privateFolder),
+        location.fileName,
+      );
+      await copyFile(
+        "/proc/self/fd/" + file.fd,
+        candidate,
+        constants.COPYFILE_EXCL,
+      );
+      const complete = await open(
+        candidate,
+        constants.O_RDONLY | constants.O_NOFOLLOW,
+      );
+      try {
+        await complete.sync();
+      } finally {
+        await complete.close();
+      }
+      // The controller-private parent still hides this directory; preserve published workspace permissions.
+      await privateFolder.chmod(0o755);
       await mkdir(this.workspaces.directory(location.agentId), {
         recursive: true,
       });
-      await this.inFolders(location, true, async ({ own }) => {
-        const target = path.join(descriptorPath(own), location.fileName);
-        await link(partial, target).catch(
-          async (error: NodeJS.ErrnoException) => {
-            if (!linkUnsupported.has(error.code ?? "")) throw error;
-            await copyFile(partial, target, constants.COPYFILE_EXCL);
-          },
-        );
-      });
+      const workspace = await openDirectory(
+        this.workspaces.directory(location.agentId),
+      );
+      opened.push(workspace);
+      const container = await openChild(workspace, attachmentFolder, true);
+      opened.push(container);
+      // Same-PVC directory rename reveals one complete file atomically, refuses symlinks/nonempty targets.
+      await rename(prepared, path.join(descriptorPath(container), location.id));
+      published = true;
+      await this.discard(location.id);
     } catch {
+      if (published) await this.remove(location).catch(() => undefined);
       throw new AttachmentStorageError();
+    } finally {
+      await file.close();
+      for (const handle of opened.reverse()) await handle.close();
+      await this.discardPublication(location.id);
     }
-    await rm(partial, { force: true });
   }
 
   /** Remove the file and its folder; anything missing or replaced by a link is left alone. */
@@ -232,6 +365,40 @@ export class WorkspaceAttachmentFiles implements AttachmentFiles {
     return path.join(this.staging, `${id}${partialSuffix}`);
   }
 
+  /** Server-owned candidate paths are derived only from the already validated upload UUID. */
+  private encoded(id: string): string {
+    return this.partial(id).slice(0, -partialSuffix.length) + ".webp";
+  }
+  private publication(id: string): string {
+    return this.partial(id).slice(0, -partialSuffix.length) + ".publish";
+  }
+
+  /** A publication folder contains at most one safe filename; never recurse or follow a directory link. */
+  private async discardPublication(id: string): Promise<void> {
+    const directory = await openDirectory(this.publication(id)).catch(
+      (error: NodeJS.ErrnoException) => {
+        if (error.code === "ENOENT") return undefined;
+        throw error;
+      },
+    );
+    if (!directory) return;
+    try {
+      const entries = await readdir(descriptorPath(directory));
+      if (
+        entries.length > 1 ||
+        entries.some((name) => !storedFileNamePattern.test(name))
+      )
+        throw new AttachmentStorageError();
+      for (const name of entries)
+        await unlink(path.join(descriptorPath(directory), name)).catch(
+          ignoreMissing,
+        );
+      await rmdir(this.publication(id)).catch(ignoreMissing);
+    } finally {
+      await directory.close();
+    }
+  }
+
   /**
    * Run `work` with the workspace's attachments folder and the attachment's own folder open. Each is
    * opened inside the one before by descriptor and refused if it is a link or not a directory.
@@ -255,6 +422,21 @@ export class WorkspaceAttachmentFiles implements AttachmentFiles {
     } finally {
       for (const handle of opened.reverse()) await handle.close();
     }
+  }
+}
+
+/** Fill a bounded buffer from position zero without changing the source descriptor's identity. */
+async function readAll(file: FileHandle, bytes: Buffer): Promise<void> {
+  let offset = 0;
+  while (offset < bytes.length) {
+    const result = await file.read(
+      bytes,
+      offset,
+      bytes.length - offset,
+      offset,
+    );
+    if (!result.bytesRead) throw new AttachmentStorageError();
+    offset += result.bytesRead;
   }
 }
 

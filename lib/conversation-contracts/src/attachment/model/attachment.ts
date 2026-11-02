@@ -31,7 +31,7 @@ export type AttachmentKind = "image" | "text" | "binary";
 /** A file attached to a sent message: where the teammate finds it, and small facts about it. */
 export interface MessageAttachment {
   readonly id: string;
-  /** The file's name as the user chose it, for display only; it never names a path. */
+  /** Canonical display name, with .webp for converted PNGs; it never names a path. */
   readonly name: string;
   readonly size: number;
   readonly kind: AttachmentKind;
@@ -45,8 +45,11 @@ export interface MessageAttachment {
 export interface AttachmentUpload {
   readonly id: string;
   readonly name: string;
+  /** Declared input size while uploading; actual stored bytes once ready. */
   readonly size: number;
-  /** Bytes saved so far; the next part must start here. */
+  /** Original declared upload bytes. Older servers omit it and use size. */
+  readonly inputSize?: number;
+  /** Original input bytes saved so far; the next part must start here, even after conversion. */
   readonly received: number;
   readonly status: "uploading" | "ready";
   /** Known once every byte has arrived. */
