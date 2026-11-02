@@ -31,7 +31,7 @@ pnpm --filter @everything/ui-service check
 pnpm --filter @everything/ui-tests check
 ```
 
-Repository unit/integration tests are separate from browser evidence. No launchable Chromium is available on the author worker; browser assertions and screenshots are pending a MAIN run. No browser repair or install is needed here.
+Repository unit/integration tests are separate from browser evidence. MAIN's actual Chromium run at source `2c953f4e7a22b401c8a297a14ddc4ab96354e3da` passed both desktop/phone cases (native exit 0, 33.759 s, one worker, retry 0). See the [four original browser screenshots, assertion records and bounded provenance](assets/png-webp-browser/README.md), including the first attempt's unknown outcome and one authorized browser-only recovery. The author worker did not launch, install or repair Chromium.
 
 ## MAIN Chromium handoff
 
@@ -57,4 +57,4 @@ Assertions hold the final real upload request to verify original-byte progress a
 - `evidence/initial-model-input-*.txt`: synthetic model-input references, not a private execution log.
 - `playwright/`: Playwright output. Preserve the native exit and reporter counts separately.
 
-The original attachment browser evidence remains historical; it has not been recaptured for this feature. A subsequent same-author evidence task must inspect MAIN's new screenshots/hashes and report actual results before the whole feature is called complete. No merge, tag, release or deployment is authorized by this feature task.
+The older generic attachment browser evidence remains historical. This feature's [new MAIN browser evidence](assets/png-webp-browser/README.md) was hash/dimension checked and all four original screenshots plus the synthetic source/stored reference pair were inspected by the same author. The reference-only source pair, prompt files and raw execution manifest are not published. Browser assertions establish the actual 1,815,417 → 240,202 byte conversion at unchanged 1280×720; the screenshots show UI state. No merge, tag, release or deployment is authorized by this feature task.

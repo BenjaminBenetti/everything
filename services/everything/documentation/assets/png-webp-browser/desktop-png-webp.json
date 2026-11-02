@@ -1,0 +1,29 @@
+{
+  "sourceBytes": 1815417,
+  "storedBytes": 240202,
+  "inputSize": 1815417,
+  "received": 1815417,
+  "uploadProgressMax": 1815417,
+  "heldOffset": 1048576,
+  "width": 1280,
+  "height": 720,
+  "sourceSha256": "9950faf71f2c821ed515ebfb6e01c3035637503d5ea5edd23adf1fb23213f114",
+  "storedSha256": "18268f7cea12fd47ab9eb5e31c48a873f93dd9e360b3c50864c4c4a979b986f5",
+  "ready": {
+    "id": "f93b00c0-df23-4034-b8e1-9a7d226389b6",
+    "name": "desktop-capture.webp",
+    "size": 240202,
+    "received": 1815417,
+    "status": "ready",
+    "kind": "image",
+    "mediaType": "image/webp",
+    "path": "/workspace/5d0c6a52-8b8e-4c55-9c1a-3f1d2e7b9a10/attachments/f93b00c0-df23-4034-b8e1-9a7d226389b6/desktop-capture.webp",
+    "inputSize": 1815417
+  },
+  "permanentFiles": 1,
+  "privatePartials": 0,
+  "allUploadContentSendHistoryHttpReal": true,
+  "codecReal": true,
+  "mockScope": "Auth, in-memory records, model and unrelated UI routes; external HTTP blocked",
+  "interaction": "File input through production picker handler"
+}
