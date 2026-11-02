@@ -1,0 +1,9 @@
+{
+  "firstFailure": 1,
+  "initialSuccess": 2,
+  "before24h": 2,
+  "after24hFailure": 3,
+  "recovered": 4,
+  "allHttpMocked": true,
+  "timeMethod": "Only persisted updatedAt was aged; no 24h wall-clock wait"
+}

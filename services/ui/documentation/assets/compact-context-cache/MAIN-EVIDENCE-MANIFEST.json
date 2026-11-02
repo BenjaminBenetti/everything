@@ -1,0 +1,181 @@
+{
+  "testedSourceHead": "5cb3e3240e083055397b206381a6488e7090ef53",
+  "archiveSha256": "1d2d2d6d738b01a13b6033fca4899534431a3140ced6aa43d82c3030f7bdf6c8",
+  "executionManifestSha256": "a9d0ed858f2eb8ca76d5b7f212e619b209d01dc63eda0f80e8933126a7f054e0",
+  "nativePhaseExits": {
+    "download": 0,
+    "archive-guard": 0,
+    "preflight": 0,
+    "runtime-versions": 0,
+    "install": 0,
+    "build": 0,
+    "browser": 0
+  },
+  "tests": {
+    "passed": 8,
+    "unexpected": 0,
+    "flaky": 0,
+    "skipped": 0,
+    "errors": 0,
+    "retry": 0,
+    "workers": 1,
+    "durationSeconds": 105.060267
+  },
+  "real": ["Production UI", "HTTP adapters", "browser localStorage"],
+  "mocked": "All HTTP/API/authentication/provider connection/model metadata/runtime/history; external browser HTTP blocked",
+  "ttlMethod": "Aged only fixture persisted updatedAt timestamps below/above 24h, not a 24h wall-clock wait; exact boundary unit tests reported separately",
+  "phone": "Chromium iPhone 13 emulation; CSS390x664@3",
+  "visualInspection": "Signatures/dimensions/bytes/SHA256 and DOM/count assertions checked; same Sol primary author should inspect all four original PNGs before committing",
+  "files": [
+    {
+      "name": "desktop-chat-after.png",
+      "bytes": 63731,
+      "sha256": "5d91e92a06b1dc9825f50a0fa5b7adaf3e0452cbbf78994649e9b168898512e4",
+      "type": "PNG",
+      "width": 1440,
+      "height": 960
+    },
+    {
+      "name": "desktop-profile-after.png",
+      "bytes": 114559,
+      "sha256": "90abb2937f5bd6c8a97243959545d0086b7b5b92d0c7e30febec9c8b77850022",
+      "type": "PNG",
+      "width": 1440,
+      "height": 960
+    },
+    {
+      "name": "desktop-fresh-counts.json",
+      "bytes": 178,
+      "sha256": "2443ee32794f5a573276827d00b356fdf20b0d35627489773c97e0527f56ee3a",
+      "type": "JSON",
+      "value": {
+        "counts": {
+          "initial": 1,
+          "reopened": 1,
+          "messagePoll": 1,
+          "routeAndFocus": 1,
+          "fullReload": 1
+        },
+        "providerDiscoveries": 0,
+        "allHttpMocked": true
+      }
+    },
+    {
+      "name": "desktop-identity-counts.json",
+      "bytes": 125,
+      "sha256": "426fecd6fa6d4652087642eee4f0ec2b064c3bf05f025b6e3a5bedf771752e03",
+      "type": "JSON",
+      "value": {
+        "initial": 1,
+        "newModel": 2,
+        "newEffort": 3,
+        "cosmeticEdit": 3,
+        "connectionChange": 4,
+        "allHttpMocked": true
+      }
+    },
+    {
+      "name": "desktop-owner-counts.json",
+      "bytes": 134,
+      "sha256": "c23fb317e38928d7307698095811f185479ec6b5b2492462ea26c282a34217e0",
+      "type": "JSON",
+      "value": {
+        "initial": 1,
+        "explicitMockedConnectionCheck": 2,
+        "ownerChange": 3,
+        "logoutClearedStorage": true,
+        "allHttpMocked": true
+      }
+    },
+    {
+      "name": "desktop-ttl-counts.json",
+      "bytes": 209,
+      "sha256": "52289fa4d133a1b3949ee0a4e06d0ec86a36f9950bc8dc66e52105017501994e",
+      "type": "JSON",
+      "value": {
+        "firstFailure": 1,
+        "initialSuccess": 2,
+        "before24h": 2,
+        "after24hFailure": 3,
+        "recovered": 4,
+        "allHttpMocked": true,
+        "timeMethod": "Only persisted updatedAt was aged; no 24h wall-clock wait"
+      }
+    },
+    {
+      "name": "phone-chat-after.png",
+      "bytes": 146508,
+      "sha256": "0fdb0f22874eece444a0a96c105eb86ed9f22921e1cd5c0417c7d38a242e2f78",
+      "type": "PNG",
+      "width": 1170,
+      "height": 1992
+    },
+    {
+      "name": "phone-profile-after.png",
+      "bytes": 170016,
+      "sha256": "22dd9b13878145446460739ef64a65bb4902f8b3a1ab85159ebeaa181082c846",
+      "type": "PNG",
+      "width": 1170,
+      "height": 1992
+    },
+    {
+      "name": "phone-fresh-counts.json",
+      "bytes": 178,
+      "sha256": "2443ee32794f5a573276827d00b356fdf20b0d35627489773c97e0527f56ee3a",
+      "type": "JSON",
+      "value": {
+        "counts": {
+          "initial": 1,
+          "reopened": 1,
+          "messagePoll": 1,
+          "routeAndFocus": 1,
+          "fullReload": 1
+        },
+        "providerDiscoveries": 0,
+        "allHttpMocked": true
+      }
+    },
+    {
+      "name": "phone-identity-counts.json",
+      "bytes": 125,
+      "sha256": "426fecd6fa6d4652087642eee4f0ec2b064c3bf05f025b6e3a5bedf771752e03",
+      "type": "JSON",
+      "value": {
+        "initial": 1,
+        "newModel": 2,
+        "newEffort": 3,
+        "cosmeticEdit": 3,
+        "connectionChange": 4,
+        "allHttpMocked": true
+      }
+    },
+    {
+      "name": "phone-owner-counts.json",
+      "bytes": 134,
+      "sha256": "c23fb317e38928d7307698095811f185479ec6b5b2492462ea26c282a34217e0",
+      "type": "JSON",
+      "value": {
+        "initial": 1,
+        "explicitMockedConnectionCheck": 2,
+        "ownerChange": 3,
+        "logoutClearedStorage": true,
+        "allHttpMocked": true
+      }
+    },
+    {
+      "name": "phone-ttl-counts.json",
+      "bytes": 209,
+      "sha256": "52289fa4d133a1b3949ee0a4e06d0ec86a36f9950bc8dc66e52105017501994e",
+      "type": "JSON",
+      "value": {
+        "firstFailure": 1,
+        "initialSuccess": 2,
+        "before24h": 2,
+        "after24hFailure": 3,
+        "recovered": 4,
+        "allHttpMocked": true,
+        "timeMethod": "Only persisted updatedAt was aged; no 24h wall-clock wait"
+      }
+    }
+  ]
+}

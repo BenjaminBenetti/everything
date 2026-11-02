@@ -1,0 +1,7 @@
+{
+  "initial": 1,
+  "explicitMockedConnectionCheck": 2,
+  "ownerChange": 3,
+  "logoutClearedStorage": true,
+  "allHttpMocked": true
+}
