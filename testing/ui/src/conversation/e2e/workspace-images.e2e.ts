@@ -8,11 +8,6 @@ const root = process.env.WORKSPACE_IMAGES_E2E_ROOT!;
 
 /** Only auth/records/model/unrelated metadata are fixtures; image content and delivery use real HTTP/files. */
 async function fixture(context: BrowserContext, origin: string) {
-  await context.route("**/*", (route) =>
-    ["localhost", "127.0.0.1"].includes(new URL(route.request().url()).hostname)
-      ? route.continue()
-      : route.abort("blockedbyclient"),
-  );
   await context.addCookies([
     {
       name: "everything-session",
@@ -85,6 +80,12 @@ async function fixture(context: BrowserContext, origin: string) {
     await context.route(pattern, (route) => route.continue());
   await context.route(/\/v1\/agents\/[^/]+\/messages(?:\?.*)?$/, (route) =>
     route.continue(),
+  );
+  // Playwright runs newest routes first; the host guard must precede every API pass-through.
+  await context.route("**/*", (route) =>
+    ["localhost", "127.0.0.1"].includes(new URL(route.request().url()).hostname)
+      ? route.fallback()
+      : route.abort("blockedbyclient"),
   );
 }
 
