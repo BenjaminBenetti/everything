@@ -319,3 +319,30 @@ test("existing files and content reads do not post; deliberate send_message pers
     "A fork's private callback does not append user history",
   );
 });
+
+test("browser project reset isolates only synthetic in-memory history, retaining original workspace files", async (t) => {
+  const f = await fixture(t);
+  const address = f.origin + "/v1/fixture/workspace-images/reset";
+  const bytes = await readFile(path.join(f.home, "plots/chart.png"));
+  assert.equal((await fetch(address, { method: "POST" })).status, 404);
+  f.histories.set(agentId, [
+    {
+      id: "fixture-message",
+      role: "assistant",
+      text: "old context",
+      createdAt: new Date().toISOString(),
+      attachments: [],
+    },
+  ]);
+  assert.equal(
+    (
+      await fetch(address, {
+        method: "POST",
+        headers: { "x-workspace-image-fixture": "reset" },
+      })
+    ).status,
+    204,
+  );
+  assert.equal(f.histories.size, 0);
+  assert.deepEqual(await readFile(path.join(f.home, "plots/chart.png")), bytes);
+});

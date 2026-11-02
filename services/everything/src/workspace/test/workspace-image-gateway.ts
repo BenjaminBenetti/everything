@@ -203,5 +203,12 @@ export async function createWorkspaceImageGateway(
     readiness: async () => {},
   };
   const app = await createHttpApplication(dependencies);
+  // Browser projects share a server; only synthetic in-memory messages are reset between contexts.
+  app.post("/v1/fixture/workspace-images/reset", async (request, reply) => {
+    if (request.headers["x-workspace-image-fixture"] !== "reset")
+      return reply.code(404).send();
+    histories.clear();
+    return reply.code(204).send();
+  });
   return { app, volume, workspaces, histories };
 }

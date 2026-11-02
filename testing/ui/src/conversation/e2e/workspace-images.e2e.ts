@@ -94,6 +94,10 @@ test("explicit own image Markdown, controls, private real bytes, stable polls, r
   baseURL,
 }, info) => {
   await fixture(context, baseURL!);
+  const reset = await page.request.post("/v1/fixture/workspace-images/reset", {
+    headers: { "x-workspace-image-fixture": "reset" },
+  });
+  expect(reset.status()).toBe(204);
   const requests: string[] = [];
   let polls = 0;
   page.on("request", (request) => {
