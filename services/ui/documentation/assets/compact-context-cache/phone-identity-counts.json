@@ -1,0 +1,8 @@
+{
+  "initial": 1,
+  "newModel": 2,
+  "newEffort": 3,
+  "cosmeticEdit": 3,
+  "connectionChange": 4,
+  "allHttpMocked": true
+}

@@ -6,7 +6,8 @@ import { Dialog } from "@everything/ui/dialog";
 import { providerOptions } from "../../provider/model/provider-options.js";
 import { effortLabels, fastModeLabels } from "../model/inference-options.js";
 import { Link } from "react-router-dom";
-import { AgentModelDetails } from "./agent-model-details.js";
+import { ContextRow } from "./context-row.js";
+import { useContextBudget } from "../hook/use-context-budget.js";
 
 /** Inspect a saved profile with separated editing and deletion actions. */
 export function AgentDetails({
@@ -22,6 +23,7 @@ export function AgentDetails({
   onDelete: () => void;
   focusDelete?: boolean;
 }) {
+  const context = useContextBudget(agent);
   return (
     <Dialog
       title={agent.name}
@@ -57,6 +59,7 @@ export function AgentDetails({
           <dd>{agent.inference.model}</dd>
           <dt>Effort level</dt>
           <dd>{effortLabels[agent.inference.effort]}</dd>
+          <ContextRow tokens={context} flat />
           {agent.inference.speed === "fast" && (
             <>
               <dt>Speed</dt>
@@ -74,7 +77,6 @@ export function AgentDetails({
       >
         Open chat
       </Link>
-      <AgentModelDetails agent={agent} />
     </Dialog>
   );
 }

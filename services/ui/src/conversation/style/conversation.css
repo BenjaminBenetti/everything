@@ -760,15 +760,8 @@ a.chat-sent-file:hover {
     padding: 12px 16px;
   }
   .chat-teammate-model {
-    grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 0.7fr);
     gap: 12px;
     margin-top: 10px;
-  }
-  .chat-teammate-model > div {
-    display: block;
-  }
-  .chat-teammate-model dd {
-    margin-top: 3px;
   }
 }
 @media (max-width: 650px) {

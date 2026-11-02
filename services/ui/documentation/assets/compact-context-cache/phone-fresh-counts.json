@@ -1,0 +1,11 @@
+{
+  "counts": {
+    "initial": 1,
+    "reopened": 1,
+    "messagePoll": 1,
+    "routeAndFocus": 1,
+    "fullReload": 1
+  },
+  "providerDiscoveries": 0,
+  "allHttpMocked": true
+}

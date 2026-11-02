@@ -5,7 +5,8 @@ import type { MainActivity } from "../model/main-activity.js";
 import { TeammatePresence } from "./teammate-presence.js";
 import { effortLabels } from "../../agent/model/inference-options.js";
 import { providerOptions } from "../../provider/model/provider-options.js";
-import { AgentModelDetails } from "../../agent/component/agent-model-details.js";
+import { ContextRow } from "../../agent/component/context-row.js";
+import { useContextBudget } from "../../agent/hook/use-context-budget.js";
 
 /**
  * Show teammate details with an animated background indicator only while its count is positive; the
@@ -22,6 +23,7 @@ export function ConversationTeammateCard({
   backgroundCount: number;
   onEdit: () => void;
 }) {
+  const context = useContextBudget(agent);
   return (
     <aside
       className="chat-teammate-card"
@@ -48,6 +50,7 @@ export function ConversationTeammateCard({
             <dt>Effort</dt>
             <dd>{effortLabels[agent.inference.effort]}</dd>
           </div>
+          <ContextRow tokens={context} />
         </dl>
       ) : (
         <p className="chat-teammate-setup">
@@ -64,7 +67,6 @@ export function ConversationTeammateCard({
           {backgroundCount} background
         </p>
       )}
-      <AgentModelDetails agent={agent} />
     </aside>
   );
 }

@@ -6,6 +6,7 @@ import type {
 } from "@everything/provider-contracts";
 import { useSession } from "../../session/component/session-provider.js";
 import type { ProviderConnections } from "../interface/provider-connections.js";
+import { useModelContextCache } from "../../agent/component/agent-directory-provider.js";
 
 const ConnectionsContext = createContext<ProviderConnections | null>(null);
 
@@ -48,11 +49,20 @@ export function useProviders() {
 /** Invalidate previous green state while an explicit edit or check is in progress. */
 export function useProviderAction(provider: ProviderId) {
   const cache = useQueryClient();
+  const contexts = useModelContextCache();
   const { profile } = useSession();
   const key = ["providers", profile?.subject];
   return useMutation({
+    mutationKey: ["provider-change", profile?.subject, provider],
     mutationFn: (action: () => Promise<unknown>) => action(),
     onMutate: async () => {
+      await cache.cancelQueries({
+        queryKey: ["agent-context", profile?.subject, provider],
+      });
+      if (profile) contexts.invalidateProvider(profile.subject, provider);
+      cache.removeQueries({
+        queryKey: ["agent-context", profile?.subject, provider],
+      });
       await cache.cancelQueries({
         queryKey: ["provider-models", profile?.subject, provider],
       });
