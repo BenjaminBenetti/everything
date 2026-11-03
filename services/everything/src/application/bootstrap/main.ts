@@ -1,3 +1,5 @@
+import { FileSystemWorkspaceImageContent } from "../../workspace/adapter/file-system-workspace-image-content.js";
+import { WorkspaceImageContentService } from "../../workspace/service/workspace-image-content-service.js";
 import { KeycloakPasswordAuthentication } from "@everything/security/password-grant";
 import { SessionCipher } from "@everything/security/session-cipher";
 import { SessionService } from "../../session/service/session-service.js";
@@ -313,6 +315,10 @@ async function main(): Promise<void> {
       models,
       capabilities,
       conversations,
+    ),
+    workspaceImages: new WorkspaceImageContentService(
+      agents,
+      new FileSystemWorkspaceImageContent(workspaceFiles),
     ),
     attachments: new AttachmentService(
       agents,

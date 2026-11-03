@@ -1,0 +1,156 @@
+{
+  "sourceHead": "d101ded1693ad2fd07351c3534617064e47adfee",
+  "sourceTree": "546c3f252b95bc0c69c34d0a3b2508da2c77e729",
+  "sourceCI": 41528028502,
+  "archive": {
+    "bytes": 7345020,
+    "sha256": "b4f080154281edb8147fc981035cb323f568bfaac845cb621b13a5096659df34"
+  },
+  "publicPRBlobIdentitiesChecked": 23,
+  "boundedSourceGuards": 77,
+  "sourceUnchanged": true,
+  "initialAttempt": {
+    "browserOutcome": "UNKNOWN",
+    "nativeExitCode": null,
+    "durationSeconds": null,
+    "partialScreenshots": 1,
+    "completedAssertionJSON": 0,
+    "cause": "not established",
+    "installExitCode": 0,
+    "installDurationSeconds": 55.185,
+    "buildExitCode": 0,
+    "buildDurationSeconds": 3.283
+  },
+  "controlledBrowserOnlyRecovery": {
+    "attempt": 2,
+    "nativeExitCode": 0,
+    "nativeDurationSeconds": 57.313,
+    "reporterDurationMs": 55906.193999999996,
+    "testCount": 2,
+    "projects": [
+      {
+        "project": "desktop",
+        "status": "passed",
+        "durationMs": 21904,
+        "retry": 0
+      },
+      {
+        "project": "phone",
+        "status": "passed",
+        "durationMs": 22188,
+        "retry": 0
+      }
+    ],
+    "unexpected": 0,
+    "flaky": 0,
+    "skipped": 0,
+    "retries": 0,
+    "workers": 1,
+    "heapMiB": 256,
+    "newFixture": true,
+    "reusedSuccessfulInstallAndBuild": true,
+    "sourceAssertionsSecurityUnchanged": true,
+    "totalBrowserAttempts": 2,
+    "noFurtherRunAuthorized": true
+  },
+  "visualInspection": {
+    "mainOpenedAllFourOriginals": true,
+    "mainFindings": "Two inline raster images and non-image controls/fallback visible in Avery screenshots; Blake workspace/context differs; phone fits width. Desktop-other-workspace viewport clips top of one image due ordinary scrolling. No serious feature defect seen. Context widths/reload/no-refetch claims are assertions-backed, not inferred solely from screenshots.",
+    "sameAuthorOpenedAllFourOriginals": true,
+    "sameAuthorFindings": {
+      "desktop-inline.png": "Avery desktop: two complete synthetic raster images, plain path, Download link, literal code/raw HTML and missing-image fallback.",
+      "desktop-other-workspace.png": "Blake desktop: part of the upper raster is clipped by the viewport; one complete raster, controls, fallback and footnote are visible.",
+      "phone-inline.png": "Avery in Chromium phone emulation: two complete raster images fit the column; plain/link/code/raw-HTML controls and missing-image fallback are visible.",
+      "phone-other-workspace.png": "Blake in Chromium phone emulation: one complete raster, Workspace image heading, plain/link/code/raw-HTML controls and footnote are visible."
+    }
+  },
+  "realBoundaries": [
+    "production UI and Markdown",
+    "conversation HTTP/controller/service and actual send_message",
+    "authenticated production image handler/service",
+    "no-follow filesystem reader and real temporary raster bytes/decoder",
+    "messages/session/runtime/image HTTP not faked"
+  ],
+  "syntheticBoundaries": [
+    "browser/session authentication",
+    "in-memory owned teammate/message records",
+    "fixed text-only model response",
+    "fixture-only history reset",
+    "unrelated UI/provider/model/read-receipt/empty-attachment metadata"
+  ],
+  "phone": "Chromium iPhone13 viewport/touch emulation; not physical phone or OS clipboard",
+  "providerRequests": 0,
+  "scope": "explicit own-workspace image Markdown only; no native generation/provider entitlement proof",
+  "artifacts": [
+    {
+      "file": "desktop-inline.png",
+      "bytes": 373244,
+      "sha256": "d83568324012e2facea197aa59164ef83af99ed5392289cf279a31b343b7ecd2",
+      "width": 1440,
+      "height": 960,
+      "exactOriginalScreenshot": true
+    },
+    {
+      "file": "desktop-other-workspace.png",
+      "bytes": 254654,
+      "sha256": "168aa8445b779609492f84094f03ec23693141d4c45ca5796b850e5851d18c38",
+      "width": 1440,
+      "height": 960,
+      "exactOriginalScreenshot": true
+    },
+    {
+      "file": "phone-inline.png",
+      "bytes": 609998,
+      "sha256": "d9a85e5db0128238fd65b946423bf53bc8063ead334549239caaf7b1a66f5e67",
+      "width": 1170,
+      "height": 1992,
+      "exactOriginalScreenshot": true
+    },
+    {
+      "file": "phone-other-workspace.png",
+      "bytes": 391593,
+      "sha256": "2e694c31980c9913286f8659d3a02ce300f04793534f94d3f8900d54c822dfa2",
+      "width": 1170,
+      "height": 1992,
+      "exactOriginalScreenshot": true
+    },
+    {
+      "file": "desktop-assertions.json",
+      "bytes": 2077,
+      "sha256": "64cdf857be0490e445a10c49e8bf5d3b0756e84be0bed8682683b03877137a76",
+      "rawBytes": 2112,
+      "rawSha256": "b185f3d5661c5a3fc3c0850fbc9e0e548ddad99735e169e9c9b0a648e63f99d2",
+      "normalization": "Repository Prettier JSON whitespace after delivery; parsed values unchanged.",
+      "parsedEquivalent": true,
+      "receivedBytes": 2113,
+      "receivedSha256": "3af9188ec00ba78ab9895d559496be63114c2dd4673ad35b09aab1ff987d6185",
+      "receivedNormalization": "added terminal LF only"
+    },
+    {
+      "file": "phone-assertions.json",
+      "bytes": 2073,
+      "sha256": "417bf3414d682218f53ce1b8d5f5cd2ea204a2275ba7901e6bc8f6794f545bcb",
+      "rawBytes": 2108,
+      "rawSha256": "eabf7320617ba75d8b8b745342b9bf66a7404ab87a8cc4dd7afddfbd20a57f32",
+      "normalization": "Repository Prettier JSON whitespace after delivery; parsed values unchanged.",
+      "parsedEquivalent": true,
+      "receivedBytes": 2109,
+      "receivedSha256": "c44ac0a0c1000ba03a9b3b7976544568ebe5cf77c76c88543aab1ea66fd8a7e5",
+      "receivedNormalization": "added terminal LF only"
+    }
+  ],
+  "repositoryPublication": {
+    "task": "workspace-image-markdown-evidence-sol-01a194cd",
+    "inputMainManifestBytes": 4368,
+    "inputMainManifestSha256": "f1b2ff64950921b1877f89f3a98a7b199fac630aaa09d091e7261324f950f17a",
+    "originalNonDocumentationPathsFrozen": 21,
+    "allowedExistingDocumentationPaths": [
+      "services/everything/documentation/workspace-images.md",
+      "testing/ui/documentation/workspace-images.md"
+    ],
+    "pngCopiesByteIdentical": true,
+    "assertionJSONParsedEquivalent": true,
+    "assertionJSONByteIdenticalToRaw": false,
+    "noBrowserRunInEvidenceTask": true
+  }
+}

@@ -27,6 +27,8 @@ import type { AgentModelInfoReader } from "../../agent/interface/agent-model-inf
 import { agentModelInfoController } from "../../agent/controller/agent-model-info-controller.js";
 import type { AgentRemoval } from "../../agent/interface/agent-removal.js";
 import { conversationController } from "../../conversation/controller/conversation-controller.js";
+import { workspaceImageController } from "../../workspace/controller/workspace-image-controller.js";
+import type { WorkspaceImageContent } from "../../workspace/interface/workspace-image-content.js";
 import { attachmentController } from "../../attachment/controller/attachment-controller.js";
 import type { AttachmentOperations } from "../../attachment/interface/attachment-operations.js";
 import type { ConversationOperations } from "../../conversation/interface/conversation-operations.js";
@@ -100,6 +102,7 @@ export interface HttpDependencies {
   readonly removal: AgentRemoval;
   readonly conversations: ConversationOperations;
   readonly attachments: AttachmentOperations;
+  readonly workspaceImages?: WorkspaceImageContent;
   readonly subagents: SubagentOperations;
   readonly updates: UpdateOperations;
   readonly upgrades: UpgradeOperations;
@@ -205,6 +208,8 @@ function protectedApi(
     await providerModelController(scope, dependencies.models);
     await conversationController(scope, dependencies.conversations);
     await attachmentController(scope, dependencies.attachments);
+    if (dependencies.workspaceImages)
+      await workspaceImageController(scope, dependencies.workspaceImages);
     await subagentController(scope, dependencies.subagents);
     await updateController(scope, dependencies.updates);
     await upgradeController(scope, dependencies.upgrades);
