@@ -1,0 +1,26 @@
+{
+  "realHTTP": true,
+  "actualFiles": true,
+  "providerRequests": 0,
+  "sourceBytes": 145890,
+  "sourceSha256": "b16a296d7e44a9168470d5f7495ee1e28935e6d0ae5963f7f903c412d58fb551",
+  "imageRequests": [
+    "http://localhost:5194/v1/agents/11111111-1111-4111-8111-111111111111/workspace-image?path=plots%2Fchart.png",
+    "http://localhost:5194/v1/agents/11111111-1111-4111-8111-111111111111/workspace-image?path=%2Fworkspace%2F11111111-1111-4111-8111-111111111111%2Fplots%2FQuarterly+chart+%CE%B1.png",
+    "http://localhost:5194/v1/agents/11111111-1111-4111-8111-111111111111/workspace-image?path=plots%2Fmissing.png",
+    "http://localhost:5194/v1/agents/11111111-1111-4111-8111-111111111111/workspace-image?path=plots%2Fchart.png",
+    "http://localhost:5194/v1/agents/11111111-1111-4111-8111-111111111111/workspace-image?path=%2Fworkspace%2F11111111-1111-4111-8111-111111111111%2Fplots%2FQuarterly+chart+%CE%B1.png",
+    "http://localhost:5194/v1/agents/11111111-1111-4111-8111-111111111111/workspace-image?path=plots%2Fmissing.png",
+    "http://localhost:5194/v1/agents/22222222-2222-4222-8222-222222222222/workspace-image?path=plots%2Fchart.png",
+    "http://localhost:5194/v1/agents/22222222-2222-4222-8222-222222222222/workspace-image?path=%2Fworkspace%2F22222222-2222-4222-8222-222222222222%2Fplots%2FQuarterly+chart+%CE%B1.png",
+    "http://localhost:5194/v1/agents/22222222-2222-4222-8222-222222222222/workspace-image?path=plots%2Fmissing.png",
+    "http://localhost:5194/v1/agents/11111111-1111-4111-8111-111111111111/workspace-image?path=plots%2Fchart.png",
+    "http://localhost:5194/v1/agents/11111111-1111-4111-8111-111111111111/workspace-image?path=%2Fworkspace%2F11111111-1111-4111-8111-111111111111%2Fplots%2FQuarterly+chart+%CE%B1.png",
+    "http://localhost:5194/v1/agents/11111111-1111-4111-8111-111111111111/workspace-image?path=plots%2Fmissing.png"
+  ],
+  "controlsRequested": false,
+  "pollImageRequestsAdded": 0,
+  "firstNatural": [640, 240],
+  "secondNatural": [480, 240],
+  "screenshotNames": ["desktop-inline.png", "desktop-other-workspace.png"]
+}
