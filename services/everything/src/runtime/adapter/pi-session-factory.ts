@@ -50,6 +50,7 @@ import type { MonitorOperations } from "../../monitor/interface/monitor-operatio
 import { monitorTools } from "../tool/monitor-tools.js";
 import type { WorkspaceImages } from "../../workspace/interface/workspace-images.js";
 import { imageTools } from "../tool/image-tools.js";
+import { jobTools, type JobToolOperations } from "../../job/tool/job-tools.js";
 
 /** Pi's per-agent configuration and session paths inside the agent's workspace. */
 interface AgentDirectories {
@@ -66,7 +67,7 @@ export class PiSessionFactory implements AgentSessionFactory {
 
   /**
    * Receive inference, workspace tools, Fleet, API documentation, conversation search, and optional
-   * interaction recording, monitors, and image viewing.
+   * interaction recording, monitors, image viewing, and scheduled jobs.
    */
   constructor(
     private readonly inference: InferenceRuntimeFactory,
@@ -79,6 +80,7 @@ export class PiSessionFactory implements AgentSessionFactory {
     private readonly workspaceActivity?: WorkspaceActivityRecorder,
     private readonly monitors?: MonitorOperations,
     private readonly images?: WorkspaceImages,
+    private readonly jobs?: JobToolOperations,
   ) {}
 
   // ===========================================
@@ -206,6 +208,11 @@ export class PiSessionFactory implements AgentSessionFactory {
             { ownerId: agent.ownerId, agentId: agent.id },
             parentId === undefined ? "main" : sessionManager.getSessionId(),
           )
+        : []),
+      // Only main configures jobs, bound to the saved teammate; background sessions, including
+      // event and job runs that read outside content, can't schedule more work.
+      ...(this.jobs && parentId === undefined
+        ? jobTools(this.jobs, { ownerId: agent.ownerId, agentId: agent.id })
         : []),
       ...appTools(this.artifacts, {
         ownerId: agent.ownerId,

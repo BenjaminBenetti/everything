@@ -55,6 +55,42 @@ Running, completed, failed, and cancelled come from the runtime itself: the sess
 - **Single replica.** Following runs and startup recovery assume the one API replica the chart runs. Claims are safe across processes, but recovery would fail another live process's runs, so the scheduler isn't designed for several replicas.
 - A run's model work is billed to the teammate's provider like any other turn. Jobs don't probe providers or models.
 
+## Teammate tools
+
+A teammate's main session can configure its own jobs with four tools. They call the same job service as the API, so they have the same checks, limits, errors, and pause semantics:
+
+| Tool         | Arguments                                                      | Does                                                                                                        |
+| ------------ | -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `create_job` | `name`, `instructions`, `schedule`, optional `enabled`         | Creates a job and returns its ID, schedule, whether it's on, and next run time                              |
+| `list_jobs`  | none                                                           | Lists the teammate's jobs with their latest run's status; long instructions are shortened to 500 characters |
+| `update_job` | `id`, and any of `name`, `instructions`, `schedule`, `enabled` | `enabled: false` pauses later runs (a current run finishes); `enabled: true` resumes from now               |
+| `delete_job` | `id`                                                           | Deletes the job and its history, stopping only its current run                                              |
+
+- **Scope:** the tools are bound to the session's saved teammate and its owner by the runtime. They take no owner or teammate argument; extra fields are refused before the job service runs, and other teammates' jobs look missing.
+- **Main only:** forks, event wakeups, and job runs don't get them, so background work that reads outside content can't schedule more work.
+- **Explicit requests:** the main prompt says to use them only when the user asks for scheduled or later work, never because a page, file, tool result, or background session asks, and to ask for a timezone it doesn't know instead of guessing.
+- **Not included:** running, stopping, or previewing jobs, and run history, stay in the UI and API.
+
+Example calls a teammate might make:
+
+```json
+{
+  "name": "Morning PRs",
+  "instructions": "List open pull requests waiting for my review; tell me only if one is older than two days.",
+  "schedule": {
+    "type": "cron",
+    "expression": "0 9 * * 1-5",
+    "timezone": "Europe/Paris"
+  }
+}
+```
+
+```json
+{ "id": "0f7c2a4e-5b1d-4c8e-9a3f-6d2e1b7c9a10", "enabled": false }
+```
+
+The first is `create_job`; the second, `update_job`, pauses that job.
+
 ## Tests and screenshots
 
 - **CI coverage:** CI's Build and test job runs the jobs PostgreSQL test against a disposable `postgres:17.11-bookworm` (**Jobs PostgreSQL integration**: exactly one test, which must pass and must not skip). It also runs the desktop and phone browser harness (**Jobs browser harness**: both tests must pass on their only attempt).

@@ -244,6 +244,7 @@ async function main(): Promise<void> {
   const apiDocumentation = new ApiDocumentationService();
   const messages = new PostgresMessageRepository(database);
   let subagents!: SubagentService;
+  let jobs!: JobService;
   // Completion events use the same owner-scoped wakeup service as the public endpoint, bound once composed.
   const monitors = new MonitorService(
     new HttpWorkspaceMonitors(
@@ -275,6 +276,13 @@ async function main(): Promise<void> {
       workspaceActivity,
       monitors,
       new FileSystemWorkspaceImages(workspaces),
+      // Main's job tools use the owner job service composed below, bound once it exists.
+      {
+        list: (scope) => jobs.list(scope),
+        create: (scope, input) => jobs.create(scope, input),
+        update: (scope, id, input) => jobs.update(scope, id, input),
+        delete: (scope, id) => jobs.delete(scope, id),
+      },
     ),
     workspaces,
     monitors,
@@ -297,6 +305,7 @@ async function main(): Promise<void> {
   const jobScheduler = new JobScheduler(jobRepository, jobRuns, () =>
     reportWarning("Scheduled jobs couldn't be checked; checking will retry."),
   );
+  jobs = new JobService(agents, jobRepository, jobRuns);
   // Before requests are accepted, so no new run can be mistaken for an interrupted one.
   await jobScheduler.recover();
   const voice = await createVoiceRuntime(config.voice, agents, (message) =>
@@ -340,7 +349,7 @@ async function main(): Promise<void> {
       attachmentFiles,
     ),
     subagents,
-    jobs: new JobService(agents, jobRepository, jobRuns),
+    jobs,
     updates: new UpdateService(updates, generalSettings),
     upgrades: config.upgrader.url
       ? new HttpUpgrader(
