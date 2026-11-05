@@ -84,16 +84,17 @@ export class PostgresJobRepository
         jobLimits.jobsPerTeammate
       )
         throw new JobLimitError();
-      return this.toEntity(
-        await repository.save(
-          repository.create({
-            ...job,
-            id: randomUUID(),
-            agentId: agent.id,
-            updatedAt: new Date().toISOString(),
-          }),
-        ),
+      const { id } = await repository.save(
+        repository.create({
+          ...job,
+          id: randomUUID(),
+          agentId: agent.id,
+          updatedAt: new Date().toISOString(),
+        }),
       );
+      // PostgreSQL returns database defaults such as created_at without the column transformers,
+      // so read the row back to get the public timestamps.
+      return this.toEntity(await repository.findOneByOrFail({ id }));
     });
   }
 

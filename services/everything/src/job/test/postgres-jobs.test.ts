@@ -13,6 +13,12 @@ import { PostgresJobRepository } from "../repository/postgres-job-repository.js"
 /** An explicitly supplied test server; each run creates and removes only its own random database. */
 const serverUrl = process.env.JOBS_TEST_DATABASE_URL;
 
+// CI requires this test to run against its isolated database, so a missing server fails instead of skipping.
+if (process.env.JOBS_TEST_DATABASE_REQUIRED === "1" && !serverUrl)
+  throw new Error(
+    "JOBS_TEST_DATABASE_REQUIRED is set, but JOBS_TEST_DATABASE_URL names no server",
+  );
+
 /** Schema statements TypeORM would run to match the entities; empty when migrations mirror them. */
 async function drift(database: DataSource): Promise<string[]> {
   const log = await database.driver.createSchemaBuilder().log();

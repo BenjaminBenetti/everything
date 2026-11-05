@@ -26,6 +26,22 @@ jobs:
     name: Build and test
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    # A disposable PostgreSQL, the chart's version, with synthetic credentials, used only by the
+    # jobs integration step below.
+    services:
+      postgres:
+        image: docker.io/library/postgres:17.11-bookworm
+        env:
+          POSTGRES_USER: jobs_test
+          POSTGRES_PASSWORD: jobs_test
+          POSTGRES_DB: jobs_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U jobs_test -d jobs_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -46,6 +62,18 @@ jobs:
       - run: pnpm format:check
       - run: pnpm build
       - run: pnpm test
+      # The jobs migration and repository against the disposable database: the test must run, not
+      # skip, and exactly one test must pass.
+      - name: Jobs PostgreSQL integration
+        working-directory: services/everything
+        env:
+          JOBS_TEST_DATABASE_URL: postgresql://jobs_test:jobs_test@localhost:5432/jobs_test
+          JOBS_TEST_DATABASE_REQUIRED: "1"
+        run: |
+          node --import tsx --test --test-reporter=spec src/job/test/postgres-jobs.test.ts | tee "$RUNNER_TEMP/postgres-jobs.txt"
+          grep -Fxq "ℹ pass 1" "$RUNNER_TEMP/postgres-jobs.txt"
+          grep -Fxq "ℹ skipped 0" "$RUNNER_TEMP/postgres-jobs.txt"
+          grep -Fxq "ℹ fail 0" "$RUNNER_TEMP/postgres-jobs.txt"
 
   # Everything's telemetry against a disposable OpenObserve container run with the chart's image,
   # settings, and limits: export, the owner-scoped query API, isolation, restart, and retention.
