@@ -28,9 +28,11 @@ import "../../workspace/style/application.css";
 import "../../provider/style/provider.css";
 import "../../conversation/style/conversation.css";
 import "../../conversation/style/message-markdown.css";
+import "../../job/style/jobs.css";
 import "../../update/style/updates.css";
 import { HttpConversationClient } from "../../conversation/adapter/http-conversation-client.js";
 import { HttpAttachmentClient } from "../../conversation/adapter/http-attachment-client.js";
+import { HttpJobClient } from "../../job/adapter/http-job-client.js";
 import { HttpUpdateClient } from "../../update/adapter/http-update-client.js";
 import { BrowserDesktopNotifications } from "../../notification/adapter/browser-desktop-notifications.js";
 import { HttpVoiceClient } from "../../voice/adapter/http-voice-client.js";
@@ -81,6 +83,7 @@ async function bootstrap(): Promise<void> {
               attachments={
                 new HttpAttachmentClient(createAuthenticatedTransport())
               }
+              jobs={new HttpJobClient(createAuthenticatedTransport())}
               updates={new HttpUpdateClient(createAuthenticatedTransport())}
               connections={
                 new HttpProviderConnections(createAuthenticatedTransport())

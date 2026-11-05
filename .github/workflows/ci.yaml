@@ -26,6 +26,22 @@ jobs:
     name: Build and test
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    # A disposable PostgreSQL, the chart's version, with synthetic credentials, used only by the
+    # jobs integration step below.
+    services:
+      postgres:
+        image: docker.io/library/postgres:17.11-bookworm
+        env:
+          POSTGRES_USER: jobs_test
+          POSTGRES_PASSWORD: jobs_test
+          POSTGRES_DB: jobs_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U jobs_test -d jobs_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -46,6 +62,57 @@ jobs:
       - run: pnpm format:check
       - run: pnpm build
       - run: pnpm test
+      # The jobs migration and repository against the disposable database: the test must run, not
+      # skip, and exactly one test must pass.
+      - name: Jobs PostgreSQL integration
+        working-directory: services/everything
+        env:
+          JOBS_TEST_DATABASE_URL: postgresql://jobs_test:jobs_test@localhost:5432/jobs_test
+          JOBS_TEST_DATABASE_REQUIRED: "1"
+        run: |
+          node --import tsx --test --test-reporter=spec src/job/test/postgres-jobs.test.ts | tee "$RUNNER_TEMP/postgres-jobs.txt"
+          grep -Fxq "ℹ pass 1" "$RUNNER_TEMP/postgres-jobs.txt"
+          grep -Fxq "ℹ skipped 0" "$RUNNER_TEMP/postgres-jobs.txt"
+          grep -Fxq "ℹ fail 0" "$RUNNER_TEMP/postgres-jobs.txt"
+      # The jobs browser harness on a desktop and an emulated phone: the production UI and HTTP
+      # application with the real jobs, scheduler, dispatcher, and teammate runtime. Sign-in,
+      # records, the model, and the job clock are synthetic (services/everything/src/job/test).
+      - name: Install Chromium for the jobs browser harness
+        run: pnpm --filter @everything/ui-tests exec playwright install --with-deps chromium
+      # The checker fails unless the JSON report shows the desktop and phone tests each passed.
+      - name: Jobs browser harness
+        id: jobs-browser
+        env:
+          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/jobs-browser/report.json
+        run: |
+          mkdir -p "$RUNNER_TEMP/jobs-browser"
+          status=0
+          pnpm --filter @everything/ui-tests test:jobs-e2e --reporter=list,json --workers=1 --retries=0 || status=$?
+          echo "$status" > "$RUNNER_TEMP/jobs-browser/native-exit.txt"
+          node testing/ui/src/job/script/check-jobs-report.mjs "$PLAYWRIGHT_JSON_OUTPUT_FILE"
+          exit "$status"
+      # Screenshots, the evidence record, the report, and any failure context, with checksums.
+      - name: Collect jobs browser proof
+        if: ${{ !cancelled() && steps.jobs-browser.outcome != 'skipped' }}
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          TESTED_SHA: ${{ github.sha }}
+        run: |
+          proof="$RUNNER_TEMP/jobs-browser"
+          mkdir -p "$proof/evidence" "$proof/results"
+          if [ -d .local/ui-test-results/jobs-e2e-evidence ]; then cp -R .local/ui-test-results/jobs-e2e-evidence/. "$proof/evidence/"; fi
+          if [ -d .local/ui-test-results/jobs-e2e ]; then cp -R .local/ui-test-results/jobs-e2e/. "$proof/results/"; fi
+          printf 'head %s\ntested %s\nrun %s\nattempt %s\n' "$HEAD_SHA" "$TESTED_SHA" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" > "$proof/provenance.txt"
+          (cd "$proof" && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)
+          cat "$proof/SHA256SUMS"
+      - name: Upload jobs browser proof
+        if: ${{ !cancelled() && steps.jobs-browser.outcome != 'skipped' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: jobs-browser-proof-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/jobs-browser/
+          if-no-files-found: error
+          retention-days: 14
 
   # Everything's telemetry against a disposable OpenObserve container run with the chart's image,
   # settings, and limits: export, the owner-scoped query API, isolation, restart, and retention.

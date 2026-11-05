@@ -1,0 +1,39 @@
+{
+  "job": {
+    "name": "Release watch",
+    "instructions": "Check the releases page and tell me only when there is a new release.",
+    "schedule": {
+      "type": "interval",
+      "seconds": 900
+    },
+    "nextRunAt": "2026-11-05T03:07:20.815Z",
+    "enabled": true,
+    "id": "ef1edf18-b08b-4a41-8dbf-0f67b395c31f",
+    "agentId": "5d0c6a52-8b8e-4c55-9c1a-3f1d2e7b9a10",
+    "createdAt": "2026-11-05T02:37:14.090Z",
+    "updatedAt": "2026-11-05T02:52:20.815Z"
+  },
+  "runs": [
+    {
+      "id": "5d826136-a709-4cea-b3ee-6e28676d54dd",
+      "jobId": "ef1edf18-b08b-4a41-8dbf-0f67b395c31f",
+      "scheduledFor": "2026-11-05T02:52:14.090Z",
+      "status": "completed",
+      "startedAt": "2026-11-05T02:52:14.656Z",
+      "finishedAt": "2026-11-05T02:52:18.658Z",
+      "error": null
+    },
+    {
+      "id": "423f9067-c186-4c73-a4b9-3d7a6016ad8e",
+      "jobId": "ef1edf18-b08b-4a41-8dbf-0f67b395c31f",
+      "scheduledFor": "2026-11-05T02:52:20.349Z",
+      "status": "cancelled",
+      "startedAt": "2026-11-05T02:52:20.350Z",
+      "finishedAt": "2026-11-05T02:52:20.486Z",
+      "error": "Stopped from the job before it finished."
+    }
+  ],
+  "backgroundTask": "Background task from scheduled job:\nScheduled job \"Release watch\", which runs every 15 minutes.\nThis run was due at 2026-11-05T02:52:14.090Z.\n\nThe user's instructions for this job:\nCheck the releases page and tell me only when there is a new release.\n\nThis is a fresh session: earlier runs of this job aren't in your context, so keep notes in your workspace when a later run needs them. When you finish, your final reply goes to your main conversation, which decides whether to tell the user; say plainly when there's nothing new.",
+  "mainInput": "Fork ce5d8291-4b50-4dce-9c46-acb1cfe8e430 finished:\n(Mocked background reply.) Checked the releases page: no new release since yesterday.",
+  "dispatcherFailures": []
+}

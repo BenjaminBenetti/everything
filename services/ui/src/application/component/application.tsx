@@ -29,6 +29,8 @@ import type { ConversationClient } from "../../conversation/interface/conversati
 import type { AttachmentClient } from "../../conversation/interface/attachment-client.js";
 import { ConversationProvider } from "../../conversation/component/conversation-provider.js";
 import { ConversationPage } from "../../conversation/page/conversation-page.js";
+import type { JobClient } from "../../job/interface/job-client.js";
+import { JobClientProvider } from "../../job/component/job-client-provider.js";
 import type { WorkspaceSettings } from "../../settings/interface/workspace-settings.js";
 import { WorkspaceSettingsProvider } from "../../settings/component/workspace-settings-provider.js";
 import type { InstallationUpgrades } from "../../upgrade/interface/installation-upgrades.js";
@@ -55,6 +57,7 @@ export function Application({
   connections,
   conversations,
   attachments,
+  jobs,
   updates,
   settings,
   upgrades,
@@ -73,6 +76,7 @@ export function Application({
   connections: ProviderConnections;
   conversations: ConversationClient;
   attachments: AttachmentClient;
+  jobs: JobClient;
   updates: UpdateClient;
   settings: WorkspaceSettings;
   upgrades: InstallationUpgrades;
@@ -95,27 +99,29 @@ export function Application({
                 client={conversations}
                 attachments={attachments}
               >
-                <UpdateProvider client={updates}>
-                  <WorkspaceSettingsProvider settings={settings}>
-                    <InstallationUpgradesProvider upgrades={upgrades}>
-                      <WorkspaceDirectoryProvider directory={workspaces}>
-                        <KeyDirectoryProvider directory={keys}>
-                          <TelemetryClientProvider client={telemetry}>
-                            <VoiceProvider
-                              client={voice}
-                              media={media}
-                              capture={capture}
-                            >
-                              <AuthenticatedRoutes
-                                notifications={notifications}
-                              />
-                            </VoiceProvider>
-                          </TelemetryClientProvider>
-                        </KeyDirectoryProvider>
-                      </WorkspaceDirectoryProvider>
-                    </InstallationUpgradesProvider>
-                  </WorkspaceSettingsProvider>
-                </UpdateProvider>
+                <JobClientProvider client={jobs}>
+                  <UpdateProvider client={updates}>
+                    <WorkspaceSettingsProvider settings={settings}>
+                      <InstallationUpgradesProvider upgrades={upgrades}>
+                        <WorkspaceDirectoryProvider directory={workspaces}>
+                          <KeyDirectoryProvider directory={keys}>
+                            <TelemetryClientProvider client={telemetry}>
+                              <VoiceProvider
+                                client={voice}
+                                media={media}
+                                capture={capture}
+                              >
+                                <AuthenticatedRoutes
+                                  notifications={notifications}
+                                />
+                              </VoiceProvider>
+                            </TelemetryClientProvider>
+                          </KeyDirectoryProvider>
+                        </WorkspaceDirectoryProvider>
+                      </InstallationUpgradesProvider>
+                    </WorkspaceSettingsProvider>
+                  </UpdateProvider>
+                </JobClientProvider>
               </ConversationProvider>
             </ProviderConnectionsProvider>
           </ArtifactLibraryProvider>

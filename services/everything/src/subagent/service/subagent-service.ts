@@ -7,6 +7,7 @@ import { SubagentsUnavailableError } from "../error/subagent-errors.js";
 import type {
   SubagentOperations,
   SubagentScope,
+  WakeupOptions,
 } from "../interface/subagent-operations.js";
 import type {
   SubagentArchives,
@@ -42,11 +43,12 @@ export class SubagentService implements SubagentOperations {
     scope: SubagentScope,
     input: CreateSubagentInput,
     signal?: AbortSignal,
+    options?: WakeupOptions,
   ): Promise<Subagent> {
     return this.sessions.withSubagents(scope, true, async (session) => {
       // Checked under the lock, so a Stop that ran first withdraws the event.
       signal?.throwIfAborted();
-      return this.requireSession(session).wakeup(input);
+      return this.requireSession(session).wakeup(input, options);
     });
   }
 

@@ -8,6 +8,10 @@ import type {
 import { ForkUnavailableError, ForkLimitError } from "../error/fork-errors.js";
 import { SessionMailbox } from "./session-mailbox.js";
 import type { SubagentSession } from "../../subagent/interface/subagent-sessions.js";
+import type {
+  WakeupObserver,
+  WakeupOutcome,
+} from "../../subagent/interface/subagent-operations.js";
 import { SubagentNotFoundError } from "../../subagent/error/subagent-errors.js";
 import { subagentDescendants } from "../../subagent/model/subagent-tree.js";
 import type { SessionForkHistory } from "../interface/session-fork-history.js";
@@ -30,6 +34,10 @@ interface ForkMember {
   accepting: boolean;
   stopping: boolean;
   activeUntil: number | undefined;
+  /** An internal caller following this temporary session until it is removed. */
+  observer: WakeupObserver | undefined;
+  /** How the latest turn ended; cleared whenever more work is queued for it. */
+  outcome: WakeupOutcome | undefined;
 }
 
 /** Owns a teammate's private session family, routing messages without creating visible conversations. */
@@ -102,14 +110,15 @@ export class ForkingAgentSession implements AgentSession {
         );
       },
       /** Event work uses the normal tool loop and parent routing, with automatic subtree cleanup. */
-      wakeup: async (input) => {
+      wakeup: async (input, options) => {
         this.resumeFromApi();
         return this.fork(
           "main",
           input.task,
           input.context ?? false,
-          "API event",
+          options?.source ?? "API event",
           true,
+          options?.observer,
         );
       },
       list: () => this.list(),
@@ -253,16 +262,22 @@ export class ForkingAgentSession implements AgentSession {
       accepting: false,
       stopping: false,
       activeUntil: undefined,
+      observer: undefined,
+      outcome: undefined,
     });
   }
 
-  /** Open a fresh or copied history and return its address without waiting for the background result. */
+  /**
+   * Open a fresh or copied history and return its address without waiting for the background result.
+   * An observer learns of acceptance before the task can finish, and of the end once it is removed.
+   */
   private async fork(
     sender: string,
     task: string,
     context: boolean,
     source = sender,
     temporary = false,
+    observer?: WakeupObserver,
   ): Promise<SessionFork> {
     this.checkSender(sender);
     this.checkCapacity();
@@ -282,7 +297,9 @@ export class ForkingAgentSession implements AgentSession {
         throw new ForkUnavailableError();
       }
       this.restore(session, sender, temporary);
+      this.forks.get(session.id)!.observer = observer;
       this.deliver(session.id, `Background task from ${source}:\n${task}`);
+      observer?.accepted(session.id);
       return this.list().find((fork) => fork.id === session.id)!;
     } finally {
       this.creating--;
@@ -310,6 +327,7 @@ export class ForkingAgentSession implements AgentSession {
     const fork = this.forks.get(recipient);
     if (!fork || fork.stopping) throw new ForkUnavailableError();
     const generation = fork.generation;
+    fork.outcome = undefined;
     fork.accepting = true;
     if (fork.mailbox.status !== "running") fork.mailbox.hold();
     const completion = fork.mailbox.submit(text);
@@ -318,6 +336,7 @@ export class ForkingAgentSession implements AgentSession {
       .then(
         (outcome) => {
           if (!outcome || !this.canReport(fork, generation)) return;
+          fork.outcome = "completed";
           fork.activeUntil = this.now() + backgroundActivityGraceMs;
           const deliveredLast =
             fork.delivered !== fork.reported &&
@@ -334,13 +353,14 @@ export class ForkingAgentSession implements AgentSession {
           fork.reported = fork.delivered;
         },
         () => {
-          if (this.canReport(fork, generation))
-            this.deliver(
-              fork.parentId,
-              fork.deleteOnCompletion
-                ? `Temporary background work ${recipient} could not finish. Check the model provider before submitting the event again.`
-                : `Fork ${recipient} could not finish. Check the model provider or send the fork another message to continue.`,
-            );
+          if (!this.canReport(fork, generation)) return;
+          fork.outcome = "failed";
+          this.deliver(
+            fork.parentId,
+            fork.deleteOnCompletion
+              ? `Temporary background work ${recipient} could not finish. Check the model provider before submitting the event again.`
+              : `Fork ${recipient} could not finish. Check the model provider or send the fork another message to continue.`,
+          );
         },
       )
       .finally(async () => {
@@ -416,7 +436,13 @@ export class ForkingAgentSession implements AgentSession {
         for (const { id } of owned) this.forks.delete(id);
       })
       .finally(() => {
-        for (const { fork } of owned) fork.deletion = undefined;
+        for (const { fork } of owned) {
+          fork.deletion = undefined;
+          // Work has stopped even if transcript removal failed, so the observer hears exactly once.
+          const { observer, outcome } = fork;
+          fork.observer = undefined;
+          observer?.finished(outcome ?? "cancelled");
+        }
         this.startWaitingForks();
       });
     for (const { fork } of owned) fork.deletion = deletion;

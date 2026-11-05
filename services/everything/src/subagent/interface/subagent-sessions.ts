@@ -3,7 +3,7 @@ import type {
   Subagent,
 } from "@everything/agent-contracts/subagent";
 import type { MessagePage } from "@everything/conversation-contracts";
-import type { SubagentScope } from "./subagent-operations.js";
+import type { SubagentScope, WakeupOptions } from "./subagent-operations.js";
 
 /** Saved background sessions can be inspected and removed without an active model provider. */
 export interface SubagentArchive {
@@ -20,7 +20,10 @@ export interface SubagentSession extends SubagentArchive {
   /** Start a child of the main teammate with shared settings and workspace. */
   create(input: CreateSubagentInput): Promise<Subagent>;
   /** Run temporary event work and remove it after completion or cancellation. */
-  wakeup(input: CreateSubagentInput): Promise<Subagent>;
+  wakeup(
+    input: CreateSubagentInput,
+    options?: WakeupOptions,
+  ): Promise<Subagent>;
   /** Wake an idle session or queue behind its current work. */
   send(id: string, text: string): Subagent;
 }
