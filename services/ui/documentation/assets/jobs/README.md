@@ -47,14 +47,14 @@ On the phone: the card behind Details, both runs of a job's history with the fai
 
 ## Provenance
 
-- **Screenshots and records:** taken from source `bb89cf59d4c0bac15993db0a631612524f21e0a2`, tree `d4368330136d391b73f40492d561174b9877219c`.
-- **CI run:** 41954346460, attempt 1, `pull_request`, job "Build and test". GitHub tested merge commit `01840afea2d28934058a0aaab5c737dc2978be6a`, whose tree is identical to the source's.
-- **Artifact:** `jobs-browser-proof-41954346460-1`, id 13382139074.
-- **Documentation commit:** these files were added in a later, documentation-only commit. That commit's own CI reruns the same tests, but these pixels come from the source above, not from it.
+- **Screenshots and records:** taken from source `4b56ced5ff1e778c045ad8c9a3d47a2e5d16cdf8`, tree `a10f429c985a17323a978a7f71c2523750d1421a`.
+- **CI run:** 41955987999, attempt 1, `pull_request`, job "Build and test". GitHub tested merge commit `97298901f59421a4609fb5ab3532348a821af78f`, whose tree is identical to the source's.
+- **Artifact:** `jobs-browser-proof-41955987999-1`, id 13383865904.
+- **Documentation commit:** these files are in a later, documentation-only commit. That commit's own CI reruns the same tests, but these pixels come from the source above, not from it.
 - **Integrity:**
   - The PNGs are byte-identical to the artifact; no resizing or re-encoding.
   - `jobs-evidence.json` is byte-identical too.
-  - `browser-report-summary.json` differs only by Prettier collapsing two one-item arrays: 717 → 685 bytes, and it parses identically.
+  - `browser-report-summary.json` differs only by Prettier collapsing two one-item arrays: 726 → 694 bytes, and it parses identically.
   - `MANIFEST.json` records every hash, both before and after formatting, plus the raw report's.
 
 ## Earlier attempts
@@ -64,4 +64,5 @@ On the phone: the card behind Details, both runs of a job's history with the fai
 - **First CI run with the harness** (`ebeddae`, run 41952630261):
   - **Attempt 1** failed in an unrelated, already-shipped upload test (`png-webp-http.test.ts`), which reads a prompt file while it's being written. The jobs steps didn't run.
   - **Attempt 2** passed both browser tests, but its desktop editor screenshot showed the previous schedule's preview times under a new cron schedule, so those images weren't published.
-- **The fix** (`bb89cf5`): the editor now shows a schedule's preview only for that schedule, and the test checks the preview's contents.
+- **Preview fix** (`bb89cf5`): the editor shows a schedule's preview only for that schedule, and the test checks the preview's contents. Its passing run's screenshots were first published in documentation commit `fe3cbec`.
+- **`fe3cbec`'s own CI** (run 41955292823) then caught a real bug in the PostgreSQL test: one of 25 simultaneous job creations failed with a serialization error instead of succeeding or reaching the limit. `4b56ced` fixed it by creating jobs at READ COMMITTED under the teammate's row lock. Because the source changed, the screenshots here were replaced with `4b56ced`'s run.

@@ -6,34 +6,34 @@
       "type": "interval",
       "seconds": 900
     },
-    "nextRunAt": "2026-11-05T02:53:37.036Z",
+    "nextRunAt": "2026-11-05T03:07:20.815Z",
     "enabled": true,
-    "id": "f6c4e162-147d-4b66-aa02-4e0e1db66f9d",
+    "id": "ef1edf18-b08b-4a41-8dbf-0f67b395c31f",
     "agentId": "5d0c6a52-8b8e-4c55-9c1a-3f1d2e7b9a10",
-    "createdAt": "2026-11-05T02:23:29.923Z",
-    "updatedAt": "2026-11-05T02:38:37.036Z"
+    "createdAt": "2026-11-05T02:37:14.090Z",
+    "updatedAt": "2026-11-05T02:52:20.815Z"
   },
   "runs": [
     {
-      "id": "e3e4c239-9419-4e24-8948-d922d0e83ce7",
-      "jobId": "f6c4e162-147d-4b66-aa02-4e0e1db66f9d",
-      "scheduledFor": "2026-11-05T02:38:29.923Z",
+      "id": "5d826136-a709-4cea-b3ee-6e28676d54dd",
+      "jobId": "ef1edf18-b08b-4a41-8dbf-0f67b395c31f",
+      "scheduledFor": "2026-11-05T02:52:14.090Z",
       "status": "completed",
-      "startedAt": "2026-11-05T02:38:30.530Z",
-      "finishedAt": "2026-11-05T02:38:34.532Z",
+      "startedAt": "2026-11-05T02:52:14.656Z",
+      "finishedAt": "2026-11-05T02:52:18.658Z",
       "error": null
     },
     {
-      "id": "fcca7032-974e-4ca8-a9fd-3b96fa0eb8b1",
-      "jobId": "f6c4e162-147d-4b66-aa02-4e0e1db66f9d",
-      "scheduledFor": "2026-11-05T02:38:36.429Z",
+      "id": "423f9067-c186-4c73-a4b9-3d7a6016ad8e",
+      "jobId": "ef1edf18-b08b-4a41-8dbf-0f67b395c31f",
+      "scheduledFor": "2026-11-05T02:52:20.349Z",
       "status": "cancelled",
-      "startedAt": "2026-11-05T02:38:36.430Z",
-      "finishedAt": "2026-11-05T02:38:36.634Z",
+      "startedAt": "2026-11-05T02:52:20.350Z",
+      "finishedAt": "2026-11-05T02:52:20.486Z",
       "error": "Stopped from the job before it finished."
     }
   ],
-  "backgroundTask": "Background task from scheduled job:\nScheduled job \"Release watch\", which runs every 15 minutes.\nThis run was due at 2026-11-05T02:38:29.923Z.\n\nThe user's instructions for this job:\nCheck the releases page and tell me only when there is a new release.\n\nThis is a fresh session: earlier runs of this job aren't in your context, so keep notes in your workspace when a later run needs them. When you finish, your final reply goes to your main conversation, which decides whether to tell the user; say plainly when there's nothing new.",
-  "mainInput": "Fork 70c694c0-3639-4f9f-89c1-789282d0c8ea finished:\n(Mocked background reply.) Checked the releases page: no new release since yesterday.",
+  "backgroundTask": "Background task from scheduled job:\nScheduled job \"Release watch\", which runs every 15 minutes.\nThis run was due at 2026-11-05T02:52:14.090Z.\n\nThe user's instructions for this job:\nCheck the releases page and tell me only when there is a new release.\n\nThis is a fresh session: earlier runs of this job aren't in your context, so keep notes in your workspace when a later run needs them. When you finish, your final reply goes to your main conversation, which decides whether to tell the user; say plainly when there's nothing new.",
+  "mainInput": "Fork ce5d8291-4b50-4dce-9c46-acb1cfe8e430 finished:\n(Mocked background reply.) Checked the releases page: no new release since yesterday.",
   "dispatcherFailures": []
 }

@@ -5,7 +5,7 @@
     "unexpected": 0,
     "flaky": 0,
     "skipped": 0,
-    "durationMs": 22715.772
+    "durationMs": 18958.583000000002
   },
   "topLevelErrors": 0,
   "tests": [
@@ -14,14 +14,14 @@
       "title": "@desktop a job is created with a previewed schedule, runs through the teammate on time, and is controlled from its history",
       "status": "expected",
       "results": ["passed"],
-      "durationMs": 12490
+      "durationMs": 11618
     },
     {
       "project": "phone",
       "title": "@phone jobs fit a phone: the card behind Details, a job's history, and the editor",
       "status": "expected",
       "results": ["passed"],
-      "durationMs": 4149
+      "durationMs": 3220
     }
   ],
   "problems": []
