@@ -124,10 +124,21 @@ test("@desktop a job is created with a previewed schedule, runs through the team
   const instructions =
     "Check the releases page and tell me only when there is a new release.";
   await editor.getByLabel("Instructions", { exact: true }).fill(instructions);
+  // Help text describes each field without becoming part of its name.
+  await expect(
+    editor.getByLabel("Instructions", { exact: true }),
+  ).toHaveAccessibleDescription(
+    "Each run starts fresh. Ask Avery to keep notes in its workspace if a later run needs them.",
+  );
   await choose(page, editor, "Schedule", "Cron schedule");
   await expect(
     editor.getByLabel("Cron expression", { exact: true }),
   ).toHaveValue("0 9 * * 1-5");
+  await expect(
+    editor.getByLabel("Cron expression", { exact: true }),
+  ).toHaveAccessibleDescription(
+    "Five numbers or ranges: minute, hour, day of month, month, and day of week. 0 9 * * 1-5 runs at 9:00 on weekdays.",
+  );
   await expect(
     editor.getByRole("combobox", { name: "Timezone" }),
   ).toContainText("Europe/Paris");
@@ -144,8 +155,17 @@ test("@desktop a job is created with a previewed schedule, runs through the team
     editor.getByRole("button", { name: "Create job" }),
   ).toBeDisabled();
 
+  await choose(page, editor, "Schedule", "Once");
+  await expect(
+    editor.getByLabel("Date and time", { exact: true }),
+  ).toHaveAccessibleDescription("In your timezone, Europe/Paris.");
   await choose(page, editor, "Schedule", "Repeat every…");
   await editor.getByLabel("Every", { exact: true }).fill("15");
+  await expect(
+    editor.getByLabel("Every", { exact: true }),
+  ).toHaveAccessibleDescription(
+    "The first run is one interval after you save. At least five minutes.",
+  );
   await choose(page, editor, "Interval unit", "minutes");
   await expect(editor.locator(".job-preview li")).toHaveCount(3);
   const saving = page.waitForResponse(
@@ -276,6 +296,11 @@ test("@phone jobs fit a phone: the card behind Details, a job's history, and the
   await editor
     .getByLabel("Instructions", { exact: true })
     .fill("Every Friday, list anything I promised and haven't finished.");
+  await expect(
+    editor.getByLabel("Instructions", { exact: true }),
+  ).toHaveAccessibleDescription(
+    "Each run starts fresh. Ask Avery to keep notes in its workspace if a later run needs them.",
+  );
   await choose(page, editor, "Schedule", "Cron schedule");
   await editor
     .getByLabel("Cron expression", { exact: true })

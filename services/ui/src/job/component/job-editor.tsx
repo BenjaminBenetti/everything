@@ -4,6 +4,7 @@ import { Button } from "@everything/ui/button";
 import { Dialog } from "@everything/ui/dialog";
 import { Select } from "@everything/ui/select";
 import { useJobActions, useJobPreview } from "../hook/use-jobs.js";
+import { JobField } from "./job-field.js";
 import {
   draftFromJob,
   emptyDraft,
@@ -105,34 +106,38 @@ export function JobEditor({
       }
     >
       <form id={formId} onSubmit={submit} aria-busy={save.isPending}>
-        <label className="field">
-          Name
-          <input
-            autoFocus
-            required
-            maxLength={jobLimits.nameLength}
-            placeholder="e.g. Morning PR check"
-            value={draft.name}
-            onChange={(event) => set("name", event.target.value)}
-            disabled={save.isPending}
-          />
-        </label>
-        <label className="field">
-          Instructions
-          <textarea
-            required
-            rows={4}
-            maxLength={jobLimits.instructionsLength}
-            placeholder="What should be checked, and when should you hear about it?"
-            value={draft.instructions}
-            onChange={(event) => set("instructions", event.target.value)}
-            disabled={save.isPending}
-          />
-          <small>
-            Each run starts fresh. Ask {teammateName} to keep notes in its
-            workspace if a later run needs them.
-          </small>
-        </label>
+        <JobField label="Name">
+          {({ id }) => (
+            <input
+              id={id}
+              autoFocus
+              required
+              maxLength={jobLimits.nameLength}
+              placeholder="e.g. Morning PR check"
+              value={draft.name}
+              onChange={(event) => set("name", event.target.value)}
+              disabled={save.isPending}
+            />
+          )}
+        </JobField>
+        <JobField
+          label="Instructions"
+          description={`Each run starts fresh. Ask ${teammateName} to keep notes in its workspace if a later run needs them.`}
+        >
+          {({ id, describedBy }) => (
+            <textarea
+              id={id}
+              aria-describedby={describedBy}
+              required
+              rows={4}
+              maxLength={jobLimits.instructionsLength}
+              placeholder="What should be checked, and when should you hear about it?"
+              value={draft.instructions}
+              onChange={(event) => set("instructions", event.target.value)}
+              disabled={save.isPending}
+            />
+          )}
+        </JobField>
         <div className="field">
           <span>Schedule</span>
           <Select
@@ -145,68 +150,81 @@ export function JobEditor({
           />
         </div>
         {draft.kind === "once" && (
-          <label className="field">
-            Date and time
-            <input
-              type="datetime-local"
-              required
-              value={draft.onceAt}
-              onChange={(event) => set("onceAt", event.target.value)}
-              disabled={save.isPending}
-            />
-            <small>In your timezone, {browserZone}.</small>
-          </label>
+          <JobField
+            label="Date and time"
+            description={`In your timezone, ${browserZone}.`}
+          >
+            {({ id, describedBy }) => (
+              <input
+                id={id}
+                aria-describedby={describedBy}
+                type="datetime-local"
+                required
+                value={draft.onceAt}
+                onChange={(event) => set("onceAt", event.target.value)}
+                disabled={save.isPending}
+              />
+            )}
+          </JobField>
         )}
         {draft.kind === "interval" && (
-          <div className="field job-interval">
-            <label htmlFor={`${formId}-amount`}>Every</label>
-            <div className="job-interval-inputs">
-              <input
-                id={`${formId}-amount`}
-                inputMode="numeric"
-                pattern="[0-9]*"
-                required
-                value={draft.intervalAmount}
-                onChange={(event) => set("intervalAmount", event.target.value)}
-                disabled={save.isPending}
-              />
-              <Select
-                label="Interval unit"
-                value={draft.intervalUnit}
-                options={intervalUnits}
-                placeholder="Unit"
-                disabled={save.isPending}
-                onValueChange={(value) =>
-                  set("intervalUnit", value as IntervalUnit)
-                }
-              />
-            </div>
-            <small>
-              The first run is one interval after you save. At least five
-              minutes.
-            </small>
-          </div>
+          <JobField
+            label="Every"
+            className="job-interval"
+            description="The first run is one interval after you save. At least five minutes."
+          >
+            {({ id, describedBy }) => (
+              <div className="job-interval-inputs">
+                <input
+                  id={id}
+                  aria-describedby={describedBy}
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  required
+                  value={draft.intervalAmount}
+                  onChange={(event) =>
+                    set("intervalAmount", event.target.value)
+                  }
+                  disabled={save.isPending}
+                />
+                <Select
+                  label="Interval unit"
+                  value={draft.intervalUnit}
+                  options={intervalUnits}
+                  placeholder="Unit"
+                  disabled={save.isPending}
+                  onValueChange={(value) =>
+                    set("intervalUnit", value as IntervalUnit)
+                  }
+                />
+              </div>
+            )}
+          </JobField>
         )}
         {draft.kind === "cron" && (
           <>
-            <label className="field">
-              Cron expression
-              <input
-                className="job-cron-input"
-                required
-                spellCheck={false}
-                autoCapitalize="off"
-                autoComplete="off"
-                maxLength={jobLimits.cronLength}
-                value={draft.cronExpression}
-                onChange={(event) => set("cronExpression", event.target.value)}
-                disabled={save.isPending}
-              />
-              <small>
-                Five numbers or ranges: minute, hour, day of month, month, and
-                day of week. 0 9 * * 1-5 runs at 9:00 on weekdays.
-              </small>
-            </label>
+            <JobField
+              label="Cron expression"
+              description="Five numbers or ranges: minute, hour, day of month, month, and day of week. 0 9 * * 1-5 runs at 9:00 on weekdays."
+            >
+              {({ id, describedBy }) => (
+                <input
+                  id={id}
+                  aria-describedby={describedBy}
+                  className="job-cron-input"
+                  required
+                  spellCheck={false}
+                  autoCapitalize="off"
+                  autoComplete="off"
+                  maxLength={jobLimits.cronLength}
+                  value={draft.cronExpression}
+                  onChange={(event) =>
+                    set("cronExpression", event.target.value)
+                  }
+                  disabled={save.isPending}
+                />
+              )}
+            </JobField>
             <div className="field">
               <span>Timezone</span>
               <Select
