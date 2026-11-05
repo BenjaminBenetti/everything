@@ -32,6 +32,10 @@ import { FileSystemWorkspaceImages } from "../../workspace/adapter/file-system-w
 import { ConversationSearchService } from "../../conversation/service/conversation-search-service.js";
 import { SubagentService } from "../../subagent/service/subagent-service.js";
 import { PiSubagentArchives } from "../../subagent/adapter/pi-subagent-archives.js";
+import { PostgresJobRepository } from "../../job/repository/postgres-job-repository.js";
+import { JobRuns } from "../../job/service/job-runs.js";
+import { JobScheduler } from "../../job/service/job-scheduler.js";
+import { JobService } from "../../job/service/job-service.js";
 import { ApiDocumentationService } from "../../api-documentation/service/api-documentation-service.js";
 import { ModelUpdateSummarizer } from "../../update/adapter/model-update-summarizer.js";
 import { PostgresUpdateRepository } from "../../update/repository/postgres-update-repository.js";
@@ -285,6 +289,16 @@ async function main(): Promise<void> {
     conversations,
     new PiSubagentArchives(workspaces),
   );
+  // Job runs wake the teammate through the same owner-scoped wakeup service as API events and monitors.
+  const jobRepository = new PostgresJobRepository(database);
+  const jobRuns = new JobRuns(subagents, jobRepository, () =>
+    reportWarning("A scheduled job run couldn't be recorded or stopped."),
+  );
+  const jobScheduler = new JobScheduler(jobRepository, jobRuns, () =>
+    reportWarning("Scheduled jobs couldn't be checked; checking will retry."),
+  );
+  // Before requests are accepted, so no new run can be mistaken for an interrupted one.
+  await jobScheduler.recover();
   const voice = await createVoiceRuntime(config.voice, agents, (message) =>
     reportWarning(message),
   );
@@ -326,6 +340,7 @@ async function main(): Promise<void> {
       attachmentFiles,
     ),
     subagents,
+    jobs: new JobService(agents, jobRepository, jobRuns),
     updates: new UpdateService(updates, generalSettings),
     upgrades: config.upgrader.url
       ? new HttpUpgrader(
@@ -397,8 +412,12 @@ async function main(): Promise<void> {
     await providerChecks.close();
     await credentialSync.close();
     await attachmentExpiry.close();
+    await jobScheduler.close();
+    // Unaccepted runs are withdrawn; accepted ones end as their runtimes close below.
+    await jobRuns.close();
     await monitors.close();
     await conversations.close();
+    await jobRuns.settled();
     await workspaces.close();
     await fleetClientAddress?.close();
     await fleet.close();
@@ -413,6 +432,7 @@ async function main(): Promise<void> {
   providerChecks.start();
   credentialSync.start();
   attachmentExpiry.start();
+  jobScheduler.start();
   workspaces.start();
   fleet.start();
   fleetClientAddress?.start();

@@ -26,6 +26,9 @@ import { CredentialValueIds1792972800000 } from "../migration/1792972800000-cred
 import { AttachmentEntity } from "../../attachment/schema/attachment-entity.js";
 import { MessageAttachments1793059200000 } from "../migration/1793059200000-message-attachments.js";
 import { AttachmentInputSize1793577600000 } from "../migration/1793577600000-attachment-input-size.js";
+import { AgentJobEntity } from "../../job/schema/job-entity.js";
+import { JobRunEntity } from "../../job/schema/job-run-entity.js";
+import { AgentJobs1793664000000 } from "../migration/1793664000000-agent-jobs.js";
 
 /** Connection settings for the service's own PostgreSQL database. */
 export interface DatabaseConnectionSettings {
@@ -53,6 +56,8 @@ export function createApplicationDatabase(
       AgentEntity,
       MessageEntity,
       AttachmentEntity,
+      AgentJobEntity,
+      JobRunEntity,
       UpdateEntity,
       SessionEntity,
       ProviderEntity,
@@ -78,6 +83,7 @@ export function createApplicationDatabase(
       CredentialValueIds1792972800000,
       MessageAttachments1793059200000,
       AttachmentInputSize1793577600000,
+      AgentJobs1793664000000,
     ],
     migrationsTableName: "everything_migrations",
     migrationsTransactionMode: "all",

@@ -10,6 +10,7 @@ import {
 import { ConversationTeammateCard } from "./conversation-teammate-card.js";
 import { TeammatePresence } from "./teammate-presence.js";
 import { ConversationWorkspacesCard } from "./conversation-workspaces-card.js";
+import { JobsCard } from "../../job/component/jobs-card.js";
 
 /**
  * Keep details beside desktop messages and behind an info button on smaller screens. Every visible
@@ -80,6 +81,7 @@ export function ConversationDetails({
           name={agent.name}
           avatarId={agent.avatarId}
         />
+        <JobsCard agent={agent} />
       </div>
     </div>
   );

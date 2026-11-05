@@ -60,6 +60,8 @@ import type { UpgradeOperations } from "../../upgrade/interface/upgrade-operatio
 import { upgradeController } from "../../upgrade/controller/upgrade-controller.js";
 import { updateController } from "../../update/controller/update-controller.js";
 import type { SubagentOperations } from "../../subagent/interface/subagent-operations.js";
+import type { JobOperations } from "../../job/interface/job-operations.js";
+import { jobController } from "../../job/controller/job-controller.js";
 import { subagentController } from "../../subagent/controller/subagent-controller.js";
 import { registerApiDocumentation } from "../../api-documentation/adapter/fastify-api-documentation.js";
 import { apiDocumentationController } from "../../api-documentation/controller/api-documentation-controller.js";
@@ -104,6 +106,7 @@ export interface HttpDependencies {
   readonly attachments: AttachmentOperations;
   readonly workspaceImages?: WorkspaceImageContent;
   readonly subagents: SubagentOperations;
+  readonly jobs?: JobOperations;
   readonly updates: UpdateOperations;
   readonly upgrades: UpgradeOperations;
   readonly artifacts: ArtifactLibrary;
@@ -211,6 +214,7 @@ function protectedApi(
     if (dependencies.workspaceImages)
       await workspaceImageController(scope, dependencies.workspaceImages);
     await subagentController(scope, dependencies.subagents);
+    if (dependencies.jobs) await jobController(scope, dependencies.jobs);
     await updateController(scope, dependencies.updates);
     await upgradeController(scope, dependencies.upgrades);
     await agentController(scope, dependencies.agents, dependencies.removal);

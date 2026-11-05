@@ -11,6 +11,10 @@
       "types": "./build/subagent/model/subagent.d.ts",
       "default": "./build/subagent/model/subagent.js"
     },
+    "./job": {
+      "types": "./build/job/model/job.d.ts",
+      "default": "./build/job/model/job.js"
+    },
     ".": {
       "types": "./build/agent/model/agent.d.ts",
       "default": "./build/agent/model/agent.js"

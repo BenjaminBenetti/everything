@@ -1,0 +1,263 @@
+/* ===========================================
+   Jobs card beside the chat
+   =========================================== */
+.chat-jobs-card {
+  min-width: 0;
+  padding: 18px;
+  background: var(--surface-panel);
+  border: 1px solid var(--border-default);
+  border-radius: 14px;
+}
+.chat-jobs-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: -6px -6px 0 0;
+}
+.chat-jobs-card h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 550;
+}
+.chat-jobs-card h2 svg {
+  width: 15px;
+  height: 15px;
+  color: var(--text-secondary);
+}
+.chat-jobs-new svg {
+  width: 16px;
+  height: 16px;
+}
+.chat-jobs-notice {
+  margin-top: 8px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.7;
+}
+.chat-job-list {
+  list-style: none;
+  padding: 0;
+  margin: 8px -8px -6px;
+}
+.chat-job-row {
+  display: grid;
+  width: 100%;
+  gap: 2px;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 180ms ease;
+}
+.chat-job-row:hover,
+.chat-job-row:focus-visible {
+  background: var(--surface-selected);
+}
+.chat-job-name {
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 550;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-job-schedule {
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-job-status {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+.chat-job-status[data-tone="active"] {
+  color: var(--status-connected);
+}
+.chat-job-status[data-tone="failed"] {
+  color: var(--status-disconnected);
+}
+
+/* ===========================================
+   Job details
+   =========================================== */
+.job-facts {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+}
+.job-facts div {
+  display: grid;
+  gap: 4px;
+}
+.job-facts dt {
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 550;
+}
+.job-facts dd {
+  margin: 0;
+  font-size: 13px;
+}
+.job-instructions {
+  max-height: 160px;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  line-height: 1.6;
+}
+.job-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 20px;
+}
+.job-actions .button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.job-actions svg {
+  width: 14px;
+  height: 14px;
+}
+.job-hint {
+  margin-top: 10px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.6;
+}
+.job-delete-confirm {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-default);
+  border-radius: 10px;
+  background: var(--surface-danger-subtle);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.job-delete-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 10px;
+}
+.job-runs {
+  margin-top: 22px;
+}
+.job-runs h3 {
+  font-size: 12px;
+  font-weight: 600;
+}
+.job-runs-notice {
+  margin-top: 8px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+.job-run-list {
+  display: grid;
+  gap: 6px;
+  list-style: none;
+  padding: 0;
+  margin: 10px 0 0;
+}
+.job-run {
+  display: grid;
+  grid-template-columns: minmax(78px, auto) minmax(0, 1fr);
+  column-gap: 12px;
+  row-gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  font-size: 12px;
+}
+.job-run-status {
+  font-weight: 600;
+}
+.job-run[data-status="failed"] .job-run-status {
+  color: var(--status-disconnected);
+}
+.job-run[data-status="running"] .job-run-status,
+.job-run[data-status="pending"] .job-run-status {
+  color: var(--status-connected);
+}
+.job-run-time {
+  min-width: 0;
+}
+.job-run-detail {
+  grid-column: 2;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+.job-run-error {
+  grid-column: 1 / -1;
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+/* ===========================================
+   Job editor
+   =========================================== */
+.job-interval-inputs {
+  display: grid;
+  grid-template-columns: minmax(64px, 96px) minmax(0, 1fr);
+  gap: 8px;
+  margin-top: 9px;
+}
+.field .job-interval-inputs input {
+  margin-top: 0;
+}
+.field .job-interval-inputs .select-trigger {
+  margin-top: 0;
+}
+.job-cron-input {
+  font-family:
+    ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+}
+.job-preview {
+  padding: 12px 14px;
+  border: 1px solid var(--border-default);
+  border-radius: 10px;
+  background: var(--surface-subtle);
+  font-size: 12px;
+}
+.job-preview ol {
+  display: grid;
+  gap: 4px;
+  padding-left: 18px;
+  margin: 8px 0 0;
+}
+.job-preview-note,
+.job-preview-error {
+  margin-top: 8px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+.job-preview-error {
+  color: var(--status-disconnected);
+}
+
+@media (max-width: 1100px) {
+  .chat-jobs-card {
+    padding: 12px 16px;
+  }
+}
+@media (max-width: 650px) {
+  .chat-jobs-card {
+    padding: 12px 14px;
+  }
+  .job-actions .button {
+    flex: 1 1 calc(50% - 4px);
+    justify-content: center;
+  }
+}
