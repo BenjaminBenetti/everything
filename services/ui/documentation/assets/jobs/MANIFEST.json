@@ -1,0 +1,125 @@
+{
+  "description": "Unedited CI screenshots and records of the teammate jobs browser harness (testing/ui/src/job/e2e/jobs.e2e.ts). All data is synthetic.",
+  "source": {
+    "head": "bb89cf59d4c0bac15993db0a631612524f21e0a2",
+    "tree": "d4368330136d391b73f40492d561174b9877219c",
+    "base": "c28d3f903bbc69dd1e54890de2a58bc11ee75108",
+    "testedMergeCommit": "01840afea2d28934058a0aaab5c737dc2978be6a",
+    "testedMergeTree": "d4368330136d391b73f40492d561174b9877219c"
+  },
+  "ci": {
+    "workflow": "CI",
+    "event": "pull_request",
+    "runId": 41954346460,
+    "attempt": 1,
+    "job": "Build and test",
+    "jobId": 127005534432,
+    "step": "Jobs browser harness",
+    "nativeExit": 0
+  },
+  "artifact": {
+    "id": 13382139074,
+    "name": "jobs-browser-proof-41954346460-1",
+    "bytes": 1157031,
+    "checksumsSha256": "4de65dafb048e17b5c224a9d5a1f9f84eda1247d5b75b029f5aa9ff378dd53ad",
+    "note": "Playwright's hidden results/.last-run.json is listed in the artifact's checksums but not uploaded, because upload-artifact skips hidden files; every other listed file matched."
+  },
+  "report": {
+    "playwright": "1.64.0",
+    "workers": 1,
+    "retries": [0, 0],
+    "projects": ["desktop", "phone"],
+    "stats": {
+      "expected": 2,
+      "unexpected": 0,
+      "flaky": 0,
+      "skipped": 0
+    },
+    "topLevelErrors": 0,
+    "rawReportBytes": 531296,
+    "rawReportSha256": "a4a23e7794d0d5dabcfb82956eefd7303b8148f68a6db28492af4fb54a68802b"
+  },
+  "files": [
+    {
+      "name": "desktop-1-jobs.png",
+      "bytes": 78098,
+      "sha256": "4f5c8998fba306f6c2421cf808275831bad97b3012fa23e69ccd31e94a92a8b6",
+      "width": 1440,
+      "height": 960,
+      "capturedByteIdentical": true
+    },
+    {
+      "name": "desktop-2-new-job.png",
+      "bytes": 128580,
+      "sha256": "c0452f9bfd79e97d956e0e3f28aaaef7558a63473e1695fcc5bbcf223df370b1",
+      "width": 1440,
+      "height": 960,
+      "capturedByteIdentical": true
+    },
+    {
+      "name": "desktop-3-running.png",
+      "bytes": 157108,
+      "sha256": "8b83cfdedbee0c7d8ace041746a7889bdc7116af34194a35b5c00a9ae9e0805e",
+      "width": 1440,
+      "height": 960,
+      "capturedByteIdentical": true
+    },
+    {
+      "name": "desktop-4-reply.png",
+      "bytes": 84085,
+      "sha256": "4b9cf5e15a88f31e985ca1e716f885bb36630de2b6eadcd880629e5200c5d7fc",
+      "width": 1440,
+      "height": 960,
+      "capturedByteIdentical": true
+    },
+    {
+      "name": "desktop-5-history.png",
+      "bytes": 124829,
+      "sha256": "6a9569d6fa0eaf904199fb9dd0446f3f0adf472c2087cf8e8761a1afa9126b1c",
+      "width": 1440,
+      "height": 960,
+      "capturedByteIdentical": true
+    },
+    {
+      "name": "phone-1-jobs.png",
+      "bytes": 160431,
+      "sha256": "666317ee54fa1fd7fad376e5d381e41d5d283e639337cd542a1795d7f8602720",
+      "width": 1170,
+      "height": 1992,
+      "capturedByteIdentical": true
+    },
+    {
+      "name": "phone-2-history.png",
+      "bytes": 180358,
+      "sha256": "f43abe965bd39a40f63204152040a4a739a8b062ccb3942139ae0aa04cab45f8",
+      "width": 1170,
+      "height": 1992,
+      "capturedByteIdentical": true
+    },
+    {
+      "name": "phone-3-editor.png",
+      "bytes": 158641,
+      "sha256": "9c6d056c1b387aab629b013525c327a155415d640ea5994495d9083e5bfd5c1b",
+      "width": 1170,
+      "height": 1992,
+      "capturedByteIdentical": true
+    },
+    {
+      "name": "jobs-evidence.json",
+      "bytes": 1903,
+      "sha256": "037b7474c9dc93e4935975fdc58014cefb84295f13b497de138d6dc8e4eaafe9",
+      "capturedSha256": "037b7474c9dc93e4935975fdc58014cefb84295f13b497de138d6dc8e4eaafe9",
+      "capturedByteIdentical": true
+    },
+    {
+      "name": "browser-report-summary.json",
+      "bytes": 685,
+      "sha256": "9fd8ddcf60fd920d8b89a8b47b5ed095e4a6819daadd01ce519dd4abd7b2adfd",
+      "capturedBytes": 717,
+      "capturedSha256": "5d95101f5367088543803abd10122c69494dd29decb3e0a229124667e277cab1",
+      "capturedByteIdentical": false,
+      "parsedEqualToCaptured": true,
+      "formatting": "Prettier collapsed two one-item arrays; content unchanged"
+    }
+  ]
+}

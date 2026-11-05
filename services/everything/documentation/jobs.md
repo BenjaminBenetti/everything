@@ -54,3 +54,9 @@ Running, completed, failed, and cancelled come from the runtime itself: the sess
 - Claims and edits of one job are serialized in the process and by row locks, and dispatch happens only after the claim commits, so a pause committed first always prevents the run. No database transaction is held while the teammate works.
 - **Single replica.** Following runs and startup recovery assume the one API replica the chart runs. Claims are safe across processes, but recovery would fail another live process's runs, so the scheduler isn't designed for several replicas.
 - A run's model work is billed to the teammate's provider like any other turn. Jobs don't probe providers or models.
+
+## Tests and screenshots
+
+- **CI coverage:** CI's Build and test job runs the jobs PostgreSQL test against a disposable `postgres:17.11-bookworm` (**Jobs PostgreSQL integration**: exactly one test, which must pass and must not skip). It also runs the desktop and phone browser harness (**Jobs browser harness**: both tests must pass on their only attempt).
+- **Artifact:** the harness's screenshots and records are uploaded as `jobs-browser-proof-<run>-<attempt>`.
+- **Published screenshots:** unedited screenshots from a passing CI run, with what was real and what was synthetic, are in [`services/ui/documentation/assets/jobs/README.md`](../../ui/documentation/assets/jobs/README.md).
