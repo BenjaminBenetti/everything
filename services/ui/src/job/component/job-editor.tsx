@@ -52,14 +52,17 @@ export function JobEditor({
   );
   const parsed = scheduleFromDraft(draft);
   const schedule = "schedule" in parsed ? parsed.schedule : undefined;
-  const preview = useJobPreview(agentId, schedule);
+  const { query: preview, current: previewCurrent } = useJobPreview(
+    agentId,
+    schedule,
+  );
   const { create, update } = useJobActions(agentId);
   const save = job ? update : create;
   const ready =
     !!draft.name.trim() &&
     !!draft.instructions.trim() &&
     !!schedule &&
-    !preview.isError;
+    !(previewCurrent && preview.isError);
   /** Change one field of the draft. */
   function set<K extends keyof JobDraft>(field: K, value: JobDraft[K]): void {
     setDraft((current) => ({ ...current, [field]: value }));
@@ -245,9 +248,9 @@ export function JobEditor({
           <span className="eyebrow">Next runs</span>
           {"error" in parsed ? (
             <p className="job-preview-note">{parsed.error}</p>
-          ) : preview.isError ? (
+          ) : previewCurrent && preview.isError ? (
             <p className="job-preview-error">{preview.error.message}</p>
-          ) : !preview.data ? (
+          ) : !previewCurrent || !preview.data ? (
             <p className="job-preview-note">Checking the schedule…</p>
           ) : (
             <ol>

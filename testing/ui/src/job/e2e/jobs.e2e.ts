@@ -142,7 +142,14 @@ test("@desktop a job is created with a previewed schedule, runs through the team
   await expect(
     editor.getByRole("combobox", { name: "Timezone" }),
   ).toContainText("Europe/Paris");
+  // The preview shows this schedule's own times, never an earlier schedule's while it updates.
   await expect(editor.locator(".job-preview li")).toHaveCount(3);
+  await expect(editor.locator(".job-preview li")).toHaveText([
+    /, 9:00\sAM$/,
+    /, 9:00\sAM$/,
+    /, 9:00\sAM$/,
+  ]);
+  await editor.locator(".job-preview").scrollIntoViewIfNeeded();
   await page.screenshot({ path: `${evidence}desktop-2-new-job.png` });
   // The server refuses matches closer than five minutes, and the form can't be saved.
   await editor
@@ -168,6 +175,16 @@ test("@desktop a job is created with a previewed schedule, runs through the team
   );
   await choose(page, editor, "Interval unit", "minutes");
   await expect(editor.locator(".job-preview li")).toHaveCount(3);
+  await expect
+    .poll(async () => {
+      const times = await editor
+        .locator(".job-preview time")
+        .evaluateAll((items) =>
+          items.map((item) => Date.parse(item.getAttribute("datetime")!)),
+        );
+      return times.slice(1).map((time, index) => time - times[index]!);
+    })
+    .toEqual([15 * 60_000, 15 * 60_000]);
   const saving = page.waitForResponse(
     (response) =>
       response.url().endsWith(`/v1/agents/${agentId}/jobs`) &&
@@ -287,6 +304,7 @@ test("@phone jobs fit a phone: the card behind Details, a job's history, and the
     "model provider isn't connected",
   );
   expect(await overflows(page)).toBe(false);
+  await details.locator(".job-run").last().scrollIntoViewIfNeeded();
   await page.screenshot({ path: `${evidence}phone-2-history.png` });
   await details.getByRole("button", { name: "Close", exact: true }).click();
 
@@ -306,7 +324,13 @@ test("@phone jobs fit a phone: the card behind Details, a job's history, and the
     .getByLabel("Cron expression", { exact: true })
     .fill("0 16 * * 5");
   await expect(editor.locator(".job-preview li")).toHaveCount(3);
+  await expect(editor.locator(".job-preview li")).toHaveText([
+    /, 4:00\sPM$/,
+    /, 4:00\sPM$/,
+    /, 4:00\sPM$/,
+  ]);
   expect(await overflows(page)).toBe(false);
+  await editor.locator(".job-preview").scrollIntoViewIfNeeded();
   await page.screenshot({ path: `${evidence}phone-3-editor.png` });
   await editor.getByRole("button", { name: "Cancel" }).click();
   await expect(editor).toBeHidden();

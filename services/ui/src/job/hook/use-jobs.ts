@@ -42,7 +42,11 @@ export function useJobRuns(agentId: string, jobId: string) {
   });
 }
 
-/** The server's preview of a schedule, requested once the user pauses typing. */
+/**
+ * The server's preview of a schedule, requested once the user pauses typing. `current` is false
+ * until the query answers for the schedule as it is now, so an earlier schedule's times or error
+ * are never shown for a newer one.
+ */
 export function useJobPreview(
   agentId: string,
   schedule: JobSchedule | undefined,
@@ -50,13 +54,16 @@ export function useJobPreview(
   const client = useJobClient();
   const key = useJobsKey(agentId);
   const settled = useDebounced(schedule, 400);
-  return useQuery({
+  const query = useQuery({
     queryKey: [...key, "preview", JSON.stringify(settled ?? null)],
     queryFn: ({ signal }) => client.preview(agentId, settled!, signal),
     enabled: !!key[1] && !!settled,
     staleTime: 30_000,
     retry: false,
   });
+  const current =
+    JSON.stringify(settled ?? null) === JSON.stringify(schedule ?? null);
+  return { query, current };
 }
 
 /** Job changes, each refreshing the list and run history when it settles. */
