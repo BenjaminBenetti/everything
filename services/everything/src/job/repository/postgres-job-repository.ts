@@ -67,12 +67,18 @@ export class PostgresJobRepository
   // Owner requests
   // ===========================================
 
-  /** Lock the owned teammate so concurrent creations can't pass the limit together. */
+  /**
+   * Lock the owned teammate so concurrent creations can't pass the limit together. This runs at
+   * READ COMMITTED: the row lock serializes a teammate's creations, and each later statement reads
+   * after the lock, so the count sees every committed job. Under SERIALIZABLE the snapshot predates
+   * the lock wait, so contended creations fail with serialization errors instead of succeeding or
+   * reaching the limit.
+   */
   async create(
     scope: JobOwnerScope,
     job: NewAgentJob,
   ): Promise<AgentJobDefinition> {
-    return serializableTransaction(this.orm.manager, async (manager) => {
+    return this.orm.manager.transaction("READ COMMITTED", async (manager) => {
       const agent = await manager.getRepository(AgentEntity).findOne({
         where: { id: scope.agentId, ownerId: scope.ownerId },
         lock: { mode: "pessimistic_write" },
