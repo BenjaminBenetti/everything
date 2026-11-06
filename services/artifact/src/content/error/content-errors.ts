@@ -1,3 +1,4 @@
+import { formatByteLimit } from "@everything/artifact-contracts";
 import { ApplicationError } from "@everything/errors";
 
 /** A file list breaks a path rule or a size limit; the message names the problem. */
@@ -34,12 +35,12 @@ export class ContentMismatchError extends ApplicationError {
 
 /** An upload exceeded the per-file limit. */
 export class ContentTooLargeError extends ApplicationError {
-  /** Report the limit in MiB. */
+  /** Report the limit in binary units. */
   constructor(limit: number) {
     super(
       413,
       "CONTENT_TOO_LARGE",
-      `Files can be at most ${Math.floor(limit / (1024 * 1024))} MiB.`,
+      `Files can be at most ${formatByteLimit(limit)}.`,
     );
   }
 }

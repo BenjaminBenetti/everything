@@ -21,10 +21,13 @@ export const artifactLimits = {
   pathLength: 1024,
   /** Maximum number of files in one revision or build source. */
   fileCount: 5000,
-  /** Maximum size of one file, in bytes. */
-  fileSize: 25 * 1024 * 1024,
-  /** Maximum combined size of one revision or build source, in bytes. */
-  totalSize: 200 * 1024 * 1024,
+  /** Maximum size of one file, in bytes: 100 MiB. */
+  fileSize: 100 * 1024 * 1024,
+  /**
+   * Maximum combined size of one revision or build source, in bytes: 1 GiB. Every listed path
+   * counts, including paths that share content.
+   */
+  totalSize: 1024 * 1024 * 1024,
   buildArgCount: 32,
   envCount: 64,
   envValueLength: 4096,
@@ -33,6 +36,20 @@ export const artifactLimits = {
   /** Longest path, with its query, that a view link or teammate pass may open inside an artifact. */
   viewPathLength: 2048,
 } as const;
+
+/** Binary units the byte limits are written in, largest first. */
+const binaryUnits = [
+  ["GiB", 1024 * 1024 * 1024],
+  ["MiB", 1024 * 1024],
+  ["KiB", 1024],
+] as const;
+
+/** A byte limit in the largest binary unit that divides it, such as `100 MiB` or `1 GiB`. */
+export function formatByteLimit(bytes: number): string {
+  for (const [unit, size] of binaryUnits)
+    if (bytes >= size && bytes % size === 0) return `${bytes / size} ${unit}`;
+  return `${bytes} bytes`;
+}
 
 /** Lowercase letters, digits, and inner hyphens; slugs name an artifact's link. */
 export const artifactSlugPattern = "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$";

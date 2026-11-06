@@ -2,11 +2,16 @@ import { ArtifactLifecycleService } from "../../artifact/service/artifact-lifecy
 import { ArtifactVisibilityService } from "../../artifact/service/artifact-visibility-service.js";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { Readable } from "node:stream";
+import type { ReadableStream as NodeReadableStream } from "node:stream/web";
 import { test } from "node:test";
+import { setTimeout as sleep } from "node:timers/promises";
 import type { FastifyInstance } from "fastify";
+import { extract } from "tar-stream";
+import { artifactLimits } from "@everything/artifact-contracts";
 import { ArtifactNotFoundError } from "../../artifact/error/artifact-errors.js";
 import { ArtifactLock } from "../../artifact/service/artifact-lock.js";
 import { AppApiKeyUnavailableError } from "../../capability/error/app-api-key-errors.js";
@@ -19,10 +24,12 @@ import {
   MemoryRevisions,
 } from "../../artifact/test/artifact-fixture.js";
 import { FileContentStore } from "../../content/service/file-content-store.js";
+import { repeated, repeatedHash } from "../../content/test/content-fixture.js";
 import type { AppCredentials } from "../../credential/service/app-credentials.js";
 import type { CredentialDistribution } from "../../credential/service/credential-distribution.js";
 import type { DeploymentService } from "../../deployment/service/deployment-service.js";
-import type { BuildService } from "../../image/service/build-service.js";
+import type { BuildJob } from "../../image/interface/build-runner.js";
+import { BuildService } from "../../image/service/build-service.js";
 import { RevisionService } from "../../revision/service/revision-service.js";
 import type { ViewAccess } from "../../viewing/service/view-access.js";
 import { ViewPasses } from "../../viewing/service/view-passes.js";
@@ -36,16 +43,43 @@ const actor = {
 const bearer = { authorization: "Bearer valid" };
 const fixtureKey = `everything_app_key_${"k".repeat(43)}`;
 
+/** Build jobs the internal API starts, and where it keeps content, for tests that follow them. */
+interface Observer {
+  readonly started: BuildJob[];
+  contentRoot?: string;
+}
+
 /** The internal API over in-memory storage and a temporary content store. */
-async function application(context: {
-  after: (cleanup: () => Promise<void>) => void;
-}): Promise<FastifyInstance> {
+async function application(
+  context: {
+    after: (cleanup: () => Promise<void>) => void;
+  },
+  observer: Observer = { started: [] },
+): Promise<FastifyInstance> {
   const root = await mkdtemp(path.join(tmpdir(), "artifact-internal-"));
+  observer.contentRoot = root;
   const artifacts = new MemoryArtifacts();
   const revisions = new MemoryRevisions();
   const content = new FileContentStore(root);
   const lookup = new ArtifactLookup(artifacts);
   const lock = new ArtifactLock();
+  const buildRecords = new MemoryBuilds();
+  const deploymentRecords = new MemoryDeployments();
+  const builds = new BuildService(
+    buildRecords,
+    deploymentRecords,
+    content,
+    {
+      start: async (job) => void observer.started.push(job),
+      progress: async () => ({ phase: "pending", reason: null }),
+      log: async () => "",
+      remove: async () => {},
+    },
+    { digest: async () => `sha256:${"0".repeat(64)}` },
+    lookup,
+    lock,
+    { sourceUrl: "http://artifact:8081", pushHost: "registry:5000" },
+  );
   const app = await createInternalApplication({
     verifier: {
       verify: async (token) => {
@@ -56,8 +90,8 @@ async function application(context: {
     artifacts: new ArtifactService(
       artifacts,
       revisions,
-      new MemoryBuilds(),
-      new MemoryDeployments(),
+      buildRecords,
+      deploymentRecords,
       { runtimes: async () => new Map() },
       {
         builds: { cancel: async () => {} },
@@ -76,7 +110,7 @@ async function application(context: {
     }),
     visibility: new ArtifactVisibilityService(artifacts, lookup, lock),
     revisions: new RevisionService(artifacts, revisions, content, lookup, lock),
-    builds: { source: async () => undefined } as unknown as BuildService,
+    builds,
     deployments: {} as DeploymentService,
     credentials: {} as AppCredentials,
     distribution: {} as CredentialDistribution,
@@ -554,4 +588,269 @@ test("apps start private, only the owner's own request makes them public, and re
     [201, "private"],
   );
   assert.notEqual(recreated.json().id, created.json().id);
+});
+
+/** The internal API listening on a loopback port, and a way to call it as Everything does. */
+async function listening(
+  context: { after: (cleanup: () => Promise<void>) => void },
+  observer: Observer = { started: [] },
+) {
+  const app = await application(context, observer);
+  const base = await app.listen({ host: "127.0.0.1", port: 0 });
+  /** Call the internal API as the service, acting for Ada. */
+  const call = (url: string, init: RequestInit = {}) =>
+    fetch(base + url, {
+      ...init,
+      headers: { ...bearer, ...actor, ...init.headers },
+    });
+  /** Send JSON and return the status with the parsed answer. */
+  const json = async (method: string, url: string, body: unknown) => {
+    const response = await call(url, {
+      method,
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    return {
+      status: response.status,
+      body: (await response.json()) as Record<string, unknown>,
+    };
+  };
+  /** Stream generated content without a Content-Length, so only the bytes received can count. */
+  const upload = (hash: string, body: Readable) => {
+    // Node's fetch sends a streamed body only in half-duplex mode.
+    const init: RequestInit & { duplex: "half" } = {
+      method: "PUT",
+      headers: { "content-type": "application/octet-stream" },
+      body: Readable.toWeb(body) as ReadableStream<Uint8Array>,
+      duplex: "half",
+    };
+    return call(`/internal/v1/content/${hash}`, init);
+  };
+  return { base, call, json, upload };
+}
+
+/** A source file entry for uploaded content. */
+function listed(filePath: string, sha256: string, size: number) {
+  return { path: filePath, sha256, size, executable: false };
+}
+
+test("over HTTP, uploads are counted in received bytes: 100 MiB is kept, one byte more is refused", async (context) => {
+  const { json, upload } = await listening(context);
+  const limit = artifactLimits.fileSize;
+  const exact = repeatedHash(limit);
+  const kept = await upload(exact, repeated(limit));
+  assert.equal(kept.status, 204);
+  // A body above the old 25 MiB limit and the 8 MiB JSON body limit reached the store whole.
+  assert.deepEqual(
+    (await json("POST", "/internal/v1/content/missing", { hashes: [exact] }))
+      .body,
+    { missing: [] },
+  );
+  const over = repeatedHash(limit + 1);
+  const refused = await upload(over, repeated(limit + 1));
+  assert.deepEqual(
+    [refused.status, await refused.json()],
+    [
+      413,
+      { code: "CONTENT_TOO_LARGE", message: "Files can be at most 100 MiB." },
+    ],
+  );
+  const short = await upload(over, repeated(limit));
+  assert.deepEqual(
+    [short.status, ((await short.json()) as { code: string }).code],
+    [400, "CONTENT_MISMATCH"],
+  );
+  assert.deepEqual(
+    (await json("POST", "/internal/v1/content/missing", { hashes: [over] }))
+      .body,
+    { missing: [over] },
+  );
+});
+
+test("an upload interrupted partway stores nothing and leaves no partial file", async (context) => {
+  const observer: Observer = { started: [] };
+  const { json, upload } = await listening(context, observer);
+  const hash = repeatedHash(artifactLimits.fileSize);
+  const source = repeated(artifactLimits.fileSize);
+  let sent = 0;
+  source.on("data", (chunk: Buffer) => {
+    sent += chunk.length;
+    if (sent >= 30 * 1024 * 1024) source.destroy(new Error("interrupted"));
+  });
+  await assert.rejects(upload(hash, source));
+  const incoming = path.join(observer.contentRoot!, "incoming");
+  const deadline = Date.now() + 10_000;
+  while ((await readdir(incoming).catch(() => [])).length) {
+    assert.ok(Date.now() < deadline, "The partial upload was not removed");
+    await sleep(20);
+  }
+  assert.deepEqual(
+    (await json("POST", "/internal/v1/content/missing", { hashes: [hash] }))
+      .body,
+    { missing: [hash] },
+  );
+});
+
+test("over HTTP, static revisions and build sources take exactly 1 GiB of listed files, and a build streams it back", async (context) => {
+  const observer: Observer = { started: [] };
+  const { base, call, json, upload } = await listening(context, observer);
+  const MiB = 1024 * 1024;
+  const dockerfile = "FROM scratch\nCOPY . /\n";
+  const dockerfileHash = createHash("sha256").update(dockerfile).digest("hex");
+  // Real content: one 100 MiB file listed at ten paths, and remainders that make exactly 1 GiB.
+  const contents = {
+    large: { size: 100 * MiB, byte: 0 },
+    siteRest: { size: 24 * MiB, byte: 1 },
+    buildRest: { size: 24 * MiB - dockerfile.length, byte: 2 },
+    byte: { size: 1, byte: 3 },
+  };
+  const hashes = Object.fromEntries(
+    Object.entries(contents).map(([name, { size, byte }]) => [
+      name,
+      repeatedHash(size, byte),
+    ]),
+  ) as Record<keyof typeof contents, string>;
+  for (const [name, { size, byte }] of Object.entries(contents))
+    assert.equal(
+      (
+        await upload(
+          hashes[name as keyof typeof contents],
+          repeated(size, byte),
+        )
+      ).status,
+      204,
+      name,
+    );
+  assert.equal(
+    (await upload(dockerfileHash, Readable.from([dockerfile]))).status,
+    204,
+  );
+  const copies = (prefix: string, count: number) =>
+    Array.from({ length: count }, (_, index) =>
+      listed(`${prefix}/${index}.bin`, hashes.large, contents.large.size),
+    );
+  const extra = listed("extra.txt", hashes.byte, 1);
+  const tooLarge = "Files can total at most 1 GiB.";
+
+  // A static revision of exactly 1 GiB is published; a byte more, or an eleventh copy, is not.
+  for (const [slug, kind] of [
+    ["site", "static"],
+    ["api", "dynamic"],
+  ])
+    assert.equal(
+      (
+        await json("POST", "/internal/v1/owners/owner/artifacts", {
+          slug,
+          kind,
+          title: slug,
+          description: "",
+        })
+      ).status,
+      201,
+    );
+  const site = "/internal/v1/owners/owner/artifacts/site";
+  const siteFiles = [
+    ...copies("copies", 10),
+    listed("rest.bin", hashes.siteRest, contents.siteRest.size),
+  ];
+  for (const [files, status, message] of [
+    [[...siteFiles, extra], 400, tooLarge],
+    [[...siteFiles, ...copies("more", 1)], 400, tooLarge],
+    [
+      [{ ...siteFiles[0]!, size: 1 }],
+      400,
+      `"copies/0.bin" is listed as 1 byte, but its uploaded content is ${100 * MiB} bytes.`,
+    ],
+    [[{ ...siteFiles[0]!, size: artifactLimits.fileSize + 1 }], 400, undefined],
+    [siteFiles, 201, undefined],
+  ] as const) {
+    const published = await json("POST", `${site}/revisions`, { files });
+    assert.equal(published.status, status, message);
+    if (message) assert.equal(published.body.message, message);
+  }
+  const details = (await (await call(site)).json()) as {
+    revisions: { fileCount: number; totalSize: number }[];
+  };
+  assert.deepEqual(
+    details.revisions.map(({ fileCount, totalSize }) => [fileCount, totalSize]),
+    [[11, 1024 * MiB]],
+  );
+
+  // A build source of exactly 1 GiB is accepted the same way, and refused a byte over.
+  const api = "/internal/v1/owners/owner/artifacts/api";
+  const buildFiles = [
+    listed("Dockerfile", dockerfileHash, dockerfile.length),
+    ...copies("layers", 10),
+    listed("rest.bin", hashes.buildRest, contents.buildRest.size),
+  ];
+  const request = { dockerfile: "Dockerfile", buildArgs: {} };
+  const over = await json("POST", `${api}/builds`, {
+    ...request,
+    files: [...buildFiles, extra],
+  });
+  assert.deepEqual([over.status, over.body.message], [400, tooLarge]);
+  const build = await json("POST", `${api}/builds`, {
+    ...request,
+    files: buildFiles,
+  });
+  assert.deepEqual(
+    [build.status, build.body.fileCount, build.body.totalSize],
+    [202, 12, 1024 * MiB],
+  );
+  assert.equal(observer.started.length, 1);
+
+  // The build job's download streams every listed byte through a tar archive, in bounded memory.
+  const source = new URL(observer.started[0]!.sourceUrl);
+  const response = await fetch(base + source.pathname + source.search);
+  assert.equal(response.status, 200);
+  const before = process.memoryUsage().rss;
+  let peak = before;
+  const sampler = setInterval(() => {
+    peak = Math.max(peak, process.memoryUsage().rss);
+  }, 5);
+  const entries: { name: string; size: number; sha256: string }[] = [];
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const reader = extract();
+      reader.on("entry", (header, stream, next) => {
+        const hash = createHash("sha256");
+        let size = 0;
+        stream.on("data", (chunk) => {
+          const bytes = chunk as Buffer;
+          size += bytes.length;
+          hash.update(bytes);
+        });
+        stream.on("end", () => {
+          entries.push({ name: header.name, size, sha256: hash.digest("hex") });
+          next();
+        });
+      });
+      reader.on("finish", resolve);
+      reader.on("error", reject);
+      Readable.fromWeb(response.body as NodeReadableStream<Uint8Array>)
+        .on("error", reject)
+        .pipe(reader);
+    });
+  } finally {
+    clearInterval(sampler);
+  }
+  assert.deepEqual(
+    entries,
+    buildFiles.map((file) => ({
+      name: file.path,
+      size: file.size,
+      sha256: file.sha256,
+    })),
+  );
+  assert.equal(
+    entries.reduce((total, entry) => total + entry.size, 0),
+    1024 * MiB,
+  );
+  context.diagnostic(
+    `Memory grew by ${Math.round((peak - before) / MiB)} MiB while streaming the 1 GiB source`,
+  );
+  assert.ok(
+    peak - before < 256 * MiB,
+    `Memory grew by ${Math.round((peak - before) / MiB)} MiB while streaming 1 GiB`,
+  );
 });

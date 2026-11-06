@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { artifactLimits } from "@everything/artifact-contracts";
 import { ArtifactLock } from "../../artifact/service/artifact-lock.js";
 import { ArtifactLookup } from "../../artifact/service/artifact-lookup.js";
 import {
@@ -7,6 +8,7 @@ import {
   file,
   MemoryArtifacts,
   MemoryBuilds,
+  MemoryContent,
   MemoryDeployments,
   owner,
 } from "../../artifact/test/artifact-fixture.js";
@@ -55,10 +57,14 @@ test("build jobs download their source, build the named Dockerfile, and push wit
   );
 });
 
-/** A build service over in-memory storage and a scripted runner. */
+/** A build service over in-memory storage and a scripted runner, with a Dockerfile and server uploaded. */
 function fixture(phases: BuildProgress[] = []) {
   const artifacts = new MemoryArtifacts();
   const builds = new MemoryBuilds();
+  const content = new MemoryContent().add(
+    file("Dockerfile"),
+    file("server.js"),
+  );
   const started: BuildJob[] = [];
   const removed: string[] = [];
   const runner: BuildRunner = {
@@ -70,7 +76,7 @@ function fixture(phases: BuildProgress[] = []) {
   const service = new BuildService(
     builds,
     new MemoryDeployments(),
-    { missing: async () => [] },
+    content,
     runner,
     {
       digest: async (repository, tag) =>
@@ -80,7 +86,7 @@ function fixture(phases: BuildProgress[] = []) {
     new ArtifactLock(),
     { sourceUrl: "http://artifact:8081", pushHost: "registry:5000" },
   );
-  return { artifacts, builds, removed, service, started };
+  return { artifacts, builds, content, removed, service, started };
 }
 
 test("a build is recorded, started with a source token, and its source served only to that token", async () => {
@@ -151,4 +157,47 @@ test("monitoring records running, succeeded, and failed builds with their logs",
   assert.match(builds.records[1]!.error!, /Read its log/);
   const details = await service.get(owner, "app", 2);
   assert.equal(details.log, "build output");
+});
+
+test("a build source's limits count every listed path at its uploaded size: 100 MiB per file and 1 GiB in all", async () => {
+  // Content store sizes are in-memory metadata here; the HTTP test streams the real archive.
+  const { artifacts, content, service, started } = fixture();
+  artifacts.add("dynamic", "app");
+  const layer = file("layer.bin", artifactLimits.fileSize);
+  const rest = file(
+    "rest.bin",
+    artifactLimits.totalSize - 10 * layer.size - file("Dockerfile").size,
+  );
+  content.add(layer, rest);
+  const copies = Array.from({ length: 10 }, (_, index) => ({
+    ...layer,
+    path: `layers/${index}.bin`,
+  }));
+  const input = {
+    files: [file("Dockerfile"), ...copies, rest],
+    dockerfile: "Dockerfile",
+    buildArgs: {},
+  };
+  const build = await service.start(owner, ada, "app", input);
+  assert.deepEqual(
+    [build.fileCount, build.totalSize],
+    [12, 1024 * 1024 * 1024],
+  );
+  assert.equal(started.length, 1);
+  for (const files of [
+    [...input.files, file("server.js")],
+    [...input.files.slice(0, -1), { ...rest, size: rest.size + 1 }],
+  ])
+    await assert.rejects(
+      service.start(owner, ada, "app", { ...input, files }),
+      { code: "INVALID_FILES", message: "Files can total at most 1 GiB." },
+    );
+  await assert.rejects(
+    service.start(owner, ada, "app", {
+      ...input,
+      files: [file("Dockerfile"), { ...layer, size: layer.size + 1 }],
+    }),
+    { code: "INVALID_FILES", message: '"layer.bin" is larger than 100 MiB.' },
+  );
+  assert.equal(started.length, 1);
 });

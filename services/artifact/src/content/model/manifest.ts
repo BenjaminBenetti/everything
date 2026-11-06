@@ -1,8 +1,12 @@
 import {
   artifactLimits,
+  formatByteLimit,
   type ArtifactFile,
 } from "@everything/artifact-contracts";
-import { InvalidFilesError } from "../error/content-errors.js";
+import {
+  InvalidFilesError,
+  MissingContentError,
+} from "../error/content-errors.js";
 
 /** A validated file list, sorted by path, with its combined size. */
 export interface Manifest {
@@ -25,7 +29,10 @@ export function pathProblem(path: string): string | undefined {
   return undefined;
 }
 
-/** Validate a file list: relative paths, no duplicates, and the count and size limits. */
+/**
+ * Validate a file list: relative paths, no duplicates, and the count and size limits. The total
+ * counts every path, so content shared by several paths counts once for each.
+ */
 export function validateManifest(files: readonly ArtifactFile[]): Manifest {
   if (!files.length) throw new InvalidFilesError("Add at least one file.");
   if (files.length > artifactLimits.fileCount)
@@ -42,13 +49,13 @@ export function validateManifest(files: readonly ArtifactFile[]): Manifest {
     paths.add(file.path);
     if (file.size > artifactLimits.fileSize)
       throw new InvalidFilesError(
-        `"${file.path}" is larger than ${artifactLimits.fileSize / (1024 * 1024)} MiB.`,
+        `"${file.path}" is larger than ${formatByteLimit(artifactLimits.fileSize)}.`,
       );
     totalSize += file.size;
   }
   if (totalSize > artifactLimits.totalSize)
     throw new InvalidFilesError(
-      `Files can total at most ${artifactLimits.totalSize / (1024 * 1024)} MiB.`,
+      `Files can total at most ${formatByteLimit(artifactLimits.totalSize)}.`,
     );
   const sorted = [...files].sort((a, b) =>
     a.path < b.path ? -1 : a.path > b.path ? 1 : 0,
@@ -62,4 +69,32 @@ export function validateManifest(files: readonly ArtifactFile[]): Manifest {
     })),
     totalSize,
   };
+}
+
+/** A number of bytes, such as `1 byte` or `20 bytes`. */
+function byteCount(count: number): string {
+  return `${count} ${count === 1 ? "byte" : "bytes"}`;
+}
+
+/**
+ * Require each listed file's content to be stored at its listed size, so the limits count the bytes
+ * that are served and built rather than the sizes the caller listed.
+ */
+export function requireStoredContent(
+  manifest: Manifest,
+  stored: ReadonlyMap<string, number>,
+): void {
+  const missing = new Set(
+    manifest.files
+      .filter((file) => !stored.has(file.sha256))
+      .map((file) => file.sha256),
+  );
+  if (missing.size) throw new MissingContentError(missing.size);
+  const mismatched = manifest.files.find(
+    (file) => stored.get(file.sha256) !== file.size,
+  );
+  if (mismatched)
+    throw new InvalidFilesError(
+      `"${mismatched.path}" is listed as ${byteCount(mismatched.size)}, but its uploaded content is ${byteCount(stored.get(mismatched.sha256)!)}.`,
+    );
 }

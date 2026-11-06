@@ -6,6 +6,7 @@ import type {
   ArtifactVisibility,
 } from "@everything/artifact-contracts";
 import type { OwnerScope } from "@everything/persistence/repository";
+import type { ContentStore } from "../../content/interface/content-store.js";
 import type {
   BuildRepository,
   BuildScope,
@@ -53,6 +54,27 @@ export function file(
     size,
     executable,
   };
+}
+
+/** Uploaded content sizes by hash, as the content store reports them; tests upload with `add`. */
+export class MemoryContent implements Pick<ContentStore, "sizes"> {
+  readonly stored = new Map<string, number>();
+
+  /** Upload each file's content at its listed size. */
+  add(...files: readonly ArtifactFile[]): this {
+    for (const file of files) this.stored.set(file.sha256, file.size);
+    return this;
+  }
+
+  /** Report the stored hashes among those given, with their sizes. */
+  async sizes(hashes: readonly string[]): Promise<Map<string, number>> {
+    return new Map(
+      hashes.flatMap((hash) => {
+        const size = this.stored.get(hash);
+        return size === undefined ? [] : [[hash, size] as const];
+      }),
+    );
+  }
 }
 
 /** An in-memory artifact repository with the same scoping as the PostgreSQL one. */

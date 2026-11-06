@@ -7,6 +7,7 @@ import { pipeline } from "node:stream/promises";
 import type { Ignore } from "@balena/dockerignore";
 import {
   artifactLimits,
+  formatByteLimit,
   type ArtifactFile,
 } from "@everything/artifact-contracts";
 import { SnapshotLimitError } from "../error/workspace-errors.js";
@@ -117,12 +118,12 @@ export async function snapshotDirectory(
         const info = await stat(absolute);
         if (info.size > artifactLimits.fileSize)
           throw new SnapshotLimitError(
-            `"${relative}" is larger than ${artifactLimits.fileSize / (1024 * 1024)} MiB.`,
+            `"${relative}" is larger than ${formatByteLimit(artifactLimits.fileSize)}.`,
           );
         totalSize += info.size;
         if (totalSize > artifactLimits.totalSize)
           throw new SnapshotLimitError(
-            `The files total more than ${artifactLimits.totalSize / (1024 * 1024)} MiB.${options.dockerignore ? " Exclude what the build doesn't need in .dockerignore." : ""}`,
+            `The files total more than ${formatByteLimit(artifactLimits.totalSize)}.${options.dockerignore ? " Exclude what the build doesn't need in .dockerignore." : ""}`,
           );
         if (files.length === artifactLimits.fileCount)
           throw new SnapshotLimitError(

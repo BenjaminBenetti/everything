@@ -10,9 +10,11 @@ import {
   requireLatestRelease,
   type ArtifactLookup,
 } from "../../artifact/service/artifact-lookup.js";
-import { MissingContentError } from "../../content/error/content-errors.js";
 import type { ContentStore } from "../../content/interface/content-store.js";
-import { validateManifest } from "../../content/model/manifest.js";
+import {
+  requireStoredContent,
+  validateManifest,
+} from "../../content/model/manifest.js";
 import { RevisionNotFoundError } from "../error/revision-errors.js";
 import type { RevisionRepository } from "../interface/revision-repository.js";
 import { revisionRetention } from "../model/revision.js";
@@ -27,7 +29,7 @@ export class RevisionService {
   constructor(
     private readonly artifacts: Pick<ArtifactRepository, "update">,
     private readonly revisions: RevisionRepository,
-    private readonly content: Pick<ContentStore, "missing">,
+    private readonly content: Pick<ContentStore, "sizes">,
     private readonly lookup: ArtifactLookup,
     private readonly lock: ArtifactLock,
   ) {}
@@ -48,10 +50,10 @@ export class RevisionService {
       const artifact = await this.lookup.resolveKind(ownerId, id, "static");
       requireLatestRelease(artifact, input.basedOn);
       const manifest = validateManifest(input.files);
-      const missing = await this.content.missing(
-        manifest.files.map((file) => file.sha256),
+      requireStoredContent(
+        manifest,
+        await this.content.sizes(manifest.files.map((file) => file.sha256)),
       );
-      if (missing.length) throw new MissingContentError(missing.length);
       const scope = { ownerId, artifactId: id };
       const number = (await this.revisions.latestNumber(scope)) + 1;
       await this.revisions.create(scope, {

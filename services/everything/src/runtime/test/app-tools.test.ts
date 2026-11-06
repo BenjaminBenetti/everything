@@ -296,6 +296,20 @@ test("the prompt explains shared apps and how to change one safely", () => {
   );
 });
 
+test("publish_app and build_app state the upload limits the app service enforces", () => {
+  const tools = appTools({} as ArtifactWorkbench, context);
+  const description = (name: string) =>
+    tools.find((tool) => tool.name === name)!.description;
+  assert.match(
+    description(appToolNames.publish),
+    /up to 5000 files, each up to 100 MiB and 1 GiB in all\./,
+  );
+  assert.match(
+    description(appToolNames.build),
+    /up to 5000 files after \.dockerignore, each up to 100 MiB and 1 GiB in all\./,
+  );
+});
+
 test("dynamic apps are told to serve routes from / and use BASE_PATH only for links", () => {
   const prompt = mainAgentPrompt({
     id: agentId,
