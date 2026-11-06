@@ -5,6 +5,7 @@ import {
   artifactCapabilities,
   artifactSlugPattern,
   environmentNamePattern,
+  formatByteLimit,
 } from "@everything/artifact-contracts";
 import { appCredentialLimits } from "@everything/artifact-contracts/credential";
 import { keyLimits } from "@everything/key-contracts";
@@ -94,6 +95,11 @@ function reply(value: unknown) {
     ],
     details: {},
   };
+}
+
+/** How much one publish or build uploads, as the tool descriptions state it. */
+function sourceLimits(counted: string): string {
+  return `The directory can have up to ${artifactLimits.fileCount} files${counted}, each up to ${formatByteLimit(artifactLimits.fileSize)} and ${formatByteLimit(artifactLimits.totalSize)} in all.`;
 }
 
 /** Create the tools that let a teammate create, release, and inspect shared apps. */
@@ -244,8 +250,7 @@ export function appTools(
     defineTool({
       name: appToolNames.publish,
       label: "Publish app",
-      description:
-        "Publish a directory from your workspace as the next revision of a static app and make it live. Its files are served at the app's link with paths relative to the directory, and index.html is the default page. Use relative links so pages work under the app's path. To roll back, pass revision instead of directory.",
+      description: `Publish a directory from your workspace as the next revision of a static app and make it live. Its files are served at the app's link with paths relative to the directory, and index.html is the default page. Use relative links so pages work under the app's path. ${sourceLimits("")} To roll back, pass revision instead of directory.`,
       parameters: Type.Object(
         {
           app: appReference,
@@ -275,8 +280,7 @@ export function appTools(
     defineTool({
       name: appToolNames.build,
       label: "Build app",
-      description:
-        "Build a container image for a dynamic app from a directory in your workspace that holds a Dockerfile; .dockerignore is respected. The build runs in the background and this returns its number right away: follow it with get_app_build, then run it with deploy_app. The image must run as a non-root user and listen on the PORT variable. Serve routes from /: requests arrive without the app's /slug prefix. Use the BASE_PATH variable, which holds that prefix, only to build absolute links and asset URLs, or use relative links; root-relative redirects are prefixed automatically.",
+      description: `Build a container image for a dynamic app from a directory in your workspace that holds a Dockerfile; .dockerignore is respected. ${sourceLimits(" after .dockerignore")} The build runs in the background and this returns its number right away: follow it with get_app_build, then run it with deploy_app. The image must run as a non-root user and listen on the PORT variable. Serve routes from /: requests arrive without the app's /slug prefix. Use the BASE_PATH variable, which holds that prefix, only to build absolute links and asset URLs, or use relative links; root-relative redirects are prefixed automatically.`,
       parameters: Type.Object(
         {
           app: appReference,

@@ -8,9 +8,12 @@ import type {
 } from "@everything/artifact-contracts";
 import type { ArtifactLock } from "../../artifact/service/artifact-lock.js";
 import type { ArtifactLookup } from "../../artifact/service/artifact-lookup.js";
-import { MissingContentError } from "../../content/error/content-errors.js";
 import type { ContentStore } from "../../content/interface/content-store.js";
-import { pathProblem, validateManifest } from "../../content/model/manifest.js";
+import {
+  pathProblem,
+  requireStoredContent,
+  validateManifest,
+} from "../../content/model/manifest.js";
 import { InvalidFilesError } from "../../content/error/content-errors.js";
 import {
   imageRepository,
@@ -68,7 +71,7 @@ export class BuildService {
   constructor(
     private readonly builds: BuildRepository,
     private readonly deployments: Pick<DeploymentRepository, "findByRelease">,
-    private readonly content: Pick<ContentStore, "missing">,
+    private readonly content: Pick<ContentStore, "sizes">,
     private readonly runner: BuildRunner,
     private readonly registry: ImageRegistry,
     private readonly lookup: ArtifactLookup,
@@ -93,10 +96,10 @@ export class BuildService {
     const manifest = validateManifest(input.files);
     if (!manifest.files.some((file) => file.path === input.dockerfile))
       throw new DockerfileMissingError(input.dockerfile);
-    const missing = await this.content.missing(
-      manifest.files.map((file) => file.sha256),
+    requireStoredContent(
+      manifest,
+      await this.content.sizes(manifest.files.map((file) => file.sha256)),
     );
-    if (missing.length) throw new MissingContentError(missing.length);
     const build = await this.lock.run(id, async () => {
       const artifact = await this.lookup.resolveKind(ownerId, id, "dynamic");
       const scope = { ownerId, artifactId: artifact.id };

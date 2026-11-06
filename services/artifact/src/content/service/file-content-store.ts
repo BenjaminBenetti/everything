@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
-import { access, mkdir, rename, rm } from "node:fs/promises";
+import { access, mkdir, rename, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { Transform, Writable, type Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -51,9 +51,20 @@ export class FileContentStore implements ContentStore {
 
   /** Check each hash against the stored files. */
   async missing(hashes: readonly string[]): Promise<string[]> {
+    const stored = await this.sizes(hashes);
+    return [...new Set(hashes)].filter((hash) => !stored.has(hash));
+  }
+
+  /** Read the size of each stored file among the hashes. */
+  async sizes(hashes: readonly string[]): Promise<Map<string, number>> {
     const unique = [...new Set(hashes)];
-    const present = await Promise.all(unique.map((hash) => this.exists(hash)));
-    return unique.filter((_hash, index) => !present[index]);
+    const sizes = await Promise.all(unique.map((hash) => this.size(hash)));
+    return new Map(
+      unique.flatMap((hash, index) => {
+        const size = sizes[index];
+        return size === undefined ? [] : [[hash, size] as const];
+      }),
+    );
   }
 
   /** Write to a temporary file while hashing, then move it into place only if the hash matches. */
@@ -109,6 +120,15 @@ export class FileContentStore implements ContentStore {
       return true;
     } catch {
       return false;
+    }
+  }
+
+  /** The size of the content stored under the hash, or undefined when there is none. */
+  private async size(hash: string): Promise<number | undefined> {
+    try {
+      return (await stat(this.location(hash))).size;
+    } catch {
+      return undefined;
     }
   }
 

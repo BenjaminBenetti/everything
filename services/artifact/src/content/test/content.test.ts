@@ -1,15 +1,19 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readdir, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { Readable } from "node:stream";
 import { test } from "node:test";
 import { extract } from "tar-stream";
-import { artifactLimits } from "@everything/artifact-contracts";
-import { validateManifest } from "../model/manifest.js";
+import {
+  artifactLimits,
+  formatByteLimit,
+} from "@everything/artifact-contracts";
+import { requireStoredContent, validateManifest } from "../model/manifest.js";
 import { archiveSource } from "../service/source-archive.js";
 import { FileContentStore } from "../service/file-content-store.js";
+import { repeated, repeatedHash } from "./content-fixture.js";
 
 /** The SHA-256 of some text. */
 function hashOf(text: string): string {
@@ -22,7 +26,12 @@ async function store(context: {
 }) {
   const root = await mkdtemp(path.join(tmpdir(), "artifact-content-"));
   context.after(() => rm(root, { recursive: true, force: true }));
-  return new FileContentStore(root);
+  return Object.assign(new FileContentStore(root), { directory: root });
+}
+
+/** A file entry of `size` bytes whose hash is derived from its path. */
+function sized(filePath: string, size: number) {
+  return { path: filePath, sha256: hashOf(filePath), size, executable: false };
 }
 
 /** Read a stream into text. */
@@ -68,15 +77,91 @@ test("manifests are sorted by path and refuse unsafe paths, duplicates, and over
     () => validateManifest([entry("big", artifactLimits.fileSize + 1)]),
     { code: "INVALID_FILES" },
   );
+});
+
+test("app sources take files up to 100 MiB and up to 1 GiB in all, counting every listed path", () => {
+  const MiB = 1024 * 1024;
+  assert.deepEqual(
+    [artifactLimits.fileSize, artifactLimits.totalSize],
+    [104_857_600, 1_073_741_824],
+  );
+  assert.deepEqual(
+    [
+      formatByteLimit(artifactLimits.fileSize),
+      formatByteLimit(artifactLimits.totalSize),
+    ],
+    ["100 MiB", "1 GiB"],
+  );
+  // Sizes the old 25 MiB and 200 MiB limits refused.
+  assert.equal(
+    validateManifest([sized("old-max.bin", 25 * MiB + 1)]).totalSize,
+    25 * MiB + 1,
+  );
+  assert.equal(
+    validateManifest([sized("max.bin", 100 * MiB)]).totalSize,
+    100 * MiB,
+  );
+  assert.throws(() => validateManifest([sized("over.bin", 100 * MiB + 1)]), {
+    code: "INVALID_FILES",
+    message: '"over.bin" is larger than 100 MiB.',
+  });
+  // Ten 100 MiB files and 24 MiB more make exactly 1 GiB; a byte more is refused.
+  const full = [
+    ...Array.from({ length: 10 }, (_, index) =>
+      sized(`part-${index}.bin`, 100 * MiB),
+    ),
+    sized("rest.bin", 24 * MiB),
+  ];
+  assert.equal(validateManifest(full).totalSize, 1024 * MiB);
+  assert.throws(() => validateManifest([...full, sized("byte.txt", 1)]), {
+    code: "INVALID_FILES",
+    message: "Files can total at most 1 GiB.",
+  });
+  // The same content at eleven paths counts eleven times.
+  const shared = sized("shared.bin", 100 * MiB);
   assert.throws(
     () =>
       validateManifest(
-        Array.from({ length: 9 }, (_, index) =>
-          entry(`f${index}`, artifactLimits.fileSize),
-        ),
+        Array.from({ length: 11 }, (_, index) => ({
+          ...shared,
+          path: `copy-${index}.bin`,
+        })),
       ),
-    /total at most/,
+    { message: "Files can total at most 1 GiB." },
   );
+});
+
+test("listed files must be stored, at the size they are listed with", () => {
+  const manifest = validateManifest([
+    sized("a.bin", 5),
+    { ...sized("a.bin", 5), path: "b.bin" },
+    sized("c.bin", 7),
+  ]);
+  const stored = new Map([
+    [hashOf("a.bin"), 5],
+    [hashOf("c.bin"), 7],
+  ]);
+  requireStoredContent(manifest, stored);
+  assert.throws(
+    () => requireStoredContent(manifest, new Map([[hashOf("c.bin"), 7]])),
+    { code: "CONTENT_MISSING", message: /^1 file has not been uploaded/ },
+  );
+  assert.throws(() => requireStoredContent(manifest, new Map()), {
+    code: "CONTENT_MISSING",
+    message: /^2 files have not been uploaded/,
+  });
+  for (const size of [4, 6])
+    assert.throws(
+      () =>
+        requireStoredContent(
+          manifest,
+          new Map([...stored, [hashOf("a.bin"), size]]),
+        ),
+      {
+        code: "INVALID_FILES",
+        message: `"a.bin" is listed as 5 bytes, but its uploaded content is ${size} bytes.`,
+      },
+    );
 });
 
 test("content is stored only under the hash of its bytes", async (context) => {
@@ -108,6 +193,40 @@ test("uploads larger than the limit are refused without storing anything", async
     code: "CONTENT_TOO_LARGE",
   });
   assert.deepEqual(await content.missing([hash]), [hash]);
+});
+
+test("the store keeps a file of exactly 100 MiB and refuses one byte more, counting the bytes it receives", async (context) => {
+  const content = await store(context);
+  const limit = artifactLimits.fileSize;
+  const exact = repeatedHash(limit);
+  await content.write(exact, repeated(limit), limit);
+  assert.deepEqual(
+    await content.sizes([exact, exact]),
+    new Map([[exact, limit]]),
+  );
+  assert.equal(
+    (
+      await stat(
+        path.join(content.directory, "content", exact.slice(0, 2), exact),
+      )
+    ).size,
+    limit,
+  );
+  // One byte more is refused whether or not its hash is already stored.
+  const over = repeatedHash(limit + 1);
+  for (const hash of [over, exact])
+    await assert.rejects(content.write(hash, repeated(limit + 1), limit), {
+      code: "CONTENT_TOO_LARGE",
+      message: "Files can be at most 100 MiB.",
+    });
+  assert.deepEqual(await content.missing([over, exact]), [over]);
+  // Short or altered content never reaches its address, and no partial upload is left behind.
+  for (const body of [repeated(limit - 1), repeated(limit, 1)])
+    await assert.rejects(content.write(over, body, limit), {
+      code: "CONTENT_MISMATCH",
+    });
+  assert.deepEqual(await content.missing([over]), [over]);
+  assert.deepEqual(await readdir(path.join(content.directory, "incoming")), []);
 });
 
 test("build sources are archived with their paths, content, and executable bits", async (context) => {

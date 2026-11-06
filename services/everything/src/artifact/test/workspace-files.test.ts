@@ -8,14 +8,13 @@ import {
   rm,
   stat,
   symlink,
-  truncate,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { Readable } from "node:stream";
 import { test } from "node:test";
-import { artifactLimits } from "@everything/artifact-contracts";
+import { sparse, sparseHash } from "./sparse-files.js";
 import { checkoutFiles } from "../service/artifact-checkout.js";
 import { inWorkspace, workspaceDirectory } from "../service/workspace-path.js";
 import { snapshotDirectory } from "../service/workspace-snapshot.js";
@@ -327,14 +326,77 @@ test("build sources follow .dockerignore but always include the Dockerfile", asy
   );
 });
 
-test("snapshots refuse files over the size limit", async (context) => {
+test("snapshots take real files of up to 100 MiB, sizing and hashing their bytes, and refuse one byte more", async (context) => {
   const root = await workspace(context);
-  await writeFile(path.join(root, "huge.bin"), "");
-  await truncate(path.join(root, "huge.bin"), artifactLimits.fileSize + 1);
-  await assert.rejects(
-    snapshotDirectory(root, { dockerignore: false }),
-    /larger than/,
+  const MiB = 1024 * 1024;
+  // Sparse files: their full size is read and hashed without using disk or memory for it.
+  await sparse(path.join(root, "max.bin"), 100 * MiB, "m");
+  await sparse(path.join(root, "old-max.bin"), 25 * MiB + 1, "o");
+  const snapshot = await snapshotDirectory(root, { dockerignore: false });
+  assert.deepEqual(
+    snapshot.files.map(({ path: file, size, sha256 }) => [file, size, sha256]),
+    [
+      ["max.bin", 104_857_600, sparseHash(100 * MiB, "m")],
+      ["old-max.bin", 25 * MiB + 1, sparseHash(25 * MiB + 1, "o")],
+    ],
   );
+  await sparse(path.join(root, "over.bin"), 100 * MiB + 1);
+  await assert.rejects(snapshotDirectory(root, { dockerignore: false }), {
+    name: "SnapshotLimitError",
+    message: '"over.bin" is larger than 100 MiB.',
+  });
+});
+
+test("snapshots take exactly 1 GiB in all and refuse one byte more", async (context) => {
+  const root = await workspace(context);
+  const MiB = 1024 * 1024;
+  for (let index = 0; index < 10; index++)
+    await sparse(path.join(root, `part-${index}.bin`), 100 * MiB);
+  await sparse(path.join(root, "rest.bin"), 24 * MiB);
+  const snapshot = await snapshotDirectory(root, { dockerignore: false });
+  assert.deepEqual(
+    [snapshot.files.length, snapshot.totalSize],
+    [11, 1_073_741_824],
+  );
+  assert.equal(
+    snapshot.files.reduce((total, file) => total + file.size, 0),
+    1024 * MiB,
+  );
+  await writeFile(path.join(root, "a.txt"), "x");
+  await assert.rejects(snapshotDirectory(root, { dockerignore: false }), {
+    name: "SnapshotLimitError",
+    message: "The files total more than 1 GiB.",
+  });
+});
+
+test("build sources count only the files .dockerignore keeps against the limits", async (context) => {
+  const root = await workspace(context);
+  const MiB = 1024 * 1024;
+  await write(root, {
+    ".dockerignore": "cache\n*.iso\n",
+    Dockerfile: "FROM scratch",
+  });
+  await sparse(path.join(root, "model.bin"), 100 * MiB, "k");
+  // Ignored: a 2 GiB directory, and a file over the per-file limit.
+  await mkdir(path.join(root, "cache"));
+  await sparse(path.join(root, "cache/layers.tar"), 2048 * MiB);
+  await sparse(path.join(root, "disk.iso"), 100 * MiB + 1);
+  const build = await snapshotDirectory(root, {
+    dockerignore: true,
+    alwaysInclude: ["Dockerfile", ".dockerignore"],
+  });
+  assert.deepEqual(
+    build.files.map((file) => file.path),
+    [".dockerignore", "Dockerfile", "model.bin"],
+  );
+  assert.equal(
+    build.totalSize,
+    "cache\n*.iso\n".length + "FROM scratch".length + 100 * MiB,
+  );
+  // A static publish of the same directory doesn't apply .dockerignore, so it is refused.
+  await assert.rejects(snapshotDirectory(root, { dockerignore: false }), {
+    message: /is larger than 100 MiB\.$/,
+  });
 });
 
 test("checkouts write verified files with their modes into an empty directory", async (context) => {
