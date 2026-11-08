@@ -100,8 +100,12 @@ interface Sample {
 /** This test's samples, written as evidence after it ends. */
 let samples: Sample[] = [];
 
+/** What a dictation test's stand-in gateway observed, written as evidence after it ends. */
+let gatewayRecord: LiveGateway | null = null;
+
 test.beforeEach(() => {
   samples = [];
+  gatewayRecord = null;
 });
 
 test.afterEach(async ({ page }, info) => {
@@ -119,6 +123,20 @@ test.afterEach(async ({ page }, info) => {
         status: info.status,
         viewport: page.viewportSize(),
         samples,
+        ...(gatewayRecord && {
+          gateway: gatewayRecord,
+          voiceStatus: await page
+            .locator("#voice-status")
+            .textContent()
+            .catch(() => null),
+          buttonEvents: await page
+            .evaluate(
+              () =>
+                (window as unknown as { buttonEvents?: unknown[] })
+                  .buttonEvents ?? null,
+            )
+            .catch(() => null),
+        }),
       },
       null,
       2,
@@ -567,6 +585,7 @@ test("@desktop held-Space dictation keeps the latest reply in view, again when c
 }) => {
   const { server, gateway } = await open(page, "short", { streaming: true });
   const live = gateway!;
+  gatewayRecord = live;
   await composer(page).click();
   await page.keyboard.type("Notes for Avery:");
   for (let line = 2; line <= 3; line++) {
@@ -650,20 +669,63 @@ test("@desktop held-Space dictation keeps the latest reply in view, again when c
 test("@phone held microphone dictation keeps the latest reply in view, again when continued, and leaves a reader where they are", async ({
   page,
 }) => {
+  // The microphone button's pointer events, kept with the evidence.
+  await page.context().addInitScript(() => {
+    const events: unknown[] = [];
+    for (const type of [
+      "pointerdown",
+      "pointerup",
+      "pointercancel",
+      "lostpointercapture",
+      "contextmenu",
+    ])
+      document.addEventListener(
+        type,
+        (event) => {
+          if (
+            event.target instanceof Element &&
+            event.target.closest(".voice-button")
+          )
+            events.push({
+              type,
+              pointerType: (event as PointerEvent).pointerType,
+              pointerId: (event as PointerEvent).pointerId,
+              at: Math.round(event.timeStamp),
+              trusted: event.isTrusted,
+            });
+        },
+        { capture: true },
+      );
+    Object.assign(window, { buttonEvents: events });
+  });
   const { server, gateway } = await open(page, "short", { streaming: true });
   const live = gateway!;
+  gatewayRecord = live;
+  const touch = await page.context().newCDPSession(page);
   await composer(page).tap();
   await page.keyboard.type("Notes for Avery:");
   expectFollowing(await record(page, "typed a line"));
 
-  /** Press and hold the microphone button, until released, while audio flows as when speaking. */
+  /** Touch and hold the microphone button with a finger, while audio flows as when speaking. */
   async function press(): Promise<void> {
     const box = (await micButton(page).boundingBox())!;
     const frames = live.frames;
-    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-    await page.mouse.down();
+    await touch.send("Input.dispatchTouchEvent", {
+      type: "touchStart",
+      touchPoints: [
+        { x: box.x + box.width / 2, y: box.y + box.height / 2, id: 1 },
+      ],
+    });
     await expect(micButton(page)).toHaveAttribute("data-state", "recording");
     await expect.poll(() => live.frames).toBeGreaterThan(frames + 5);
+  }
+
+  /** Lift the finger from the microphone button. */
+  async function release(): Promise<void> {
+    await touch.send("Input.dispatchTouchEvent", {
+      type: "touchEnd",
+      touchPoints: [],
+    });
   }
 
   await press();
@@ -677,7 +739,7 @@ test("@phone held microphone dictation keeps the latest reply in view, again whe
     },
     "first dictation",
   );
-  await page.mouse.up();
+  await release();
   await expect.poll(() => live.ends).toBe(1);
   live.final(`${firstDictation.join(" ")}.`);
   await expect(composer(page)).toHaveValue(
@@ -698,7 +760,7 @@ test("@phone held microphone dictation keeps the latest reply in view, again whe
     },
     "continued dictation",
   );
-  await page.mouse.up();
+  await release();
   await expect.poll(() => live.ends).toBe(2);
   live.final(`${secondDictation.slice(0, 18).join(" ")}.`);
   await expect(composer(page)).toHaveValue(
@@ -725,7 +787,7 @@ test("@phone held microphone dictation keeps the latest reply in view, again whe
     "dictation while reading",
     { anchor },
   );
-  await page.mouse.up();
+  await release();
   await expect.poll(() => live.ends).toBe(3);
   live.final(`${secondDictation.join(" ")}.`);
   await expect(composer(page)).toHaveValue(
