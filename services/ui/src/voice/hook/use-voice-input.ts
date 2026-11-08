@@ -13,6 +13,13 @@ import {
 import { flushSync } from "react-dom";
 import { useVoice, useVoiceCapabilities } from "../component/voice-provider.js";
 import type { Dictation, DictationEvents } from "../interface/dictation.js";
+import {
+  scrollToShow,
+  shows,
+  textThrough,
+  type FieldView,
+  type TextLine,
+} from "../model/caret-view.js";
 import type { ComposerAction, VoiceState } from "../model/composer-state.js";
 import type { DraftSpan } from "../model/draft-anchor.js";
 import { recordingType } from "../model/recording-format.js";
@@ -106,6 +113,12 @@ export function useVoiceInput({
   // An IME composition is running in the field; the dictation must not change the draft under it.
   const composing = useRef(false);
   const held = useRef<HeldResults>({ partial: null, end: null });
+  // Whether the field scrolls to the next selection the reducer places, as it does unless the user
+  // scrolled the field away from the caret before the dictation changed the draft.
+  const followCaret = useRef(true);
+  // A dictation has started and hasn't placed a selection yet; its first words are shown wherever
+  // the field was scrolled.
+  const begun = useRef(false);
 
   // ===========================================
   // Draft changes from the dictation
@@ -119,9 +132,26 @@ export function useVoiceInput({
       : undefined;
   }, [field]);
 
+  /** Before the dictation changes the draft, decide whether the field keeps its caret in view. */
+  const noteCaret = useCallback(() => {
+    const element = field.current;
+    followCaret.current = begun.current || !element || showsCaret(element);
+  }, [field]);
+
   /**
    * Apply a dictation result to the draft. It is committed at once, so the field shows it before
-   * the next keystroke is typed against it. During an IME composition it waits for the composition
+   * the next keystroke is typed against it.
+   */
+  const apply = useCallback(
+    (result: DraftResult) => {
+      noteCaret();
+      flushSync(() => dispatch(result(selection())));
+    },
+    [dispatch, noteCaret, selection],
+  );
+
+  /**
+   * Apply a dictation result to the draft. During an IME composition it waits for the composition
    * to end, keeping only the newest partial; how the dictation ended supersedes any partial.
    */
   const deliver = useCallback(
@@ -131,9 +161,9 @@ export function useVoiceInput({
         else if (!held.current.end) held.current.partial = result;
         return;
       }
-      flushSync(() => dispatch(result(selection())));
+      apply(result);
     },
-    [dispatch, selection],
+    [apply],
   );
 
   // ===========================================
@@ -148,13 +178,14 @@ export function useVoiceInput({
       press.current = null;
       current?.dictation.cancel();
       const where = selection();
+      noteCaret();
       dispatch({
         type: "cancel",
         ...(notice ? { notice } : {}),
         ...(where ? { selection: where } : {}),
       });
     },
-    [dispatch, selection],
+    [dispatch, noteCaret, selection],
   );
 
   /** End a session with an outcome, if it is still the current one. */
@@ -279,6 +310,7 @@ export function useVoiceInput({
     };
     const started = current;
     session.current = started;
+    begun.current = true;
     started.dictation.start().then(
       (recording) => {
         if (recording && session.current === started)
@@ -347,12 +379,17 @@ export function useVoiceInput({
     [],
   );
 
-  // Show the selection the reducer chose after changing the draft.
+  // Show the selection the reducer chose after changing the draft. Setting it doesn't scroll the
+  // field as typing does, so once the draft is taller than the field, the field scrolls its own
+  // contents to the caret's line, after the composer has sized it for the new draft.
   const revision = voice.selection?.revision;
   useLayoutEffect(() => {
     const element = field.current;
     if (!voice.selection || !element) return;
     element.setSelectionRange(voice.selection.start, voice.selection.end);
+    if (followCaret.current) showLine(element, voice.selection.end);
+    followCaret.current = true;
+    begun.current = false;
     // The revision identifies a new selection; the object is replaced with every state change.
   }, [revision]);
 
@@ -463,7 +500,7 @@ export function useVoiceInput({
       const { partial: latest, end } = held.current;
       held.current = { partial: null, end: null };
       const result = end ?? latest;
-      if (result) flushSync(() => dispatch(result(selection())));
+      if (result) apply(result);
     }, 0);
   }
 
@@ -586,6 +623,61 @@ export function useVoiceInput({
 function streamUrl(agentId: string): string {
   const scheme = location.protocol === "https:" ? "wss:" : "ws:";
   return `${scheme}//${location.host}/v1/agents/${encodeURIComponent(agentId)}/voice/stream`;
+}
+
+/** What the field shows of its contents. */
+function viewOf(field: HTMLTextAreaElement): FieldView {
+  const style = getComputedStyle(field);
+  return {
+    scrollTop: field.scrollTop,
+    height: field.clientHeight,
+    paddingTop: Number.parseFloat(style.paddingTop),
+    paddingBottom: Number.parseFloat(style.paddingBottom),
+  };
+}
+
+/**
+ * The line of the field's text that `position` is on, measured with a hidden field beside it: the
+ * same styles and text width, holding the text through that line, so its content ends with it.
+ */
+function lineAt(field: HTMLTextAreaElement, position: number): TextLine {
+  const copy = document.createElement("textarea");
+  copy.value = textThrough(field.value, position);
+  Object.assign(copy.style, {
+    position: "absolute",
+    visibility: "hidden",
+    boxSizing: "border-box",
+    width: `${field.clientWidth}px`,
+    height: "0",
+    minHeight: "0",
+    borderWidth: "0",
+    overflow: "hidden",
+  });
+  field.after(copy);
+  const style = getComputedStyle(copy);
+  const bottom = copy.scrollHeight - Number.parseFloat(style.paddingBottom);
+  const height =
+    Number.parseFloat(style.lineHeight) ||
+    Number.parseFloat(style.fontSize) * 1.2;
+  copy.remove();
+  return { top: bottom - height, bottom };
+}
+
+/** Whether the field shows its caret's line; a field that holds its whole draft always does. */
+function showsCaret(field: HTMLTextAreaElement): boolean {
+  if (field.scrollHeight <= field.clientHeight) return true;
+  const caret =
+    field.selectionDirection === "backward"
+      ? field.selectionStart
+      : field.selectionEnd;
+  return shows(viewOf(field), lineAt(field, caret));
+}
+
+/** Scroll the field's own contents, never the page, the least that shows the line `position` is on. */
+function showLine(field: HTMLTextAreaElement, position: number): void {
+  if (field.scrollHeight <= field.clientHeight) return;
+  const top = scrollToShow(viewOf(field), lineAt(field, position));
+  if (top !== field.scrollTop) field.scrollTop = top;
 }
 
 /** Whether the main pointer can hover precisely, as with a mouse or trackpad beside a keyboard. */
