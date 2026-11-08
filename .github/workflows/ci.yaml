@@ -113,6 +113,35 @@ jobs:
           path: ${{ runner.temp }}/jobs-browser/
           if-no-files-found: error
           retention-days: 14
+      # The conversation's scroll position while the composer changes, on a desktop and an emulated
+      # phone: the production conversation page and styles, with mocked routes, a seeded history, and
+      # a stand-in voice gateway fed a silent stream (no microphone or speech service). It fails
+      # unless the report shows all six tests passed, with none skipped or flaky.
+      - name: Chat scroll browser regression
+        id: chat-scroll
+        env:
+          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/chat-scroll/report.json
+        run: |
+          proof="$RUNNER_TEMP/chat-scroll"
+          mkdir -p "$proof/evidence" "$proof/results"
+          status=0
+          pnpm --filter @everything/ui-tests test:chat-scroll --reporter=list,json --workers=1 --retries=0 || status=$?
+          if [ -d .local/ui-test-results/chat-scroll-evidence ]; then cp -R .local/ui-test-results/chat-scroll-evidence/. "$proof/evidence/"; fi
+          if [ -d .local/ui-test-results/chat-scroll ]; then cp -R .local/ui-test-results/chat-scroll/. "$proof/results/"; fi
+          node -e 'const report = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+            const stats = report.stats ?? {};
+            const wanted = { expected: 6, unexpected: 0, flaky: 0, skipped: 0 };
+            console.log(JSON.stringify({ stats, errors: (report.errors ?? []).length }));
+            if (Object.entries(wanted).some(([key, value]) => stats[key] !== value) || (report.errors ?? []).length) process.exit(1);' "$PLAYWRIGHT_JSON_OUTPUT_FILE"
+          exit "$status"
+      - name: Upload chat scroll proof
+        if: ${{ !cancelled() && steps.chat-scroll.outcome != 'skipped' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: chat-scroll-proof-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/chat-scroll/
+          if-no-files-found: error
+          retention-days: 14
 
   # Everything's telemetry against a disposable OpenObserve container run with the chart's image,
   # settings, and limits: export, the owner-scoped query API, isolation, restart, and retention.
