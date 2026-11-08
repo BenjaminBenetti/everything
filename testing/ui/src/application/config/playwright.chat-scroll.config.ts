@@ -6,9 +6,10 @@ const port = Number(process.env.CHAT_SCROLL_UI_PORT ?? 5186);
 const origin = `http://localhost:${port}`;
 
 /**
- * The conversation's scroll position while the composer changes, on a desktop and an emulated phone:
- * the real conversation page, composer, and styles in Chromium's layout. Sign-in, the teammate, its
- * history, and the voice gateway are mocked; dictation uses a silent stream and no microphone.
+ * The conversation's scroll position while the composer changes, and the draft's inside the field
+ * while dictation writes it, on a desktop and an emulated phone: the real conversation page,
+ * composer, and styles in Chromium's layout. Sign-in, the teammate, its history, and the voice
+ * gateway are mocked; dictation uses a silent stream and no microphone.
  */
 export default defineConfig({
   testDir: fileURLToPath(new URL("../../conversation/e2e/", import.meta.url)),

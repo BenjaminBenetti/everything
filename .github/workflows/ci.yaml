@@ -113,10 +113,11 @@ jobs:
           path: ${{ runner.temp }}/jobs-browser/
           if-no-files-found: error
           retention-days: 14
-      # The conversation's scroll position while the composer changes, on a desktop and an emulated
-      # phone: the production conversation page and styles, with mocked routes, a seeded history, and
-      # a stand-in voice gateway fed a silent stream (no microphone or speech service). It fails
-      # unless the report shows all six tests passed, with none skipped or flaky.
+      # The conversation's scroll position while the composer changes, and the draft's inside the
+      # field while dictation writes it, on a desktop and an emulated phone: the production
+      # conversation page and styles, with mocked routes, a seeded history, and a stand-in voice
+      # gateway fed a silent stream (no microphone or speech service). It fails unless the report
+      # shows all ten tests passed, with none skipped or flaky.
       - name: Chat scroll browser regression
         id: chat-scroll
         env:
@@ -130,7 +131,7 @@ jobs:
           if [ -d .local/ui-test-results/chat-scroll ]; then cp -R .local/ui-test-results/chat-scroll/. "$proof/results/"; fi
           node -e 'const report = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
             const stats = report.stats ?? {};
-            const wanted = { expected: 6, unexpected: 0, flaky: 0, skipped: 0 };
+            const wanted = { expected: 10, unexpected: 0, flaky: 0, skipped: 0 };
             console.log(JSON.stringify({ stats, errors: (report.errors ?? []).length }));
             if (Object.entries(wanted).some(([key, value]) => stats[key] !== value) || (report.errors ?? []).length) process.exit(1);' "$PLAYWRIGHT_JSON_OUTPUT_FILE"
           exit "$status"
