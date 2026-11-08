@@ -334,44 +334,25 @@ function expectCaretAtEnd(
       .toBeLessThan(sample.fieldLineHeight);
 }
 
-/** Scroll the history as a person would: the mouse wheel on a desktop, a swipe on a phone. */
-async function scrollHistory(
-  page: Page,
-  isMobile: boolean,
-  deltaY: number,
-): Promise<void> {
+/**
+ * Scroll the history with the mouse wheel over it, as a reader does. The phone uses the wheel too:
+ * Chromium's synthetic touch scroll gesture left the history unmoved in CI, and the history
+ * responds to any scroll the same way.
+ */
+async function scrollHistory(page: Page, deltaY: number): Promise<void> {
   const box = (await historyView(page).boundingBox())!;
-  const x = box.x + box.width / 2;
-  const y = box.y + box.height / 2;
-  if (isMobile) {
-    const session = await page.context().newCDPSession(page);
-    await session.send("Input.synthesizeScrollGesture", {
-      x,
-      y,
-      // Positive distances scroll up.
-      yDistance: -deltaY,
-      gestureSourceType: "touch",
-      speed: 4_000,
-    });
-    await session.detach();
-  } else {
-    await page.mouse.move(x, y);
-    await page.mouse.wheel(0, deltaY);
-  }
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.wheel(0, deltaY);
   await settle(page);
-  // Scrolling doesn't move focus; if an emulated gesture did, typing carries on in the composer.
-  await composer(page).evaluate((field: HTMLTextAreaElement) => {
-    if (document.activeElement !== field) field.focus({ preventScroll: true });
-  });
 }
 
 /** Scroll back to the end of the history, past where it stops. */
-async function scrollToEnd(page: Page, isMobile: boolean): Promise<void> {
+async function scrollToEnd(page: Page): Promise<void> {
   const gap = await historyView(page).evaluate(
     (history) =>
       history.scrollHeight - history.scrollTop - history.clientHeight,
   );
-  await scrollHistory(page, isMobile, gap + 200);
+  await scrollHistory(page, gap + 200);
 }
 
 /** The first message whose top is inside the history's visible area. */
@@ -510,7 +491,7 @@ test("@desktop @phone a growing, shrinking, and pasted draft keeps the latest re
   expectFollowing(await record(page, "pasted 4 lines"));
 
   // Reading earlier messages: changes to the draft leave the history where the reader put it.
-  await scrollHistory(page, isMobile, -400);
+  await scrollHistory(page, -400);
   const anchor = await firstVisibleMessage(page);
   const reading = await record(page, "scrolled up to read", anchor);
   expect(reading.gap).toBeGreaterThan(80);
@@ -532,7 +513,7 @@ test("@desktop @phone a growing, shrinking, and pasted draft keeps the latest re
   expectReading(await record(page, "reading, deleted a line", anchor), reading);
 
   // Back at the end, the history follows the latest reply again.
-  await scrollToEnd(page, isMobile);
+  await scrollToEnd(page);
   expectFollowing(await record(page, "scrolled back to the end"));
   for (const letter of "mno") {
     await page.keyboard.type(letter);
@@ -636,7 +617,7 @@ test("@desktop held-Space dictation keeps the latest reply in view, again when c
   });
 
   // Scrolling up while still dictating: the words keep arriving and the history stays put.
-  await scrollHistory(page, false, -400);
+  await scrollHistory(page, -400);
   const anchor = await firstVisibleMessage(page);
   const reading = await record(page, "scrolled up while dictating", anchor);
   expect(reading.gap).toBeGreaterThan(80);
@@ -650,7 +631,7 @@ test("@desktop held-Space dictation keeps the latest reply in view, again when c
   );
 
   // Back at the end before releasing, the history follows the words and the added transcript.
-  await scrollToEnd(page, false);
+  await scrollToEnd(page);
   expectFollowing(
     await record(page, "scrolled back to the end while dictating"),
   );
@@ -773,7 +754,7 @@ test("@phone held microphone dictation keeps the latest reply in view, again whe
   });
 
   // Scrolled up to read before dictating again: the history stays put as the words arrive.
-  await scrollHistory(page, true, -400);
+  await scrollHistory(page, -400);
   const anchor = await firstVisibleMessage(page);
   const reading = await record(page, "scrolled up to read", anchor);
   expect(reading.gap).toBeGreaterThan(80);
