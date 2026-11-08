@@ -12,6 +12,7 @@
     "test:telemetry-e2e": "playwright test --config src/application/config/playwright.telemetry-e2e.config.ts",
     "test:attachments-e2e": "playwright test --config src/application/config/playwright.attachments-e2e.config.ts",
     "test:jobs-e2e": "playwright test --config src/application/config/playwright.jobs-e2e.config.ts",
+    "test:chat-scroll": "playwright test --config src/application/config/playwright.chat-scroll.config.ts",
     "test:model-info": "playwright test --config src/application/config/playwright.model-info.config.ts",
     "test:context-cache": "playwright test --config src/application/config/playwright.context-cache.config.ts",
     "test:png-webp": "playwright test --config src/application/config/playwright.png-webp.config.ts",
