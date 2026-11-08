@@ -90,6 +90,7 @@ interface Sample {
   readonly fieldClientHeight: number;
   readonly fieldScrollHeight: number;
   readonly fieldScrollTop: number;
+  readonly fieldLineHeight: number;
   readonly caret: number;
   readonly length: number;
   /** Scroll events the history received since the previous sample, with its size at each. */
@@ -238,6 +239,7 @@ async function record(
         fieldClientHeight: field.clientHeight,
         fieldScrollHeight: field.scrollHeight,
         fieldScrollTop: field.scrollTop,
+        fieldLineHeight: Number.parseFloat(getComputedStyle(field).lineHeight),
         caret: field.selectionEnd,
         length: field.value.length,
         scrolls: scrolls.splice(0),
@@ -293,15 +295,25 @@ function expectReading(sample: Sample, reading: Sample): void {
     .toBeGreaterThan(80);
 }
 
-/** The caret is at the end of the draft, and the field shows that end. */
-function expectCaretAtEnd(sample: Sample): void {
+/**
+ * The caret is at the end of the draft. After typing, the browser also scrolls a full field to the
+ * caret's line, leaving less than a line of the draft below it; it doesn't for words a dictation
+ * puts in the draft, so dictation checks only the caret.
+ */
+function expectCaretAtEnd(
+  sample: Sample,
+  { typed = true }: { typed?: boolean } = {},
+): void {
   expect.soft(sample.caret, `${sample.step}: the caret`).toBe(sample.length);
-  expect
-    .soft(
-      sample.fieldScrollTop + sample.fieldClientHeight,
-      `${sample.step}: the field shows the end of the draft`,
-    )
-    .toBeGreaterThanOrEqual(sample.fieldScrollHeight - 1);
+  if (typed)
+    expect
+      .soft(
+        sample.fieldScrollHeight -
+          sample.fieldScrollTop -
+          sample.fieldClientHeight,
+        `${sample.step}: pixels of the draft below the field's visible bottom`,
+      )
+      .toBeLessThan(sample.fieldLineHeight);
 }
 
 /** Scroll the history as a person would: the mouse wheel on a desktop, a swipe on a phone. */
@@ -573,7 +585,7 @@ test("@desktop held-Space dictation keeps the latest reply in view, again when c
     firstDictation,
     (sample) => {
       expectFollowing(sample);
-      expectCaretAtEnd(sample);
+      expectCaretAtEnd(sample, { typed: false });
     },
     "first dictation",
   );
@@ -595,7 +607,7 @@ test("@desktop held-Space dictation keeps the latest reply in view, again when c
     secondDictation.slice(0, 18),
     (sample) => {
       expectFollowing(sample);
-      expectCaretAtEnd(sample);
+      expectCaretAtEnd(sample, { typed: false });
     },
     "continued dictation",
   );
@@ -631,7 +643,7 @@ test("@desktop held-Space dictation keeps the latest reply in view, again when c
   );
   const added = await record(page, "continued dictation added");
   expectFollowing(added);
-  expectCaretAtEnd(added);
+  expectCaretAtEnd(added, { typed: false });
   expect(server.sends).toEqual([]);
 });
 
@@ -644,23 +656,24 @@ test("@phone held microphone dictation keeps the latest reply in view, again whe
   await page.keyboard.type("Notes for Avery:");
   expectFollowing(await record(page, "typed a line"));
 
-  /** Press and hold the microphone button until released. */
+  /** Press and hold the microphone button, until released, while audio flows as when speaking. */
   async function press(): Promise<void> {
     const box = (await micButton(page).boundingBox())!;
+    const frames = live.frames;
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await page.mouse.down();
     await expect(micButton(page)).toHaveAttribute("data-state", "recording");
+    await expect.poll(() => live.frames).toBeGreaterThan(frames + 5);
   }
 
   await press();
-  await expect.poll(() => live.frames).toBeGreaterThan(5);
   await dictate(
     page,
     live,
     firstDictation,
     (sample) => {
       expectFollowing(sample);
-      expectCaretAtEnd(sample);
+      expectCaretAtEnd(sample, { typed: false });
     },
     "first dictation",
   );
@@ -681,7 +694,7 @@ test("@phone held microphone dictation keeps the latest reply in view, again whe
     secondDictation.slice(0, 18),
     (sample) => {
       expectFollowing(sample);
-      expectCaretAtEnd(sample);
+      expectCaretAtEnd(sample, { typed: false });
     },
     "continued dictation",
   );
