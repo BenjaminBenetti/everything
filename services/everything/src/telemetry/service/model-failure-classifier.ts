@@ -63,7 +63,8 @@ const messageCategories: readonly [RegExp, ModelFailureCategory][] = [
   [/rate.?limit/i, "rate_limit"],
   [/timed? ?out|timeout|deadline/i, "timeout"],
   [
-    /ended without a stop reason|stream (was )?(interrupted|closed)|premature close|unexpected end|terminated|incomplete (response|stream)/i,
+    // OpenAI Responses streams that end, even after HTTP 200, before their terminal event.
+    /ended without a stop reason|ended before a terminal response event|stream (was )?(interrupted|closed)|premature close|unexpected end|terminated|incomplete (response|stream)/i,
     "stream_interrupted",
   ],
   [
@@ -97,9 +98,17 @@ export interface ProviderErrorBody {
 }
 
 /**
+ * An HTTP status leading an error message: bare, as SDKs put it (`429 {...}`), or after the label
+ * Pi gives a provider's errors (`OpenAI API error (503): {...}`).
+ */
+const leadingStatus =
+  /^\s*(?:[A-Za-z][\w .-]{0,40}? error \((\d{3})\):|(\d{3})\b)\s*/;
+
+/**
  * Diagnose a failed model request from Pi's error message and the provider's last response. SDKs
- * put the status first and the provider's JSON body after it, as in `429 {"type":"error",...}`;
- * stream failures after a successful response carry only the body or a transport message.
+ * put the status first and the provider's JSON body after it, as in `429 {"type":"error",...}`, or
+ * Pi labels them, as in `OpenAI API error (503): {...}`; stream failures after a successful
+ * response carry only the body or a transport message.
  *
  * The excerpt kept is only an error's own message: the `message` of a JSON error body, or an SDK or
  * transport message such as `Connection error.`. Other body fields, a body without a message, any
@@ -108,8 +117,10 @@ export interface ProviderErrorBody {
  */
 export function classifyModelFailure(input: ModelFailureInput): ModelFailure {
   const raw = input.errorMessage ?? "";
-  const statusMatch = /^\s*(\d{3})\b\s*/.exec(raw);
-  const parsedStatus = statusMatch ? Number(statusMatch[1]) : undefined;
+  const statusMatch = leadingStatus.exec(raw);
+  const parsedStatus = statusMatch
+    ? Number(statusMatch[1] ?? statusMatch[2])
+    : undefined;
   const remainder = statusMatch ? raw.slice(statusMatch[0].length) : raw;
   const body = providerErrorBody(remainder);
   const response = input.lastResponse;
