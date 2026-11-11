@@ -207,3 +207,108 @@ test("serialized JSON that isn't an object with a message is never taken for an 
   assert.equal(diagnosed.requestId, "req_stream_ok");
   assert.equal(diagnosed.message, undefined);
 });
+
+test("a Responses stream that ends before its terminal event is an interrupted stream, worth retrying", () => {
+  for (const errorMessage of [
+    "OpenAI Responses stream ended before a terminal response event",
+    "Error: openai responses stream ENDED BEFORE A TERMINAL RESPONSE EVENT (HTTP 200)",
+  ]) {
+    const failure = classifyModelFailure({
+      stopReason: "error",
+      errorMessage,
+      // The stream opened with HTTP 200 before it ended.
+      lastResponse: { attempt: 1, status: 200, requestId: "req_stream" },
+    });
+    assert.equal(failure.category, "stream_interrupted", errorMessage);
+    assert.equal(failure.retryable, true);
+    assert.equal(failure.httpStatus, 200);
+    assert.equal(failure.requestId, "req_stream");
+  }
+  // Without the response, the wording alone decides.
+  assert.equal(
+    classifyModelFailure({
+      stopReason: "error",
+      errorMessage:
+        "OpenAI Responses stream ended before a terminal response event",
+    }).category,
+    "stream_interrupted",
+  );
+});
+
+test("a cancellation or a Fast mode refusal is never taken for an interrupted stream", () => {
+  const errorMessage =
+    "OpenAI Responses stream ended before a terminal response event";
+  assert.equal(
+    classifyModelFailure({ stopReason: "aborted", errorMessage }).category,
+    "cancelled",
+  );
+  assert.equal(
+    classifyModelFailure({
+      stopReason: "error",
+      errorMessage,
+      speedFailure: "limited",
+    }).category,
+    "fast_mode_limited",
+  );
+  assert.equal(
+    classifyModelFailure({
+      stopReason: "error",
+      errorMessage,
+      speedFailure: "rejected",
+    }).category,
+    "fast_mode_rejected",
+  );
+});
+
+test("Pi's labelled provider errors keep their status, code, and category", () => {
+  assert.deepEqual(
+    classifyModelFailure({
+      stopReason: "error",
+      errorMessage:
+        'OpenAI API error (503): {"message":"ChatGPT user is temporarily unavailable","code":"subscription_sharing_user_unavailable"}',
+    }),
+    {
+      category: "unavailable",
+      retryable: true,
+      code: "subscription_sharing_user_unavailable",
+      httpStatus: 503,
+      message: "ChatGPT user is temporarily unavailable",
+    },
+  );
+  const cloudflare = classifyModelFailure({
+    stopReason: "error",
+    errorMessage:
+      "OpenAI API error (520): 520 <html><body>error code: 520</body></html>",
+  });
+  assert.equal(cloudflare.category, "server_error");
+  assert.equal(cloudflare.httpStatus, 520);
+  assert.equal(cloudflare.message, undefined, "a markup body is never kept");
+  for (const [errorMessage, category] of [
+    [
+      'Azure OpenAI API error (401): {"message":"Invalid token","code":"invalid_api_key"}',
+      "authentication",
+    ],
+    [
+      'OpenAI API error (429): {"message":"You exceeded your current quota","code":"insufficient_quota"}',
+      "quota",
+    ],
+    [
+      'OpenAI API error (429): {"message":"Usage limit reached.","code":"subscription_sharing_usage_limit_exceeded"}',
+      "rate_limit",
+    ],
+    ["Mistral API error (400): Invalid model", "invalid_request"],
+  ] as const)
+    assert.equal(
+      classifyModelFailure({ stopReason: "error", errorMessage }).category,
+      category,
+      errorMessage,
+    );
+  // A message that only mentions an error and a number is not a status.
+  assert.equal(
+    classifyModelFailure({
+      stopReason: "error",
+      errorMessage: "Tool error (code 503) while streaming",
+    }).httpStatus,
+    undefined,
+  );
+});

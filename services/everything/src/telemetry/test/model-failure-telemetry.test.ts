@@ -14,7 +14,8 @@ import {
   PromptDiagnostics,
   withPromptDiagnostics,
 } from "../service/prompt-diagnostics.js";
-import { failure, settled, sse, teammate } from "./runtime-fixtures.js";
+import { sendMessageToolName } from "../../runtime/model/message-delivery.js";
+import { failure, reply, settled, sse, teammate } from "./runtime-fixtures.js";
 import {
   eventsNamed,
   exportedText,
@@ -421,4 +422,46 @@ test("stopping a turn records a cancellation, not a failure", async (context) =>
   assert.notEqual(turn?.status.code, SpanStatusCode.ERROR);
   const [model] = eventsNamed(exported, telemetryEvents.modelCancelled);
   assert.equal(model?.attributes[attribute.category], "cancelled");
+});
+
+test("a turn whose model request recovers on a retry succeeds, replying once, with the failed attempt kept as a warning", async (context) => {
+  telemetry.reset();
+  const { runtime, deliveries } = await teammate(context, ({ attempt }) =>
+    attempt === 1
+      ? failure(
+          503,
+          {
+            error: {
+              message: "Service temporarily unavailable",
+              type: "server_error",
+            },
+          },
+          { "x-request-id": "req_unavailable" },
+        )
+      : attempt === 2
+        ? reply("", {
+            name: sendMessageToolName,
+            input: { text: "Here it is." },
+          })
+        : reply("Done."),
+  );
+  runtime.start("Hello");
+  await settled(runtime);
+  assert.equal(runtime.status.status, "idle");
+  assert.equal(runtime.status.error, null);
+  assert.deepEqual(deliveries, ["Here it is."]);
+  const exported = await telemetry.collect();
+  const failures = eventsNamed(exported, telemetryEvents.modelFailed);
+  assert.equal(failures.length, 1);
+  assert.equal(failures[0]!.severityText, "WARNING");
+  assert.equal(failures[0]!.attributes[attribute.attempt], 1);
+  assert.equal(failures[0]!.attributes[attribute.willRetry], true);
+  // The provider's own code outranks the status, as for every failure.
+  assert.equal(failures[0]!.attributes[attribute.category], "server_error");
+  assert.equal(failures[0]!.attributes[attribute.requestId], "req_unavailable");
+  assert.equal(eventsNamed(exported, telemetryEvents.turnFailed).length, 0);
+  const [turn] = spansNamed(exported, telemetrySpans.turn);
+  assert.equal(turn?.attributes[attribute.outcome], "success");
+  const [prompt] = spansNamed(exported, telemetrySpans.prompt);
+  assert.notEqual(prompt?.status.code, SpanStatusCode.ERROR);
 });

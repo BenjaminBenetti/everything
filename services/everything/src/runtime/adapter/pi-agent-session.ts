@@ -8,6 +8,8 @@ import {
   FastModeRejectedError,
   ModelRequestFailedError,
 } from "../error/runtime-errors.js";
+import type { ModelRetryPolicy } from "../model/model-retry-policy.js";
+import { ModelRequestRetry } from "./model-request-retry.js";
 import {
   PiPromptTelemetry,
   type PromptTelemetryScope,
@@ -34,13 +36,15 @@ export class PiAgentSession implements ForkableSession {
   // ===========================================
 
   /**
-   * Wrap a created Pi session with a clock for server-owned activity timestamps and, when it belongs
-   * to a known owner and teammate, telemetry for its prompts.
+   * Wrap a created Pi session with a clock for server-owned activity timestamps, telemetry for its
+   * prompts when it belongs to a known owner and teammate, and the policy for retrying a model
+   * request that fails for a passing reason; without one, no request is retried.
    */
   constructor(
     private readonly session: PiSession,
     private readonly now: () => number = Date.now,
     telemetry?: PromptTelemetryScope,
+    private readonly retry?: ModelRetryPolicy,
   ) {
     this.id = session.sessionId;
     this.telemetry = telemetry && new PiPromptTelemetry(telemetry, this.id);
@@ -84,15 +88,29 @@ export class PiAgentSession implements ForkableSession {
     return this.run(text);
   }
 
-  /** Prompt the native session once, converting its failures for the caller. */
+  /**
+   * Prompt the native session once, converting its failures for the caller. A model request that
+   * fails for a passing reason is sent again within the prompt (see `ModelRequestRetry`); only the
+   * last attempt's failure reaches the caller, and a request ended by stopping the prompt is a
+   * cancellation.
+   */
   private async run(text: string): Promise<void> {
     const cancellation = new AbortController();
     this.cancellation = cancellation;
     this.lastTool = undefined;
     this.writing = false;
     let compactionFailed = false;
+    const retry = new ModelRequestRetry(
+      cancellation.signal,
+      this.retry && {
+        settings: this.session.settingsManager,
+        policy: this.retry,
+        contextWindow: () => this.session.model?.contextWindow ?? 0,
+      },
+    );
     const unsubscribe = this.session.subscribe((event) => {
-      this.telemetry?.observe(event);
+      // Decided first, so telemetry knows whether a failed response is retried.
+      this.telemetry?.observe(event, retry.follow(event));
       if (event.type === "compaction_start")
         this.compactionStart = new Date(this.now()).toISOString();
       if (event.type === "compaction_end") {
@@ -113,8 +131,11 @@ export class PiAgentSession implements ForkableSession {
       });
       if (compactionFailed) throw new CompactionFailedError();
       const last = this.session.messages.at(-1);
+      const outcome = retry.outcome(last);
       // Telemetry records the provider's failure here, before it becomes the generic error below.
-      this.telemetry?.settle(last);
+      this.telemetry?.settle(last, outcome);
+      // A request the stop aborted ends the prompt as cancelled, like Pi's own aborted responses.
+      if (outcome?.stopped) return;
       if (last?.role === "assistant" && last.stopReason === "error") {
         // A refused Fast request ends the turn with its own recovery; it never retries at standard speed.
         const failure = speedReport(last)?.failure;
@@ -123,6 +144,7 @@ export class PiAgentSession implements ForkableSession {
         throw new ModelRequestFailedError();
       }
     } finally {
+      retry.end();
       unsubscribe();
       this.cancellation = undefined;
       this.writing = false;

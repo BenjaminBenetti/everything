@@ -8,6 +8,7 @@ import {
 } from "@opentelemetry/api";
 import type { AgentSession as PiSession } from "@earendil-works/pi-coding-agent";
 import { speedReport } from "../model/speed-report.js";
+import type { ModelResponseOutcome } from "./model-request-retry.js";
 import { classifyModelFailure } from "../../telemetry/service/model-failure-classifier.js";
 import {
   PromptDiagnostics,
@@ -154,11 +155,14 @@ export class PiPromptTelemetry {
     };
   }
 
-  /** Record a final failed or cancelled response the session events did not already report. */
-  settle(message: PiMessage | undefined): void {
+  /**
+   * Record a final failed or cancelled response the session events did not already report, with
+   * what became of it.
+   */
+  settle(message: PiMessage | undefined, outcome?: ModelResponseOutcome): void {
     const prompt = this.running;
     try {
-      if (prompt && message) this.recordResponse(prompt, message);
+      if (prompt && message) this.recordResponse(prompt, message, outcome);
     } catch {
       // Recording never changes how the session reports the failure.
     }
@@ -168,8 +172,11 @@ export class PiPromptTelemetry {
   // Session events
   // ===========================================
 
-  /** Follow tool calls, compaction, retries, and responses while a prompt runs. */
-  observe(event: PiSessionEvent): void {
+  /**
+   * Follow tool calls, compaction, retries, and responses while a prompt runs; `outcome` says what
+   * became of a response that failed or was stopped.
+   */
+  observe(event: PiSessionEvent, outcome?: ModelResponseOutcome): void {
     const prompt = this.running;
     if (!prompt) return;
     try {
@@ -232,7 +239,7 @@ export class PiPromptTelemetry {
           });
           break;
         case "message_end":
-          this.recordResponse(prompt, event.message);
+          this.recordResponse(prompt, event.message, outcome);
           break;
       }
     } catch {
@@ -302,8 +309,16 @@ export class PiPromptTelemetry {
     span?.end();
   }
 
-  /** Record a model response that ended in an error or was cancelled, once. */
-  private recordResponse(prompt: RunningPrompt, message: PiMessage): void {
+  /**
+   * Record a model response that ended in an error or was cancelled, once. A failure whose request
+   * is sent again is a warning that leaves the prompt's status to a later attempt; a request its
+   * prompt's stop aborted is a cancellation, whatever error it ended with.
+   */
+  private recordResponse(
+    prompt: RunningPrompt,
+    message: PiMessage,
+    outcome: ModelResponseOutcome | undefined,
+  ): void {
     if (
       message.role !== "assistant" ||
       (message.stopReason !== "error" && message.stopReason !== "aborted") ||
@@ -313,7 +328,7 @@ export class PiPromptTelemetry {
     prompt.recorded.add(message);
     const speed = speedReport(message);
     const failure = classifyModelFailure({
-      stopReason: message.stopReason,
+      stopReason: outcome?.stopped ? "aborted" : message.stopReason,
       ...(message.errorMessage ? { errorMessage: message.errorMessage } : {}),
       ...(prompt.diagnostics.lastResponse
         ? { lastResponse: prompt.diagnostics.lastResponse }
@@ -321,7 +336,8 @@ export class PiPromptTelemetry {
       ...(speed?.failure ? { speedFailure: speed.failure } : {}),
     });
     const cancelled = failure.category === "cancelled";
-    if (!cancelled) {
+    const retried = !cancelled && outcome?.willRetry === true;
+    if (!cancelled && !retried) {
       prompt.diagnosed = true;
       prompt.span.setStatus({
         code: SpanStatusCode.ERROR,
@@ -335,7 +351,7 @@ export class PiPromptTelemetry {
           : telemetryEvents.modelFailed,
         title: cancelled ? "Model request stopped" : "Model request failed",
         type: "model",
-        severity: cancelled ? "info" : "error",
+        severity: cancelled ? "info" : retried ? "warning" : "error",
         outcome: cancelled ? "cancelled" : "failure",
         category: failure.category,
         retryable: failure.retryable,
@@ -348,7 +364,15 @@ export class PiPromptTelemetry {
         attributes: {
           [attribute.api]: message.api,
           [attribute.stopReason]: message.stopReason,
+          // HTTP attempts of this request, which its provider's SDK may have retried itself.
           [attribute.attempts]: prompt.diagnostics.attempts,
+          // Which attempt of the model request this was, and whether the request is sent again.
+          ...(outcome
+            ? {
+                [attribute.attempt]: outcome.attempt,
+                [attribute.willRetry]: outcome.willRetry,
+              }
+            : {}),
           ...(speed ? { [attribute.speed]: speed.requested } : {}),
           ...(prompt.diagnostics.lastResponse?.retryAfter
             ? {

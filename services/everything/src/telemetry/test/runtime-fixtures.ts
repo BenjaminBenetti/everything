@@ -8,6 +8,10 @@ import { PiInferenceRuntimeFactory } from "../../runtime/adapter/pi-inference-ru
 import { PiModelCapabilities } from "../../runtime/adapter/pi-model-capabilities.js";
 import { PiSessionFactory } from "../../runtime/adapter/pi-session-factory.js";
 import { createModelRuntime } from "../../runtime/factory/model-runtime.js";
+import {
+  modelRetryPolicy,
+  type ModelRetryPolicy,
+} from "../../runtime/model/model-retry-policy.js";
 import { AgentRuntime } from "../../runtime/service/agent-runtime.js";
 import { ReplyingAgentSession } from "../../runtime/service/replying-agent-session.js";
 import { testApiDocumentation } from "../../runtime/test/api-documentation-fixtures.js";
@@ -15,6 +19,13 @@ import { testConversationSearch } from "../../runtime/test/conversation-search-f
 import { stoppedFleet } from "../../runtime/test/fleet-mcp-fixtures.js";
 import type { WorkspaceTools } from "../../workspace/interface/workspace-tools.js";
 import { FileSystemWorkspaces } from "../../workspace/service/file-system-workspaces.js";
+
+/** The production retry policy's attempts, without its waits. */
+export const quickRetry: ModelRetryPolicy = {
+  ...modelRetryPolicy,
+  baseDelayMs: 1,
+  maxDelayMs: 2,
+};
 
 /** One provider request the fake server received, and the attempt it was. */
 export interface ProviderCall {
@@ -128,6 +139,11 @@ export async function teammate(
     stoppedFleet,
     testApiDocumentation,
     testConversationSearch,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    quickRetry,
   );
   const definition: AgentDefinition = {
     id: "0b6a3c4e-5f1d-4e2a-8c9b-7d6e5f4a3b2c",

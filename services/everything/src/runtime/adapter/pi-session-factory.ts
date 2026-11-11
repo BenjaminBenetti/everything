@@ -27,6 +27,10 @@ import type {
   InferenceRuntimeFactory,
 } from "../interface/inference-runtime.js";
 import { compactionPolicy } from "../model/compaction-policy.js";
+import {
+  modelRetryPolicy,
+  type ModelRetryPolicy,
+} from "../model/model-retry-policy.js";
 import type { WorkspaceTools } from "../../workspace/interface/workspace-tools.js";
 import { workspaceTools } from "../tool/workspace-tools.js";
 import {
@@ -67,7 +71,8 @@ export class PiSessionFactory implements AgentSessionFactory {
 
   /**
    * Receive inference, workspace tools, Fleet, API documentation, conversation search, and optional
-   * interaction recording, monitors, image viewing, and scheduled jobs.
+   * interaction recording, monitors, image viewing, and scheduled jobs. Sessions retry a model
+   * request that fails for a passing reason by `retry`.
    */
   constructor(
     private readonly inference: InferenceRuntimeFactory,
@@ -81,6 +86,7 @@ export class PiSessionFactory implements AgentSessionFactory {
     private readonly monitors?: MonitorOperations,
     private readonly images?: WorkspaceImages,
     private readonly jobs?: JobToolOperations,
+    private readonly retry: ModelRetryPolicy = modelRetryPolicy,
   ) {}
 
   // ===========================================
@@ -186,7 +192,8 @@ export class PiSessionFactory implements AgentSessionFactory {
         ? undefined
         : { id: sessionManager.getSessionId(), parentId },
     );
-    // Resource loading reloads settings, so enforce harness policy after it has completed.
+    // Resource loading reloads settings, so enforce harness policy after it has completed. Pi's
+    // retry stays off; each prompt allows it for one passing failure at a time (`ModelRequestRetry`).
     settingsManager.applyOverrides({
       retry: { enabled: false },
       compaction: compactionPolicy(model.contextWindow),
@@ -240,14 +247,19 @@ export class PiSessionFactory implements AgentSessionFactory {
     });
     // Starting the extensions connects Fleet's MCP server.
     await session.bindExtensions({});
-    return new PiAgentSession(session, Date.now, {
-      ownerId: agent.ownerId,
-      agentId: agent.id,
-      sessionKind: parentId === undefined ? "main" : "fork",
-      ...(parentId !== undefined ? { parentSessionId: parentId } : {}),
-      provider: agent.inference!.provider,
-      model: agent.inference!.model,
-    });
+    return new PiAgentSession(
+      session,
+      Date.now,
+      {
+        ownerId: agent.ownerId,
+        agentId: agent.id,
+        sessionKind: parentId === undefined ? "main" : "fork",
+        ...(parentId !== undefined ? { parentSessionId: parentId } : {}),
+        provider: agent.inference!.provider,
+        model: agent.inference!.model,
+      },
+      this.retry,
+    );
   }
 
   // ===========================================

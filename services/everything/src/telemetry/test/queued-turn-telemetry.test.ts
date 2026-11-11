@@ -153,13 +153,15 @@ test("a fork's message queued behind a running user turn starts its own trace, o
   await settled(fixture.runtime);
   assert.ok(forkFinished);
 
-  // The queued message runs once the turn's prompt is done, and its model request fails.
+  // The queued message runs once the turn's prompt is done, and its model request fails: the
+  // rate limit is retried twice before the last attempt's failure is final.
+  const final = (records: typeof exported) =>
+    eventsNamed(records, telemetryEvents.modelFailed).some(
+      (event) => event.attributes[attribute.willRetry] === false,
+    );
   let exported = await telemetry.collect();
   const deadline = Date.now() + 15_000;
-  while (
-    !eventsNamed(exported, telemetryEvents.modelFailed).length &&
-    Date.now() < deadline
-  ) {
+  while (!final(exported) && Date.now() < deadline) {
     await delay(20);
     exported = await telemetry.collect();
   }
@@ -168,6 +170,8 @@ test("a fork's message queued behind a running user turn starts its own trace, o
     "fork",
     "turn continues",
     "turn ends",
+    "private message",
+    "private message",
     "private message",
   ]);
 
@@ -240,17 +244,30 @@ test("a fork's message queued behind a running user turn starts its own trace, o
   assert.notEqual(fork.spanContext().traceId, userTrace);
   assert.notEqual(fork.spanContext().traceId, queued.spanContext().traceId);
 
-  const [failed] = eventsNamed(exported, telemetryEvents.modelFailed);
-  assert.equal(failed?.attributes[attribute.requestId], "req_private_429");
-  assert.equal(failed?.attributes[attribute.category], "rate_limit");
-  assert.equal(failed?.attributes[attribute.runId], undefined);
-  assert.equal(failed?.attributes[attribute.ownerId], "owner-a");
-  assert.equal(failed?.attributes[attribute.sessionKind], "main");
-  assert.equal(
-    failed?.spanContext?.traceId,
-    queued.spanContext().traceId,
-    "the failure belongs to the queued message's trace",
+  const failures = eventsNamed(exported, telemetryEvents.modelFailed);
+  assert.deepEqual(
+    failures.map((failed) => [
+      failed.attributes[attribute.attempt],
+      failed.attributes[attribute.willRetry],
+    ]),
+    [
+      [1, true],
+      [2, true],
+      [3, false],
+    ],
   );
+  for (const failed of failures) {
+    assert.equal(failed.attributes[attribute.requestId], "req_private_429");
+    assert.equal(failed.attributes[attribute.category], "rate_limit");
+    assert.equal(failed.attributes[attribute.runId], undefined);
+    assert.equal(failed.attributes[attribute.ownerId], "owner-a");
+    assert.equal(failed.attributes[attribute.sessionKind], "main");
+    assert.equal(
+      failed.spanContext?.traceId,
+      queued.spanContext().traceId,
+      "each attempt's failure belongs to the queued message's trace",
+    );
+  }
   assert.ok(
     !exported.spans.some(
       (span) =>
