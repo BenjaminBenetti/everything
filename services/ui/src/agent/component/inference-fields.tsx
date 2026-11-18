@@ -19,12 +19,14 @@ import { providerOptions } from "../../provider/model/provider-options.js";
 import { useSession } from "../../session/component/session-provider.js";
 import {
   effortLabels,
+  effortUnsupported,
   fastModeLabels,
   speedLabels,
 } from "../model/inference-options.js";
 import {
   isSupportedDraft,
   speedControl,
+  unsupportedDraftEffort,
   withModel,
   withProvider,
   type InferenceDraft,
@@ -94,6 +96,7 @@ export function InferenceFields({
   useEffect(() => onValidityChange(valid), [valid, onValidityChange]);
   const unavailable = !!value.provider && !providers.isPending && !connection;
   const speed = speedControl(value.speed, model);
+  const unsupportedEffort = unsupportedDraftEffort(value, model);
 
   /** Changing providers clears every dependent setting instead of silently retaining an invalid choice. */
   function changeProvider(provider: ProviderId | ""): void {
@@ -271,11 +274,16 @@ export function InferenceFields({
           <small id={`${fieldId}-effort-hint`}>
             {model?.efforts.length === 1 && model.efforts[0] === "off"
               ? model.effortSource === "unknown"
-                ? "This model’s effort levels aren’t known, so it uses the provider’s default effort."
+                ? "The provider doesn’t list effort levels for this model, so it uses the provider’s default effort."
                 : "This model does not expose an adjustable effort level."
               : "Higher effort can improve complex work and take more time."}
           </small>
         </div>
+        {unsupportedEffort && (
+          <p role="status" className="form-error">
+            {effortUnsupported(effortLabels[unsupportedEffort])}
+          </p>
+        )}
         {connection && speed.kind === "menu" && (
           <div className="field">
             <label htmlFor={`${fieldId}-speed`}>{speedLabels.field}</label>

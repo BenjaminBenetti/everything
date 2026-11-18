@@ -49,7 +49,6 @@ import { PostgresGeneralSettingsRepository } from "../../settings/repository/pos
 import { TeammateOrderService } from "../../settings/service/teammate-order-service.js";
 import { createApplicationDatabase } from "../../persistence/factory/application-database.js";
 import { PiSessionFactory } from "../../runtime/adapter/pi-session-factory.js";
-import { createModelRuntime } from "../../runtime/factory/model-runtime.js";
 import { FileSystemWorkspaces } from "../../workspace/service/file-system-workspaces.js";
 import { loadApplicationConfig } from "../config/application-config.js";
 import { createHttpApplication } from "../factory/http-application.js";
@@ -154,7 +153,7 @@ async function main(): Promise<void> {
       config.chatGptRedirectUri,
     ),
   );
-  const capabilities = new PiModelCapabilities(await createModelRuntime());
+  const capabilities = new PiModelCapabilities();
   const models = new ProviderModelService(
     providers,
     new HttpModelDiscovery(),

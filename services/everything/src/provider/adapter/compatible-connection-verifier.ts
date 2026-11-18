@@ -8,6 +8,7 @@ import {
   verificationFailure,
 } from "../error/provider-errors.js";
 import { providerFetch } from "./provider-fetch.js";
+import { compatibleTextOutput } from "./advertised-text-output.js";
 
 // Leave room for reasoning before the short answer, while bounding the check's cost.
 const checkTokenLimit = 1024;
@@ -54,17 +55,14 @@ export class CompatibleConnectionVerifier implements ConnectionVerifier {
           throw new ProviderVerificationError(
             "The server returned an unexpected model list. Check the API base address, or enter a model name under Advanced settings.",
           );
-        const candidates = models.filter(
-          (item) =>
-            typeof item?.id === "string" &&
-            !/embed|rerank|moderation|whisper|tts|image|dall-e|audio/i.test(
-              item.id,
-            ),
-        );
+        // The first listed model the server doesn't describe as unable to write text; one check
+        // only, and a model's name is never read as a sign of what it does or costs.
         model =
-          candidates.find((item) => /mini|small|nano/i.test(item.id))?.id ??
-          candidates[0]?.id ??
-          null;
+          models.find(
+            (item) =>
+              typeof item?.id === "string" &&
+              compatibleTextOutput(item) !== false,
+          )?.id ?? null;
       }
       if (!model)
         throw new ProviderVerificationError(

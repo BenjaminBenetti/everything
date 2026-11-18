@@ -12,7 +12,6 @@ import { PiSessionFactory } from "../adapter/pi-session-factory.js";
 import { stoppedFleet } from "./fleet-mcp-fixtures.js";
 import { PiInferenceRuntimeFactory } from "../adapter/pi-inference-runtime.js";
 import { PiModelCapabilities } from "../adapter/pi-model-capabilities.js";
-import { createModelRuntime } from "../factory/model-runtime.js";
 import { FileSystemWorkspaces } from "../../workspace/service/file-system-workspaces.js";
 import type { AgentDefinition } from "../../agent/model/agent.js";
 import type { ArtifactWorkbench } from "../../artifact/service/artifact-workbench.js";
@@ -85,7 +84,7 @@ async function fixture(
   };
   const requests: CompletionRequest[] = [];
   const deliveries: string[] = [];
-  const capabilities = new PiModelCapabilities(await createModelRuntime());
+  const capabilities = new PiModelCapabilities();
   const inference = new PiInferenceRuntimeFactory(
     {
       /** Every summary and normal reply must use the same owner's connection. */
@@ -125,7 +124,8 @@ async function fixture(
       const body = JSON.parse(String(init?.body)) as CompletionRequest;
       requests.push(body);
       assert.equal(body.model, "o3-mini");
-      assert.equal(body.reasoning_effort, "high");
+      // Compatible model lists have no effort contract, so Default sends none.
+      assert.equal(body.reasoning_effort, undefined);
       if (!body.tools?.length) {
         state.summaries++;
         startSummary();
@@ -227,7 +227,7 @@ async function fixture(
     inference: {
       provider: "openai-compatible",
       model: "o3-mini",
-      effort: "high",
+      effort: "off",
     },
     createdAt: "",
   };

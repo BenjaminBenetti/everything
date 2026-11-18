@@ -22,7 +22,10 @@ export class ChatGptConnectionVerifier implements ConnectionVerifier {
   // Verification
   // ===========================================
 
-  /** A model catalog or HTTP 200 alone is insufficient: require response.completed. */
+  /**
+   * A model catalog or HTTP 200 alone is insufficient: require response.completed. The check uses
+   * the first model the account lists; a model's name is never read as a sign of its size or cost.
+   */
   async verify({ credential }: VerificationInput): Promise<string> {
     try {
       const transport = providerFetch(this.fetcher);
@@ -42,9 +45,7 @@ export class ChatGptConnectionVerifier implements ConnectionVerifier {
           (model) =>
             model.visibility === "list" && typeof model.slug === "string",
         ) ?? [];
-      const model =
-        models.find((item) => /mini|nano|luna/i.test(item.slug))?.slug ??
-        models[0]?.slug;
+      const model = models[0]?.slug;
       if (!model)
         throw new ProviderVerificationError(
           "No ChatGPT models are available. Check your plan and app access in ChatGPT.",

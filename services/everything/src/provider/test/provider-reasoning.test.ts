@@ -7,7 +7,6 @@ import { HttpModelDiscovery } from "../adapter/http-model-discovery.js";
 import { providerModelController } from "../controller/provider-model-controller.js";
 import { ProviderModelService } from "../service/provider-models.js";
 import { PiModelCapabilities } from "../../runtime/adapter/pi-model-capabilities.js";
-import { createModelRuntime } from "../../runtime/factory/model-runtime.js";
 
 /** Codex-shaped reasoning entries for the given provider values. */
 function levels(
@@ -46,7 +45,7 @@ async function service(
       requests.push(new URL(String(input)));
       return Response.json(catalog);
     }),
-    new PiModelCapabilities(await createModelRuntime()),
+    new PiModelCapabilities(),
   );
 }
 
@@ -69,7 +68,7 @@ async function assertAccepted(
   }
 }
 
-test("a ChatGPT model missing from Pi's catalog offers exactly the levels its account catalog lists", async (context) => {
+test("a ChatGPT model offers exactly the levels its account catalog lists", async (context) => {
   const requests: URL[] = [];
   const models = await service(
     "chatgpt",
@@ -99,8 +98,8 @@ test("a ChatGPT model missing from Pi's catalog offers exactly the levels its ac
         efforts: ["low", "medium", "xhigh"],
         defaultEffort: "xhigh",
         effortSource: "provider",
-        // ChatGPT sign-in documents Fast for this exact model; its entry lists no speeds.
-        speeds: ["standard", "fast"],
+        // Its entry lists no speeds, so none is offered, whatever documentation says.
+        speeds: ["standard"],
       },
     ],
   });
@@ -117,58 +116,59 @@ test("a ChatGPT model missing from Pi's catalog offers exactly the levels its ac
     assert.equal(url.href, "https://api.openai.com/v1/models");
 });
 
-test("a ChatGPT model with no listed levels and no catalog entry gets no guessed effort support", async () => {
+test("a ChatGPT model with no usable listed levels gets no guessed effort support, whatever its ID", async () => {
   for (const entry of [
     {},
     { supported_reasoning_levels: "low" },
     { supported_reasoning_levels: [{ effort: "low" }, { level: "high" }] },
   ]) {
-    const models = await service("chatgpt", {
-      models: [{ slug: "gpt-6.1-terra", visibility: "list", ...entry }],
-    });
-    const [model] = await models.list("owner", "chatgpt");
-    assert.deepEqual(
-      { efforts: model!.efforts, source: model!.effortSource },
-      { efforts: ["off"], source: "unknown" },
-    );
-    await assertAccepted(models, "chatgpt", "gpt-6.1-terra", ["off"]);
+    // A model Pi's catalog describes and one it doesn't are treated alike.
+    for (const slug of ["gpt-6.1-terra", "gpt-5.6-terra"]) {
+      const models = await service("chatgpt", {
+        models: [{ slug, visibility: "list", ...entry }],
+      });
+      const [model] = await models.list("owner", "chatgpt");
+      assert.deepEqual(
+        { efforts: model!.efforts, source: model!.effortSource },
+        { efforts: ["off"], source: "unknown" },
+      );
+      await assertAccepted(models, "chatgpt", slug, ["off"]);
+    }
   }
 });
 
-test("listed ChatGPT levels override Pi's catalog, which remains the fallback when none are listed", async () => {
-  const listed = await service("chatgpt", {
-    models: [
-      {
-        slug: "gpt-5.6-terra",
-        visibility: "list",
-        supported_reasoning_levels: levels("none", "medium", "high"),
-      },
-    ],
+test("the same ChatGPT ID offers what each account's list reports, and a new ID with the same list matches a known one", async () => {
+  const narrowedLevels = levels("none", "medium", "high");
+  /** The described model for `slug` when its entry reports `entry`. */
+  async function listed(slug: string, entry: Record<string, unknown>) {
+    const models = await service("chatgpt", {
+      models: [{ slug, visibility: "list", ...entry }],
+    });
+    const [model] = await models.list("owner", "chatgpt");
+    return { models, model: model! };
+  }
+  const narrowed = await listed("gpt-5.6-terra", {
+    supported_reasoning_levels: narrowedLevels,
   });
-  const [narrowed] = await listed.list("owner", "chatgpt");
-  assert.deepEqual(narrowed!.efforts, ["off", "medium", "high"]);
-  assert.equal(narrowed!.defaultEffort, "medium");
-  assert.equal(narrowed!.effortSource, "provider");
-  await assertAccepted(listed, "chatgpt", "gpt-5.6-terra", [
+  assert.deepEqual(narrowed.model.efforts, ["off", "medium", "high"]);
+  assert.equal(narrowed.model.defaultEffort, "medium");
+  assert.equal(narrowed.model.effortSource, "provider");
+  await assertAccepted(narrowed.models, "chatgpt", "gpt-5.6-terra", [
     "off",
     "medium",
     "high",
   ]);
-  for (const entry of [{}, { supported_reasoning_levels: [null] }]) {
-    const fallback = await service("chatgpt", {
-      models: [{ slug: "gpt-5.6-terra", visibility: "list", ...entry }],
-    });
-    const [model] = await fallback.list("owner", "chatgpt");
-    assert.deepEqual(model!.efforts, [
-      "off",
-      "low",
-      "medium",
-      "high",
-      "xhigh",
-      "max",
-    ]);
-    assert.equal(model!.effortSource, "catalog");
-  }
+  const wider = await listed("gpt-5.6-terra", {
+    supported_reasoning_levels: levels("low", "xhigh", "max"),
+  });
+  assert.deepEqual(wider.model.efforts, ["low", "xhigh", "max"]);
+  const renamed = await listed("gpt-next-opaque", {
+    supported_reasoning_levels: narrowedLevels,
+  });
+  assert.deepEqual(
+    { ...renamed.model, id: "", name: "" },
+    { ...narrowed.model, id: "", name: "" },
+  );
 });
 
 test("a ChatGPT model listing only levels the runtime can't send runs at the provider default", async () => {
@@ -188,7 +188,7 @@ test("a ChatGPT model listing only levels the runtime can't send runs at the pro
   );
 });
 
-test("Claude models use their reported effort levels only where the runtime sends an effort", async () => {
+test("Claude models offer exactly their reported effort levels, whatever their ID", async () => {
   const effort = {
     supported: true,
     low: support(true),
@@ -206,13 +206,11 @@ test("Claude models use their reported effort levels only where the runtime send
     "anthropic",
     {
       data: [
-        // Missing from Pi's catalog: its reported levels are the only ones offered.
+        // A new ID and IDs Pi's catalog describes get the same levels from the same report.
         { id: "claude-next", display_name: "Claude Next", capabilities },
-        // Adaptive in Pi's catalog: the reported null xhigh removes it.
         { id: "claude-opus-4-8", display_name: "Opus 4.8", capabilities },
-        // Token-budget thinking in Pi's catalog: effort levels aren't Anthropic's to describe.
         { id: "claude-sonnet-4-5", display_name: "Sonnet 4.5", capabilities },
-        // No capabilities: Pi's catalog applies.
+        // No capabilities: nothing is offered beyond the provider's default.
         { id: "claude-opus-5-5", display_name: "Opus 5.5", capabilities: null },
       ].map((model) => ({ ...model, type: "model", created_at: "2026-01-01" })),
       has_more: false,
@@ -227,24 +225,21 @@ test("Claude models use their reported effort levels only where the runtime send
       [model.effortSource, model.efforts],
     ]),
   );
+  const reported = ["provider", ["low", "medium", "high", "max"]];
   assert.deepEqual(listed, {
-    "claude-next": ["provider", ["low", "medium", "high", "max"]],
-    "claude-opus-4-8": [
-      "provider",
-      ["off", "minimal", "low", "medium", "high", "max"],
-    ],
-    "claude-sonnet-4-5": [
-      "catalog",
-      ["off", "minimal", "low", "medium", "high"],
-    ],
-    "claude-opus-5-5": ["catalog", ["low", "medium", "high", "xhigh", "max"]],
+    "claude-next": reported,
+    "claude-opus-4-8": reported,
+    "claude-sonnet-4-5": reported,
+    "claude-opus-5-5": ["unknown", ["off"]],
   });
-  await assertAccepted(models, "anthropic", "claude-next", [
-    "low",
-    "medium",
-    "high",
-    "max",
-  ]);
+  for (const id of ["claude-next", "claude-opus-4-8", "claude-sonnet-4-5"])
+    await assertAccepted(models, "anthropic", id, [
+      "low",
+      "medium",
+      "high",
+      "max",
+    ]);
+  await assertAccepted(models, "anthropic", "claude-opus-5-5", ["off"]);
   for (const url of requests)
     assert.equal(url.origin, "https://api.anthropic.com");
 });

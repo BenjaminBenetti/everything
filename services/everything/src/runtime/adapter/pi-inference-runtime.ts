@@ -1,7 +1,10 @@
 import {
+  getSupportedThinkingLevels,
   InMemoryCredentialStore,
   lazyStream,
+  type Api,
   type Model,
+  type ThinkingLevel,
 } from "@earendil-works/pi-ai";
 import { streamSimple as anthropicStream } from "@earendil-works/pi-ai/api/anthropic-messages";
 import { streamSimple as responsesStream } from "@earendil-works/pi-ai/api/openai-responses";
@@ -26,6 +29,22 @@ import { speedProtocols } from "./speed-protocols.js";
 import { SpeedRequest } from "./speed-request.js";
 import { observeProviderRequests } from "../../telemetry/adapter/provider-request-telemetry.js";
 import { promptDiagnostics } from "../../telemetry/service/prompt-diagnostics.js";
+
+/**
+ * The effort a request asks for, kept only when the model reports it. A teammate's own effort was
+ * validated against the same levels; an internal caller's fixed level, such as a background
+ * summary's `minimal`, is left out where the model doesn't report it, so the request runs at the
+ * provider's default. Pi would otherwise send its nearest level, or switch Claude to token-budget
+ * thinking and raise the caller's output cap to make room for it.
+ */
+function reportedEffort(
+  model: Model<Api>,
+  effort: ThinkingLevel | undefined,
+): ThinkingLevel | undefined {
+  return effort && getSupportedThinkingLevels(model).includes(effort)
+    ? effort
+    : undefined;
+}
 
 /** Adapt owner-scoped connections to Pi without writing decrypted credentials to workspace files. */
 export class PiInferenceRuntimeFactory implements InferenceRuntimeFactory {
@@ -123,8 +142,12 @@ export class PiInferenceRuntimeFactory implements InferenceRuntimeFactory {
             },
           );
           const speed = protocol && new SpeedRequest(protocol, requested);
+          const { reasoning: _requested, ...streamOptions } =
+            (speed ? speed.options(options) : options) ?? {};
+          const effort = reportedEffort(selected, options?.reasoning);
           const requestOptions = {
-            ...(speed ? speed.options(options) : options),
+            ...streamOptions,
+            ...(effort ? { reasoning: effort } : {}),
             apiKey: key || "local",
             fetch: speed ? speed.fetch(transport) : transport,
           };

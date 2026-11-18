@@ -211,7 +211,7 @@ export function appTools(
       name: appToolNames.checkout,
       label: "Check out app",
       description:
-        'Copy an app\'s source files into a directory in your workspace, so you can change them and publish or build again, including work another teammate started. By default this copies the live release (or, for a dynamic app that was never deployed, its newest build). The result includes "release": pass it as basedOn when you publish or deploy.',
+        'Copy an app\'s source files into a directory in your workspace, so you can change them and publish or build again, including work another teammate started. Without revision or build, this copies the live release (or, for a dynamic app that was never deployed, its newest build). Pass at most one of them: revision for a static app, build for a dynamic app. The result includes "release": pass it as basedOn when you publish or deploy.',
       parameters: Type.Object(
         {
           app: appReference,

@@ -37,7 +37,7 @@ export class SpeedRequest {
   // Construction
   // ===========================================
 
-  /** Request only the paid speed the selection asks for, with its model's requirements; otherwise none. */
+  /** Request only the paid speed the selection asks for; otherwise none. */
   constructor(
     private readonly protocol: SpeedProtocol,
     private readonly requested?: RequestedSpeed,

@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { ProviderModel } from "@everything/provider-contracts/inference";
-import { fastModeLabels, speedLabels } from "../model/inference-options.js";
+import {
+  effortUnsupported,
+  fastModeLabels,
+  speedLabels,
+} from "../model/inference-options.js";
 import {
   draftSelection,
   inferenceDraft,
@@ -10,6 +14,7 @@ import {
   offeredSpeeds,
   offersFast,
   speedControl,
+  unsupportedDraftEffort,
   withModel,
   withProvider,
 } from "../model/inference-draft.js";
@@ -268,9 +273,25 @@ test("a saved Default effort a model no longer offers keeps the draft unsaveable
   assert.equal(draft.effort, "off");
   assert.equal(isChangedDraft(draft, saved), false);
   assert.equal(isSupportedDraft(draft, listed), false);
+  // The editor names the saved level the model no longer offers, once its models have loaded.
+  assert.equal(unsupportedDraftEffort(draft, listed), "off");
+  assert.equal(unsupportedDraftEffort(draft, undefined), undefined);
   // Choosing a listed effort, as the effort menu does, makes the draft a saveable change.
   const repaired = { ...draft, effort: "high" } as const;
+  assert.equal(unsupportedDraftEffort(repaired, listed), undefined);
   assert.equal(isSupportedDraft(repaired, listed), true);
   assert.equal(isChangedDraft(repaired, saved), true);
   assert.deepEqual(draftSelection(repaired), { ...saved, effort: "high" });
+});
+
+test("an effort or Fast mode the provider's model list doesn't offer is explained, with how to save the teammate", () => {
+  assert.equal(
+    effortUnsupported("High"),
+    "The provider doesn’t list the saved effort level, High, for this model. Choose one of the levels it offers to save this model.",
+  );
+  assert.match(
+    fastModeLabels.unsupported,
+    /model list doesn’t offer Fast mode/,
+  );
+  assert.match(fastModeLabels.unsupported, /Turn it off to save this model/);
 });

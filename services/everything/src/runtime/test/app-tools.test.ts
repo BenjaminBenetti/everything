@@ -310,6 +310,25 @@ test("publish_app and build_app state the upload limits the app service enforces
   );
 });
 
+test("checkout_app says it copies the live release by default and takes one selector at most", () => {
+  const checkout = appTools({} as ArtifactWorkbench, context).find(
+    (tool) => tool.name === appToolNames.checkout,
+  )!;
+  assert.match(
+    checkout.description,
+    /Without revision or build, this copies the live release/,
+  );
+  assert.match(
+    checkout.description,
+    /Pass at most one of them: revision for a static app, build for a dynamic app\./,
+  );
+  // The apps service refuses both; the schema keeps each optional.
+  assert.deepEqual((checkout.parameters as { required?: string[] }).required, [
+    "app",
+    "directory",
+  ]);
+});
+
 test("dynamic apps are told to serve routes from / and use BASE_PATH only for links", () => {
   const prompt = mainAgentPrompt({
     id: agentId,

@@ -31,7 +31,7 @@ export interface ModelLimits {
 
 /**
  * Effort levels a provider's model list reports for one model. Only levels its metadata covers are
- * present; the runtime knows nothing more about the rest.
+ * present, and the runtime offers none of the rest.
  */
 export interface AdvertisedReasoning {
   /** The provider's value to send for each covered level, or null where the model rejects it. */

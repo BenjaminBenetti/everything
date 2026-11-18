@@ -25,4 +25,7 @@ export const agentModelInfoResponse = Type.Object({
   selected: Type.Union([effectiveModel, Type.Null()]),
   applied: Type.Union([effectiveModel, Type.Null()]),
   selectionError: Type.Boolean(),
+  selectionIssue: Type.Optional(
+    Type.Union([Type.Literal("settings"), Type.Literal("provider")]),
+  ),
 });

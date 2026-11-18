@@ -3,7 +3,6 @@ import { test } from "node:test";
 import type { InferenceSelection } from "@everything/provider-contracts/inference";
 import { PiInferenceRuntimeFactory } from "../adapter/pi-inference-runtime.js";
 import { PiModelCapabilities } from "../adapter/pi-model-capabilities.js";
-import { createModelRuntime } from "../factory/model-runtime.js";
 import { HttpModelDiscovery } from "../../provider/adapter/http-model-discovery.js";
 import { ProviderModelService } from "../../provider/service/provider-models.js";
 import type { ProviderAccess } from "../../provider/interface/provider-access.js";
@@ -35,7 +34,7 @@ test("fresh selection and runtime creation use optional ChatGPT limits through t
       };
     },
   };
-  const capabilities = new PiModelCapabilities(await createModelRuntime());
+  const capabilities = new PiModelCapabilities();
   const discovery = new HttpModelDiscovery(async (input, init) => {
     assert.equal(String(input), "https://api.openai.com/v1/models");
     assert.equal(
@@ -121,12 +120,16 @@ test("ChatGPT uses owner-specific OAuth with the public Responses protocol and s
       },
     },
     {
-      /** Selection validation is exercised by provider-model tests. */
+      /** Selection validation is exercised by provider-model tests; this list reports two levels. */
       async select(_ownerId, selection) {
-        return { id: selection.model, name: selection.model };
+        return {
+          id: selection.model,
+          name: selection.model,
+          reasoning: { levels: { low: "low", high: "high" } },
+        };
       },
     },
-    new PiModelCapabilities(await createModelRuntime()),
+    new PiModelCapabilities(),
     async (input, init) => {
       assert.equal(String(input), "https://api.openai.com/v1/responses");
       requests.push({
@@ -193,7 +196,7 @@ test("ChatGPT uses owner-specific OAuth with the public Responses protocol and s
   );
 });
 
-test("Claude uses the official messages endpoint and maps selected effort through Pi", async () => {
+test("Claude uses the official messages endpoint and sends the selected reported effort through Pi", async () => {
   const requests: Record<string, unknown>[] = [];
   const factory = new PiInferenceRuntimeFactory(
     {
@@ -209,10 +212,14 @@ test("Claude uses the official messages endpoint and maps selected effort throug
     {
       /** Runtime behavior is independent from separately tested availability validation. */
       async select(_ownerId, selection) {
-        return { id: selection.model, name: selection.model };
+        return {
+          id: selection.model,
+          name: selection.model,
+          reasoning: { levels: { high: "high" } },
+        };
       },
     },
-    new PiModelCapabilities(await createModelRuntime()),
+    new PiModelCapabilities(),
     async (input, init) => {
       assert.equal(new URL(String(input)).pathname, "/v1/messages");
       assert.equal(new URL(String(input)).origin, "https://api.anthropic.com");
@@ -263,8 +270,21 @@ test("Claude uses the official messages endpoint and maps selected effort throug
   assert.deepEqual(requests[0]!.output_config, { effort: "high" });
 });
 
-test("local Qwen effort choices reach the compatible API and Default leaves the server setting intact", async () => {
+test("a compatible model's name grants no effort, so every request leaves the server's own setting intact", async () => {
   const id = "qwen3.8-flash-next-unsloth-ud-iq4_xs";
+  const capabilities = new PiModelCapabilities();
+  // Neither the model's name nor its packaging suffix stands in for effort metadata.
+  assert.deepEqual(
+    capabilities.describe("openai-compatible", { id, name: id }),
+    {
+      id,
+      name: id,
+      efforts: ["off"],
+      defaultEffort: "off",
+      effortSource: "unknown",
+      speeds: ["standard"],
+    },
+  );
   const requests: Record<string, unknown>[] = [];
   const factory = new PiInferenceRuntimeFactory(
     {
@@ -278,12 +298,12 @@ test("local Qwen effort choices reach the compatible API and Default leaves the 
       },
     },
     {
-      /** The provider API regression covers validation of each supported effort. */
+      /** Skip validation so even efforts the model doesn't offer reach the runtime's own check. */
       async select(_ownerId, selection) {
         return { id: selection.model, name: selection.model };
       },
     },
-    new PiModelCapabilities(await createModelRuntime()),
+    capabilities,
     async (input, init) => {
       assert.equal(String(input), "http://local.test/v1/chat/completions");
       assert.equal(
@@ -322,16 +342,14 @@ test("local Qwen effort choices reach the compatible API and Default leaves the 
     );
     assert.equal(reply.stopReason, "stop");
     assert.equal(requests.at(-1)!.model, id);
-    assert.equal(
-      requests.at(-1)!.reasoning_effort,
-      effort === "off" ? undefined : effort,
-    );
+    assert.equal(requests.at(-1)!.reasoning_effort, undefined, effort);
+    assert.equal(requests.at(-1)!.enable_thinking, undefined, effort);
   }
   assert.equal(requests.length, 4);
 });
 
 test("every effort offered from a provider's listed levels reaches the request as that provider's value", async () => {
-  const capabilities = new PiModelCapabilities(await createModelRuntime());
+  const capabilities = new PiModelCapabilities();
   const discovered = {
     id: "gpt-6.1-terra",
     name: "GPT-6.1 Terra",
@@ -401,7 +419,7 @@ test("every effort offered from a provider's listed levels reaches the request a
 
 test("a Claude model known only from its reported capabilities receives adaptive thinking with the chosen effort", async () => {
   const requests: Record<string, unknown>[] = [];
-  const capabilities = new PiModelCapabilities(await createModelRuntime());
+  const capabilities = new PiModelCapabilities();
   const discovered = {
     id: "claude-next",
     name: "Claude Next",

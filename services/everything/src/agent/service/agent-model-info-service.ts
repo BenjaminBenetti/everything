@@ -1,4 +1,7 @@
-import type { AgentModelInfo } from "@everything/agent-contracts";
+import type {
+  AgentModelInfo,
+  AgentSelectionIssue,
+} from "@everything/agent-contracts";
 import type { AgentCatalog } from "../interface/agent-catalog.js";
 import type {
   AgentModelInfoReader,
@@ -8,7 +11,21 @@ import type {
   ModelResolution,
   ProviderModels,
 } from "../../provider/interface/provider-models.js";
+import {
+  FastModeUnsupportedError,
+  InferenceSelectionError,
+  UltrafastModeUnsupportedError,
+} from "../../provider/error/provider-errors.js";
 import { ApplicationError } from "@everything/errors";
+
+/** Whether a refused selection needs the owner's choice, or its provider couldn't be reached. */
+function selectionIssue(error: ApplicationError): AgentSelectionIssue {
+  return error instanceof InferenceSelectionError ||
+    error instanceof FastModeUnsupportedError ||
+    error instanceof UltrafastModeUnsupportedError
+    ? "settings"
+    : "provider";
+}
 
 /** Keep fresh saved-selection discovery separate from the runtime's pinned resolution. */
 export class AgentModelInfoService implements AgentModelInfoReader {
@@ -20,7 +37,10 @@ export class AgentModelInfoService implements AgentModelInfoReader {
     private readonly runtimes: AppliedModelReader,
   ) {}
 
-  /** Discovery performs no inference; a provider failure never hides the applied snapshot. */
+  /**
+   * Discovery performs no inference; a provider failure never hides the applied snapshot. A saved
+   * choice the model list no longer offers is reported as such and left as saved.
+   */
   async read(ownerId: string, agentId: string): Promise<AgentModelInfo> {
     const agent = await this.agents.get(ownerId, agentId);
     const applied = await this.runtimes.appliedModel(ownerId, agentId);
@@ -35,7 +55,12 @@ export class AgentModelInfoService implements AgentModelInfoReader {
       };
     } catch (error) {
       if (!(error instanceof ApplicationError)) throw error;
-      return { selected: null, applied, selectionError: true };
+      return {
+        selected: null,
+        applied,
+        selectionError: true,
+        selectionIssue: selectionIssue(error),
+      };
     }
   }
 }

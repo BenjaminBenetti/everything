@@ -3,7 +3,6 @@ import { test } from "node:test";
 import { updateSummaryMaxLength } from "@everything/update-contracts";
 import { PiInferenceRuntimeFactory } from "../../runtime/adapter/pi-inference-runtime.js";
 import { PiModelCapabilities } from "../../runtime/adapter/pi-model-capabilities.js";
-import { createModelRuntime } from "../../runtime/factory/model-runtime.js";
 import { ModelUpdateSummarizer } from "../adapter/model-update-summarizer.js";
 import { summaryMaxTokens } from "../model/update-summary.js";
 import type { UpdateSummaryInput } from "../model/update-summary.js";
@@ -36,7 +35,7 @@ async function fixture() {
         return { id: selection.model, name: selection.model };
       },
     },
-    new PiModelCapabilities(await createModelRuntime()),
+    new PiModelCapabilities(),
     async (url, init) => {
       assert.equal(String(url), "http://summary.test/v1/chat/completions");
       requests.push({
@@ -219,4 +218,89 @@ test("summaries of a Fast teammate's updates don't request Fast mode", async () 
   assert.deepEqual(selections, [
     { provider: "chatgpt", model: "gpt-6.1-sol", effort: "high" },
   ]);
+});
+
+test("a summary on a Claude model reporting no effort keeps its own output cap and sends no thinking", async () => {
+  const bodies: Record<string, unknown>[] = [];
+  const summarizer = new ModelUpdateSummarizer(
+    new PiInferenceRuntimeFactory(
+      {
+        /** One owner's Claude connection, with a fake key. */
+        async access() {
+          return {
+            credential: { apiKey: "claude-key" },
+            baseUrl: null,
+            model: null,
+          };
+        },
+      },
+      {
+        /** A model whose list entry reports no capabilities. */
+        async select(_ownerId, selection) {
+          return { id: selection.model, name: selection.model };
+        },
+      },
+      new PiModelCapabilities(),
+      async (_url, init) => {
+        bodies.push(JSON.parse(String(init?.body)));
+        return new Response(
+          [
+            {
+              type: "message_start",
+              message: {
+                id: "message",
+                type: "message",
+                role: "assistant",
+                model: "claude-next-fixture",
+                content: [],
+                stop_reason: null,
+                stop_sequence: null,
+                usage: { input_tokens: 1, output_tokens: 0 },
+              },
+            },
+            {
+              type: "content_block_start",
+              index: 0,
+              content_block: { type: "text", text: "" },
+            },
+            {
+              type: "content_block_delta",
+              index: 0,
+              delta: { type: "text_delta", text: "Needs your review." },
+            },
+            { type: "content_block_stop", index: 0 },
+            {
+              type: "message_delta",
+              delta: { stop_reason: "end_turn", stop_sequence: null },
+              usage: { output_tokens: 4 },
+            },
+            { type: "message_stop" },
+          ]
+            .map(
+              (event) =>
+                `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`,
+            )
+            .join(""),
+          { headers: { "content-type": "text/event-stream" } },
+        );
+      },
+    ),
+  );
+  const summary = await summarizer.summarize(
+    {
+      ...update,
+      inference: {
+        provider: "anthropic",
+        model: "claude-next-fixture",
+        effort: "off",
+      },
+    },
+    new AbortController().signal,
+  );
+  assert.equal(summary, "Needs your review.");
+  // The summary's minimal effort isn't reported, so it is left out instead of switching Claude to
+  // token-budget thinking, which would raise the cap to make room for a thinking budget.
+  assert.equal(bodies[0]!.max_tokens, Math.min(4096, summaryMaxTokens));
+  assert.equal(bodies[0]!.thinking, undefined);
+  assert.equal(bodies[0]!.output_config, undefined);
 });

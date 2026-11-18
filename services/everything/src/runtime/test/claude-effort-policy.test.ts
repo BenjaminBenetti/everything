@@ -6,7 +6,6 @@ import { HttpModelDiscovery } from "../../provider/adapter/http-model-discovery.
 import { ProviderModelService } from "../../provider/service/provider-models.js";
 import { PiInferenceRuntimeFactory } from "../adapter/pi-inference-runtime.js";
 import { PiModelCapabilities } from "../adapter/pi-model-capabilities.js";
-import { createModelRuntime } from "../factory/model-runtime.js";
 
 // ===========================================
 // Fixtures
@@ -77,12 +76,22 @@ function reply(model: string): Response {
   );
 }
 
+/** One Messages request as sent: its JSON body and its beta header. */
+interface SentMessage {
+  readonly body: Record<string, unknown>;
+  readonly betas: string[];
+}
+
 /**
  * Model listing, validation, and inference for one Claude model whose model list reports
- * `reported` capabilities, over fake credentials and an intercepting transport.
+ * `reported` capabilities and the given limits, over fake credentials and an intercepting transport.
  */
-async function claude(id: string, reported: unknown) {
-  const messages: Record<string, unknown>[] = [];
+async function claude(
+  id: string,
+  reported: unknown,
+  limits: { max_input_tokens?: number; max_tokens?: number } = {},
+) {
+  const messages: SentMessage[] = [];
   const fetcher: typeof fetch = async (input, init) => {
     const url = new URL(String(input));
     assert.equal(url.origin, "https://api.anthropic.com");
@@ -99,6 +108,7 @@ async function claude(id: string, reported: unknown) {
             type: "model",
             created_at: "2026-01-01",
             capabilities: reported,
+            ...limits,
           },
         ],
         has_more: false,
@@ -106,7 +116,13 @@ async function claude(id: string, reported: unknown) {
         last_id: id,
       });
     assert.equal(url.pathname, "/v1/messages");
-    messages.push(JSON.parse(String(init?.body)));
+    messages.push({
+      body: JSON.parse(String(init?.body)),
+      betas: (new Headers(init?.headers).get("anthropic-beta") ?? "")
+        .split(",")
+        .map((beta) => beta.trim())
+        .filter(Boolean),
+    });
     return reply(id);
   };
   const access = {
@@ -119,7 +135,7 @@ async function claude(id: string, reported: unknown) {
       };
     },
   };
-  const capabilities = new PiModelCapabilities(await createModelRuntime());
+  const capabilities = new PiModelCapabilities();
   const models = new ProviderModelService(
     access,
     new HttpModelDiscovery(fetcher),
@@ -137,7 +153,10 @@ async function claude(id: string, reported: unknown) {
     models,
     messages,
     /** Send one turn at `effort` after an earlier reply that Pi's managed mode recorded at max. */
-    async send(effort: InferenceEffort): Promise<Record<string, unknown>> {
+    async send(
+      effort: InferenceEffort,
+      options: { reasoning?: "minimal"; maxTokens?: number } = {},
+    ): Promise<SentMessage> {
       const runtime = await runtimes.create("owner", {
         provider: "anthropic",
         model: id,
@@ -169,7 +188,7 @@ async function claude(id: string, reported: unknown) {
       await runtime.models.completeSimple(
         runtime.model,
         { messages: history },
-        effort === "off" ? {} : { reasoning: effort },
+        { ...(effort === "off" ? {} : { reasoning: effort }), ...options },
       );
       return messages.at(-1)!;
     },
@@ -177,7 +196,7 @@ async function claude(id: string, reported: unknown) {
 }
 
 /** Every effort a Messages request carries: at the root and in each message. */
-function sentEfforts(body: Record<string, unknown>): string[] {
+function sentEfforts({ body }: SentMessage): string[] {
   const efforts = [body, ...(body.messages as Record<string, unknown>[])]
     .map(
       (item) => (item.output_config as { effort?: string } | undefined)?.effort,
@@ -186,42 +205,68 @@ function sentEfforts(body: Record<string, unknown>): string[] {
   return efforts as string[];
 }
 
+/** A request with its model identity removed, to compare two models' requests. */
+function withoutModel({ body, betas }: SentMessage) {
+  const { model: _model, ...rest } = body;
+  return { body: rest, betas };
+}
+
 // ===========================================
-// Managed-effort models
+// Reported effort levels
 // ===========================================
 
-test("a managed-effort Claude model reported low-only sends only low, at the root and in no replayed history", async () => {
-  const model = await claude("claude-opus-5-5", capabilities({ low: true }));
+test("a Claude model is offered and sent the same effort whatever its ID, when its model list reports the same capabilities", async () => {
+  const known = await claude("claude-opus-5-5", capabilities(allLevels));
+  const novel = await claude("claude-next-test", capabilities(allLevels));
   assert.deepEqual(
-    [model.listed.effortSource, model.listed.efforts],
-    ["provider", ["low"]],
+    { ...known.listed, id: "", name: "" },
+    { ...novel.listed, id: "", name: "" },
   );
-  for (const effort of model.listed.efforts) {
-    const body = await model.send(effort);
-    assert.deepEqual(sentEfforts(body), ["low"], effort);
-    assert.deepEqual(body.output_config, { effort: "low" });
-    assert.deepEqual(body.thinking, {
-      type: "adaptive",
-      display: "summarized",
-    });
-  }
-});
-
-test("a managed-effort Claude model reporting every level keeps Pi's managed history and fixed root", async () => {
-  const model = await claude("claude-opus-5-5", capabilities(allLevels));
-  assert.deepEqual(model.listed.efforts, [
+  assert.deepEqual(known.listed.efforts, [
     "low",
     "medium",
     "high",
     "xhigh",
     "max",
   ]);
-  const body = await model.send("low");
-  // Root high, the earlier reply's level, then the chosen level: all reported as accepted.
-  assert.deepEqual(sentEfforts(body), ["high", "max", "low"]);
+  for (const effort of known.listed.efforts) {
+    const sent = await known.send(effort);
+    assert.deepEqual(
+      withoutModel(sent),
+      withoutModel(await novel.send(effort)),
+    );
+    assert.equal(sent.body.model, "claude-opus-5-5");
+    // Only the chosen level, at the root: earlier replies' levels are not replayed.
+    assert.deepEqual(sentEfforts(sent), [effort]);
+    assert.deepEqual(sent.body.thinking, {
+      type: "adaptive",
+      display: "summarized",
+    });
+    // No managed-effort, interleaved-thinking, or other beta is sent.
+    assert.deepEqual(sent.betas, []);
+  }
 });
 
-test("a managed-effort Claude model accepting no reported level is sent no thinking or effort", async () => {
+test("a Claude model reported low-only offers and sends only low", async () => {
+  const model = await claude("claude-opus-5-5", capabilities({ low: true }));
+  assert.deepEqual(
+    [model.listed.effortSource, model.listed.efforts],
+    ["provider", ["low"]],
+  );
+  assert.deepEqual(sentEfforts(await model.send("low")), ["low"]);
+  for (const effort of ["off", "minimal", "medium", "high"] as const)
+    await assert.rejects(
+      model.models.validate("owner", {
+        provider: "anthropic",
+        model: "claude-opus-5-5",
+        effort,
+      }),
+      { code: "INFERENCE_SELECTION_INVALID" },
+      effort,
+    );
+});
+
+test("a Claude model accepting no reported level is sent no thinking or effort, and says the provider reported that", async () => {
   for (const reported of [
     capabilities({}),
     capabilities(allLevels, { effort: false }),
@@ -232,56 +277,60 @@ test("a managed-effort Claude model accepting no reported level is sent no think
       [model.listed.effortSource, model.listed.efforts],
       ["provider", ["off"]],
     );
-    const body = await model.send("off");
-    assert.deepEqual(sentEfforts(body), []);
-    assert.equal(body.thinking, undefined);
+    const sent = await model.send("off");
+    assert.deepEqual(sentEfforts(sent), []);
+    assert.equal(sent.body.thinking, undefined);
   }
 });
 
-// ===========================================
-// Adaptive and token-budget catalog models
-// ===========================================
-
-test("an adaptive Claude model whose effort is withdrawn stops offering and sending effort levels", async () => {
-  for (const reported of [
-    capabilities(allLevels, { effort: false }),
-    capabilities(allLevels, { adaptive: false }),
-  ]) {
-    const model = await claude("claude-opus-4-8", reported);
+test("a Claude model with no reported capabilities offers only the provider's default, sending no thinking or effort", async () => {
+  for (const reported of [null, {}, { thinking: "yes" }]) {
+    const model = await claude("claude-opus-5-5", reported);
     assert.deepEqual(
       [model.listed.effortSource, model.listed.efforts],
-      ["provider", ["off"]],
+      ["unknown", ["off"]],
     );
-    const body = await model.send("off");
-    assert.deepEqual(sentEfforts(body), []);
-    assert.equal(body.thinking, undefined);
+    const sent = await model.send("off");
+    assert.deepEqual(sentEfforts(sent), []);
+    assert.equal(sent.body.thinking, undefined);
   }
 });
 
-test("an adaptive Claude model reported low-only never sends a higher effort", async () => {
-  const model = await claude("claude-opus-4-8", capabilities({ low: true }));
-  // Off keeps the catalog's support: Anthropic's effort capability does not cover it.
-  assert.deepEqual(model.listed.efforts, ["off", "minimal", "low"]);
-  for (const effort of model.listed.efforts)
-    assert.deepEqual(
-      sentEfforts(await model.send(effort)),
-      effort === "off" ? [] : ["low"],
-      effort,
-    );
+// ===========================================
+// Response room
+// ===========================================
+
+test("a Claude request's max_tokens is the model list's reported cap, or a quarter of its context when it reports none", async () => {
+  const reported = await claude("claude-next-test", capabilities(allLevels), {
+    max_input_tokens: 400_000,
+    max_tokens: 64_000,
+  });
+  assert.equal((await reported.send("high")).body.max_tokens, 64_000);
+  const contextOnly = await claude(
+    "claude-next-test",
+    capabilities(allLevels),
+    {
+      max_input_tokens: 100_000,
+    },
+  );
+  assert.equal((await contextOnly.send("high")).body.max_tokens, 25_000);
+  const unknown = await claude("claude-next-test", null);
+  assert.equal((await unknown.send("off")).body.max_tokens, 4096);
 });
 
-test("token-budget Claude models keep their budget thinking whatever effort the provider reports", async () => {
-  const model = await claude(
-    "claude-sonnet-4-5",
-    capabilities(allLevels, { effort: false, adaptive: false }),
-  );
-  assert.deepEqual(
-    [model.listed.effortSource, model.listed.efforts],
-    ["catalog", ["off", "minimal", "low", "medium", "high"]],
-  );
-  const body = await model.send("high");
-  assert.deepEqual(sentEfforts(body), []);
-  assert.equal((body.thinking as { type: string }).type, "enabled");
+test("an internal request's minimal effort is left out where the model doesn't report it, without raising its output cap", async () => {
+  for (const reported of [capabilities({ medium: true }), null]) {
+    const model = await claude("claude-next-test", reported);
+    const effort = model.listed.efforts[0]!;
+    // A background summary asks for minimal effort with a small cap.
+    const sent = await model.send(effort, {
+      reasoning: "minimal",
+      maxTokens: 128,
+    });
+    assert.deepEqual(sentEfforts(sent), []);
+    assert.equal(sent.body.thinking, undefined);
+    assert.equal(sent.body.max_tokens, 128);
+  }
 });
 
 // ===========================================

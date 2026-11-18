@@ -3,7 +3,7 @@ import type { ReportedSpeed, SpeedFailure } from "../model/speed-report.js";
 
 /** Requests a paid speed through one provider protocol and reads the speed the provider serves. */
 export interface SpeedProtocol {
-  /** Add the provider's request for this speed, and any beta the model needs, to a request body. */
+  /** Add the provider's request for this speed to a request body. */
   request(
     payload: Record<string, unknown>,
     speed: RequestedSpeed,

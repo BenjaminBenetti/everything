@@ -10,7 +10,7 @@ import type { ModelMetadata } from "../../provider/interface/provider-models.js"
 /** Resolve runtime metadata independently of account availability and credentials. */
 export interface RuntimeModelCatalog {
   /**
-   * Bind supported model capabilities, and any limits and effort levels the provider reports, to its
+   * Bind the limits, image input, and effort levels the provider reports for a model to its
    * endpoint. Model choices are described from the same binding, so only offered efforts are sent.
    */
   resolve(

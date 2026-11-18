@@ -13,7 +13,6 @@ import { HttpModelDiscovery } from "../../provider/adapter/http-model-discovery.
 import { ProviderModelService } from "../../provider/service/provider-models.js";
 import { PiModelCapabilities } from "../adapter/pi-model-capabilities.js";
 import { PiInferenceRuntimeFactory } from "../adapter/pi-inference-runtime.js";
-import { createModelRuntime } from "../factory/model-runtime.js";
 import { imageTools } from "../tool/image-tools.js";
 import {
   pngBytes,
@@ -76,9 +75,8 @@ for (const provider of ["anthropic", "chatgpt", "openai-compatible"] as const) {
       throw new Error("External network forbidden");
     });
     const volume = await workspaceVolume(context);
-    const id =
-      provider === "chatgpt" ? "gpt-6.1-terra" : "outside-catalog-wire-fixture";
-    const capabilities = new PiModelCapabilities(await createModelRuntime());
+    const id = "outside-catalog-wire-fixture";
+    const capabilities = new PiModelCapabilities();
     let advertised: boolean | undefined = true;
     const connections = {
       async access(owner: string, actual: ProviderId) {
@@ -98,7 +96,22 @@ for (const provider of ["anthropic", "chatgpt", "openai-compatible"] as const) {
         assert.equal(init?.redirect, "error");
         if (provider === "chatgpt") {
           assert.equal(String(url), "https://api.openai.com/v1/models");
-          return Response.json({ models: [{ slug: id, visibility: "list" }] });
+          // ChatGPT sign-in guarantees no modality field; this is Codex's optional ModelInfo shape.
+          return Response.json({
+            models: [
+              {
+                slug: id,
+                visibility: "list",
+                ...(advertised === undefined
+                  ? {}
+                  : {
+                      input_modalities: advertised
+                        ? ["text", "image"]
+                        : ["text"],
+                    }),
+              },
+            ],
+          });
         }
         if (provider === "anthropic")
           return Response.json({
@@ -148,7 +161,7 @@ for (const provider of ["anthropic", "chatgpt", "openai-compatible"] as const) {
         const body = JSON.parse(String(init?.body));
         bodies.push(body);
         if (provider === "chatgpt") {
-          assert.ok([id, "unknown-wire-fixture"].includes(body.model));
+          assert.equal(body.model, id);
           assert.equal(
             body.max_output_tokens,
             undefined,
@@ -160,10 +173,7 @@ for (const provider of ["anthropic", "chatgpt", "openai-compatible"] as const) {
     );
     const selection = { provider, model: id, effort: "off" } as const;
     const runtime = await factory.create("synthetic-owner", selection);
-    assert.equal(
-      runtime.info?.imageSource,
-      provider === "chatgpt" ? "documentation" : "provider",
-    );
+    assert.equal(runtime.info?.imageSource, "provider");
     assert.ok(runtime.model.input.includes("image"));
     if (provider === "chatgpt")
       assert.deepEqual(
@@ -277,17 +287,14 @@ for (const provider of ["anthropic", "chatgpt", "openai-compatible"] as const) {
 
     for (const negative of [false, undefined]) {
       advertised = negative;
-      // SIWC has no supported wire modality contract. Exercise normalized precedence without inventing one.
-      const denied =
-        provider === "chatgpt"
-          ? capabilities.resolve(
-              provider,
-              negative === false ? id : "unknown-wire-fixture",
-              runtime.model.baseUrl,
-              negative === false ? { imageInput: false } : {},
-            )
-          : (await factory.create("synthetic-owner", selection)).model;
+      const deniedRuntime = await factory.create("synthetic-owner", selection);
+      const denied = deniedRuntime.model;
       assert.deepEqual(denied.input, ["text"]);
+      // A reported false and an unreported list both send no pixels, but only one is the provider's.
+      assert.deepEqual(
+        [deniedRuntime.info?.imageInput, deniedRuntime.info?.imageSource],
+        negative === false ? [false, "provider"] : [null, "unknown"],
+      );
       const refusal = await tool!.execute(
         "view",
         { path: "fixture.png" },

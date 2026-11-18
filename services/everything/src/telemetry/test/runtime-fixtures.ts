@@ -7,7 +7,6 @@ import type { ArtifactWorkbench } from "../../artifact/service/artifact-workbenc
 import { PiInferenceRuntimeFactory } from "../../runtime/adapter/pi-inference-runtime.js";
 import { PiModelCapabilities } from "../../runtime/adapter/pi-model-capabilities.js";
 import { PiSessionFactory } from "../../runtime/adapter/pi-session-factory.js";
-import { createModelRuntime } from "../../runtime/factory/model-runtime.js";
 import {
   modelRetryPolicy,
   type ModelRetryPolicy,
@@ -105,7 +104,7 @@ export async function teammate(
   const directory = await mkdtemp(path.join(tmpdir(), "everything-telemetry-"));
   context.after(() => rm(directory, { recursive: true, force: true }));
   let attempt = 0;
-  const capabilities = new PiModelCapabilities(await createModelRuntime());
+  const capabilities = new PiModelCapabilities();
   const inference = new PiInferenceRuntimeFactory(
     {
       /** The owner's saved connection to a compatible server. */

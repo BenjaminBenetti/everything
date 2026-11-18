@@ -2,12 +2,21 @@ import type { AgentAvatarId } from "./avatar.js";
 import type { InferenceSelection } from "@everything/provider-contracts/inference";
 import type { EffectiveModel } from "@everything/provider-contracts/inference";
 
+/**
+ * Why the saved selection couldn't be checked: `settings` when the provider's model list no longer
+ * offers its model, effort, or speed, so the owner needs to choose again; `provider` when the
+ * connection or its model list couldn't be reached, which says nothing about the model.
+ */
+export type AgentSelectionIssue = "settings" | "provider";
+
 /** Fresh saved-selection metadata and the independently pinned runtime, if loaded. */
 export interface AgentModelInfo {
   readonly selected: EffectiveModel | null;
   readonly applied: EffectiveModel | null;
-  /** Discovery failed; applied metadata remains available independently. */
+  /** The saved selection couldn't be checked; applied metadata remains available independently. */
   readonly selectionError: boolean;
+  /** Present with `selectionError`; servers before it was added omit it. */
+  readonly selectionIssue?: AgentSelectionIssue;
 }
 
 /** Public agent field limits shared by HTTP validation and browser forms. */

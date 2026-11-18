@@ -16,7 +16,6 @@ import {
 import { PiAgentSession } from "../adapter/pi-agent-session.js";
 import { PiInferenceRuntimeFactory } from "../adapter/pi-inference-runtime.js";
 import { PiModelCapabilities } from "../adapter/pi-model-capabilities.js";
-import { createModelRuntime } from "../factory/model-runtime.js";
 import type { ModelRetryPolicy } from "../model/model-retry-policy.js";
 import { sendMessageTool } from "../tool/send-message-tool.js";
 import { classifyModelFailure } from "../../telemetry/service/model-failure-classifier.js";
@@ -284,7 +283,7 @@ async function teammate(
         };
       },
     },
-    new PiModelCapabilities(await createModelRuntime()),
+    new PiModelCapabilities(),
     async (_input, init) => {
       const call = {
         number: calls.length + 1,
@@ -567,48 +566,43 @@ for (const [name, respond] of [
 // Fast mode
 // ===========================================
 
-test("a Fast mode limit fails at once with its own recovery, while an ordinary rate limit on a Fast request is retried", async (context) => {
-  const fast: InferenceSelection = {
-    provider: "anthropic",
-    model: "claude-opus-5-5",
-    effort: "high",
-    speed: "fast",
-  };
-  const limited = () =>
-    failure(429, {
-      type: "error",
-      error: {
-        type: "rate_limit_error",
-        message: "Fast mode output tokens per minute limit exceeded",
+test("Claude Fast is refused before anything is sent, while an ordinary rate limit on a Fast request is retried at Fast", async (context) => {
+  // Claude's model list reports no speeds, so no Claude model offers Fast, whatever its name.
+  let sent = 0;
+  await assert.rejects(
+    teammate(
+      context,
+      {
+        provider: "anthropic",
+        model: "claude-opus-5-5",
+        effort: "off",
+        speed: "fast",
       },
-    });
-  const fastLimit = await teammate(
-    context,
-    fast,
-    inTurn(limited, () => anthropicReply("Unexpected.")),
+      () => {
+        sent++;
+        return anthropicReply("Unexpected.");
+      },
+    ),
+    { code: "FAST_MODE_UNSUPPORTED" },
   );
-  await assert.rejects(fastLimit.session.prompt("Hello"), {
-    code: "FAST_MODE_LIMITED",
-  });
-  assert.equal(fastLimit.calls.length, 1, "never retried");
+  assert.equal(sent, 0, "nothing was sent at Fast or any other speed");
 
   const ordinary = () =>
     failure(429, {
-      type: "error",
-      error: {
-        type: "rate_limit_error",
-        message:
-          "Number of request tokens has exceeded your per-minute rate limit",
-      },
+      error: { message: "Rate limit reached", type: "rate_limit_error" },
     });
   const rateLimit = await teammate(
     context,
-    fast,
-    inTurn(ordinary, () => anthropicReply("Recovered.")),
+    { ...chatgpt, speed: "fast" },
+    inTurn(ordinary, () => replied("Recovered.")),
   );
   await rateLimit.session.prompt("Hello");
   assert.equal(rateLimit.calls.length, 2);
-  assert.equal(rateLimit.calls[1]!.body.speed, "fast", "still at Fast speed");
+  assert.deepEqual(
+    rateLimit.calls.map((call) => call.body.service_tier),
+    ["priority", "priority"],
+    "still at Fast speed",
+  );
   assert.equal(rateLimit.session.lastResponse, "Recovered.");
 });
 

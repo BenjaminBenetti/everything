@@ -22,7 +22,10 @@ export class AnthropicConnectionVerifier implements ConnectionVerifier {
   // Verification
   // ===========================================
 
-  /** Prefer a small available Claude model unless the owner supplied one. */
+  /**
+   * Check the model the owner supplied or last verified, or else the first model the API key lists;
+   * a model's name is never read as a sign of its size or cost.
+   */
   async verify({ credential, model }: VerificationInput): Promise<string> {
     try {
       const client = new Anthropic({
@@ -31,13 +34,8 @@ export class AnthropicConnectionVerifier implements ConnectionVerifier {
         timeout: 30_000,
         fetch: providerFetch(this.fetcher),
       });
-      if (!model) {
-        const models = (await client.models.list({ limit: 100 })).data;
-        model =
-          models.find((item) => item.id.includes("haiku"))?.id ??
-          models[0]?.id ??
-          null;
-      }
+      if (!model)
+        model = (await client.models.list({ limit: 100 })).data[0]?.id ?? null;
       if (!model)
         throw new ProviderVerificationError(
           "No models are available for this API key.",

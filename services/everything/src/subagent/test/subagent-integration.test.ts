@@ -23,7 +23,6 @@ import { appIdentity } from "../../identity/service/app-identity.js";
 import { PiInferenceRuntimeFactory } from "../../runtime/adapter/pi-inference-runtime.js";
 import { PiModelCapabilities } from "../../runtime/adapter/pi-model-capabilities.js";
 import { PiSessionFactory } from "../../runtime/adapter/pi-session-factory.js";
-import { createModelRuntime } from "../../runtime/factory/model-runtime.js";
 import { FileSystemWorkspaces } from "../../workspace/service/file-system-workspaces.js";
 import { PiSubagentArchives } from "../adapter/pi-subagent-archives.js";
 import { subagentController } from "../controller/subagent-controller.js";
@@ -106,7 +105,7 @@ test("app-authenticated subagent API runs private Pi sessions, wakes main, survi
       },
     },
     { select: async () => ({ id: "o3-mini", name: "Test" }) },
-    new PiModelCapabilities(await createModelRuntime()),
+    new PiModelCapabilities(),
     async (_input, init) => {
       requests++;
       const body = JSON.parse(String(init?.body)) as {
