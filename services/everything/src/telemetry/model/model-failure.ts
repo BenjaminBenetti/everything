@@ -21,6 +21,8 @@ export const modelFailureCategories = [
   "content_filter",
   "fast_mode_rejected",
   "fast_mode_limited",
+  "ultrafast_mode_rejected",
+  "ultrafast_mode_limited",
   "unknown",
 ] as const;
 export type ModelFailureCategory = (typeof modelFailureCategories)[number];
@@ -44,8 +46,10 @@ export interface ModelFailureInput {
   readonly errorMessage?: string;
   /** The last HTTP response the provider gave during the request, if any. */
   readonly lastResponse?: ProviderResponseRecord;
-  /** A refused Fast mode request, which has its own recovery. */
+  /** A refused paid speed, which has its own recovery. */
   readonly speedFailure?: "rejected" | "limited";
+  /** The paid speed the request asked for; a refusal is Fast's unless this says Ultrafast. */
+  readonly speed?: "fast" | "ultrafast";
 }
 
 /** A model failure's safe diagnosis. */

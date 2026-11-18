@@ -6,12 +6,12 @@ import {
 /** A speed the provider reports serving a response at; unknown when it reports none or another tier. */
 export type EffectiveSpeed = InferenceSpeed | "unknown";
 
-/** Why a provider refused a Fast request: unavailable to this account or model, or over its Fast limit. */
+/** Why a provider refused a paid speed: unavailable to this account or model, or over its own limit. */
 export type SpeedFailure = "rejected" | "limited";
 
 /** A provider's own speed or tier name for a response, with its normalized meaning. */
 export interface ReportedSpeed {
-  /** The provider's value, such as `priority`, `default`, or `fast`; absent when it reports none. */
+  /** The provider's value, such as `priority`, `ultrafast`, `default`, or `fast`; absent when it reports none. */
   readonly tier?: string;
   readonly effective: EffectiveSpeed;
 }

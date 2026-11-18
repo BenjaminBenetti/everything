@@ -333,7 +333,14 @@ export class PiPromptTelemetry {
       ...(prompt.diagnostics.lastResponse
         ? { lastResponse: prompt.diagnostics.lastResponse }
         : {}),
-      ...(speed?.failure ? { speedFailure: speed.failure } : {}),
+      ...(speed?.failure
+        ? {
+            speedFailure: speed.failure,
+            ...(speed.requested !== "standard"
+              ? { speed: speed.requested }
+              : {}),
+          }
+        : {}),
     });
     const cancelled = failure.category === "cancelled";
     const retried = !cancelled && outcome?.willRetry === true;

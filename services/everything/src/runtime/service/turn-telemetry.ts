@@ -13,6 +13,8 @@ import {
   FastModeRejectedError,
   ModelRequestFailedError,
   ReplyNotDeliveredError,
+  UltrafastModeLimitedError,
+  UltrafastModeRejectedError,
 } from "../error/runtime-errors.js";
 import {
   telemetryAttributes as attribute,
@@ -35,6 +37,8 @@ export type TurnCancellation = "stopped" | "interrupted" | "closed";
 const failureCodes: readonly [new (...args: never[]) => Error, string][] = [
   [FastModeRejectedError, "FAST_MODE_REJECTED"],
   [FastModeLimitedError, "FAST_MODE_LIMITED"],
+  [UltrafastModeRejectedError, "ULTRAFAST_MODE_REJECTED"],
+  [UltrafastModeLimitedError, "ULTRAFAST_MODE_LIMITED"],
   [ModelRequestFailedError, "MODEL_REQUEST_FAILED"],
   [CompactionFailedError, "COMPACTION_FAILED"],
   [ReplyNotDeliveredError, "REPLY_NOT_DELIVERED"],

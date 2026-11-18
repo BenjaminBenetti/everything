@@ -87,6 +87,15 @@ const causes: Readonly<Record<string, CausePresentation>> = {
     nextStep:
       "Wait a moment, or turn off Fast mode in the teammate’s settings.",
   },
+  ultrafast_mode_rejected: {
+    summary: "The provider didn’t accept Ultrafast for this model or account.",
+    nextStep: "Choose another speed in the teammate’s settings.",
+  },
+  ultrafast_mode_limited: {
+    summary: "The provider’s Ultrafast limit was reached.",
+    nextStep:
+      "Wait a moment, or choose another speed in the teammate’s settings.",
+  },
   cancelled: { summary: "The work was stopped.", nextStep: null },
   unknown: { summary: "The cause wasn’t reported.", nextStep: null },
 };
@@ -98,6 +107,8 @@ const codes: Readonly<Record<string, string>> = {
   REPLY_NOT_DELIVERED: "The teammate finished without replying.",
   FAST_MODE_REJECTED: "Fast mode wasn’t accepted.",
   FAST_MODE_LIMITED: "The Fast mode limit was reached.",
+  ULTRAFAST_MODE_REJECTED: "Ultrafast wasn’t accepted.",
+  ULTRAFAST_MODE_LIMITED: "The Ultrafast limit was reached.",
   TURN_FAILED: "The turn stopped unexpectedly.",
   INTERNAL_ERROR: "Everything couldn’t complete a request.",
 };

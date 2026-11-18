@@ -12,8 +12,11 @@ export class ProviderUnavailableError extends ApplicationError {
   }
 }
 
+/** The provider refused a teammate's paid speed; the turn ends without retrying at another speed. */
+export abstract class SpeedRefusedError extends ApplicationError {}
+
 /** The provider refused a teammate's Fast mode request; the turn ends without retrying at standard speed. */
-export class FastModeRejectedError extends ApplicationError {
+export class FastModeRejectedError extends SpeedRefusedError {
   /** Ask the owner to turn off Fast mode, since their account or model cannot use it. */
   constructor() {
     super(
@@ -25,13 +28,37 @@ export class FastModeRejectedError extends ApplicationError {
 }
 
 /** The provider's separate Fast mode limit stopped the request; the turn ends without retrying at standard speed. */
-export class FastModeLimitedError extends ApplicationError {
+export class FastModeLimitedError extends SpeedRefusedError {
   /** Offer waiting or turning off Fast mode, without choosing standard speed for the owner. */
   constructor() {
     super(
       429,
       "FAST_MODE_LIMITED",
       "Your provider’s Fast mode limit was reached. Wait a moment and send a message again, or turn off Fast mode in the teammate’s settings.",
+    );
+  }
+}
+
+/** The provider refused a teammate's Ultrafast request; the turn ends without retrying at another speed. */
+export class UltrafastModeRejectedError extends SpeedRefusedError {
+  /** Ask the owner to choose another speed, since their account or model cannot use Ultrafast. */
+  constructor() {
+    super(
+      409,
+      "ULTRAFAST_MODE_REJECTED",
+      "Your provider didn’t accept Ultrafast for this teammate’s model or account. Choose another speed in the teammate’s settings, then send a message to continue.",
+    );
+  }
+}
+
+/** The provider's separate Ultrafast limit stopped the request; the turn ends without retrying at another speed. */
+export class UltrafastModeLimitedError extends SpeedRefusedError {
+  /** Offer waiting or choosing another speed, without choosing one for the owner. */
+  constructor() {
+    super(
+      429,
+      "ULTRAFAST_MODE_LIMITED",
+      "Your provider’s Ultrafast limit was reached. Wait a moment and send a message again, or choose another speed in the teammate’s settings.",
     );
   }
 }

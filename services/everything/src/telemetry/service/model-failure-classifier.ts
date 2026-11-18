@@ -88,6 +88,7 @@ const retryableCategories = new Set<ModelFailureCategory>([
   "network",
   "stream_interrupted",
   "fast_mode_limited",
+  "ultrafast_mode_limited",
 ]);
 
 /** The parts of a provider's JSON error body worth keeping, before redaction. */
@@ -175,7 +176,7 @@ function serializedBody(text: string): boolean {
   }
 }
 
-/** Prefer a cancellation or refused Fast request, then the provider's code, status, and wording. */
+/** Prefer a cancellation or refused paid speed, then the provider's code, status, and wording. */
 function categorize(
   input: ModelFailureInput,
   status: number | undefined,
@@ -183,8 +184,10 @@ function categorize(
   explanation: string,
 ): ModelFailureCategory {
   if (input.stopReason === "aborted") return "cancelled";
-  if (input.speedFailure === "rejected") return "fast_mode_rejected";
-  if (input.speedFailure === "limited") return "fast_mode_limited";
+  if (input.speedFailure)
+    return input.speed === "ultrafast"
+      ? `ultrafast_mode_${input.speedFailure}`
+      : `fast_mode_${input.speedFailure}`;
   const byCode = code ? providerCodes[code.toLowerCase()] : undefined;
   const byMessage = messageCategories.find(([pattern]) =>
     pattern.test(explanation),

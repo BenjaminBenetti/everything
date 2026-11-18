@@ -788,3 +788,103 @@ test("Fast mode is offered only on models that list it, starts off with a usage 
     effort: "high",
   });
 });
+
+test("Ultrafast is chosen from a speed menu only on models that list it, saves the request, and a saved Ultrafast the model no longer offers stays unavailable until changed", async ({
+  page,
+  context,
+}) => {
+  const state = await workspace(context, {
+    provider: "chatgpt",
+    model: "reasoning-model",
+    effort: "high",
+  });
+  const ultra = {
+    id: "ultra-model",
+    name: "Ultra model",
+    efforts: ["low", "high"],
+    defaultEffort: "low",
+    speeds: ["standard", "fast", "ultrafast"],
+  };
+  state.extraModels = [
+    {
+      id: "sol-model",
+      name: "Sol model",
+      efforts: ["low", "high"],
+      defaultEffort: "low",
+      speeds: ["standard", "fast"],
+    },
+    ultra,
+  ];
+  await page.goto("/team");
+  const dialog = page.getByRole("dialog");
+  const settings = page
+    .locator("summary")
+    .filter({ hasText: "Model settings" });
+  const fast = dialog.getByRole("switch", {
+    name: "Request Fast mode",
+    exact: true,
+  });
+  const save = page.getByRole("button", { name: "Save changes", exact: true });
+  const edit = page.getByRole("button", {
+    name: "Edit Researcher",
+    exact: true,
+  });
+  await edit.click();
+  await settings.click();
+  // A model that offers only Fast keeps its switch and shows no speed menu.
+  await choose(page, "Model", "Sol model");
+  await expect(fast).toBeVisible();
+  await expect(dropdown(page, "Speed")).toHaveCount(0);
+  await choose(page, "Model", "Ultra model");
+  await expect(fast).toHaveCount(0);
+  await expect(dropdown(page, "Speed")).toHaveText("Standard");
+  await expect(dialog).toContainText(
+    "They use your plan or credits faster, or cost more",
+  );
+  await expectChoices(page, "Speed", ["Standard", "Fast", "Ultrafast"]);
+  await choose(page, "Speed", "Ultrafast");
+  await expect(settings).toContainText(
+    /ChatGPT.*Ultra model.*Low.*Ultrafast requested/,
+  );
+  await save.click();
+  await expect(dialog).toHaveCount(0);
+  expect(state.saves.at(-1)?.inference).toEqual({
+    provider: "chatgpt",
+    model: "ultra-model",
+    effort: "low",
+    speed: "ultrafast",
+  });
+  await page
+    .getByRole("button", { name: "View Researcher", exact: true })
+    .click();
+  await expect(dialog).toContainText("Ultrafast requested");
+  // The account now lists only Fast for the model: the saved Ultrafast is shown, never as Fast.
+  state.extraModels = [{ ...ultra, speeds: ["standard", "fast"] }];
+  await page.reload();
+  await edit.click();
+  await settings.click();
+  await expect(dropdown(page, "Speed")).toHaveText("Ultrafast (unavailable)");
+  await expect(dialog).toContainText(
+    "Ultrafast isn’t available for this model on your account.",
+  );
+  await expect(save).toBeDisabled();
+  await dropdown(page, "Speed").click();
+  await expect(page.getByRole("option")).toHaveText([
+    "Standard",
+    "Fast",
+    "Ultrafast (unavailable)",
+  ]);
+  await page.getByRole("option", { name: "Fast", exact: true }).click();
+  // With Fast chosen, the model's only paid speed returns to its switch.
+  await expect(dropdown(page, "Speed")).toHaveCount(0);
+  await expect(fast).toBeChecked();
+  await expect(dialog).not.toContainText("Ultrafast isn’t available");
+  await save.click();
+  await expect(dialog).toHaveCount(0);
+  expect(state.saves.at(-1)?.inference).toEqual({
+    provider: "chatgpt",
+    model: "ultra-model",
+    effort: "low",
+    speed: "fast",
+  });
+});

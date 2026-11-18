@@ -275,9 +275,13 @@ async function teammate(
       },
     },
     {
-      /** Model policy is covered by the provider tests. */
+      /** Model policy is covered by the provider tests; this account lists every paid speed. */
       async select(_ownerId, choice) {
-        return { id: choice.model, name: choice.model };
+        return {
+          id: choice.model,
+          name: choice.model,
+          speeds: { offered: ["fast", "ultrafast"], complete: true },
+        };
       },
     },
     new PiModelCapabilities(await createModelRuntime()),
@@ -628,6 +632,93 @@ test("a refused Fast request fails at once with its own recovery", async (contex
 });
 
 // ===========================================
+// Ultrafast
+// ===========================================
+
+test("an ordinary failure on an Ultrafast request is retried at Ultrafast, sending only the failed request again", async (context) => {
+  const unavailable = () =>
+    failure(503, {
+      error: {
+        message: "Service temporarily unavailable",
+        type: "server_error",
+      },
+    });
+  const { session, pi, calls } = await teammate(
+    context,
+    { ...chatgpt, model: "gpt-6.2-sol", speed: "ultrafast" },
+    inTurn(unavailable, unavailable, () => replied("Recovered.")),
+  );
+  await session.prompt("Summarize the plan");
+  assert.equal(calls.length, 3);
+  assert.deepEqual(
+    calls.map((call) => call.body.service_tier),
+    ["ultrafast", "ultrafast", "ultrafast"],
+    "each attempt keeps the chosen speed",
+  );
+  assert.equal(input(calls[2]), input(calls[0]));
+  assert.equal(input(calls[2]).match(/Summarize the plan/g)?.length, 1);
+  assert.deepEqual(roles(pi), ["user", "assistant"]);
+  assert.equal(session.lastResponse, "Recovered.");
+});
+
+test("a refused Ultrafast request fails at once with Ultrafast's own recovery and diagnosis", async (context) => {
+  telemetry.reset();
+  const refused = () =>
+    failure(400, {
+      error: {
+        message: "Service tier override is not supported for this plan.",
+        type: "invalid_request_error",
+        param: "service_tier",
+        code: "subscription_sharing_unsupported_capability",
+      },
+    });
+  const { session, calls } = await teammate(
+    context,
+    { ...chatgpt, model: "gpt-6.2-sol", speed: "ultrafast" },
+    inTurn(refused, () => replied("Unexpected.")),
+  );
+  await assert.rejects(session.prompt("Hello"), {
+    code: "ULTRAFAST_MODE_REJECTED",
+  });
+  assert.equal(
+    calls.length,
+    1,
+    "never retried, at Ultrafast or any other speed",
+  );
+  const { failures } = await recorded(session);
+  assert.deepEqual(
+    failures.map((event) => [
+      event.attributes[attribute.category],
+      event.attributes[attribute.speed],
+    ]),
+    [["ultrafast_mode_rejected", "ultrafast"]],
+  );
+});
+
+test("a service-tier refusal in a named stream error event is not sent again, though it keeps the ordinary failure", async (context) => {
+  const refused = () =>
+    events([
+      created,
+      {
+        type: "error",
+        sequence_number: 1,
+        message: "Service tier override is not supported for this plan.",
+        param: "service_tier",
+        code: "subscription_sharing_unsupported_capability",
+      },
+    ]);
+  const { session, calls } = await teammate(
+    context,
+    { ...chatgpt, model: "gpt-6.2-sol", speed: "ultrafast" },
+    inTurn(refused, () => replied("Unexpected.")),
+  );
+  await assert.rejects(session.prompt("Hello"), {
+    message: "Pi model request failed",
+  });
+  assert.equal(calls.length, 1);
+});
+
+// ===========================================
 // Tools and history
 // ===========================================
 
@@ -741,33 +832,40 @@ test("stopping during a stream ends the prompt as cancelled, sending nothing mor
   assert.equal(calls.length, 1);
 });
 
-test("stopping while a retry waits ends the wait at once, sending nothing more", async (context) => {
-  const { session, pi, calls } = await teammate(
-    context,
-    chatgpt,
-    inTurn(cutText, () => replied("Unexpected.")),
-    {
-      maxRetries: 2,
-      baseDelayMs: 60_000,
-      maxDelayMs: 60_000,
-    },
-  );
-  let waiting!: () => void;
-  const scheduled = new Promise<void>((resolve) => {
-    waiting = resolve;
+for (const [speed, selection] of [
+  ["", chatgpt],
+  [" at Ultrafast", { ...chatgpt, model: "gpt-6.2-sol", speed: "ultrafast" }],
+] as const)
+  test(`stopping while a retry waits${speed} ends the wait at once, sending nothing more`, async (context) => {
+    const { session, pi, calls } = await teammate(
+      context,
+      selection,
+      inTurn(cutText, () => replied("Unexpected.")),
+      {
+        maxRetries: 2,
+        baseDelayMs: 60_000,
+        maxDelayMs: 60_000,
+      },
+    );
+    let waiting!: () => void;
+    const scheduled = new Promise<void>((resolve) => {
+      waiting = resolve;
+    });
+    pi.subscribe((event) => {
+      if (event.type === "auto_retry_start") waiting();
+    });
+    const started = Date.now();
+    const prompt = session.prompt("Hello");
+    await scheduled;
+    await session.abort();
+    await prompt;
+    assert.ok(
+      Date.now() - started < 10_000,
+      "the minute-long wait did not run",
+    );
+    assert.equal(calls.length, 1);
+    assert.equal(pi.settingsManager.getRetrySettings().enabled, false);
   });
-  pi.subscribe((event) => {
-    if (event.type === "auto_retry_start") waiting();
-  });
-  const started = Date.now();
-  const prompt = session.prompt("Hello");
-  await scheduled;
-  await session.abort();
-  await prompt;
-  assert.ok(Date.now() - started < 10_000, "the minute-long wait did not run");
-  assert.equal(calls.length, 1);
-  assert.equal(pi.settingsManager.getRetrySettings().enabled, false);
-});
 
 test("without a policy, a failed request is not sent again", async (context) => {
   const { session, calls } = await teammate(

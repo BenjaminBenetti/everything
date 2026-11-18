@@ -22,12 +22,18 @@ function refusedServiceTier(error: unknown): SpeedFailure | undefined {
 }
 
 /**
- * OpenAI Responses requests Fast with `service_tier`. `priority` is the documented alias of `fast`,
- * which models up to GPT-5.6 report either way and which ChatGPT sign-in clients send. Only the
- * terminal response reports the tier that served the request; a downgrade reports `default`.
+ * OpenAI Responses requests a paid speed with `service_tier`. Fast is sent as `priority`, the
+ * documented alias of `fast`, which models up to GPT-5.6 report either way and which ChatGPT
+ * sign-in clients send. Ultrafast is sent as `ultrafast`
+ * (https://developers.openai.com/api/docs/guides/ultrafast-mode). Only the terminal response
+ * reports the tier that served the request; a downgrade reports `default`, and any other tier is
+ * unknown rather than taken for a speed it might resemble.
  */
 const responsesSpeed: SpeedProtocol = {
-  request: (payload) => ({ ...payload, service_tier: "priority" }),
+  request: (payload, { speed }) => ({
+    ...payload,
+    service_tier: speed === "ultrafast" ? "ultrafast" : "priority",
+  }),
   reported(event) {
     const type = field(event, "type");
     if (type !== "response.completed" && type !== "response.incomplete")
@@ -36,9 +42,11 @@ const responsesSpeed: SpeedProtocol = {
     const effective =
       tier === "priority" || tier === "fast"
         ? "fast"
-        : tier === "default"
-          ? "standard"
-          : "unknown";
+        : tier === "ultrafast"
+          ? "ultrafast"
+          : tier === "default"
+            ? "standard"
+            : "unknown";
     return { ...(tier !== undefined ? { tier } : {}), effective };
   },
   failure: (_status, body) => refusedServiceTier(field(body, "error")),
@@ -75,7 +83,8 @@ function refusedSpeed(
 
 /**
  * Anthropic Messages requests Fast with `speed`, adding a model's beta to the betas Pi already sends.
- * Message usage reports the speed used; streamed messages report it when they start.
+ * Its only paid speed is Fast, so Ultrafast is never offered on it. Message usage reports the speed
+ * used; streamed messages report it when they start.
  */
 const messagesSpeed: SpeedProtocol = {
   request(payload, { beta }) {
@@ -107,7 +116,7 @@ const messagesSpeed: SpeedProtocol = {
   streamFailure: () => undefined,
 };
 
-/** Speed translation for each provider whose protocol can request Fast mode. */
+/** Speed translation for each provider whose protocol can request a paid speed. */
 export const speedProtocols: Readonly<
   Partial<Record<ProviderId, SpeedProtocol>>
 > = {

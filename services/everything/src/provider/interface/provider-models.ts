@@ -2,6 +2,7 @@ import type { ProviderId } from "@everything/provider-contracts";
 import type {
   InferenceEffort,
   InferenceSelection,
+  InferenceSpeed,
   ProviderModel,
   EffectiveModel,
 } from "@everything/provider-contracts/inference";
@@ -39,12 +40,25 @@ export interface AdvertisedReasoning {
   readonly defaultEffort?: InferenceEffort;
 }
 
+/** A speed beyond standard, which runs the same model faster at a higher usage cost. */
+export type PaidSpeed = Exclude<InferenceSpeed, "standard">;
+
+/** Paid speeds a provider's model list reports for one model. */
+export interface AdvertisedSpeeds {
+  /** Paid speeds the list offers for this model. */
+  readonly offered: readonly PaidSpeed[];
+  /** Whether the list is the model's complete set, so every paid speed it leaves out is unsupported. */
+  readonly complete: boolean;
+}
+
 /** What a provider reports about one model beyond its identity; absent values are unknown. */
 export interface ModelMetadata extends ModelLimits {
   /** Validated provider-declared image input support; absent means unknown. */
   readonly imageInput?: boolean;
   /** Effort support from the provider's own model list, when it reports any usable metadata. */
   readonly reasoning?: AdvertisedReasoning;
+  /** Speed support from the provider's own model list, when it reports any usable metadata. */
+  readonly speeds?: AdvertisedSpeeds;
 }
 
 /** Resolve public budgets and capability provenance through the runtime's own rules. */

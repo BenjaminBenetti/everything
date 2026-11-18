@@ -3,6 +3,7 @@ import { test } from "node:test";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { ProviderId } from "@everything/provider-contracts";
 import type { InferenceSelection } from "@everything/provider-contracts/inference";
+import type { AdvertisedSpeeds } from "../../provider/interface/provider-models.js";
 import { PiInferenceRuntimeFactory } from "../adapter/pi-inference-runtime.js";
 import { PiModelCapabilities } from "../adapter/pi-model-capabilities.js";
 import { createModelRuntime } from "../factory/model-runtime.js";
@@ -82,10 +83,20 @@ function messages(model: string, speed: string | undefined): Response {
   ]);
 }
 
-/** A runtime for one owner's selection whose provider answers through `respond`, recording requests. */
+/** Every paid speed, as a ChatGPT account's model list offers it. */
+const allSpeeds: AdvertisedSpeeds = {
+  offered: ["fast", "ultrafast"],
+  complete: true,
+};
+
+/**
+ * A runtime for one owner's selection whose provider answers through `respond`, recording
+ * requests. The selected model is discovered with `listed` as its account's speed metadata.
+ */
 async function runtime(
   selection: InferenceSelection,
   respond: (request: SentRequest) => Response,
+  listed?: AdvertisedSpeeds,
 ) {
   const sent: SentRequest[] = [];
   const factory = new PiInferenceRuntimeFactory(
@@ -108,7 +119,11 @@ async function runtime(
     {
       /** Speed validation is covered by the provider-model tests. */
       async select(_ownerId, choice) {
-        return { id: choice.model, name: choice.model };
+        return {
+          id: choice.model,
+          name: choice.model,
+          ...(listed ? { speeds: listed } : {}),
+        };
       },
     },
     new PiModelCapabilities(await createModelRuntime()),
@@ -387,6 +402,161 @@ test("ChatGPT failures unrelated to the service tier keep their ordinary handlin
     assert.deepEqual(speedReport(message), {
       requested: "fast",
       effective: "unknown",
+    });
+  }
+});
+
+// ===========================================
+// ChatGPT sign-in: Ultrafast
+// ===========================================
+
+test("ChatGPT Ultrafast sends the ultrafast service tier the account lists, keeping everything else the request sends", async () => {
+  const base = {
+    provider: "chatgpt",
+    model: "gpt-6.2-sol",
+    effort: "high",
+  } as const;
+  const bodies: Record<string, unknown>[] = [];
+  for (const selection of [
+    base,
+    { ...base, speed: "fast" },
+    { ...base, speed: "ultrafast" },
+  ] satisfies InferenceSelection[]) {
+    const { sent, complete } = await runtime(
+      selection,
+      () => responses("ultrafast"),
+      allSpeeds,
+    );
+    await complete();
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0]!.url, "https://api.openai.com/v1/responses");
+    assert.equal(sent[0]!.headers.get("authorization"), "Bearer oauth-owner");
+    bodies.push(sent[0]!.body);
+  }
+  const [standard, fast, ultrafast] = bodies;
+  assert.ok(!("service_tier" in standard!));
+  assert.equal(fast!.service_tier, "priority");
+  assert.equal(ultrafast!.service_tier, "ultrafast");
+  assert.equal(ultrafast!.model, "gpt-6.2-sol");
+  assert.equal(ultrafast!.store, false);
+  assert.equal(ultrafast!.stream, true);
+  assert.deepEqual(withoutSpeed(ultrafast!), standard);
+});
+
+test("an Ultrafast response reports the tier that served it, without calling another tier Ultrafast or Ultrafast Fast", async () => {
+  const ultrafast = {
+    provider: "chatgpt",
+    model: "gpt-6.2-sol",
+    effort: "high",
+    speed: "ultrafast",
+  } as const;
+  for (const [tier, effective] of [
+    ["ultrafast", "ultrafast"],
+    ["priority", "fast"],
+    ["fast", "fast"],
+    ["default", "standard"],
+    ["auto", "unknown"],
+    [undefined, "unknown"],
+  ] as const) {
+    const { complete } = await runtime(
+      ultrafast,
+      () => responses(tier),
+      allSpeeds,
+    );
+    assert.deepEqual(speedReport(await complete()), {
+      requested: "ultrafast",
+      effective,
+      ...(tier !== undefined ? { reportedTier: tier } : {}),
+    });
+  }
+  // A standard request the provider serves at Ultrafast says so, too.
+  const { complete } = await runtime(
+    { ...ultrafast, speed: "standard" },
+    () => responses("ultrafast"),
+    allSpeeds,
+  );
+  assert.deepEqual(speedReport(await complete()), {
+    requested: "standard",
+    effective: "ultrafast",
+    reportedTier: "ultrafast",
+  });
+});
+
+test("Fast follows the account's list for a model no documentation names, and a speed the model doesn't offer is never sent as another", async () => {
+  const listedFast = await runtime(
+    {
+      provider: "chatgpt",
+      model: "gpt-6.3-sol",
+      effort: "high",
+      speed: "fast",
+    },
+    () => responses("priority"),
+    { offered: ["fast"], complete: true },
+  );
+  await listedFast.complete();
+  assert.equal(listedFast.sent[0]!.body.service_tier, "priority");
+  for (const [selection, listed, code] of [
+    // Documentation names Fast for this model, but never Ultrafast.
+    [
+      { speed: "ultrafast", model: "gpt-6.1-sol" },
+      undefined,
+      "ULTRAFAST_MODE_UNSUPPORTED",
+    ],
+    [
+      { speed: "ultrafast", model: "gpt-6.2-sol" },
+      { offered: ["fast"], complete: true },
+      "ULTRAFAST_MODE_UNSUPPORTED",
+    ],
+    // An explicit list without Fast wins over the documentation that names it.
+    [
+      { speed: "fast", model: "gpt-6.2-sol" },
+      { offered: ["ultrafast"], complete: true },
+      "FAST_MODE_UNSUPPORTED",
+    ],
+  ] as const)
+    await assert.rejects(
+      runtime(
+        { provider: "chatgpt", effort: "high", ...selection },
+        () => assert.fail("no request is sent"),
+        listed,
+      ),
+      { code },
+    );
+});
+
+test("ChatGPT plan refusals of Ultrafast are recorded as Ultrafast's, before or after the stream opens, and sent once", async () => {
+  const ultrafast = {
+    provider: "chatgpt",
+    model: "gpt-6.2-sol",
+    effort: "high",
+    speed: "ultrafast",
+  } as const;
+  const refusal = {
+    message: "Service tier override is not supported for this plan.",
+    type: "invalid_request_error",
+    param: "service_tier",
+    code: "subscription_sharing_unsupported_capability",
+  };
+  for (const respond of [
+    () => Response.json({ error: refusal }, { status: 400 }),
+    () =>
+      stream([
+        { type: "response.created", response: { id: "response" } },
+        {
+          type: "response.failed",
+          response: { id: "response", status: "failed", error: refusal },
+        },
+      ]),
+  ]) {
+    const { sent, complete } = await runtime(ultrafast, respond, allSpeeds);
+    const message = await complete();
+    assert.equal(message.stopReason, "error");
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0]!.body.service_tier, "ultrafast");
+    assert.deepEqual(speedReport(message), {
+      requested: "ultrafast",
+      effective: "unknown",
+      failure: "rejected",
     });
   }
 });

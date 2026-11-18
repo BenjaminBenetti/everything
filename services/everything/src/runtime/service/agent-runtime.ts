@@ -4,21 +4,15 @@ import type { AgentSession } from "../interface/agent-session.js";
 import type { TelemetryScope } from "../../telemetry/model/telemetry-scope.js";
 import { TurnTelemetry, type TurnCancellation } from "./turn-telemetry.js";
 import type { SessionRuntimeStatus } from "../model/runtime-status.js";
-import {
-  FastModeLimitedError,
-  FastModeRejectedError,
-} from "../error/runtime-errors.js";
+import { SpeedRefusedError } from "../error/runtime-errors.js";
 
 /** Caller-safe failure text; provider details stay in the private session transcript. */
 const runFailure =
   "Your teammate couldn’t finish replying. Check the model provider, then send a message to continue.";
 
-/** Explain a refused Fast mode request with its recovery, and every other failure generically. */
+/** Explain a refused paid speed with its recovery, and every other failure generically. */
 function failureText(error: unknown): string {
-  return error instanceof FastModeRejectedError ||
-    error instanceof FastModeLimitedError
-    ? error.message
-    : runFailure;
+  return error instanceof SpeedRefusedError ? error.message : runFailure;
 }
 
 /** One agent's loaded session, its in-flight turn, and the public status of that turn. */

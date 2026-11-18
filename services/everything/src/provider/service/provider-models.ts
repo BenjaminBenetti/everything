@@ -14,6 +14,7 @@ import {
   FastModeUnsupportedError,
   InferenceSelectionError,
   ProviderModelsError,
+  UltrafastModeUnsupportedError,
 } from "../error/provider-errors.js";
 
 /** Combine account availability with runtime capabilities without making inference requests. */
@@ -67,7 +68,9 @@ export class ProviderModelService implements ProviderModels {
     if (!efforts.includes(selection.effort))
       throw new InferenceSelectionError();
     if (!speeds.includes(selection.speed ?? "standard"))
-      throw new FastModeUnsupportedError();
+      throw selection.speed === "ultrafast"
+        ? new UltrafastModeUnsupportedError()
+        : new FastModeUnsupportedError();
     return model;
   }
 

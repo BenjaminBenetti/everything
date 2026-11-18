@@ -5,7 +5,7 @@ import {
   type AssistantMessageEventStream,
   type SimpleStreamOptions,
 } from "@earendil-works/pi-ai";
-import type { FastModeModel } from "../model/fast-mode-support.js";
+import type { RequestedSpeed } from "../model/speed-support.js";
 import {
   speedDiagnosticType,
   type ReportedSpeed,
@@ -20,8 +20,8 @@ type ResponseEvents = AsyncIterable<AssistantMessageEvent> & {
 };
 
 /**
- * One model request's speed. Pi's simple streams drop speed options, so Fast is added to the
- * request body through Pi's payload hook. The speed the provider reports is read from Pi's raw
+ * One model request's speed. Pi's simple streams drop speed options, so a paid speed is added to
+ * the request body through Pi's payload hook. The speed the provider reports is read from Pi's raw
  * event hook, without parsing the stream again, and recorded on the response's final message for
  * every request, including those that request no speed.
  */
@@ -37,10 +37,10 @@ export class SpeedRequest {
   // Construction
   // ===========================================
 
-  /** Request Fast only with the model's documented requirements; otherwise request no speed. */
+  /** Request only the paid speed the selection asks for, with its model's requirements; otherwise none. */
   constructor(
     private readonly protocol: SpeedProtocol,
-    private readonly fast?: FastModeModel,
+    private readonly requested?: RequestedSpeed,
   ) {}
 
   // ===========================================
@@ -49,11 +49,11 @@ export class SpeedRequest {
 
   /** Extend the caller's payload and stream-event hooks, which still run first. */
   options(options: SimpleStreamOptions | undefined): SimpleStreamOptions {
-    const fast = this.fast;
+    const requested = this.requested;
     const { onPayload, onProviderStreamEvent } = options ?? {};
     return {
       ...options,
-      ...(fast
+      ...(requested
         ? {
             onPayload: async (payload, model) =>
               this.protocol.request(
@@ -61,24 +61,24 @@ export class SpeedRequest {
                   string,
                   unknown
                 >,
-                fast,
+                requested,
               ),
           }
         : {}),
       onProviderStreamEvent: async (event, model) => {
         await onProviderStreamEvent?.(event, model);
         this.reported = this.protocol.reported(event) ?? this.reported;
-        if (fast)
+        if (requested)
           this.failure = this.protocol.streamFailure(event) ?? this.failure;
       },
     };
   }
 
-  /** Classify a refused Fast request from a copy of its error body, leaving the response unread. */
+  /** Classify a refused paid speed from a copy of its error body, leaving the response unread. */
   fetch(transport: typeof fetch): typeof fetch {
     return async (input, init) => {
       const response = await transport(input, init);
-      if (this.fast && !response.ok)
+      if (this.requested && !response.ok)
         this.failure = this.protocol.failure(
           response.status,
           await response
@@ -98,7 +98,7 @@ export class SpeedRequest {
   record(stream: AssistantMessageEventStream): ResponseEvents {
     const annotate = (message: AssistantMessage, completed: boolean) => {
       const report: SpeedReport = {
-        requested: this.fast ? "fast" : "standard",
+        requested: this.requested?.speed ?? "standard",
         effective: completed
           ? (this.reported?.effective ?? "unknown")
           : "unknown",

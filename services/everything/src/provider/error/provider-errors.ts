@@ -24,7 +24,7 @@ export class InferenceSelectionError extends ApplicationError {
   }
 }
 
-/** Fast mode is offered only for models whose provider documents it. */
+/** Fast mode is offered only for models whose account model list or provider documentation confirms it. */
 export class FastModeUnsupportedError extends ApplicationError {
   /** Explain how to save the teammate without a speed its model cannot use. */
   constructor() {
@@ -32,6 +32,18 @@ export class FastModeUnsupportedError extends ApplicationError {
       400,
       "FAST_MODE_UNSUPPORTED",
       "Fast mode isn’t available for this model. Turn off Fast mode or choose a model that supports it.",
+    );
+  }
+}
+
+/** Ultrafast is offered only for models whose account model list offers it. */
+export class UltrafastModeUnsupportedError extends ApplicationError {
+  /** Explain how to save the teammate without a speed its model or account cannot use. */
+  constructor() {
+    super(
+      400,
+      "ULTRAFAST_MODE_UNSUPPORTED",
+      "Ultrafast isn’t available for this model on your account. Choose another speed or a model that offers Ultrafast.",
     );
   }
 }

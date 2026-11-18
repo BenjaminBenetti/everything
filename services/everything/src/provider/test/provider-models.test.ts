@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { ProviderId } from "@everything/provider-contracts";
+import type { InferenceEffort } from "@everything/provider-contracts/inference";
 import { authenticatedTestServer } from "../../http/test/test-server.js";
 import { ProviderModelService } from "../service/provider-models.js";
 import { HttpModelDiscovery } from "../adapter/http-model-discovery.js";
@@ -324,8 +325,12 @@ test("compatible model aliases preserve known reasoning and non-reasoning capabi
 test("Fast mode is offered and accepted only for exactly documented models, and selections without a speed stay standard", async () => {
   const catalogs: Record<ProviderId, string[]> = {
     chatgpt: [
+      "gpt-6.2-sol",
+      "gpt-6.2-astra",
       "gpt-6.1-sol",
+      "gpt-6.1-terra",
       "gpt-5.6-terra",
+      "gpt-6.2-sol-2026-11-17",
       "gpt-6.1-sol-2026-09-30",
       "gpt-5.5",
       "o3-mini",
@@ -357,7 +362,13 @@ test("Fast mode is offered and accepted only for exactly documented models, and 
     new PiModelCapabilities(await createModelRuntime()),
   );
   const fast: Record<ProviderId, string[]> = {
-    chatgpt: ["gpt-6.1-sol", "gpt-5.6-terra"],
+    chatgpt: [
+      "gpt-6.2-sol",
+      "gpt-6.2-astra",
+      "gpt-6.1-sol",
+      "gpt-6.1-terra",
+      "gpt-5.6-terra",
+    ],
     anthropic: ["claude-opus-5-5", "claude-opus-5", "claude-opus-4-8"],
     "openai-compatible": [],
   };
@@ -384,6 +395,149 @@ test("Fast mode is offered and accepted only for exactly documented models, and 
           service.validate("owner", { ...selection, speed: "fast" }),
           { code: "FAST_MODE_UNSUPPORTED" },
         );
+      // Documentation never offers Ultrafast; only an account's model list can.
+      await assert.rejects(
+        service.validate("owner", { ...selection, speed: "ultrafast" }),
+        { code: "ULTRAFAST_MODE_UNSUPPORTED" },
+      );
     }
   }
+});
+
+test("each account's model list decides its Fast and Ultrafast choices, ahead of documentation, on every request", async (context) => {
+  /** Codex-shaped service tiers, with display text that must never reach the public catalog. */
+  const tiers = (...ids: string[]) =>
+    ids.map((id) => ({ id, name: `${id} name`, description: `${id} blurb` }));
+  const entry = (slug: string, metadata: Record<string, unknown> = {}) => ({
+    slug,
+    display_name: slug,
+    visibility: "list",
+    ...metadata,
+  });
+  const accounts: Record<string, unknown> = {
+    "token-pro": {
+      models: [
+        entry("gpt-6.2-sol", { service_tiers: tiers("priority", "ultrafast") }),
+        // A listed default tier is never a reason to offer or send a paid speed.
+        entry("gpt-6.2-astra", {
+          service_tiers: tiers("priority", "flex"),
+          default_service_tier: "ultrafast",
+        }),
+        // An explicit empty list beats the documentation that names Fast for this model.
+        entry("gpt-6.1-sol", { service_tiers: [] }),
+        // The account list can offer Fast for a model no documentation names yet.
+        entry("gpt-6.3-sol", { service_tiers: tiers("priority") }),
+        // No speed metadata: documentation decides Fast, and nothing decides Ultrafast.
+        entry("gpt-6.1-terra"),
+        // The deprecated list adds Fast; malformed tiers report nothing, so Ultrafast stays off.
+        entry("gpt-6-luna", { additional_speed_tiers: ["fast"] }),
+        entry("gpt-6-astra", { service_tiers: [{ id: "ultrafast" }, null] }),
+        entry("gpt-6.3-luna", { additional_speed_tiers: [] }),
+      ],
+    },
+    "token-plus": {
+      models: [entry("gpt-6.2-sol", { service_tiers: tiers("priority") })],
+    },
+  };
+  const tokens: Record<string, string> = {
+    owner: "token-pro",
+    other: "token-plus",
+  };
+  const requests: string[] = [];
+  const service = new ProviderModelService(
+    {
+      /** Each owner's ChatGPT connection signs in to its own account. */
+      async access(ownerId) {
+        return {
+          credential: { accessToken: tokens[ownerId]! },
+          baseUrl: null,
+          model: null,
+        };
+      },
+    },
+    new HttpModelDiscovery(async (input, init) => {
+      const token = new Headers(init?.headers)
+        .get("authorization")!
+        .replace("Bearer ", "");
+      requests.push(`${String(input)} ${token}`);
+      return Response.json(accounts[token]);
+    }),
+    new PiModelCapabilities(await createModelRuntime()),
+  );
+  const app = authenticatedTestServer();
+  context.after(() => app.close());
+  await providerModelController(app, service);
+  const response = await app.inject("/providers/chatgpt/models");
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(
+    Object.fromEntries(
+      (response.json().models as { id: string; speeds: string[] }[]).map(
+        (model) => [model.id, model.speeds],
+      ),
+    ),
+    {
+      "gpt-6.2-sol": ["standard", "fast", "ultrafast"],
+      "gpt-6.2-astra": ["standard", "fast"],
+      "gpt-6.1-sol": ["standard"],
+      "gpt-6.3-sol": ["standard", "fast"],
+      "gpt-6.1-terra": ["standard", "fast"],
+      "gpt-6-luna": ["standard", "fast"],
+      "gpt-6-astra": ["standard", "fast"],
+      "gpt-6.3-luna": ["standard"],
+    },
+  );
+  for (const leaked of [" name", "blurb", "flex", "token-"])
+    assert.ok(!response.body.includes(leaked), leaked);
+
+  const efforts = new Map(
+    (
+      response.json().models as { id: string; defaultEffort: InferenceEffort }[]
+    ).map((model) => [model.id, model.defaultEffort]),
+  );
+  /** A selection of `model` at `speed` with its default effort. */
+  const choice = (model: string, speed: "fast" | "ultrafast") => ({
+    provider: "chatgpt" as const,
+    model,
+    effort: efforts.get(model)!,
+    speed,
+  });
+  const ultrafast = await service.select(
+    "owner",
+    choice("gpt-6.2-sol", "ultrafast"),
+  );
+  // Validation returns the listed speeds, so a runtime sends what was validated.
+  assert.deepEqual(ultrafast.speeds, {
+    offered: ["fast", "ultrafast"],
+    complete: true,
+  });
+  await service.validate("owner", choice("gpt-6.3-sol", "fast"));
+  for (const [ownerId, model, speed, code] of [
+    ["owner", "gpt-6.2-astra", "ultrafast", "ULTRAFAST_MODE_UNSUPPORTED"],
+    ["owner", "gpt-6-astra", "ultrafast", "ULTRAFAST_MODE_UNSUPPORTED"],
+    ["owner", "gpt-6.1-sol", "fast", "FAST_MODE_UNSUPPORTED"],
+    ["owner", "gpt-6.3-luna", "fast", "FAST_MODE_UNSUPPORTED"],
+    // Another owner's account is checked against its own list.
+    ["other", "gpt-6.2-sol", "ultrafast", "ULTRAFAST_MODE_UNSUPPORTED"],
+  ] as const)
+    await assert.rejects(service.validate(ownerId, choice(model, speed)), {
+      code,
+    });
+  await service.validate("other", choice("gpt-6.2-sol", "fast"));
+
+  // Signing in to a different account changes the choices at once: nothing is cached.
+  tokens.owner = "token-plus";
+  await assert.rejects(
+    service.validate("owner", choice("gpt-6.2-sol", "ultrafast")),
+    { code: "ULTRAFAST_MODE_UNSUPPORTED" },
+  );
+  assert.deepEqual(
+    (await service.list("owner", "chatgpt")).map((model) => model.speeds),
+    [["standard", "fast"]],
+  );
+  assert.equal(requests.length, 11);
+  assert.ok(
+    requests.every((request) =>
+      request.startsWith("https://api.openai.com/v1/models token-"),
+    ),
+  );
 });

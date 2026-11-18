@@ -4,7 +4,7 @@ import { TeammateAvatar } from "./teammate-avatar.js";
 import { Button } from "@everything/ui/button";
 import { Dialog } from "@everything/ui/dialog";
 import { providerOptions } from "../../provider/model/provider-options.js";
-import { effortLabels, fastModeLabels } from "../model/inference-options.js";
+import { effortLabels, speedLabels } from "../model/inference-options.js";
 import { Link } from "react-router-dom";
 import { ContextRow } from "./context-row.js";
 import { useContextBudget } from "../hook/use-context-budget.js";
@@ -60,10 +60,10 @@ export function AgentDetails({
           <dt>Effort level</dt>
           <dd>{effortLabels[agent.inference.effort]}</dd>
           <ContextRow tokens={context} flat />
-          {agent.inference.speed === "fast" && (
+          {agent.inference.speed && agent.inference.speed !== "standard" && (
             <>
               <dt>Speed</dt>
-              <dd>{fastModeLabels.details}</dd>
+              <dd>{speedLabels.details[agent.inference.speed]}</dd>
             </>
           )}
         </dl>

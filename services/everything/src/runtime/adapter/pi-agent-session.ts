@@ -7,6 +7,8 @@ import {
   FastModeLimitedError,
   FastModeRejectedError,
   ModelRequestFailedError,
+  UltrafastModeLimitedError,
+  UltrafastModeRejectedError,
 } from "../error/runtime-errors.js";
 import type { ModelRetryPolicy } from "../model/model-retry-policy.js";
 import { ModelRequestRetry } from "./model-request-retry.js";
@@ -17,6 +19,15 @@ import {
 
 /** An event a Pi session reports while it works. */
 type PiSessionEvent = Parameters<Parameters<PiSession["subscribe"]>[0]>[0];
+
+/** The error that ends a turn whose provider refused its paid speed, by speed and reason. */
+const speedRefusals = {
+  fast: { rejected: FastModeRejectedError, limited: FastModeLimitedError },
+  ultrafast: {
+    rejected: UltrafastModeRejectedError,
+    limited: UltrafastModeLimitedError,
+  },
+} as const;
 
 /** Adapts a native Pi session to the application's runtime contract. */
 export class PiAgentSession implements ForkableSession {
@@ -137,10 +148,13 @@ export class PiAgentSession implements ForkableSession {
       // A request the stop aborted ends the prompt as cancelled, like Pi's own aborted responses.
       if (outcome?.stopped) return;
       if (last?.role === "assistant" && last.stopReason === "error") {
-        // A refused Fast request ends the turn with its own recovery; it never retries at standard speed.
-        const failure = speedReport(last)?.failure;
-        if (failure === "rejected") throw new FastModeRejectedError();
-        if (failure === "limited") throw new FastModeLimitedError();
+        // A refused paid speed ends the turn with its own recovery; it never retries at another speed.
+        const speed = speedReport(last);
+        const Refusal =
+          speed?.failure && speed.requested !== "standard"
+            ? speedRefusals[speed.requested][speed.failure]
+            : undefined;
+        if (Refusal) throw new Refusal();
         throw new ModelRequestFailedError();
       }
     } finally {

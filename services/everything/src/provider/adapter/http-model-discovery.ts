@@ -17,6 +17,7 @@ import {
   anthropicReasoning,
   chatGptReasoning,
 } from "./advertised-reasoning.js";
+import { chatGptSpeeds } from "./advertised-speeds.js";
 import { providerFetch } from "./provider-fetch.js";
 import {
   anthropicImageInput,
@@ -119,6 +120,7 @@ export class HttpModelDiscovery implements ProviderModelDiscovery {
         .filter((item) => item.visibility === "list")
         .map((item) => {
           const reasoning = chatGptReasoning(item);
+          const speeds = chatGptSpeeds(item);
           return {
             id: item.slug,
             name: item.display_name || item.slug,
@@ -126,6 +128,7 @@ export class HttpModelDiscovery implements ProviderModelDiscovery {
             // only when the response supplies fields understood and validated by our parser.
             ...advertisedLimits(item),
             ...(reasoning ? { reasoning } : {}),
+            ...(speeds ? { speeds } : {}),
           };
         });
     }

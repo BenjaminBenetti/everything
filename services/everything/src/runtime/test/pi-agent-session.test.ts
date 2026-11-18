@@ -191,8 +191,19 @@ test("a refused Fast request ends the turn with its own recovery, and other prov
     }).prompt("Hi"),
     { code: "FAST_MODE_LIMITED" },
   );
+  for (const [failure, code] of [
+    ["rejected", "ULTRAFAST_MODE_REJECTED"],
+    ["limited", "ULTRAFAST_MODE_LIMITED"],
+  ] as const)
+    await assert.rejects(
+      failed({ requested: "ultrafast", effective: "unknown", failure }).prompt(
+        "Hi",
+      ),
+      { code },
+    );
   for (const details of [
     { requested: "fast", effective: "unknown" },
+    { requested: "ultrafast", effective: "unknown" },
     { requested: "standard", effective: "unknown" },
     undefined,
   ])

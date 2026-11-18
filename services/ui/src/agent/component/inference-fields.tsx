@@ -6,6 +6,7 @@ import {
   isActiveProvider,
   type InferenceEffort,
   type InferenceSelection,
+  type InferenceSpeed,
 } from "@everything/provider-contracts/inference";
 import { Button } from "@everything/ui/button";
 import { Select } from "@everything/ui/select";
@@ -16,10 +17,14 @@ import {
 } from "../../provider/component/provider-connections-context.js";
 import { providerOptions } from "../../provider/model/provider-options.js";
 import { useSession } from "../../session/component/session-provider.js";
-import { effortLabels, fastModeLabels } from "../model/inference-options.js";
+import {
+  effortLabels,
+  fastModeLabels,
+  speedLabels,
+} from "../model/inference-options.js";
 import {
   isSupportedDraft,
-  offersFast,
+  speedControl,
   withModel,
   withProvider,
   type InferenceDraft,
@@ -27,7 +32,7 @@ import {
 
 /**
  * Keep model settings collapsed, explain required selections, and offer active providers and the
- * settings the chosen model supports, including Fast mode only where it is offered.
+ * settings the chosen model supports, including Fast mode and Ultrafast only where they are offered.
  */
 export function InferenceFields({
   value,
@@ -75,9 +80,10 @@ export function InferenceFields({
       : value.effort
         ? effortLabels[value.effort]
         : "";
-  const fastName = value.speed === "fast" ? fastModeLabels.summary : "";
+  const paidSpeed = value.speed !== "standard" ? value.speed : undefined;
+  const speedName = paidSpeed ? speedLabels.summary[paidSpeed] : "";
   const selectionSummary = value.provider
-    ? [providerName, modelName, effortName, fastName]
+    ? [providerName, modelName, effortName, speedName]
         .filter(Boolean)
         .join(" · ")
     : required
@@ -87,9 +93,7 @@ export function InferenceFields({
     !!connection && !models.isError && isSupportedDraft(value, model);
   useEffect(() => onValidityChange(valid), [valid, onValidityChange]);
   const unavailable = !!value.provider && !providers.isPending && !connection;
-  // A saved Fast choice the model no longer offers stays visible so it can be turned off.
-  const fastUnsupported =
-    !!model && value.speed === "fast" && !offersFast(model);
+  const speed = speedControl(value.speed, model);
 
   /** Changing providers clears every dependent setting instead of silently retaining an invalid choice. */
   function changeProvider(provider: ProviderId | ""): void {
@@ -125,10 +129,10 @@ export function InferenceFields({
                   </span>
                 </>
               )}
-              {fastName && (
+              {speedName && (
                 <>
                   <span aria-hidden="true">·</span>
-                  <span className="teammate-inference-effort">{fastName}</span>
+                  <span className="teammate-inference-effort">{speedName}</span>
                 </>
               )}
             </>
@@ -272,7 +276,31 @@ export function InferenceFields({
               : "Higher effort can improve complex work and take more time."}
           </small>
         </div>
-        {connection && (offersFast(model) || fastUnsupported) && (
+        {connection && speed.kind === "menu" && (
+          <div className="field">
+            <label htmlFor={`${fieldId}-speed`}>{speedLabels.field}</label>
+            <Select
+              id={`${fieldId}-speed`}
+              label={speedLabels.field}
+              describedBy={`${fieldId}-speed-hint`}
+              value={value.speed}
+              onValueChange={(choice) =>
+                onChange({ ...value, speed: choice as InferenceSpeed })
+              }
+              disabled={disabled || models.isError}
+              placeholder={speedLabels.placeholder}
+              options={speed.choices.map(({ speed: choice, offered }) => ({
+                value: choice,
+                label: offered
+                  ? speedLabels.options[choice]
+                  : `${speedLabels.options[choice]} (${speedLabels.unavailable})`,
+                disabled: !offered,
+              }))}
+            />
+            <small id={`${fieldId}-speed-hint`}>{speedLabels.warning}</small>
+          </div>
+        )}
+        {connection && speed.kind === "switch" && (
           <Switch
             className="teammate-inference-speed"
             label={fastModeLabels.switch}
@@ -284,9 +312,11 @@ export function InferenceFields({
             }
           />
         )}
-        {fastUnsupported && (
+        {speed.unsupported && (
           <p role="status" className="form-error">
-            {fastModeLabels.unsupported}
+            {speed.kind === "menu"
+              ? speedLabels.unsupported[speed.unsupported]
+              : fastModeLabels.unsupported}
           </p>
         )}
       </fieldset>

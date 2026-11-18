@@ -1,13 +1,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { ProviderModel } from "@everything/provider-contracts/inference";
-import { fastModeLabels } from "../model/inference-options.js";
+import { fastModeLabels, speedLabels } from "../model/inference-options.js";
 import {
   draftSelection,
   inferenceDraft,
   isChangedDraft,
   isSupportedDraft,
+  offeredSpeeds,
   offersFast,
+  speedControl,
   withModel,
   withProvider,
 } from "../model/inference-draft.js";
@@ -19,6 +21,12 @@ const fastModel: ProviderModel = {
   defaultEffort: "medium",
   effortSource: "catalog",
   speeds: ["standard", "fast"],
+};
+const ultrafastModel: ProviderModel = {
+  ...fastModel,
+  id: "gpt-6.2-sol",
+  name: "GPT-6.2 Sol",
+  speeds: ["standard", "fast", "ultrafast"],
 };
 const standardModel: ProviderModel = {
   id: "o3-mini",
@@ -135,6 +143,110 @@ test("Fast mode wording names a request, never a confirmed faster reply", () => 
   assert.equal(fastModeLabels.details, "Fast mode requested");
   for (const label of Object.values(fastModeLabels))
     assert.doesNotMatch(label, /\b(active|enabled|guaranteed|always)\b/i);
+});
+
+test("Ultrafast is valid only for models that list it, is saved as itself, and never carries over to another model", () => {
+  const ultrafast = {
+    provider: "chatgpt",
+    model: ultrafastModel.id,
+    effort: "high",
+    speed: "ultrafast",
+  } as const;
+  assert.deepEqual(offeredSpeeds(ultrafastModel), [
+    "standard",
+    "fast",
+    "ultrafast",
+  ]);
+  assert.deepEqual(offeredSpeeds(undefined), []);
+  assert.equal(isSupportedDraft(ultrafast, ultrafastModel), true);
+  // A model offering only Fast, as on another account, keeps the saved Ultrafast unsaveable.
+  assert.equal(isSupportedDraft(ultrafast, fastModel), false);
+  assert.equal(
+    isSupportedDraft({ ...ultrafast, speed: "fast" }, fastModel),
+    true,
+  );
+  assert.equal(inferenceDraft(ultrafast).speed, "ultrafast");
+  assert.equal(
+    isChangedDraft({ ...ultrafast, speed: "fast" }, ultrafast),
+    true,
+  );
+  assert.deepEqual(draftSelection(ultrafast), ultrafast);
+  assert.equal(
+    withModel(ultrafast, ultrafastModel.id, ultrafastModel).speed,
+    "standard",
+  );
+  assert.equal(withProvider("chatgpt").speed, "standard");
+});
+
+test("Ultrafast gets a speed menu, Fast alone keeps its switch, and a saved speed the model no longer offers stays visible as unavailable", () => {
+  /** The menu's speeds, with unavailable ones marked. */
+  const menu = (control: ReturnType<typeof speedControl>) =>
+    control.choices.map(({ speed, offered }) =>
+      offered ? speed : `${speed} (unavailable)`,
+    );
+  assert.deepEqual(speedControl("standard", undefined), {
+    kind: "none",
+    choices: [],
+  });
+  assert.deepEqual(speedControl("standard", standardModel), {
+    kind: "none",
+    choices: [],
+  });
+  assert.deepEqual(speedControl("fast", fastModel), {
+    kind: "switch",
+    choices: [],
+  });
+  // Fast saved on a model that no longer offers it keeps the switch, to turn it off.
+  assert.deepEqual(speedControl("fast", standardModel), {
+    kind: "switch",
+    choices: [],
+    unsupported: "fast",
+  });
+  const offered = speedControl("standard", ultrafastModel);
+  assert.equal(offered.kind, "menu");
+  assert.deepEqual(menu(offered), ["standard", "fast", "ultrafast"]);
+  assert.equal(offered.unsupported, undefined);
+  // Ultrafast saved where it isn't offered, as after switching accounts, is never shown as Fast.
+  for (const [model, choices] of [
+    [fastModel, ["standard", "fast", "ultrafast (unavailable)"]],
+    [standardModel, ["standard", "ultrafast (unavailable)"]],
+  ] as const) {
+    const stale = speedControl("ultrafast", model);
+    assert.equal(stale.kind, "menu");
+    assert.deepEqual(menu(stale), choices);
+    assert.equal(stale.unsupported, "ultrafast");
+  }
+  const withoutFast = speedControl("fast", {
+    ...ultrafastModel,
+    speeds: ["standard", "ultrafast"],
+  });
+  assert.deepEqual(menu(withoutFast), [
+    "standard",
+    "fast (unavailable)",
+    "ultrafast",
+  ]);
+  assert.equal(withoutFast.unsupported, "fast");
+});
+
+test("speed menu wording names each speed and its higher usage, without promising speed or estimating cost", () => {
+  assert.deepEqual(speedLabels.options, {
+    standard: "Standard",
+    fast: "Fast",
+    ultrafast: "Ultrafast",
+  });
+  assert.equal(speedLabels.summary.ultrafast, "Ultrafast requested");
+  assert.equal(speedLabels.details.ultrafast, "Ultrafast requested");
+  assert.match(speedLabels.warning, /plan or credits faster, or cost more/);
+  for (const label of [
+    speedLabels.warning,
+    ...Object.values(speedLabels.summary),
+    ...Object.values(speedLabels.details),
+    ...Object.values(speedLabels.unsupported),
+  ]) {
+    assert.doesNotMatch(label, /\b(active|enabled|guaranteed|always)\b/i);
+    assert.doesNotMatch(label, /\d|[$%×]/, "no latency or cost estimates");
+  }
+  assert.doesNotMatch(speedLabels.unsupported.ultrafast, /Fast mode/);
 });
 
 test("a saved Default effort a model no longer offers keeps the draft unsaveable, unchanged, until a listed effort is chosen", () => {
