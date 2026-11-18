@@ -7,38 +7,30 @@ import type {
   DiscoveredModel,
   PaidSpeed,
 } from "../../provider/interface/provider-models.js";
-import { fastModeModel, type FastModeModel } from "./fast-mode-support.js";
 
-/** The paid speed one request asks for, with anything more the model needs to request it. */
-export interface RequestedSpeed extends FastModeModel {
+/** The paid speed one request asks for. */
+export interface RequestedSpeed {
   readonly speed: PaidSpeed;
 }
 
 /** A model as discovered, with the speed metadata its provider lists, if any. */
-type SpeedModel = Pick<DiscoveredModel, "id" | "speeds">;
+type SpeedModel = Pick<DiscoveredModel, "speeds">;
 
 /**
- * The paid speeds a model offers and what each needs. The model picker, selection validation, and
- * every request a runtime sends use this one decision. The account's model list decides first: a
- * complete list offers exactly the speeds it names, even where documentation names Fast, and a
- * legacy list can only add Fast. Without either, Fast follows the provider's documentation for the
- * exact model. Ultrafast needs a complete list that names it; neither documentation, pricing, nor
- * a model's name ever turns it on.
+ * The paid speeds a model offers. The model picker, selection validation, and every request a
+ * runtime sends use this one decision, which only the account's model list makes: a complete list
+ * offers exactly the speeds it names, and a legacy list can only offer Fast. Only ChatGPT sign-in's
+ * model list reports speeds, which Responses can request. Neither documentation, pricing, nor a
+ * model's name turns on a paid speed, so a model whose list reports none offers standard only.
  */
 function speedSupport(
   provider: ProviderId,
   model: SpeedModel,
-): Readonly<Partial<Record<PaidSpeed, FastModeModel>>> {
-  const documented = fastModeModel(provider, model.id);
-  // Only ChatGPT sign-in's account model list reports speeds, which Responses can request.
+): ReadonlySet<PaidSpeed> {
   const listed = provider === "chatgpt" ? model.speeds : undefined;
-  const fast = listed?.offered.includes("fast")
-    ? (documented ?? {})
-    : listed?.complete
-      ? undefined
-      : documented;
-  const ultrafast = listed?.complete && listed.offered.includes("ultrafast");
-  return { ...(fast ? { fast } : {}), ...(ultrafast ? { ultrafast: {} } : {}) };
+  return new Set(
+    listed?.offered.filter((speed) => speed === "fast" || listed.complete),
+  );
 }
 
 /** Every speed the model offers, starting with standard, in the order the model picker lists them. */
@@ -48,7 +40,7 @@ export function offeredSpeeds(
 ): InferenceSpeed[] {
   const support = speedSupport(provider, model);
   return inferenceSpeeds.filter(
-    (speed) => speed === "standard" || support[speed] !== undefined,
+    (speed) => speed === "standard" || support.has(speed),
   );
 }
 
@@ -59,6 +51,5 @@ export function requestedSpeed(
   speed: InferenceSpeed | undefined,
 ): RequestedSpeed | undefined {
   if (speed === undefined || speed === "standard") return undefined;
-  const needs = speedSupport(provider, model)[speed];
-  return needs && { ...needs, speed };
+  return speedSupport(provider, model).has(speed) ? { speed } : undefined;
 }

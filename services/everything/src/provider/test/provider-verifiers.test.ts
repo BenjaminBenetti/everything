@@ -12,7 +12,7 @@ function json(value: unknown, status = 200): Response {
   });
 }
 
-test("compatible verification requires inference, uses the supplied address, and supports keyless models", async () => {
+test("compatible verification checks the first listed model the server doesn't declare non-text, at the supplied address, keyless", async () => {
   const requests: string[] = [];
   const adapter = new CompatibleConnectionVerifier(async (input, init) => {
     const url = String(input);
@@ -20,10 +20,17 @@ test("compatible verification requires inference, uses the supplied address, and
     assert.equal(init?.redirect, "error");
     assert.equal(new Headers(init?.headers).get("authorization"), null);
     if (url.endsWith("/models"))
-      return json({ data: [{ id: "embedding-model" }, { id: "local-chat" }] });
+      return json({
+        data: [
+          { id: "image-maker", architecture: { output_modalities: ["image"] } },
+          // Names never steer the choice, toward a small model or away from an embedding one.
+          { id: "embedding-model" },
+          { id: "local-mini" },
+        ],
+      });
     assert.equal(url, "http://models.local:11434/v1/chat/completions");
     const body = JSON.parse(String(init?.body));
-    assert.equal(body.model, "local-chat");
+    assert.equal(body.model, "embedding-model");
     assert.equal(body.max_tokens, 1024);
     return json({
       choices: [{ message: { content: "OK" }, finish_reason: "stop" }],
@@ -35,8 +42,9 @@ test("compatible verification requires inference, uses the supplied address, and
       baseUrl: "http://models.local:11434/v1",
       model: null,
     }),
-    "local-chat",
+    "embedding-model",
   );
+  // One model list and one check: no other candidate is tried.
   assert.equal(requests.length, 2);
 });
 
@@ -61,7 +69,8 @@ test("an explicit compatible model works without a model-list endpoint and sends
   );
 });
 
-test("Claude verification checks the actual messages endpoint after authenticated discovery", async () => {
+test("Claude verification checks the first listed model on the actual messages endpoint after authenticated discovery", async () => {
+  let checks = 0;
   const adapter = new AnthropicConnectionVerifier(async (input, init) => {
     const url = String(input);
     assert.equal(init?.redirect, "error");
@@ -75,8 +84,9 @@ test("Claude verification checks the actual messages endpoint after authenticate
         data: [{ id: "claude-sonnet" }, { id: "claude-haiku" }],
         has_more: false,
       });
+    checks++;
     const body = JSON.parse(String(init?.body));
-    assert.equal(body.model, "claude-haiku");
+    assert.equal(body.model, "claude-sonnet");
     return json({
       type: "message",
       stop_reason: "end_turn",
@@ -89,8 +99,9 @@ test("Claude verification checks the actual messages endpoint after authenticate
       baseUrl: null,
       model: null,
     }),
-    "claude-haiku",
+    "claude-sonnet",
   );
+  assert.equal(checks, 1);
 });
 
 test("provider HTTP failures explain the status and recovery without leaking response bodies", async () => {
@@ -329,7 +340,12 @@ test("ChatGPT follows the plan-use request contract and requires a completed str
       );
       if (url.endsWith("/models"))
         return json({
-          models: [{ slug: "available-model", visibility: "list" }],
+          // The first listed model is checked; names never steer the choice.
+          models: [
+            { slug: "hidden-mini", visibility: "hide" },
+            { slug: "available-model", visibility: "list" },
+            { slug: "available-luna-mini", visibility: "list" },
+          ],
         });
       const body = JSON.parse(String(init?.body));
       // The plan-use route rejects the string shorthand and max_output_tokens,

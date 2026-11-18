@@ -9,7 +9,6 @@ import {
 } from "../../provider/error/provider-errors.js";
 import { ProviderModelService } from "../../provider/service/provider-models.js";
 import { PiModelCapabilities } from "../../runtime/adapter/pi-model-capabilities.js";
-import { createModelRuntime } from "../../runtime/factory/model-runtime.js";
 import { AgentService } from "../service/agent-service.js";
 import { AgentEditingService } from "../service/agent-editing-service.js";
 import { agentController } from "../controller/agent-controller.js";
@@ -183,7 +182,7 @@ test("Fast mode round-trips through create and edit, selections without a speed 
       if (await this.getById(scope, target)) saved = undefined;
     },
   };
-  // Validate through the real capability table so the API refuses undocumented Fast models.
+  // Validate through the real capabilities so the API refuses Fast the account's list doesn't offer.
   const models = new ProviderModelService(
     {
       /** The owner's ChatGPT connection is active. */
@@ -192,10 +191,14 @@ test("Fast mode round-trips through create and edit, selections without a speed 
       },
     },
     {
-      /** The account offers a Fast model, one without Fast mode, and one it lists Ultrafast for. */
+      /** The account lists Fast for one model, no speeds for another, and Ultrafast for a third. */
       async discover() {
         return [
-          { id: "gpt-6.1-sol", name: "GPT-6.1 Sol" },
+          {
+            id: "gpt-6.1-sol",
+            name: "GPT-6.1 Sol",
+            speeds: { offered: ["fast"], complete: false },
+          },
           { id: "o3-mini", name: "o3-mini" },
           {
             id: "gpt-6.2-sol",
@@ -205,7 +208,7 @@ test("Fast mode round-trips through create and edit, selections without a speed 
         ];
       },
     },
-    new PiModelCapabilities(await createModelRuntime()),
+    new PiModelCapabilities(),
   );
   const [sol, mini, ultrafastSol] = await models.list("owner", "chatgpt");
   const app = authenticatedTestServer();

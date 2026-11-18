@@ -7,8 +7,8 @@ import { ProviderModelService } from "../service/provider-models.js";
 import { HttpModelDiscovery } from "../adapter/http-model-discovery.js";
 import { providerModelController } from "../controller/provider-model-controller.js";
 import { ProviderInactiveError } from "../error/provider-errors.js";
+import { compatibleTextOutput } from "../adapter/advertised-text-output.js";
 import { PiModelCapabilities } from "../../runtime/adapter/pi-model-capabilities.js";
-import { createModelRuntime } from "../../runtime/factory/model-runtime.js";
 
 test("model discovery applies ownership, validates model-specific efforts, and exposes safe metadata", async (context) => {
   const calls: unknown[] = [];
@@ -27,12 +27,28 @@ test("model discovery applies ownership, validates model-specific efforts, and e
       },
     },
     {
-      /** Simulate the signed-in account's catalog. */
+      /** Simulate the signed-in account's catalog, which lists the model's effort levels. */
       async discover() {
-        return [{ id: "o3-mini", name: "Account model" }];
+        return [
+          {
+            id: "o3-mini",
+            name: "Account model",
+            reasoning: {
+              levels: {
+                off: null,
+                minimal: null,
+                low: "low",
+                medium: "medium",
+                high: "high",
+                xhigh: null,
+                max: null,
+              },
+            },
+          },
+        ];
       },
     },
-    new PiModelCapabilities(await createModelRuntime()),
+    new PiModelCapabilities(),
   );
   const app = authenticatedTestServer();
   context.after(() => app.close());
@@ -46,7 +62,7 @@ test("model discovery applies ownership, validates model-specific efforts, and e
         name: "Account model",
         efforts: ["low", "medium", "high"],
         defaultEffort: "medium",
-        effortSource: "catalog",
+        effortSource: "provider",
         speeds: ["standard"],
       },
     ],
@@ -140,7 +156,7 @@ test("ChatGPT discovery uses the account catalog, display names, visibility and 
   );
 });
 
-test("compatible catalogs support keyless servers, filter non-text models, and bound explicit-model fallback", async () => {
+test("compatible catalogs support keyless servers, drop models the server says don't write text, and bound explicit-model fallback", async () => {
   const connection = {
     credential: {},
     baseUrl: "http://model.test/v1",
@@ -156,13 +172,20 @@ test("compatible catalogs support keyless servers, filter non-text models, and b
       data: [
         { id: "text-model" },
         { id: "text-model" },
+        // A name says nothing about a model: one the server doesn't describe stays listed.
         { id: "embed-model" },
+        { id: "whisper-chat", architecture: { output_modalities: ["text"] } },
+        { id: "image-maker", architecture: { output_modalities: ["image"] } },
+        { id: "malformed-output", architecture: { output_modalities: [1] } },
         { id: "" },
       ],
     });
   });
   assert.deepEqual(await discovery.discover("openai-compatible", connection), [
     { id: "text-model", name: "text-model" },
+    { id: "embed-model", name: "embed-model" },
+    { id: "whisper-chat", name: "whisper-chat" },
+    { id: "malformed-output", name: "malformed-output" },
   ]);
   for (const status of [404, 405, 501]) {
     const fallback = new HttpModelDiscovery(
@@ -178,6 +201,40 @@ test("compatible catalogs support keyless servers, filter non-text models, and b
     );
     await assert.rejects(failure.discover("openai-compatible", connection));
   }
+});
+
+test("compatible output modalities say whether a model writes text, and anything else is unknown", () => {
+  /** A model-list entry declaring `modalities` as its outputs. */
+  const entry = (modalities: unknown) => ({
+    id: "any",
+    architecture: { output_modalities: modalities },
+  });
+  assert.equal(compatibleTextOutput(entry(["text"])), true);
+  assert.equal(compatibleTextOutput(entry(["image", "text"])), true);
+  assert.equal(compatibleTextOutput(entry(["image"])), false);
+  assert.equal(compatibleTextOutput(entry(["embeddings"])), false);
+  for (const malformed of [
+    undefined,
+    null,
+    "text",
+    [],
+    [""],
+    ["text", 1],
+    ["text", null],
+    Array(17).fill("text"),
+  ])
+    assert.equal(
+      compatibleTextOutput(entry(malformed)),
+      undefined,
+      JSON.stringify(malformed),
+    );
+  for (const missing of [
+    null,
+    {},
+    { id: "embed-model" },
+    { architecture: null },
+  ])
+    assert.equal(compatibleTextOutput(missing), undefined);
 });
 
 test("Claude discovery follows authenticated model pagination", async () => {
@@ -217,7 +274,7 @@ test("Claude discovery follows authenticated model pagination", async () => {
 });
 
 test("unknown models offer only the runtime default instead of guessed effort support", async () => {
-  const capabilities = new PiModelCapabilities(await createModelRuntime());
+  const capabilities = new PiModelCapabilities();
   for (const provider of [
     "anthropic",
     "chatgpt",
@@ -239,9 +296,9 @@ test("unknown models offer only the runtime default instead of guessed effort su
     );
 });
 
-test("compatible local model names expose their supported effort levels without changing identity", async (context) => {
+test("compatible model names never imply effort levels, and keep their exact identity", async (context) => {
   const id = "qwen3.8-flash-next-unsloth-ud-iq4_xs";
-  const capabilities = new PiModelCapabilities(await createModelRuntime());
+  const capabilities = new PiModelCapabilities();
   const service = new ProviderModelService(
     {
       /** Supply the local owner's connection without requiring an inference request. */
@@ -270,20 +327,26 @@ test("compatible local model names expose their supported effort levels without 
       {
         id,
         name: id,
-        efforts: ["off", "low", "medium", "xhigh"],
-        defaultEffort: "medium",
-        effortSource: "catalog",
+        efforts: ["off"],
+        defaultEffort: "off",
+        effortSource: "unknown",
         speeds: ["standard"],
       },
     ],
   });
-  for (const effort of ["off", "low", "medium", "xhigh"] as const)
-    await service.validate("owner", {
-      provider: "openai-compatible",
-      model: id,
-      effort,
-    });
-  for (const effort of ["minimal", "high", "max"] as const)
+  await service.validate("owner", {
+    provider: "openai-compatible",
+    model: id,
+    effort: "off",
+  });
+  for (const effort of [
+    "minimal",
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max",
+  ] as const)
     await assert.rejects(
       service.validate("owner", {
         provider: "openai-compatible",
@@ -294,35 +357,48 @@ test("compatible local model names expose their supported effort levels without 
     );
 });
 
-test("compatible model aliases preserve known reasoning and non-reasoning capabilities", async () => {
-  const capabilities = new PiModelCapabilities(await createModelRuntime());
-  for (const id of [
+test("compatible names of catalog models get nothing from Pi's catalog", async () => {
+  const capabilities = new PiModelCapabilities();
+  const ids = [
     "Qwen/Qwen3.8-Flash-Next",
     "unsloth/Qwen3.8-Flash-Next-GGUF:UD-IQ4_XS",
     "Qwen3.8-Flash-Next-UD-Q4_K_XL-00001-of-00003.gguf",
-  ]) {
-    const model = capabilities.describe("openai-compatible", { id, name: id });
-    assert.deepEqual(model.efforts, ["off", "low", "medium", "xhigh"]);
-    assert.equal(
-      capabilities.resolve("openai-compatible", id, "http://local.test/v1").id,
-      id,
-    );
-  }
-  assert.deepEqual(
-    capabilities.describe("openai-compatible", {
-      id: "openai/o3-mini",
-      name: "o3-mini",
-    }).efforts,
-    ["low", "medium", "high"],
-  );
-  for (const id of ["openai/gpt-4o", "qwen3.8-flash-next-custom-finetune"])
+    "openai/o3-mini",
+    "openai/gpt-4o",
+    "anthropic/claude-opus-5-5",
+    "new-opaque-model",
+  ];
+  const [reference, ...rest] = ids.map((id) => {
+    const {
+      id: resolvedId,
+      name,
+      resolution,
+      ...model
+    } = capabilities.resolve("openai-compatible", id, "http://local.test/v1");
+    assert.equal(resolvedId, id);
+    assert.equal(name, id);
+    assert.equal(resolution.model, id);
     assert.deepEqual(
       capabilities.describe("openai-compatible", { id, name: id }).efforts,
       ["off"],
+      id,
     );
+    return { ...model, resolution: { ...resolution, model: "" } };
+  });
+  // Every name resolves to the very same model, apart from its identity.
+  for (const model of rest) assert.deepEqual(model, reference);
+  assert.deepEqual(
+    [
+      reference!.reasoning,
+      reference!.input,
+      reference!.resolution.contextSource,
+      reference!.resolution.imageSource,
+    ],
+    [false, ["text"], "fallback", "unknown"],
+  );
 });
 
-test("Fast mode is offered and accepted only for exactly documented models, and selections without a speed stay standard", async () => {
+test("Fast mode is offered and accepted only where the account's model list offers it, and selections without a speed stay standard", async () => {
   const catalogs: Record<ProviderId, string[]> = {
     chatgpt: [
       "gpt-6.2-sol",
@@ -331,7 +407,6 @@ test("Fast mode is offered and accepted only for exactly documented models, and 
       "gpt-6.1-terra",
       "gpt-5.6-terra",
       "gpt-6.2-sol-2026-11-17",
-      "gpt-6.1-sol-2026-09-30",
       "gpt-5.5",
       "o3-mini",
       "toString",
@@ -341,10 +416,15 @@ test("Fast mode is offered and accepted only for exactly documented models, and 
       "claude-opus-5",
       "claude-opus-4-8",
       "claude-opus-4-6",
-      "claude-opus-5-5-20261001",
       "Claude-Opus-5-5",
     ],
     "openai-compatible": ["claude-opus-5-5", "gpt-6.1-sol"],
+  };
+  /** A model whose metadata lists Fast, which only ChatGPT sign-in's model list can report. */
+  const listed: Record<ProviderId, string> = {
+    chatgpt: "gpt-next-opaque",
+    anthropic: "claude-next-opaque",
+    "openai-compatible": "local-next-opaque",
   };
   const service = new ProviderModelService(
     {
@@ -354,28 +434,24 @@ test("Fast mode is offered and accepted only for exactly documented models, and 
       },
     },
     {
-      /** Each account lists documented models beside near-miss and unknown IDs. */
+      /** Each account lists models with no speed metadata, beside one that lists Fast. */
       async discover(provider) {
-        return catalogs[provider].map((id) => ({ id, name: id }));
+        return [
+          ...catalogs[provider].map((id) => ({ id, name: id })),
+          {
+            id: listed[provider],
+            name: listed[provider],
+            speeds: { offered: ["fast" as const], complete: false },
+          },
+        ];
       },
     },
-    new PiModelCapabilities(await createModelRuntime()),
+    new PiModelCapabilities(),
   );
-  const fast: Record<ProviderId, string[]> = {
-    chatgpt: [
-      "gpt-6.2-sol",
-      "gpt-6.2-astra",
-      "gpt-6.1-sol",
-      "gpt-6.1-terra",
-      "gpt-5.6-terra",
-    ],
-    anthropic: ["claude-opus-5-5", "claude-opus-5", "claude-opus-4-8"],
-    "openai-compatible": [],
-  };
   for (const provider of Object.keys(catalogs) as ProviderId[]) {
     const models = await service.list("owner", provider);
     for (const model of models) {
-      const supported = fast[provider].includes(model.id);
+      const supported = provider === "chatgpt" && model.id === listed.chatgpt;
       assert.deepEqual(
         model.speeds,
         supported ? ["standard", "fast"] : ["standard"],
@@ -395,7 +471,7 @@ test("Fast mode is offered and accepted only for exactly documented models, and 
           service.validate("owner", { ...selection, speed: "fast" }),
           { code: "FAST_MODE_UNSUPPORTED" },
         );
-      // Documentation never offers Ultrafast; only an account's model list can.
+      // A legacy list offers Fast only; only a complete list can offer Ultrafast.
       await assert.rejects(
         service.validate("owner", { ...selection, speed: "ultrafast" }),
         { code: "ULTRAFAST_MODE_UNSUPPORTED" },
@@ -404,7 +480,7 @@ test("Fast mode is offered and accepted only for exactly documented models, and 
   }
 });
 
-test("each account's model list decides its Fast and Ultrafast choices, ahead of documentation, on every request", async (context) => {
+test("each account's model list decides its Fast and Ultrafast choices on every request", async (context) => {
   /** Codex-shaped service tiers, with display text that must never reach the public catalog. */
   const tiers = (...ids: string[]) =>
     ids.map((id) => ({ id, name: `${id} name`, description: `${id} blurb` }));
@@ -423,13 +499,13 @@ test("each account's model list decides its Fast and Ultrafast choices, ahead of
           service_tiers: tiers("priority", "flex"),
           default_service_tier: "ultrafast",
         }),
-        // An explicit empty list beats the documentation that names Fast for this model.
+        // An explicit empty list offers no paid speed.
         entry("gpt-6.1-sol", { service_tiers: [] }),
         // The account list can offer Fast for a model no documentation names yet.
         entry("gpt-6.3-sol", { service_tiers: tiers("priority") }),
-        // No speed metadata: documentation decides Fast, and nothing decides Ultrafast.
+        // No speed metadata: standard only, whatever documentation says about the model.
         entry("gpt-6.1-terra"),
-        // The deprecated list adds Fast; malformed tiers report nothing, so Ultrafast stays off.
+        // The deprecated list adds Fast; malformed tiers report nothing, so no paid speed is offered.
         entry("gpt-6-luna", { additional_speed_tiers: ["fast"] }),
         entry("gpt-6-astra", { service_tiers: [{ id: "ultrafast" }, null] }),
         entry("gpt-6.3-luna", { additional_speed_tiers: [] }),
@@ -462,7 +538,7 @@ test("each account's model list decides its Fast and Ultrafast choices, ahead of
       requests.push(`${String(input)} ${token}`);
       return Response.json(accounts[token]);
     }),
-    new PiModelCapabilities(await createModelRuntime()),
+    new PiModelCapabilities(),
   );
   const app = authenticatedTestServer();
   context.after(() => app.close());
@@ -480,9 +556,9 @@ test("each account's model list decides its Fast and Ultrafast choices, ahead of
       "gpt-6.2-astra": ["standard", "fast"],
       "gpt-6.1-sol": ["standard"],
       "gpt-6.3-sol": ["standard", "fast"],
-      "gpt-6.1-terra": ["standard", "fast"],
+      "gpt-6.1-terra": ["standard"],
       "gpt-6-luna": ["standard", "fast"],
-      "gpt-6-astra": ["standard", "fast"],
+      "gpt-6-astra": ["standard"],
       "gpt-6.3-luna": ["standard"],
     },
   );

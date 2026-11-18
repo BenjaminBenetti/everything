@@ -84,9 +84,8 @@ function supportFlag(value: unknown): boolean | undefined {
  * (https://platform.claude.com/docs/en/api/models/list), or undefined when the flags they depend
  * on are missing or malformed. The runtime sends an effort only with adaptive thinking, so a model
  * reporting no thinking, no adaptive thinking, or no effort accepts none of the levels; a reported
- * `false` wins over any contradicting nested flag. Minimal is sent as `low`, so it is unsupported
- * wherever low is and otherwise left to the catalog. Off isn't covered, because the runtime turns
- * thinking off differently by model.
+ * `false` wins over any contradicting nested flag. Minimal and off aren't Anthropic effort levels,
+ * so they are never reported and never offered with an effort.
  */
 export function anthropicReasoning(
   capabilities: unknown,
@@ -115,5 +114,5 @@ export function anthropicReasoning(
     if (supported === undefined) return undefined;
     levels[level] = accepted && supported ? level : null;
   }
-  return { levels: levels.low ? levels : { minimal: null, ...levels } };
+  return { levels };
 }

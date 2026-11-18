@@ -2,11 +2,10 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { shouldCompact } from "@earendil-works/pi-coding-agent";
 import { PiModelCapabilities } from "../adapter/pi-model-capabilities.js";
-import { createModelRuntime } from "../factory/model-runtime.js";
 import { compactionPolicy } from "../model/compaction-policy.js";
 
 test("unknown context compacts strictly above 183616 tokens with bounded output and retention", async () => {
-  const capabilities = new PiModelCapabilities(await createModelRuntime());
+  const capabilities = new PiModelCapabilities();
   const model = capabilities.resolve("chatgpt", "unlisted-context-fixture", "");
   const settings = compactionPolicy(model.contextWindow);
   assert.equal(model.contextWindow, 200000);
@@ -21,7 +20,7 @@ test("unknown context compacts strictly above 183616 tokens with bounded output 
 });
 
 test("smaller advertised context still bounds output allowance, reserve, and retained history", async () => {
-  const capabilities = new PiModelCapabilities(await createModelRuntime());
+  const capabilities = new PiModelCapabilities();
   const model = capabilities.resolve(
     "chatgpt",
     "unlisted-context-fixture",

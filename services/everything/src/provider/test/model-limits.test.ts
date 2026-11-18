@@ -7,7 +7,6 @@ import {
 import { HttpModelDiscovery } from "../adapter/http-model-discovery.js";
 import { ProviderModelService } from "../service/provider-models.js";
 import { PiModelCapabilities } from "../../runtime/adapter/pi-model-capabilities.js";
-import { createModelRuntime } from "../../runtime/factory/model-runtime.js";
 
 /** Malformed wire values must remain unknown even when they bypass discovery's parser. */
 const invalidLimits: readonly unknown[] = [
@@ -200,8 +199,8 @@ test("a single-model server without listed limits is asked for llama.cpp's runni
     );
 });
 
-test("reported limits set the runtime context and response room, ahead of the catalog", async () => {
-  const capabilities = new PiModelCapabilities(await createModelRuntime());
+test("reported limits set the runtime context and response room", async () => {
+  const capabilities = new PiModelCapabilities();
   const resolve = (limits?: {
     contextWindow?: number;
     maxOutputTokens?: number;
@@ -234,37 +233,45 @@ test("reported limits set the runtime context and response room, ahead of the ca
   const smaller = capabilities.resolve("openai-compatible", "o3-mini", "", {
     contextWindow: 16384,
   });
-  assert.ok(known.contextWindow > 16384);
+  assert.deepEqual(
+    [known.contextWindow, known.maxTokens],
+    [200000, 4096],
+    "a well-known model ID without reported limits gets only the planning fallback",
+  );
   assert.equal(
     smaller.contextWindow,
     16384,
-    "the running server wins over the catalog",
+    "the running server's smaller context wins over the fallback",
   );
 });
 
-test("provider limits take priority while an exact small catalog model stays below the fallback", async () => {
-  const capabilities = new PiModelCapabilities(await createModelRuntime());
-  const catalog = capabilities.resolve(
+test("provider limits decide, and a well-known model ID with none gets the same fallback as a new one", async () => {
+  const capabilities = new PiModelCapabilities();
+  const unreported = ["gpt-4", "gpt-next-opaque"].map((id) =>
+    capabilities.resolve("chatgpt", id, "https://api.openai.com/v1"),
+  );
+  for (const model of unreported) {
+    assert.equal(model.contextWindow, 200000);
+    assert.equal(model.maxTokens, 4096);
+    assert.equal(model.resolution.contextSource, "fallback");
+  }
+  const advertised = capabilities.resolve(
     "chatgpt",
     "gpt-4",
     "https://api.openai.com/v1",
+    { contextWindow: 4096, maxOutputTokens: 1024 },
   );
-  assert.equal(catalog.contextWindow, 8192);
-  assert.equal(catalog.maxTokens, 8192);
-  const advertised = capabilities.resolve("chatgpt", "gpt-4", catalog.baseUrl, {
-    contextWindow: 4096,
-    maxOutputTokens: 1024,
-  });
   assert.equal(advertised.contextWindow, 4096);
   assert.equal(advertised.maxTokens, 1024);
-  assert.equal(advertised.id, catalog.id);
+  assert.equal(advertised.resolution.contextSource, "provider");
+  assert.equal(advertised.id, "gpt-4");
   assert.equal(advertised.provider, "openai");
   assert.equal(advertised.api, "openai-responses");
-  assert.equal(advertised.baseUrl, catalog.baseUrl);
+  assert.equal(advertised.baseUrl, "https://api.openai.com/v1");
 });
 
-test("invalid advertised limits fall back independently to the catalog or unknown defaults", async () => {
-  const capabilities = new PiModelCapabilities(await createModelRuntime());
+test("invalid advertised limits fall back independently to the unknown defaults", async () => {
+  const capabilities = new PiModelCapabilities();
   for (const value of invalidLimits) {
     const limits = {
       contextWindow: value as number,
@@ -273,7 +280,7 @@ test("invalid advertised limits fall back independently to the catalog or unknow
     const known = capabilities.resolve("chatgpt", "gpt-4", "", limits);
     assert.deepEqual(
       [known.contextWindow, known.maxTokens],
-      [8192, 8192],
+      [200000, 4096],
       String(value),
     );
     const unknown = capabilities.resolve(
@@ -316,30 +323,24 @@ test("invalid advertised limits fall back independently to the catalog or unknow
   }
 });
 
-test("invalid catalog limits cannot propagate into resolved budgets", async () => {
-  const original = (await createModelRuntime()).getModel("openai", "gpt-4");
-  assert.ok(original);
-  for (const value of invalidLimits) {
-    const malformed = {
-      ...original,
-      contextWindow: value as number,
-      maxTokens: value as number,
-    };
-    const capabilities = new PiModelCapabilities({
-      getModel: () => malformed,
-      getModels: () => [malformed],
-    });
-    const model = capabilities.resolve(
-      "chatgpt",
-      original.id,
-      original.baseUrl,
-    );
-    assert.deepEqual(
-      [model.contextWindow, model.maxTokens],
-      [200000, 4096],
-      String(value),
-    );
-  }
+test("invalid limits reach no provider's budgets, whatever the model ID", async () => {
+  const capabilities = new PiModelCapabilities();
+  for (const [provider, id] of [
+    ["chatgpt", "gpt-4"],
+    ["anthropic", "claude-opus-5-5"],
+    ["openai-compatible", "o3-mini"],
+  ] as const)
+    for (const value of invalidLimits) {
+      const model = capabilities.resolve(provider, id, "", {
+        contextWindow: value as number,
+        maxOutputTokens: value as number,
+      });
+      assert.deepEqual(
+        [model.contextWindow, model.maxTokens, model.resolution.contextSource],
+        [200000, 4096, "fallback"],
+        `${provider} ${String(value)}`,
+      );
+    }
 });
 
 test("selection returns reported limits while the public catalog keeps only safe fields", async () => {
@@ -365,7 +366,7 @@ test("selection returns reported limits while the public catalog keeps only safe
         ];
       },
     },
-    new PiModelCapabilities(await createModelRuntime()),
+    new PiModelCapabilities(),
   );
   const [listed] = await service.list("owner", "openai-compatible");
   assert.deepEqual(Object.keys(listed!).sort(), [

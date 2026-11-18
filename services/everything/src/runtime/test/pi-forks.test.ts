@@ -11,13 +11,12 @@ import { FileSystemWorkspaces } from "../../workspace/service/file-system-worksp
 import { PiInferenceRuntimeFactory } from "../adapter/pi-inference-runtime.js";
 import { PiModelCapabilities } from "../adapter/pi-model-capabilities.js";
 import { PiSessionFactory } from "../adapter/pi-session-factory.js";
-import { createModelRuntime } from "../factory/model-runtime.js";
 import { stoppedFleet } from "./fleet-mcp-fixtures.js";
 import type { AgentSession } from "../interface/agent-session.js";
 
 interface CompletionRequest {
   model: string;
-  reasoning_effort: string;
+  reasoning_effort?: string;
   tools: { function: { name: string } }[];
   messages: {
     role: string;
@@ -119,7 +118,6 @@ for (const copyContext of [undefined, false, true]) {
     let working = false;
     let commandAborted = false;
     let expectedModel = "o3-mini";
-    let expectedEffort = "high";
     const mainSteps: (() => Response)[] = [
       () =>
         completion("", {
@@ -216,7 +214,7 @@ for (const copyContext of [undefined, false, true]) {
           return { id: selection.model, name: selection.model };
         },
       },
-      new PiModelCapabilities(await createModelRuntime()),
+      new PiModelCapabilities(),
       async (_input, init) => {
         const body = JSON.parse(String(init?.body)) as CompletionRequest;
         assert.equal(
@@ -224,7 +222,8 @@ for (const copyContext of [undefined, false, true]) {
           "Bearer owner-test-key",
         );
         assert.equal(body.model, expectedModel);
-        assert.equal(body.reasoning_effort, expectedEffort);
+        // Compatible model lists have no effort contract, so Default sends none.
+        assert.equal(body.reasoning_effort, undefined);
         assertValidHistory(body);
         const system = String(body.messages[0]!.content);
         assert.match(system, /SAVED_INSTRUCTIONS/);
@@ -313,7 +312,7 @@ for (const copyContext of [undefined, false, true]) {
       inference: {
         provider: "openai-compatible",
         model: "o3-mini",
-        effort: "high",
+        effort: "off",
       },
     };
     const session = await factory.create(definition, async (text) => {
@@ -376,14 +375,12 @@ for (const copyContext of [undefined, false, true]) {
     await session.abort();
     await session.dispose();
     expectedModel = "o4-mini";
-    expectedEffort = "low";
     const reopened = await factory.create(
       {
         ...definition,
         inference: {
           ...definition.inference!,
           model: expectedModel,
-          effort: "low",
         },
       },
       async (text) => {

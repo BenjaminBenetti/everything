@@ -20,16 +20,23 @@ export const inferenceSpeeds = ["standard", "fast", "ultrafast"] as const;
 export type InferenceSpeed = (typeof inferenceSpeeds)[number];
 
 /**
- * Where a model's effort levels come from: the provider's own model list, the runtime's bundled
- * model catalog, or neither, in which case only the provider's default effort is offered.
+ * Where a model's effort levels come from: the provider's own model list, or neither, in which case
+ * only the provider's default effort is offered. `catalog` is no longer produced; it remains so
+ * responses from earlier versions stay readable.
  */
 export const effortSources = ["provider", "catalog", "unknown"] as const;
 export type EffortSource = (typeof effortSources)[number];
 
-/** Provenance of the context budget actually used by the runtime. */
+/**
+ * Provenance of the context budget actually used by the runtime: the provider's model list, or a
+ * planning fallback that is not a provider limit. `catalog` is no longer produced.
+ */
 export type ContextSource = "provider" | "catalog" | "fallback";
 
-/** Provenance of image support; unknown never grants permission to send pixels. */
+/**
+ * Provenance of image support; unknown never grants permission to send pixels. Only `provider` and
+ * `unknown` are produced; `documentation` and `catalog` remain readable from earlier versions.
+ */
 export type ImageSource = "provider" | "documentation" | "catalog" | "unknown";
 
 /** Small, credential-free snapshot of one backend resolution, also used for compaction. */
@@ -61,8 +68,8 @@ export interface ProviderModel {
   /** Where `efforts` was learned, so a model without known effort levels can say so. */
   readonly effortSource: EffortSource;
   /**
-   * Always includes standard. Includes fast where the account's model list or the provider's
-   * documentation confirms it for this model, and ultrafast only where the account's model list does.
+   * Always includes standard. Includes fast and ultrafast only where the account's model list
+   * offers them for this model.
    */
   readonly speeds: readonly InferenceSpeed[];
 }

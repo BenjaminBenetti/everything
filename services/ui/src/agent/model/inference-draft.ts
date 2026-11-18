@@ -110,6 +110,19 @@ export function speedControl(
   };
 }
 
+/**
+ * A saved effort the model no longer offers, kept in the draft and shown so the owner can choose
+ * another before saving, rather than being replaced by a different level.
+ */
+export function unsupportedDraftEffort(
+  draft: InferenceDraft,
+  model: ProviderModel | undefined,
+): InferenceEffort | undefined {
+  return model && draft.effort && !model.efforts.includes(draft.effort)
+    ? draft.effort
+    : undefined;
+}
+
 /** Whether the draft uses only an effort and speed the model supports. */
 export function isSupportedDraft(
   draft: InferenceDraft,

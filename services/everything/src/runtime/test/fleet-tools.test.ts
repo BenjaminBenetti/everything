@@ -15,7 +15,6 @@ import { FileSystemWorkspaces } from "../../workspace/service/file-system-worksp
 import { PiInferenceRuntimeFactory } from "../adapter/pi-inference-runtime.js";
 import { PiModelCapabilities } from "../adapter/pi-model-capabilities.js";
 import { PiSessionFactory } from "../adapter/pi-session-factory.js";
-import { createModelRuntime } from "../factory/model-runtime.js";
 import { fleetToolName, toolSearchToolName } from "../tool/fleet-tools.js";
 import { startFakeFleetMcp } from "./fleet-mcp-fixtures.js";
 import type { WorkspaceActivityRecorder } from "../../workspace/interface/workspace-activity.js";
@@ -112,7 +111,7 @@ async function fixture(
         return { id: selection.model, name: selection.model };
       },
     },
-    new PiModelCapabilities(await createModelRuntime()),
+    new PiModelCapabilities(),
     async (_input, init) => {
       const body = JSON.parse(String(init?.body)) as CompletionRequest;
       requests.push(body);

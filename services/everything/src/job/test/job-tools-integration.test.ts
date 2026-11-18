@@ -14,7 +14,6 @@ import { ConversationService } from "../../conversation/service/conversation-ser
 import { PiInferenceRuntimeFactory } from "../../runtime/adapter/pi-inference-runtime.js";
 import { PiModelCapabilities } from "../../runtime/adapter/pi-model-capabilities.js";
 import { PiSessionFactory } from "../../runtime/adapter/pi-session-factory.js";
-import { createModelRuntime } from "../../runtime/factory/model-runtime.js";
 import { FileSystemWorkspaces } from "../../workspace/service/file-system-workspaces.js";
 import { JobRuns } from "../service/job-runs.js";
 import { JobService } from "../service/job-service.js";
@@ -182,7 +181,7 @@ test("a fake model configures jobs through main's registered job tools, scoped t
       }),
     },
     { select: async () => ({ id: "o3-mini", name: "Test" }) },
-    new PiModelCapabilities(await createModelRuntime()),
+    new PiModelCapabilities(),
     async (_input, init) => {
       const body = JSON.parse(String(init?.body)) as {
         messages: { role: string; content?: unknown }[];

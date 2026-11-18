@@ -3,7 +3,6 @@ import { test } from "node:test";
 import { context, SpanStatusCode } from "@opentelemetry/api";
 import { PiInferenceRuntimeFactory } from "../../runtime/adapter/pi-inference-runtime.js";
 import { PiModelCapabilities } from "../../runtime/adapter/pi-model-capabilities.js";
-import { createModelRuntime } from "../../runtime/factory/model-runtime.js";
 import {
   telemetryAttributes as attribute,
   telemetryEvents,
@@ -157,7 +156,7 @@ test("retries within one model request are numbered attempts that keep the last 
         return { id: selection.model, name: selection.model };
       },
     },
-    new PiModelCapabilities(await createModelRuntime()),
+    new PiModelCapabilities(),
     async () =>
       failure(
         503,
@@ -224,7 +223,7 @@ async function retriedRequest(
         return { id: selection.model, name: selection.model };
       },
     },
-    new PiModelCapabilities(await createModelRuntime()),
+    new PiModelCapabilities(),
     async () => attempts[calls++]!(),
   );
   const { models, model } = await factory.create("owner-a", {

@@ -82,19 +82,13 @@ function refusedSpeed(
 }
 
 /**
- * Anthropic Messages requests Fast with `speed`, adding a model's beta to the betas Pi already sends.
- * Its only paid speed is Fast, so Ultrafast is never offered on it. Message usage reports the speed
- * used; streamed messages report it when they start.
+ * Anthropic Messages requests Fast with `speed`. Its only paid speed is Fast, so Ultrafast is never
+ * requested on it. Claude's model list reports no speeds, so no Claude model offers Fast today; the
+ * speed each reply was served at is still recorded. Message usage reports the speed used; streamed
+ * messages report it when they start.
  */
 const messagesSpeed: SpeedProtocol = {
-  request(payload, { beta }) {
-    const betas = Array.isArray(payload.betas) ? payload.betas : [];
-    return {
-      ...payload,
-      speed: "fast",
-      ...(beta ? { betas: [...new Set([...betas, beta])] } : {}),
-    };
-  },
+  request: (payload) => ({ ...payload, speed: "fast" }),
   reported(event) {
     const type = field(event, "type");
     const speed =

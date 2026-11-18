@@ -22,7 +22,6 @@ import { stoppedFleet } from "./fleet-mcp-fixtures.js";
 import type { InferenceRuntimeFactory } from "../interface/inference-runtime.js";
 import { PiInferenceRuntimeFactory } from "../adapter/pi-inference-runtime.js";
 import { PiModelCapabilities } from "../adapter/pi-model-capabilities.js";
-import { createModelRuntime } from "../factory/model-runtime.js";
 import { ProviderInactiveError } from "../../provider/error/provider-errors.js";
 import { mainAgentPrompt } from "../prompt/main-agent-prompt.js";
 import type { WorkspaceTools } from "../../workspace/interface/workspace-tools.js";
@@ -136,7 +135,7 @@ test("Pi sends only the teammate's initial context, applies saved inference, and
         return { id: selection.model, name: selection.model };
       },
     },
-    new PiModelCapabilities(await createModelRuntime()),
+    new PiModelCapabilities(),
     async (input, init) => {
       assert.equal(String(input), "http://models.test/v1/chat/completions");
       assert.equal(init?.redirect, "error");
@@ -163,17 +162,19 @@ test("Pi sends only the teammate's initial context, applies saved inference, and
     inference: {
       provider: "openai-compatible",
       model: "o3-mini",
-      effort: "high",
+      effort: "off",
     },
   };
   const session = await factory.create(definition, async () => {});
   context.after(() => session.dispose());
   assert.equal(session.modelInfo?.provider, "openai-compatible");
   assert.equal(session.modelInfo?.model, "o3-mini");
-  assert.equal(session.modelInfo?.contextSource, "catalog");
+  // The stubbed model list reports no limits, and no catalog stands in for them.
+  assert.equal(session.modelInfo?.contextSource, "fallback");
   await session.prompt("First message");
   assert.equal(requests[0]?.body.model, "o3-mini");
-  assert.equal(requests[0]?.body.reasoning_effort, "high");
+  // Compatible model lists have no effort contract, so Default sends none.
+  assert.equal(requests[0]?.body.reasoning_effort, undefined);
   assert.equal(requests[0]?.authorization, "Bearer first-owner-key");
   const tools = requests[0]!.body.tools as {
     function: { name: string; description: string };
@@ -225,14 +226,14 @@ test("Pi sends only the teammate's initial context, applies saved inference, and
       name: "Updated teammate",
       systemPrompt:
         "UPDATED_TEAMMATE_INSTRUCTIONS: Keep gardening advice brief.",
-      inference: { ...definition.inference!, model: "o4-mini", effort: "low" },
+      inference: { ...definition.inference!, model: "o4-mini" },
     },
     async () => {},
   );
   context.after(() => edited.dispose());
   assert.equal(edited.id, session.id);
   await edited.prompt("After editing");
-  assert.equal(requests[2]?.body.reasoning_effort, "low");
+  assert.equal(requests[2]?.body.reasoning_effort, undefined);
   assert.equal(requests[2]?.body.model, "o4-mini");
   assert.ok(
     JSON.stringify(requests[2]?.body.messages).includes("First message"),
@@ -282,12 +283,17 @@ test("a teammate's Fast selection reaches its sessions through the one runtime i
       },
     },
     {
-      /** Selection policy is covered separately. */
+      /** Selection policy is covered separately; this account's list offers high effort and Fast. */
       async select(_ownerId, selection) {
-        return { id: selection.model, name: selection.model };
+        return {
+          id: selection.model,
+          name: selection.model,
+          reasoning: { levels: { high: "high" } },
+          speeds: { offered: ["fast"], complete: true },
+        };
       },
     },
-    new PiModelCapabilities(await createModelRuntime()),
+    new PiModelCapabilities(),
     async (input, init) => {
       assert.equal(String(input), "https://api.openai.com/v1/responses");
       bodies.push(JSON.parse(String(init?.body)));

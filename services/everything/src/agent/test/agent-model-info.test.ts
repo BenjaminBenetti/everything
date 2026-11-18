@@ -3,9 +3,13 @@ import { test } from "node:test";
 import { AgentModelInfoService } from "../service/agent-model-info-service.js";
 import { agentModelInfoController } from "../controller/agent-model-info-controller.js";
 import { PiModelCapabilities } from "../../runtime/adapter/pi-model-capabilities.js";
-import { createModelRuntime } from "../../runtime/factory/model-runtime.js";
 import { authenticatedTestServer } from "../../http/test/test-server.js";
-import { ProviderModelsError } from "../../provider/error/provider-errors.js";
+import {
+  FastModeUnsupportedError,
+  InferenceSelectionError,
+  ProviderModelsError,
+  UltrafastModeUnsupportedError,
+} from "../../provider/error/provider-errors.js";
 import {
   agents,
   agentId,
@@ -15,7 +19,7 @@ import type { AgentDefinition } from "../model/agent.js";
 import type { DiscoveredModel } from "../../provider/interface/provider-models.js";
 
 test("model-info is owner-scoped, sanitized, and keeps selected and applied resolutions independent", async (context) => {
-  const resolution = new PiModelCapabilities(await createModelRuntime());
+  const resolution = new PiModelCapabilities();
   let inference: AgentDefinition["inference"] = {
     provider: "chatgpt",
     model: "gpt-6.1-terra",
@@ -23,7 +27,7 @@ test("model-info is owner-scoped, sanitized, and keeps selected and applied reso
   };
   let selected: DiscoveredModel = { id: "gpt-6.1-terra", name: "Terra" };
   const applied = resolution.effective("chatgpt", selected);
-  let failure = false;
+  let failure: Error | undefined;
   let calls = 0;
   const service = new AgentModelInfoService(
     {
@@ -36,7 +40,7 @@ test("model-info is owner-scoped, sanitized, and keeps selected and applied reso
         assert.equal(owner, "owner");
         assert.deepEqual(selection, inference);
         calls++;
-        if (failure) throw new ProviderModelsError();
+        if (failure) throw failure;
         return selected;
       },
     },
@@ -84,12 +88,31 @@ test("model-info is owner-scoped, sanitized, and keeps selected and applied reso
     applied,
     "reading current discovery never changes pinned runtime state",
   );
-  failure = true;
-  assert.deepEqual(await service.read("owner", agentId), {
+  // A model list that can't be loaded says nothing about the saved model.
+  failure = new ProviderModelsError();
+  const unreachable = await app.inject(`/agents/${agentId}/model-info`);
+  assert.deepEqual(unreachable.json(), {
     selected: null,
     applied,
     selectionError: true,
+    selectionIssue: "provider",
   });
+  // A model, effort, or speed the list no longer offers needs the owner's choice, and stays saved.
+  for (const refusal of [
+    new InferenceSelectionError(),
+    new FastModeUnsupportedError(),
+    new UltrafastModeUnsupportedError(),
+  ]) {
+    failure = refusal;
+    const saved: AgentDefinition["inference"] = structuredClone(inference);
+    assert.deepEqual(await service.read("owner", agentId), {
+      selected: null,
+      applied,
+      selectionError: true,
+      selectionIssue: "settings",
+    });
+    assert.deepEqual(inference, saved);
+  }
   inference = null;
   assert.deepEqual(await service.read("owner", agentId), {
     selected: null,
@@ -99,7 +122,12 @@ test("model-info is owner-scoped, sanitized, and keeps selected and applied reso
 });
 
 test("model-info for an unloaded teammate resolves budgets without starting a runtime", async () => {
-  const resolution = new PiModelCapabilities(await createModelRuntime());
+  const resolution = new PiModelCapabilities();
+  let selected: DiscoveredModel = {
+    id: "gpt-4",
+    name: "GPT-4",
+    contextWindow: 8192,
+  };
   const service = new AgentModelInfoService(
     {
       async get(owner, id) {
@@ -111,7 +139,7 @@ test("model-info for an unloaded teammate resolves budgets without starting a ru
     },
     {
       async select() {
-        return { id: "gpt-4", name: "GPT-4" };
+        return selected;
       },
     },
     resolution,
@@ -124,5 +152,10 @@ test("model-info for an unloaded teammate resolves budgets without starting a ru
   const info = await service.read("owner", agentId);
   assert.equal(info.applied, null);
   assert.equal(info.selected?.contextWindow, 8192);
-  assert.equal(info.selected?.contextSource, "catalog");
+  assert.equal(info.selected?.contextSource, "provider");
+  // Without a reported context, a well-known ID still gets only the planning fallback.
+  selected = { id: "gpt-4", name: "GPT-4" };
+  const unreported = await service.read("owner", agentId);
+  assert.equal(unreported.selected?.contextWindow, 200000);
+  assert.equal(unreported.selected?.contextSource, "fallback");
 });

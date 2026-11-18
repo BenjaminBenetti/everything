@@ -14,7 +14,6 @@ import { ConversationService } from "../../conversation/service/conversation-ser
 import { PiInferenceRuntimeFactory } from "../../runtime/adapter/pi-inference-runtime.js";
 import { PiModelCapabilities } from "../../runtime/adapter/pi-model-capabilities.js";
 import { PiSessionFactory } from "../../runtime/adapter/pi-session-factory.js";
-import { createModelRuntime } from "../../runtime/factory/model-runtime.js";
 import { PiSubagentArchives } from "../../subagent/adapter/pi-subagent-archives.js";
 import { SubagentService } from "../../subagent/service/subagent-service.js";
 import { HttpWorkspaceMonitors } from "../../workspace/adapter/http-workspace-monitors.js";
@@ -89,7 +88,7 @@ test("a teammate's monitor tool returns within the turn and its completion wakes
       }),
     },
     { select: async () => ({ id: "o3-mini", name: "Test" }) },
-    new PiModelCapabilities(await createModelRuntime()),
+    new PiModelCapabilities(),
     async (_input, init) => {
       const body = JSON.parse(String(init?.body)) as {
         messages: { role: string; content?: unknown }[];

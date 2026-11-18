@@ -6,7 +6,6 @@ import { HttpModelDiscovery } from "../../provider/adapter/http-model-discovery.
 import { ProviderModelService } from "../../provider/service/provider-models.js";
 import { PiInferenceRuntimeFactory } from "../../runtime/adapter/pi-inference-runtime.js";
 import { PiModelCapabilities } from "../../runtime/adapter/pi-model-capabilities.js";
-import { createModelRuntime } from "../../runtime/factory/model-runtime.js";
 import { agentController } from "../controller/agent-controller.js";
 import { agentEditingController } from "../controller/agent-editing-controller.js";
 import type { AgentProfileStore } from "../interface/agent-profile-store.js";
@@ -95,7 +94,7 @@ test("a saved Default effort that a model's new effort list excludes is refused 
       };
     },
   };
-  const capabilities = new PiModelCapabilities(await createModelRuntime());
+  const capabilities = new PiModelCapabilities();
   const models = new ProviderModelService(
     access,
     new HttpModelDiscovery(fetcher),

@@ -21,8 +21,10 @@ import { chatGptSpeeds } from "./advertised-speeds.js";
 import { providerFetch } from "./provider-fetch.js";
 import {
   anthropicImageInput,
+  chatGptImageInput,
   compatibleImageInput,
 } from "./advertised-image-input.js";
+import { compatibleTextOutput } from "./advertised-text-output.js";
 import { modelTokenLimit } from "../model/model-token-limit.js";
 
 /** Discover account-specific catalogs through each configured provider's own endpoint. */
@@ -38,7 +40,7 @@ export class HttpModelDiscovery implements ProviderModelDiscovery {
   // Discovery
   // ===========================================
 
-  /** Preserve provider ordering and omit invalid or non-text model identities. */
+  /** Keep provider order, dropping invalid IDs and models the provider says write no text. */
   async discover(
     provider: ProviderId,
     connection: VerificationInput,
@@ -75,14 +77,16 @@ export class HttpModelDiscovery implements ProviderModelDiscovery {
     for await (const model of client.models.list({ limit: 100 })) {
       const reasoning = anthropicReasoning(model.capabilities);
       const imageInput = anthropicImageInput(model.capabilities);
-      // The first-party Models API's max_input_tokens bounds our context planning budget.
-      // Keep response allowance policy separate; do not import max_tokens as a new override.
+      // The Models API reports the input a model accepts and the most `max_tokens` it allows:
+      // https://platform.claude.com/docs/en/api/models/list
       const contextWindow = modelTokenLimit(model.max_input_tokens);
+      const maxOutputTokens = modelTokenLimit(model.max_tokens);
       models.push({
         id: model.id,
         name: model.display_name,
         ...(imageInput !== undefined ? { imageInput } : {}),
         ...(contextWindow !== undefined ? { contextWindow } : {}),
+        ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
         ...(reasoning ? { reasoning } : {}),
       });
     }
@@ -121,25 +125,25 @@ export class HttpModelDiscovery implements ProviderModelDiscovery {
         .map((item) => {
           const reasoning = chatGptReasoning(item);
           const speeds = chatGptSpeeds(item);
+          const imageInput = chatGptImageInput(item);
           return {
             id: item.slug,
             name: item.display_name || item.slug,
             // SIWC documents identity fields, not guaranteed limits. Preserve optional limits
             // only when the response supplies fields understood and validated by our parser.
             ...advertisedLimits(item),
+            ...(imageInput !== undefined ? { imageInput } : {}),
             ...(reasoning ? { reasoning } : {}),
             ...(speeds ? { speeds } : {}),
           };
         });
     }
     const result = (await response.json()) as { data: { id: string }[] };
+    // A model the server doesn't describe stays listed: its name says nothing about what it does.
     const models: DiscoveredModel[] = result.data
       .filter(
         (item) =>
-          typeof item.id === "string" &&
-          !/embed|rerank|moderation|whisper|tts|image|dall-e|audio/i.test(
-            item.id,
-          ),
+          typeof item.id === "string" && compatibleTextOutput(item) !== false,
       )
       .map((item) => {
         const imageInput = compatibleImageInput(item);

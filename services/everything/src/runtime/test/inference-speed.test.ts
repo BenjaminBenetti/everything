@@ -6,7 +6,6 @@ import type { InferenceSelection } from "@everything/provider-contracts/inferenc
 import type { AdvertisedSpeeds } from "../../provider/interface/provider-models.js";
 import { PiInferenceRuntimeFactory } from "../adapter/pi-inference-runtime.js";
 import { PiModelCapabilities } from "../adapter/pi-model-capabilities.js";
-import { createModelRuntime } from "../factory/model-runtime.js";
 import { speedReport } from "../model/speed-report.js";
 
 /** One outgoing provider request as the transport sent it. */
@@ -89,9 +88,13 @@ const allSpeeds: AdvertisedSpeeds = {
   complete: true,
 };
 
+/** Fast as the only paid speed, as a ChatGPT account's model list offers it. */
+const fastOnly: AdvertisedSpeeds = { offered: ["fast"], complete: true };
+
 /**
  * A runtime for one owner's selection whose provider answers through `respond`, recording
- * requests. The selected model is discovered with `listed` as its account's speed metadata.
+ * requests. The selected model is discovered with high effort and `listed` as its account's speed
+ * metadata.
  */
 async function runtime(
   selection: InferenceSelection,
@@ -122,11 +125,12 @@ async function runtime(
         return {
           id: choice.model,
           name: choice.model,
+          reasoning: { levels: { high: "high" } },
           ...(listed ? { speeds: listed } : {}),
         };
       },
     },
-    new PiModelCapabilities(await createModelRuntime()),
+    new PiModelCapabilities(),
     async (input, init) => {
       const request = {
         url: String(input),
@@ -181,8 +185,10 @@ test("ChatGPT Fast adds the priority service tier to the sent Responses body, ke
     { ...base, speed: "standard" },
     { ...base, speed: "fast" },
   ] satisfies InferenceSelection[]) {
-    const { sent, complete } = await runtime(selection, () =>
-      responses("default"),
+    const { sent, complete } = await runtime(
+      selection,
+      () => responses("default"),
+      fastOnly,
     );
     await complete();
     assert.equal(sent.length, 1);
@@ -220,7 +226,7 @@ test("ChatGPT effective speed comes only from the terminal response, keeping the
     ["flex", "unknown"],
     [undefined, "unknown"],
   ] as const) {
-    const { complete } = await runtime(fast, () => responses(tier));
+    const { complete } = await runtime(fast, () => responses(tier), fastOnly);
     const message = await complete();
     assert.equal(message.stopReason, "stop");
     assert.deepEqual(speedReport(message), {
@@ -230,8 +236,10 @@ test("ChatGPT effective speed comes only from the terminal response, keeping the
     });
   }
   // The created event only echoes the request; it is not the tier that served the response.
-  const { complete } = await runtime(fast, () =>
-    responses(undefined, { service_tier: "priority" }),
+  const { complete } = await runtime(
+    fast,
+    () => responses(undefined, { service_tier: "priority" }),
+    fastOnly,
   );
   assert.deepEqual(speedReport(await complete()), {
     requested: "fast",
@@ -249,6 +257,7 @@ test("each request on a shared runtime asks for Fast and keeps its own reported 
       speed: "fast",
     },
     () => responses(tiers.shift()),
+    fastOnly,
   );
   const [first, second] = [await complete(), await complete()];
   assert.deepEqual(
@@ -284,6 +293,7 @@ test("ChatGPT Fast keeps the caller's asynchronous payload hook result and strea
       speed: "fast",
     },
     () => responses("priority"),
+    fastOnly,
   );
   const message = await complete({
     async onPayload(payload) {
@@ -337,7 +347,7 @@ test("ChatGPT plan refusals of the service tier are recorded before or after the
       undefined,
     ],
   ] as const) {
-    const { sent, complete } = await runtime(fast, respond);
+    const { sent, complete } = await runtime(fast, respond, fastOnly);
     const message = await complete();
     assert.equal(message.stopReason, "error");
     assert.equal(sent.length, 1);
@@ -395,7 +405,7 @@ test("ChatGPT failures unrelated to the service tier keep their ordinary handlin
         },
       ]),
   ]) {
-    const { sent, complete } = await runtime(fast, respond);
+    const { sent, complete } = await runtime(fast, respond, fastOnly);
     const message = await complete();
     assert.equal(message.stopReason, "error");
     assert.equal(sent.length, 1);
@@ -482,7 +492,7 @@ test("an Ultrafast response reports the tier that served it, without calling ano
   });
 });
 
-test("Fast follows the account's list for a model no documentation names, and a speed the model doesn't offer is never sent as another", async () => {
+test("paid speeds follow only the account's list, whatever the model's name, and a speed the model doesn't offer is never sent as another", async () => {
   const listedFast = await runtime(
     {
       provider: "chatgpt",
@@ -495,19 +505,42 @@ test("Fast follows the account's list for a model no documentation names, and a 
   );
   await listedFast.complete();
   assert.equal(listedFast.sent[0]!.body.service_tier, "priority");
+  // The deprecated list can offer Fast, never Ultrafast.
+  const legacyFast = await runtime(
+    {
+      provider: "chatgpt",
+      model: "gpt-6.1-sol",
+      effort: "high",
+      speed: "fast",
+    },
+    () => responses("priority"),
+    { offered: ["fast"], complete: false },
+  );
+  await legacyFast.complete();
+  assert.equal(legacyFast.sent[0]!.body.service_tier, "priority");
   for (const [selection, listed, code] of [
-    // Documentation names Fast for this model, but never Ultrafast.
+    // A model whose list reports no speeds offers neither, even one formerly documented as Fast.
+    [
+      { speed: "fast", model: "gpt-6.1-sol" },
+      undefined,
+      "FAST_MODE_UNSUPPORTED",
+    ],
     [
       { speed: "ultrafast", model: "gpt-6.1-sol" },
       undefined,
       "ULTRAFAST_MODE_UNSUPPORTED",
     ],
     [
-      { speed: "ultrafast", model: "gpt-6.2-sol" },
-      { offered: ["fast"], complete: true },
+      { speed: "ultrafast", model: "gpt-6.1-sol" },
+      { offered: ["fast", "ultrafast"], complete: false },
       "ULTRAFAST_MODE_UNSUPPORTED",
     ],
-    // An explicit list without Fast wins over the documentation that names it.
+    [
+      { speed: "ultrafast", model: "gpt-6.2-sol" },
+      fastOnly,
+      "ULTRAFAST_MODE_UNSUPPORTED",
+    ],
+    // A complete list without Fast offers no Fast.
     [
       { speed: "fast", model: "gpt-6.2-sol" },
       { offered: ["ultrafast"], complete: true },
@@ -565,144 +598,100 @@ test("ChatGPT plan refusals of Ultrafast are recorded as Ultrafast's, before or 
 // Anthropic Messages
 // ===========================================
 
-test("Claude Opus 5.5 Fast sends speed without the preview beta, keeping Pi's betas, model, effort, and key", async () => {
-  const base = {
-    provider: "anthropic",
-    model: "claude-opus-5-5",
-    effort: "high",
-  } as const;
-  const requests: SentRequest[] = [];
-  for (const selection of [
-    base,
-    { ...base, speed: "fast" },
-  ] satisfies InferenceSelection[]) {
-    const { sent, complete } = await runtime(selection, () =>
-      messages("claude-opus-5-5", "fast"),
+test("Claude Fast is refused before any request, for every model name, because Claude's model list reports no speeds", async () => {
+  for (const model of [
+    "claude-opus-5-5",
+    "claude-opus-5",
+    "claude-opus-4-8",
+    "claude-next",
+  ]) {
+    const base = { provider: "anthropic", model, effort: "high" } as const;
+    // Even a selection carrying speed metadata isn't Claude's list reporting a speed.
+    for (const listed of [undefined, allSpeeds])
+      await assert.rejects(
+        runtime(
+          { ...base, speed: "fast" },
+          () => assert.fail("no request is sent"),
+          listed,
+        ),
+        { code: "FAST_MODE_UNSUPPORTED" },
+        model,
+      );
+    const { sent, complete } = await runtime(base, () =>
+      messages(model, "standard"),
     );
     await complete();
     assert.equal(sent.length, 1);
-    requests.push(sent[0]!);
-  }
-  const [standard, fast] = requests;
-  for (const request of requests) {
-    assert.equal(new URL(request.url).pathname, "/v1/messages");
-    assert.equal(request.headers.get("x-api-key"), "claude-key");
-    assert.equal(request.body.model, "claude-opus-5-5");
-  }
-  assert.ok(!("speed" in standard!.body));
-  assert.equal(fast!.body.speed, "fast");
-  assert.deepEqual(withoutSpeed(fast!.body), standard!.body);
-  assert.ok(betas(standard!.headers).length > 0);
-  assert.deepEqual(betas(fast!.headers), betas(standard!.headers));
-  assert.ok(!betas(fast!.headers).includes("fast-mode-2026-02-01"));
-});
-
-test("Claude research-preview Fast models add the fast-mode beta to the betas Pi already sends", async () => {
-  for (const model of ["claude-opus-5", "claude-opus-4-8"]) {
-    const base = { provider: "anthropic", model, effort: "high" } as const;
-    const [standard, fast] = await Promise.all(
-      ([base, { ...base, speed: "fast" }] satisfies InferenceSelection[]).map(
-        async (selection) => {
-          const { sent, complete } = await runtime(selection, () =>
-            messages(model, "fast"),
-          );
-          await complete();
-          return sent[0]!;
-        },
-      ),
-    );
-    assert.equal(fast!.body.speed, "fast");
-    assert.deepEqual(withoutSpeed(fast!.body), withoutSpeed(standard!.body));
-    assert.deepEqual(
-      betas(fast!.headers),
-      [...betas(standard!.headers), "fast-mode-2026-02-01"].sort(),
-    );
+    assert.equal(new URL(sent[0]!.url).pathname, "/v1/messages");
+    assert.equal(sent[0]!.headers.get("x-api-key"), "claude-key");
+    assert.equal(sent[0]!.body.model, model);
+    assert.ok(!("speed" in sent[0]!.body), model);
+    assert.ok(!betas(sent[0]!.headers).includes("fast-mode-2026-02-01"));
   }
 });
 
-test("Claude effective speed comes from message usage, including downgrades and requests without Fast", async () => {
+test("Claude effective speed comes from message usage on standard requests", async () => {
   const base = {
     provider: "anthropic",
     model: "claude-opus-5-5",
     effort: "high",
   } as const;
-  for (const [selection, speed, report] of [
+  for (const [speed, report] of [
     [
-      { ...base, speed: "fast" },
-      "fast",
-      { requested: "fast", effective: "fast", reportedTier: "fast" },
-    ],
-    [
-      { ...base, speed: "fast" },
-      "standard",
-      { requested: "fast", effective: "standard", reportedTier: "standard" },
-    ],
-    [
-      { ...base, speed: "fast" },
-      undefined,
-      { requested: "fast", effective: "unknown" },
-    ],
-    [
-      base,
       "fast",
       { requested: "standard", effective: "fast", reportedTier: "fast" },
     ],
+    [
+      "standard",
+      {
+        requested: "standard",
+        effective: "standard",
+        reportedTier: "standard",
+      },
+    ],
+    [undefined, { requested: "standard", effective: "unknown" }],
   ] as const) {
-    const { complete } = await runtime(selection, () =>
+    const { complete } = await runtime(base, () =>
       messages("claude-opus-5-5", speed),
     );
     assert.deepEqual(speedReport(await complete()), report);
   }
 });
 
-test("Claude refusals that name Fast mode are recorded once; other Claude errors keep their ordinary handling", async () => {
-  const fast = {
+test("Claude errors on standard requests keep their ordinary handling, even ones naming Fast mode", async () => {
+  const standard = {
     provider: "anthropic",
     model: "claude-opus-5-5",
     effort: "high",
-    speed: "fast",
   } as const;
   /** An Anthropic error response. */
   const failure = (status: number, type: string, message: string) => () =>
     Response.json({ type: "error", error: { type, message } }, { status });
-  for (const [respond, expected] of [
-    [
-      failure(
-        400,
-        "invalid_request_error",
-        "speed: fast mode is not available for this organization",
-      ),
-      "rejected",
-    ],
-    [
-      failure(
-        429,
-        "rate_limit_error",
-        "Fast mode output tokens per minute limit exceeded",
-      ),
-      "limited",
-    ],
-    [
-      failure(
-        429,
-        "rate_limit_error",
-        "Number of request tokens has exceeded your per-minute rate limit",
-      ),
-      undefined,
-    ],
-    [
-      failure(400, "invalid_request_error", "max_tokens: must be at least 1"),
-      undefined,
-    ],
-  ] as const) {
-    const { sent, complete } = await runtime(fast, respond);
+  for (const respond of [
+    failure(
+      400,
+      "invalid_request_error",
+      "speed: fast mode is not available for this organization",
+    ),
+    failure(
+      429,
+      "rate_limit_error",
+      "Fast mode output tokens per minute limit exceeded",
+    ),
+    failure(
+      429,
+      "rate_limit_error",
+      "Number of request tokens has exceeded your per-minute rate limit",
+    ),
+    failure(400, "invalid_request_error", "max_tokens: must be at least 1"),
+  ]) {
+    const { sent, complete } = await runtime(standard, respond);
     const message = await complete();
     assert.equal(message.stopReason, "error");
     assert.equal(sent.length, 1);
     assert.deepEqual(speedReport(message), {
-      requested: "fast",
+      requested: "standard",
       effective: "unknown",
-      ...(expected ? { failure: expected } : {}),
     });
   }
 });
@@ -730,7 +719,7 @@ test("OpenAI-compatible servers receive no speed field and record no speed", asy
         return { id: choice.model, name: choice.model };
       },
     },
-    new PiModelCapabilities(await createModelRuntime()),
+    new PiModelCapabilities(),
     async (_input, init) => {
       sent.push(JSON.parse(String(init?.body)));
       return stream([

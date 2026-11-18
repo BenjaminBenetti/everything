@@ -88,7 +88,7 @@ test("an empty ChatGPT reasoning list reports that the model accepts no levels",
   assert.ok(Object.values(reasoning!.levels).every((value) => value === null));
 });
 
-test("Claude effort capabilities map each level, and minimal is dropped wherever low is", () => {
+test("Claude effort capabilities map each level, and never report minimal or off", () => {
   assert.deepEqual(
     anthropicReasoning(
       claude({
@@ -110,19 +110,21 @@ test("Claude effort capabilities map each level, and minimal is dropped wherever
       },
     },
   );
-  assert.equal(
-    anthropicReasoning(
+  // Neither is an Anthropic effort level, so neither is reported, whatever low's flag says.
+  for (const low of [true, false]) {
+    const { levels } = anthropicReasoning(
       claude({
         supported: true,
-        low: support(false),
+        low: support(low),
         medium: support(true),
         high: support(true),
         xhigh: support(true),
         max: support(true),
       }),
-    )!.levels.minimal,
-    null,
-  );
+    )!;
+    assert.ok(!Object.hasOwn(levels, "minimal"));
+    assert.ok(!Object.hasOwn(levels, "off"));
+  }
 });
 
 /** Complete Claude effort flags with every level supported. */
@@ -135,7 +137,7 @@ const allEfforts = {
   max: support(true),
 };
 
-test("missing or malformed Claude capabilities report nothing, so the catalog applies", () => {
+test("missing or malformed Claude capabilities report nothing, so no effort is offered", () => {
   for (const capabilities of [
     null,
     undefined,
@@ -160,7 +162,6 @@ test("missing or malformed Claude capabilities report nothing, so the catalog ap
 
 test("Claude models reporting no effort, adaptive thinking, or thinking accept none of the levels", () => {
   const none = {
-    minimal: null,
     low: null,
     medium: null,
     high: null,

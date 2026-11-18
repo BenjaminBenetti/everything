@@ -21,7 +21,6 @@ import { FileSystemWorkspaces } from "../../workspace/service/file-system-worksp
 import { PiInferenceRuntimeFactory } from "../adapter/pi-inference-runtime.js";
 import { PiModelCapabilities } from "../adapter/pi-model-capabilities.js";
 import { PiSessionFactory } from "../adapter/pi-session-factory.js";
-import { createModelRuntime } from "../factory/model-runtime.js";
 import { appTools } from "../tool/app-tools.js";
 import { testApiDocumentation } from "./api-documentation-fixtures.js";
 import { testConversationSearch } from "./conversation-search-fixtures.js";
@@ -193,7 +192,7 @@ async function teammate(
         };
       },
     },
-    new PiModelCapabilities(await createModelRuntime()),
+    new PiModelCapabilities(),
     async (_input, init) => {
       bodies.push(JSON.parse(String(init?.body)));
       return respond(bodies.length);

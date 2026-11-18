@@ -14,6 +14,11 @@ export const effortLabels: Record<InferenceEffort, string> = {
   max: "Maximum",
 };
 
+/** A saved effort the model's provider no longer lists, shown until the owner chooses another. */
+export function effortUnsupported(effort: string): string {
+  return `The provider doesn’t list the saved effort level, ${effort}, for this model. Choose one of the levels it offers to save this model.`;
+}
+
 /** Fast mode wording describes a request to the provider, never a guaranteed faster reply. */
 export const fastModeLabels = {
   switch: "Request Fast mode",
@@ -22,7 +27,7 @@ export const fastModeLabels = {
   warning:
     "Asks the provider to reply faster with the same model and effort level. It uses your plan or credits faster, or costs more, and the provider may still answer some replies at its usual speed or decline Fast mode for your account.",
   unsupported:
-    "Fast mode isn’t available for this model. Turn it off to save this model.",
+    "The provider’s model list doesn’t offer Fast mode for this model. Turn it off to save this model.",
 } as const;
 
 /** A speed beyond standard, which uses more of the plan or credits. */
