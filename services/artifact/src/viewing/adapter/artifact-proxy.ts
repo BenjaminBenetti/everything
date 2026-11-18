@@ -111,6 +111,8 @@ export class ArtifactProxy {
       rewriteHeaders: (headers) => {
         // reply-from normally copies these before onResponse; hold every header until inspected.
         responseHeaders = { ...headers };
+        // The app's framing belongs to the host's connection to it; the host frames its own response.
+        delete responseHeaders["transfer-encoding"];
         return {};
       },
       onResponse: (_request, _response, upstreamResponse) => {
@@ -124,6 +126,11 @@ export class ArtifactProxy {
         ).catch(() => this.block(reply));
       },
       onError: (failed) => {
+        // A connection can fail after the app's response began streaming; end that response.
+        if (failed.raw.headersSent) {
+          failed.raw.destroy();
+          return;
+        }
         failed
           .code(502)
           .type("text/html; charset=utf-8")
@@ -150,7 +157,7 @@ export class ArtifactProxy {
     artifact: Artifact,
     initialSecrets: readonly string[],
   ): Promise<void> {
-    // Canceling an unread undici body emits an error; observe it even before inspection starts.
+    // Canceling or losing an unread app body emits an error; observe it even before inspection starts.
     source.on("error", () => {});
     /** Cancel upstream reads as soon as the browser disconnects. */
     const cancel = (): void => {

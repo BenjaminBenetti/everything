@@ -6,9 +6,10 @@ import {
   type IncomingHttpHeaders,
   type RequestListener,
 } from "node:http";
-import { connect, type AddressInfo } from "node:net";
+import { connect, type AddressInfo, type Socket } from "node:net";
 import { Readable } from "node:stream";
 import type { TestContext } from "node:test";
+import type { FastifyReplyFromHooks } from "@fastify/reply-from";
 import type { FastifyReply } from "fastify";
 import { CookieJar } from "tough-cookie";
 import type { Artifact } from "../../artifact/model/artifact.js";
@@ -62,11 +63,33 @@ export interface Received {
   readonly headers: IncomingHttpHeaders;
 }
 
+/** A dynamic app's local server and what reached it. */
+export interface AppServer {
+  readonly port: number;
+  readonly received: Received[];
+  /** Every connection the server accepted, in order. */
+  readonly connections: Socket[];
+}
+
+/** How the stack's dynamic apps answer, in place of their usual responses. */
+export interface AppResponders {
+  readonly notes?: RequestListener;
+  readonly board?: RequestListener;
+}
+
+/** One request a host forwarded to a dynamic app, with the reply-from options it was given. */
+export interface Forwarded {
+  readonly reply: FastifyReply;
+  readonly options: FastifyReplyFromHooks;
+}
+
 /** A response read whole. */
 export interface Answer {
   readonly status: number;
   readonly headers: IncomingHttpHeaders;
   readonly body: string;
+  /** The body's exact bytes. */
+  readonly bytes: Buffer;
 }
 
 /**
@@ -88,19 +111,25 @@ export type Touches = Record<
 async function appServer(
   context: TestContext,
   respond: RequestListener,
-): Promise<{ port: number; received: Received[] }> {
+): Promise<AppServer> {
   const received: Received[] = [];
+  const connections: Socket[] = [];
   const server = createServer((request, response) => {
     received.push({ path: request.url ?? "", headers: request.headers });
     respond(request, response);
   });
+  server.on("connection", (socket) => connections.push(socket));
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
   context.after(async () => {
     server.closeAllConnections();
     await new Promise<void>((resolve) => server.close(() => resolve()));
   });
-  return { port: (server.address() as AddressInfo).port, received };
+  return {
+    port: (server.address() as AddressInfo).port,
+    received,
+    connections,
+  };
 }
 
 /** Send one request exactly as given, with no client adding cookies or following redirects. */
@@ -114,13 +143,15 @@ export function send(
       const chunks: Buffer[] = [];
       response.on("data", (chunk: Buffer) => chunks.push(chunk));
       response.on("error", reject);
-      response.on("end", () =>
+      response.on("end", () => {
+        const bytes = Buffer.concat(chunks);
         resolve({
           status: response.statusCode ?? 0,
           headers: response.headers,
-          body: Buffer.concat(chunks).toString(),
-        }),
-      );
+          body: bytes.toString(),
+          bytes,
+        });
+      });
     });
     request.on("error", reject);
     request.end();
@@ -158,9 +189,12 @@ export function sendRaw(
  * app, drafts, on the artifact host; a public dynamic app, board, and a public static app, guide, on
  * the public apps host. Only the network destination of each forwarded request is substituted, from
  * the app's cluster Service to its local server. Each step a refused request must not reach counts
- * how often it ran.
+ * how often it ran. `responders` replace the dynamic apps' usual answers.
  */
-export async function hostStack(context: TestContext) {
+export async function hostStack(
+  context: TestContext,
+  responders: AppResponders = {},
+) {
   const artifacts = new MemoryArtifacts();
   const revisions = new MemoryRevisions();
   const running = { liveDeployment: 1, running: true };
@@ -190,22 +224,30 @@ export async function hostStack(context: TestContext) {
     );
   }
   // The private app keeps its users' state in its own root-path cookies, as many apps do.
-  const notesApp = await appServer(context, (_request, response) => {
-    response.setHeader("set-cookie", [
-      "notes_session=private-notes-state; Path=/; HttpOnly; SameSite=Lax",
-      "notes_draft=unsent-private-draft; Path=/",
-    ]);
-    response.end("private notes");
-  });
+  const notesApp = await appServer(
+    context,
+    responders.notes ??
+      ((_request, response) => {
+        response.setHeader("set-cookie", [
+          "notes_session=private-notes-state; Path=/; HttpOnly; SameSite=Lax",
+          "notes_draft=unsent-private-draft; Path=/",
+        ]);
+        response.end("private notes");
+      }),
+  );
   // The public app gives each visitor a session of its own.
-  const boardApp = await appServer(context, (request, response) => {
-    if (!/board_session=/.test(request.headers.cookie ?? ""))
-      response.setHeader(
-        "set-cookie",
-        "board_session=public-visitor-1; Path=/; HttpOnly",
-      );
-    response.end("public board");
-  });
+  const boardApp = await appServer(
+    context,
+    responders.board ??
+      ((request, response) => {
+        if (!/board_session=/.test(request.headers.cookie ?? ""))
+          response.setHeader(
+            "set-cookie",
+            "board_session=public-visitor-1; Path=/; HttpOnly",
+          );
+        response.end("public board");
+      }),
+  );
   const servers = new Map([
     [notes.id, notesApp.port],
     [board.id, boardApp.port],
@@ -227,6 +269,7 @@ export async function hostStack(context: TestContext) {
     { read: async () => [] },
     new AppResponseGuard(),
   );
+  const forwarded: Forwarded[] = [];
   const proxy = {
     forward(request, reply: FastifyReply, artifact: Artifact, pathAndQuery) {
       touches.forwards++;
@@ -234,6 +277,7 @@ export async function hostStack(context: TestContext) {
       reply.from = (source, options) => {
         const url = new URL(source!);
         assert.ok(url.hostname.endsWith(".apps.svc.cluster.local"));
+        forwarded.push({ reply, options: options ?? {} });
         return from(
           `http://127.0.0.1:${servers.get(artifact.id)}${url.pathname}${url.search}`,
           options,
@@ -369,6 +413,8 @@ export async function hostStack(context: TestContext) {
     boardApp,
     ports,
     touches,
+    forwarded,
+    hosts: { artifact: host, publicApps },
   };
 }
 
