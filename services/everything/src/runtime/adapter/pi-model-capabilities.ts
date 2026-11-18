@@ -178,6 +178,13 @@ export class PiModelCapabilities
             ? "openai-responses"
             : "openai-completions",
       baseUrl,
+      // Responses treats a function tool sent without `strict` as strict when it can, requiring
+      // every optional field (https://developers.openai.com/api/docs/guides/function-calling).
+      // Pi sends an explicit `strict: false` only for models that support the field, which its
+      // catalog marks for every OpenAI model it knows; models it doesn't know get the same.
+      ...(provider === "chatgpt"
+        ? { compat: { supportsStrictMode: true, ...known?.compat } }
+        : {}),
       ...(provider === "openai-compatible"
         ? {
             compat: {
