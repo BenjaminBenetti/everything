@@ -254,6 +254,20 @@ test("uploading, publishing, checking out, and opening a static artifact", async
     release: 1,
     files: [file],
   });
+  const chosen = await app.inject({
+    url: "/internal/v1/owners/owner/artifacts/site/source?revision=1",
+    headers: bearer,
+  });
+  assert.deepEqual(chosen.json(), source.json());
+  // A checkout names at most one of a revision and a build.
+  const ambiguous = await app.inject({
+    url: "/internal/v1/owners/owner/artifacts/site/source?revision=1&build=1",
+    headers: bearer,
+  });
+  assert.deepEqual(
+    [ambiguous.statusCode, ambiguous.json().code],
+    [400, "INVALID_REQUEST"],
+  );
   const downloaded = await app.inject({
     url: `/internal/v1/content/${sha256}`,
     headers: bearer,
