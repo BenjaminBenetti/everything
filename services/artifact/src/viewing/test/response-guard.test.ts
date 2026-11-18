@@ -8,6 +8,7 @@ import Fastify from "fastify";
 import replyFrom from "@fastify/reply-from";
 import { MemoryArtifacts } from "../../artifact/test/artifact-fixture.js";
 import { ArtifactProxy } from "../adapter/artifact-proxy.js";
+import { appForwarding } from "../config/app-forwarding.js";
 import { AppResponseBlockedError } from "../error/app-response-blocked-error.js";
 import type { ArtifactResponseSecrets } from "../interface/artifact-response-secrets.js";
 import { AppResponseGuard } from "../service/app-response-guard.js";
@@ -15,7 +16,7 @@ import { SecretMatcher } from "../service/secret-matcher.js";
 
 const secret = "TestClientSecret9aBcDeF0123456789";
 
-/** Run the real reply-from transport against a local app while retaining production proxy behavior. */
+/** Run the hosts' reply-from transport against a local app while retaining production proxy behavior. */
 async function fixture(
   context: TestContext,
   listener: RequestListener,
@@ -36,7 +37,7 @@ async function fixture(
       },
     },
   });
-  await app.register(replyFrom, { disableRequestLogging: true });
+  await app.register(replyFrom, appForwarding());
   app.removeAllContentTypeParsers();
   app.addContentTypeParser("*", (_request, payload, done) =>
     done(null, payload),
@@ -259,7 +260,10 @@ test("safe API requests preserve methods, payloads, app cookies, redirects, and 
     assert.equal(response.statusCode, 201);
     assert.deepEqual(response.rawPayload, binary);
     assert.equal(response.headers.location, "/app/items/1");
-    assert.equal(response.headers["set-cookie"], "app-cookie=ok");
+    // One Set-Cookie line on the wire, whether the transport hands it over as a string or a list.
+    assert.deepEqual([response.headers["set-cookie"]].flat(), [
+      "app-cookie=ok",
+    ]);
   }
 });
 

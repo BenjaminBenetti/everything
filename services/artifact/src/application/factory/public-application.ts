@@ -2,6 +2,7 @@ import fastifyCookie from "@fastify/cookie";
 import rateLimit from "@fastify/rate-limit";
 import replyFrom from "@fastify/reply-from";
 import Fastify, { type FastifyInstance } from "fastify";
+import { appForwarding } from "../../viewing/config/app-forwarding.js";
 import {
   artifactHostController,
   type ArtifactHostDependencies,
@@ -48,7 +49,7 @@ async function hostApplication(
   await app.register(fastifyCookie);
   // Only routes that opt in are limited: signed-in viewers browse artifacts without limits.
   await app.register(rateLimit, { global: false });
-  await app.register(replyFrom, { disableRequestLogging: true });
+  await app.register(replyFrom, appForwarding());
   // Request bodies pass through unparsed to dynamic artifacts.
   app.removeAllContentTypeParsers();
   app.addContentTypeParser("*", (_request, payload, done) =>

@@ -1,14 +1,46 @@
 import type { IncomingHttpHeaders } from "node:http";
-import type { Readable } from "node:stream";
+import { Readable } from "node:stream";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { Artifact } from "../../artifact/model/artifact.js";
 import { artifactResourceName } from "../../cluster/model/cluster-names.js";
 import { servicePort } from "../../deployment/adapter/workload-manifests.js";
+import { boundAppBody } from "../config/app-forwarding.js";
 import { apiKeyHeader } from "../handler/api-key-credentials.js";
 import { viewPassBearer } from "../handler/view-pass-credentials.js";
 import { hostMessages, hostPage } from "../presenter/host-pages.js";
 import type { ArtifactResponseSecrets } from "../interface/artifact-response-secrets.js";
 import type { AppResponseGuard } from "../service/app-response-guard.js";
+
+/**
+ * Fields that describe one connection rather than the message, which RFC 9110 section 7.6.1 has an
+ * intermediary remove before forwarding, and HTTP/2's upgrade settings.
+ */
+const connectionFields = [
+  "connection",
+  "proxy-connection",
+  "keep-alive",
+  "te",
+  "transfer-encoding",
+  "upgrade",
+  "http2-settings",
+];
+
+/**
+ * Headers without the fields that belong to one connection: the standard connection-specific fields and
+ * every field a Connection header names, in any case, whether it arrived once or repeated.
+ */
+export function withoutConnectionFields(
+  headers: IncomingHttpHeaders,
+  connection: string | string[] | undefined = headers.connection,
+): IncomingHttpHeaders {
+  const names = new Set(connectionFields);
+  for (const value of [connection ?? []].flat())
+    for (const option of value.split(","))
+      names.add(option.trim().toLowerCase());
+  return Object.fromEntries(
+    Object.entries(headers).filter(([name]) => !names.has(name.toLowerCase())),
+  );
+}
 
 /** Remove the named cookies from a Cookie header, keeping the artifact's own cookies. */
 export function withoutCookies(
@@ -86,55 +118,102 @@ export class ArtifactProxy {
       return this.block(reply);
     }
     let responseHeaders: IncomingHttpHeaders = {};
+    /** The app's response body, once its response arrives. */
+    let body: Readable | undefined;
     const upstream = `http://${artifactResourceName(artifact.id)}.${this.namespace}.svc.cluster.local:${servicePort}`;
     return reply.from(`${upstream}${pathAndQuery}`, {
-      rewriteRequestHeaders: (_request, headers) => {
-        const forwarded: IncomingHttpHeaders = {
-          ...withoutHostCredentials(headers, this.privateCookies),
-          "x-forwarded-prefix": `/${artifact.slug}`,
-          "x-forwarded-host": request.headers.host ?? "",
-          "x-forwarded-proto": request.protocol,
-        };
-        if (credentials.length) {
-          forwarded["accept-encoding"] = "identity";
-          for (const name of [
-            "range",
-            "if-range",
-            "if-none-match",
-            "if-modified-since",
-          ]) {
-            delete forwarded[name];
-          }
-        }
-        return forwarded;
-      },
+      rewriteRequestHeaders: (_request, headers) =>
+        this.appRequestHeaders(request, headers, artifact, credentials),
       rewriteHeaders: (headers) => {
-        // reply-from normally copies these before onResponse; hold every header until inspected.
-        responseHeaders = { ...headers };
+        // reply-from normally copies these before onResponse; hold every header until inspected. The
+        // app's connection fields, and any it names, end at the host, which frames its own response.
+        responseHeaders = withoutConnectionFields(headers);
         return {};
       },
       onResponse: (_request, _response, upstreamResponse) => {
+        body = upstreamResponse.stream;
+        boundAppBody(body);
         void this.respond(
           request,
           reply,
-          upstreamResponse.stream,
+          body,
           responseHeaders,
           artifact,
           credentials,
         ).catch(() => this.block(reply));
       },
-      onError: (failed) => {
-        failed
-          .code(502)
-          .type("text/html; charset=utf-8")
-          .send(
-            hostPage(
-              hostMessages.unreachable.title,
-              hostMessages.unreachable.message,
-            ),
-          );
+      // reply-from reports failures for the reply that called it.
+      onError: (_reply, { error }) => {
+        // Reported after the viewer's response finished or the viewer left: nothing is left to answer.
+        if (reply.sent || reply.raw.destroyed) return;
+        if (body) {
+          // The app's response arrived, so respond() or Fastify relays it and answers the viewer. Stop
+          // its body, so a cut-off one never ends as if whole, and end a response already under way.
+          body.destroy(error);
+          if (reply.raw.headersSent) reply.raw.destroy();
+          return;
+        }
+        this.unreachable(reply);
+      },
+      // reply-from retries a GET its app answers with 503 and leaves that response unread, which would
+      // keep its connection until the idle bound and then report a late failure for this reply.
+      retryDelay: ({ req, res, err, attempt, getDefaultDelay }) => {
+        const delay = getDefaultDelay(req, res, err, attempt);
+        // reply-from types the transport's response as a reply.
+        const retried = res as unknown as { stream: Readable } | undefined;
+        if (delay && !reply.sent) retried?.stream.destroy();
+        return delay;
       },
     });
+  }
+
+  // ===========================================
+  // Request headers
+  // ===========================================
+
+  /**
+   * The app's request headers: the viewer's end-to-end fields without the host's credentials, the
+   * host's forwarding fields, and framing for the body the host forwards. A field the viewer names in
+   * Connection never removes one the host sets.
+   */
+  private appRequestHeaders(
+    request: FastifyRequest,
+    headers: IncomingHttpHeaders,
+    artifact: Artifact,
+    credentials: readonly string[],
+  ): IncomingHttpHeaders {
+    const fields = withoutConnectionFields(headers, request.headers.connection);
+    // The host's own server already answered the viewer's Expect.
+    delete fields.expect;
+    const forwarded: IncomingHttpHeaders = {
+      ...withoutHostCredentials(fields, this.privateCookies),
+      // reply-from addresses the app.
+      host: headers.host,
+      "x-forwarded-prefix": `/${artifact.slug}`,
+      "x-forwarded-host": request.headers.host ?? "",
+      "x-forwarded-proto": request.protocol,
+    };
+    if (credentials.length) {
+      forwarded["accept-encoding"] = "identity";
+      for (const name of [
+        "range",
+        "if-range",
+        "if-none-match",
+        "if-modified-since",
+      ]) {
+        delete forwarded[name];
+      }
+    }
+    // The host frames the body it forwards from what its server read: the same length, or chunks when
+    // the body came without one. When it forwards no body, it declares none.
+    delete forwarded["content-length"];
+    if (request.body instanceof Readable) {
+      if (request.headers["transfer-encoding"] !== undefined)
+        forwarded["transfer-encoding"] = "chunked";
+      else if (request.headers["content-length"] !== undefined)
+        forwarded["content-length"] = request.headers["content-length"];
+    }
+    return forwarded;
   }
 
   // ===========================================
@@ -150,7 +229,7 @@ export class ArtifactProxy {
     artifact: Artifact,
     initialSecrets: readonly string[],
   ): Promise<void> {
-    // Canceling an unread undici body emits an error; observe it even before inspection starts.
+    // Canceling or losing an unread app body emits an error; observe it even before inspection starts.
     source.on("error", () => {});
     /** Cancel upstream reads as soon as the browser disconnects. */
     const cancel = (): void => {
@@ -165,6 +244,11 @@ export class ArtifactProxy {
         source.destroy();
         return;
       }
+      // The app's connection failed while credentials were read, before anything reached the viewer.
+      if (source.destroyed) {
+        this.unreachable(reply);
+        return;
+      }
       const response = secrets.length
         ? await this.guard.inspect(
             source,
@@ -174,6 +258,11 @@ export class ArtifactProxy {
             secrets,
           )
         : { headers, stream: source };
+      // The viewer left during inspection: release the inspected response unsent.
+      if (reply.raw.destroyed) {
+        response.stream.destroy();
+        return;
+      }
       if (typeof response.headers.location === "string") {
         response.headers.location = prefixedLocation(
           response.headers.location,
@@ -189,8 +278,10 @@ export class ArtifactProxy {
 
   /** Send a credential-free error before output starts, or terminate a response already streaming. */
   private block(reply: FastifyReply): FastifyReply {
+    // A response that finished or lost its viewer has nothing left to stop or answer.
+    if (reply.sent || reply.raw.destroyed) return reply;
     reply.request.log.warn("App response blocked by credential protection");
-    if (reply.raw.headersSent || reply.sent) {
+    if (reply.raw.headersSent) {
       reply.raw.destroy();
       return reply;
     }
@@ -204,6 +295,19 @@ export class ArtifactProxy {
         hostPage(
           hostMessages.blockedResponse.title,
           hostMessages.blockedResponse.message,
+        ),
+      );
+  }
+
+  /** Tell the viewer the app could not be reached, before any of its response was sent. */
+  private unreachable(reply: FastifyReply): FastifyReply {
+    return reply
+      .code(502)
+      .type("text/html; charset=utf-8")
+      .send(
+        hostPage(
+          hostMessages.unreachable.title,
+          hostMessages.unreachable.message,
         ),
       );
   }
