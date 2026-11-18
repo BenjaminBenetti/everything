@@ -3,6 +3,7 @@ import { once } from "node:events";
 import {
   createServer,
   request as httpRequest,
+  type Agent,
   type IncomingHttpHeaders,
   type RequestListener,
 } from "node:http";
@@ -29,6 +30,7 @@ import { ArtifactProxy } from "../adapter/artifact-proxy.js";
 import { ViewCookie } from "../handler/view-cookie.js";
 import { ViewPassCredentials } from "../handler/view-pass-credentials.js";
 import type { ArtifactHostDependencies } from "../controller/artifact-host-controller.js";
+import type { ArtifactResponseSecrets } from "../interface/artifact-response-secrets.js";
 import { AppResponseGuard } from "../service/app-response-guard.js";
 import { StaticSite } from "../service/static-site.js";
 import { ViewAccess } from "../service/view-access.js";
@@ -158,6 +160,51 @@ export function send(
   });
 }
 
+/** A response read whole, and whether it came over a connection an earlier request had used. */
+export interface Exchanged extends Answer {
+  readonly reused: boolean;
+}
+
+/** Send one request with its body written in the given chunks, through `agent` when one is given. */
+export function exchange(
+  url: string,
+  options: {
+    readonly method?: string;
+    readonly headers: Record<string, string>;
+    readonly body?: readonly string[];
+    readonly agent?: Agent;
+  },
+): Promise<Exchanged> {
+  return new Promise((resolve, reject) => {
+    const request = httpRequest(
+      url,
+      {
+        method: options.method ?? "GET",
+        headers: options.headers,
+        ...(options.agent ? { agent: options.agent } : {}),
+      },
+      (response) => {
+        const chunks: Buffer[] = [];
+        response.on("data", (chunk: Buffer) => chunks.push(chunk));
+        response.on("error", reject);
+        response.on("end", () => {
+          const bytes = Buffer.concat(chunks);
+          resolve({
+            status: response.statusCode ?? 0,
+            headers: response.headers,
+            body: bytes.toString(),
+            bytes,
+            reused: request.reusedSocket,
+          });
+        });
+      },
+    );
+    request.on("error", reject);
+    for (const chunk of options.body ?? []) request.write(chunk);
+    request.end();
+  });
+}
+
 /**
  * Write a request's exact bytes to a port, for requests no HTTP client sends: no Host header, two of
  * them, or a target that is a full URL. Answers with the status line and body.
@@ -189,11 +236,13 @@ export function sendRaw(
  * app, drafts, on the artifact host; a public dynamic app, board, and a public static app, guide, on
  * the public apps host. Only the network destination of each forwarded request is substituted, from
  * the app's cluster Service to its local server. Each step a refused request must not reach counts
- * how often it ran. `responders` replace the dynamic apps' usual answers.
+ * how often it ran. `responders` replace the dynamic apps' usual answers, and `secrets` the apps'
+ * provisioned credentials, which they have none of by default.
  */
 export async function hostStack(
   context: TestContext,
   responders: AppResponders = {},
+  secrets: ArtifactResponseSecrets = { read: async () => [] },
 ) {
   const artifacts = new MemoryArtifacts();
   const revisions = new MemoryRevisions();
@@ -266,7 +315,7 @@ export async function hostStack(
   const real = new ArtifactProxy(
     "apps",
     [...cookie.privateCookies, passCredentials.cookieName],
-    { read: async () => [] },
+    secrets,
     new AppResponseGuard(),
   );
   const forwarded: Forwarded[] = [];
@@ -416,6 +465,25 @@ export async function hostStack(
     forwarded,
     hosts: { artifact: host, publicApps },
   };
+}
+
+/** How a viewer reaches each host's dynamic app: the private app, notes, with its API key, and the public app, board. */
+export function appRoutes(ports: {
+  readonly artifact: number;
+  readonly publicApps: number;
+}) {
+  return [
+    {
+      app: "notes",
+      url: `http://127.0.0.1:${ports.artifact}/notes`,
+      headers: { host: new URL(origins.artifact).host, "x-api-key": notesKey },
+    },
+    {
+      app: "board",
+      url: `http://127.0.0.1:${ports.publicApps}/board`,
+      headers: { host: new URL(origins.publicApps).host },
+    },
+  ];
 }
 
 /** The cookie names in a Cookie header. */

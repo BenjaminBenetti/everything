@@ -13,6 +13,7 @@ import {
 } from "../../artifact/test/artifact-fixture.js";
 import {
   prefixedLocation,
+  withoutConnectionFields,
   withoutCookies,
   withoutHostCredentials,
   type ArtifactProxy,
@@ -260,6 +261,38 @@ test("forwarded requests drop the host's credentials and keep the artifact's own
     ),
     { authorization: "Bearer app-token" },
   );
+});
+
+test("connection fields, and every field a Connection header names in any case or repeat, are removed", () => {
+  const headers = {
+    connection: "Keep-Alive, X-Hop-One",
+    "Keep-Alive": "timeout=5",
+    "proxy-connection": "keep-alive",
+    te: "trailers",
+    "transfer-encoding": "chunked",
+    upgrade: "h2c",
+    "http2-settings": "AAMAAABkAAQAAP__",
+    "x-hop-one": "1",
+    "x-hop-two": "2",
+    "x-end": "kept",
+    "set-cookie": ["first=1", "second=2"],
+    "content-type": "text/plain",
+  };
+  assert.deepEqual(
+    withoutConnectionFields(headers, ["Keep-Alive, X-Hop-One", " x-HOP-two "]),
+    {
+      "x-end": "kept",
+      "set-cookie": ["first=1", "second=2"],
+      "content-type": "text/plain",
+    },
+  );
+  // Without a Connection header given, the headers' own is read.
+  assert.deepEqual(Object.keys(withoutConnectionFields(headers)).sort(), [
+    "content-type",
+    "set-cookie",
+    "x-end",
+    "x-hop-two",
+  ]);
 });
 
 test("a teammate pass opens one existing artifact of its owner, is stored hashed, and expires", async () => {

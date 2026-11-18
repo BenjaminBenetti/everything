@@ -1,3 +1,5 @@
+import { IncomingMessage } from "node:http";
+import type { Readable } from "node:stream";
 import type { FastifyReplyFromOptions } from "@fastify/reply-from";
 
 /**
@@ -34,4 +36,14 @@ export function appForwarding(): FastifyReplyFromOptions {
       requestOptions: { timeout: appIdleTimeout },
     },
   };
+}
+
+/**
+ * Keep an app's response body to the idle bound while it streams. reply-from's Node HTTP client lifts
+ * the bound for `text/event-stream` responses, but the Undici client used before held every body to
+ * it, event streams included; activity on the connection still restarts the wait.
+ */
+export function boundAppBody(body: Readable): void {
+  if (body instanceof IncomingMessage && body.socket)
+    body.setTimeout(appIdleTimeout);
 }
