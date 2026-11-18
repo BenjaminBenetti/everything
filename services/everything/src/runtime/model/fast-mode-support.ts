@@ -12,13 +12,16 @@ export interface FastModeModel {
 
 /**
  * Models whose provider documents Fast mode on the endpoint this application calls, checked
- * 2026-10-17. Only exact model IDs are listed: a new model, dated snapshot, or near-miss ID stays
- * unsupported until its provider documents it. Effort, model choice, flex, batch, and Ultrafast are
- * separate settings and are not Fast mode.
+ * 2026-10-17, with GPT-6.2 Astra, GPT-6.2 Sol, and GPT-6.1 Terra checked 2026-11-18. Only exact
+ * model IDs are listed: a new model, dated snapshot, or near-miss ID stays unsupported until its
+ * provider documents it or the account's model list offers it. Effort, model choice, flex, batch,
+ * and Ultrafast are separate settings and are not Fast mode; Ultrafast is never assumed from
+ * documentation, because its availability depends on the account's plan or workspace.
  *
  * ChatGPT sign-in sends `service_tier` to the public Responses API.
- * - https://learn.chatgpt.com/docs/agent-configuration/speed names GPT-6.1 Sol, GPT-6 Astra,
- *   GPT-6 Sol, GPT-6 Luna, and GPT-5.6 for ChatGPT sign-in.
+ * - https://learn.chatgpt.com/docs/agent-configuration/speed names GPT-6.2 Astra, GPT-6.2 Sol,
+ *   GPT-6.1 Sol, GPT-6.1 Terra, GPT-6 Astra, GPT-6 Sol, GPT-6 Luna, and GPT-5.6 for ChatGPT
+ *   sign-in.
  * - https://developers.openai.com/api/docs/pricing?latest-pricing=fast lists their exact slugs.
  * - https://developers.openai.com/api/docs/guides/fast-mode documents `fast` and its `priority`
  *   alias, and downgrades reported as `default`.
@@ -37,7 +40,10 @@ const fastModeModels: Readonly<
   Partial<Record<ProviderId, Readonly<Record<string, FastModeModel>>>>
 > = {
   chatgpt: {
+    "gpt-6.2-astra": {},
+    "gpt-6.2-sol": {},
     "gpt-6.1-sol": {},
+    "gpt-6.1-terra": {},
     "gpt-6-astra": {},
     "gpt-6-sol": {},
     "gpt-6-luna": {},

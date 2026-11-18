@@ -82,7 +82,7 @@ test("the provider's last response explains a failure the SDK message does not",
   assert.equal(failure.retryable, false);
 });
 
-test("cancellations and refused Fast requests have their own categories", () => {
+test("cancellations and refused paid speeds have their own categories", () => {
   assert.equal(
     classifyModelFailure({
       stopReason: "aborted",
@@ -99,6 +99,26 @@ test("cancellations and refused Fast requests have their own categories", () => 
     classifyModelFailure({ stopReason: "error", speedFailure: "limited" })
       .category,
     "fast_mode_limited",
+  );
+  for (const [speedFailure, category, retryable] of [
+    ["rejected", "ultrafast_mode_rejected", false],
+    ["limited", "ultrafast_mode_limited", true],
+  ] as const) {
+    const failure = classifyModelFailure({
+      stopReason: "error",
+      speedFailure,
+      speed: "ultrafast",
+    });
+    assert.equal(failure.category, category);
+    assert.equal(failure.retryable, retryable);
+  }
+  assert.equal(
+    classifyModelFailure({
+      stopReason: "error",
+      speedFailure: "rejected",
+      speed: "fast",
+    }).category,
+    "fast_mode_rejected",
   );
 });
 

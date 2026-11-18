@@ -13,10 +13,10 @@ export const inferenceEfforts = [
 export type InferenceEffort = (typeof inferenceEfforts)[number];
 
 /**
- * Serving speeds a teammate can request. Fast runs the same model and effort faster at a higher
- * usage cost; standard requests no speed, so the provider's default applies.
+ * Serving speeds a teammate can request. Fast and Ultrafast run the same model and effort faster
+ * at a higher usage cost; standard requests no speed, so the provider's default applies.
  */
-export const inferenceSpeeds = ["standard", "fast"] as const;
+export const inferenceSpeeds = ["standard", "fast", "ultrafast"] as const;
 export type InferenceSpeed = (typeof inferenceSpeeds)[number];
 
 /**
@@ -60,7 +60,10 @@ export interface ProviderModel {
   readonly defaultEffort: InferenceEffort;
   /** Where `efforts` was learned, so a model without known effort levels can say so. */
   readonly effortSource: EffortSource;
-  /** Always includes standard; includes fast only where the provider documents it for this model. */
+  /**
+   * Always includes standard. Includes fast where the account's model list or the provider's
+   * documentation confirms it for this model, and ultrafast only where the account's model list does.
+   */
   readonly speeds: readonly InferenceSpeed[];
 }
 

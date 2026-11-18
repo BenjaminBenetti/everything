@@ -17,7 +17,11 @@ import type {
   RuntimeModelCatalog,
 } from "../interface/inference-runtime.js";
 import type { ProviderId } from "@everything/provider-contracts";
-import { fastModeModel } from "../model/fast-mode-support.js";
+import {
+  FastModeUnsupportedError,
+  UltrafastModeUnsupportedError,
+} from "../../provider/error/provider-errors.js";
+import { requestedSpeed } from "../model/speed-support.js";
 import { speedProtocols } from "./speed-protocols.js";
 import { SpeedRequest } from "./speed-request.js";
 import { observeProviderRequests } from "../../telemetry/adapter/provider-request-telemetry.js";
@@ -51,11 +55,19 @@ export class PiInferenceRuntimeFactory implements InferenceRuntimeFactory {
   ): Promise<InferenceRuntime> {
     const discovered = await this.choices.select(ownerId, selection);
     const protocol = speedProtocols[selection.provider];
-    // Selection validation has already refused Fast for models without documented support.
-    const fast =
-      selection.speed === "fast"
-        ? fastModeModel(selection.provider, selection.model)
-        : undefined;
+    // Selection validation made the same decision; a paid speed is never replaced by another.
+    const requested = requestedSpeed(
+      selection.provider,
+      discovered,
+      selection.speed,
+    );
+    if (
+      (selection.speed ?? "standard") !== "standard" &&
+      !(requested && protocol)
+    )
+      throw selection.speed === "ultrafast"
+        ? new UltrafastModeUnsupportedError()
+        : new FastModeUnsupportedError();
     const connection = await this.connections.access(
       ownerId,
       selection.provider,
@@ -110,7 +122,7 @@ export class PiInferenceRuntimeFactory implements InferenceRuntimeFactory {
               model: selection.model,
             },
           );
-          const speed = protocol && new SpeedRequest(protocol, fast);
+          const speed = protocol && new SpeedRequest(protocol, requested);
           const requestOptions = {
             ...(speed ? speed.options(options) : options),
             apiKey: key || "local",

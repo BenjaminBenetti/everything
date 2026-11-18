@@ -99,7 +99,8 @@ test("a ChatGPT model missing from Pi's catalog offers exactly the levels its ac
         efforts: ["low", "medium", "xhigh"],
         defaultEffort: "xhigh",
         effortSource: "provider",
-        speeds: ["standard"],
+        // ChatGPT sign-in documents Fast for this exact model; its entry lists no speeds.
+        speeds: ["standard", "fast"],
       },
     ],
   });

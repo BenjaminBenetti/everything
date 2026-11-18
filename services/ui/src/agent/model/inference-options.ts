@@ -1,4 +1,7 @@
-import type { InferenceEffort } from "@everything/provider-contracts/inference";
+import type {
+  InferenceEffort,
+  InferenceSpeed,
+} from "@everything/provider-contracts/inference";
 
 /** Plain labels shared by the editor and the saved teammate details. */
 export const effortLabels: Record<InferenceEffort, string> = {
@@ -21,3 +24,36 @@ export const fastModeLabels = {
   unsupported:
     "Fast mode isn’t available for this model. Turn it off to save this model.",
 } as const;
+
+/** A speed beyond standard, which uses more of the plan or credits. */
+type PaidSpeed = Exclude<InferenceSpeed, "standard">;
+
+/**
+ * Speed menu wording for models that offer Ultrafast, where a switch can't hold three choices. Like
+ * Fast mode's, it describes a request to the provider and its higher usage, never a guaranteed
+ * faster reply or an estimated cost.
+ */
+export const speedLabels: {
+  readonly field: string;
+  readonly placeholder: string;
+  readonly options: Readonly<Record<InferenceSpeed, string>>;
+  readonly unavailable: string;
+  readonly summary: Readonly<Record<PaidSpeed, string>>;
+  readonly details: Readonly<Record<PaidSpeed, string>>;
+  readonly warning: string;
+  readonly unsupported: Readonly<Record<PaidSpeed, string>>;
+} = {
+  field: "Speed",
+  placeholder: "Choose a speed",
+  options: { standard: "Standard", fast: "Fast", ultrafast: "Ultrafast" },
+  unavailable: "unavailable",
+  summary: { fast: fastModeLabels.summary, ultrafast: "Ultrafast requested" },
+  details: { fast: fastModeLabels.details, ultrafast: "Ultrafast requested" },
+  warning:
+    "Fast and Ultrafast ask the provider to reply faster with the same model and effort level. They use your plan or credits faster, or cost more, and the provider may still answer some replies at another speed or decline the speed for your account.",
+  unsupported: {
+    fast: "Fast mode isn’t available for this model. Choose another speed to save this model.",
+    ultrafast:
+      "Ultrafast isn’t available for this model on your account. Choose another speed to save this model.",
+  },
+};

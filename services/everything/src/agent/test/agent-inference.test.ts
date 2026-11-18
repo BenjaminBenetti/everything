@@ -192,17 +192,22 @@ test("Fast mode round-trips through create and edit, selections without a speed 
       },
     },
     {
-      /** The account offers one Fast-capable model and one without Fast mode. */
+      /** The account offers a Fast model, one without Fast mode, and one it lists Ultrafast for. */
       async discover() {
         return [
           { id: "gpt-6.1-sol", name: "GPT-6.1 Sol" },
           { id: "o3-mini", name: "o3-mini" },
+          {
+            id: "gpt-6.2-sol",
+            name: "GPT-6.2 Sol",
+            speeds: { offered: ["fast", "ultrafast"], complete: true },
+          },
         ];
       },
     },
     new PiModelCapabilities(await createModelRuntime()),
   );
-  const [sol, mini] = await models.list("owner", "chatgpt");
+  const [sol, mini, ultrafastSol] = await models.list("owner", "chatgpt");
   const app = authenticatedTestServer();
   context.after(() => app.close());
   const agents = new AgentService(repository, models);
@@ -252,7 +257,7 @@ test("Fast mode round-trips through create and edit, selections without a speed 
   });
   assert.equal(refused.statusCode, 400);
   assert.equal(refused.json().code, "FAST_MODE_UNSUPPORTED");
-  for (const speed of ["turbo", "priority", null, 1])
+  for (const speed of ["turbo", "priority", "flex", "Ultrafast", null, 1])
     assert.equal(
       (
         await app.inject({
@@ -278,4 +283,27 @@ test("Fast mode round-trips through create and edit, selections without a speed 
   });
   assert.equal(turnedOff.statusCode, 200);
   assert.deepEqual(turnedOff.json().inference, standard);
+  // Ultrafast saves only where the account lists it, and is never accepted as Fast's stand-in.
+  const ultrafast = {
+    provider: "chatgpt",
+    model: ultrafastSol!.id,
+    effort: ultrafastSol!.defaultEffort,
+    speed: "ultrafast",
+  } as const;
+  const upgraded = await app.inject({
+    method: "PATCH",
+    url: `/agents/${id}`,
+    payload: { inference: ultrafast },
+  });
+  assert.equal(upgraded.statusCode, 200, upgraded.body);
+  assert.deepEqual(upgraded.json().inference, ultrafast);
+  assert.deepEqual(saved?.inference, ultrafast);
+  const unlisted = await app.inject({
+    method: "PATCH",
+    url: `/agents/${id}`,
+    payload: { inference: { ...fast, speed: "ultrafast" } },
+  });
+  assert.equal(unlisted.statusCode, 400);
+  assert.equal(unlisted.json().code, "ULTRAFAST_MODE_UNSUPPORTED");
+  assert.deepEqual(saved?.inference, ultrafast);
 });

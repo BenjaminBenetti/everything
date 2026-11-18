@@ -21,7 +21,7 @@ import type {
 import { modelTokenLimit } from "../../provider/model/model-token-limit.js";
 import type { RuntimeModelCatalog } from "../interface/inference-runtime.js";
 import { compatibleModelMetadata } from "../model/compatible-model-metadata.js";
-import { fastModeModel } from "../model/fast-mode-support.js";
+import { offeredSpeeds } from "../model/speed-support.js";
 
 /**
  * Planning limits only when neither the provider nor Pi's catalog supplies a valid value.
@@ -67,8 +67,7 @@ export class PiModelCapabilities
 
   /**
    * Show only effort levels that Pi can apply, preferring the levels the provider lists for this
-   * model, with a supported default, and Fast mode only where its provider documents it for this
-   * exact model.
+   * model, with a supported default, and only the paid speeds the runtime can request for it.
    */
   describe(provider: ProviderId, model: DiscoveredModel): ProviderModel {
     const { effortSource } = this.known(provider, model.id, model.reasoning);
@@ -89,9 +88,7 @@ export class PiModelCapabilities
             ? "medium"
             : efforts[0]!,
       effortSource,
-      speeds: fastModeModel(provider, model.id)
-        ? ["standard", "fast"]
-        : ["standard"],
+      speeds: offeredSpeeds(provider, model),
     };
   }
 
