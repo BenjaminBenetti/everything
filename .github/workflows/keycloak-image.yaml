@@ -1,0 +1,98 @@
+# Build the Keycloak image from a pull request on native x86-64 and ARM64 runners and check the Java
+# runtime Keycloak's launcher runs in it: Red Hat OpenJDK 21 at 21.0.13.1 or later, the first build
+# that fixes CVE-2026-114938 (RHSA-2026:100567). The image is only built and inspected on the runner:
+# nothing is pushed or deployed, and the workflow uses no secrets.
+name: Keycloak image
+
+on:
+  pull_request:
+    paths:
+      - services/keycloak/container/Dockerfile
+      - services/keycloak/src/realm/script/provision-app-client.sh
+      - .github/workflows/keycloak-image.yaml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: keycloak-image-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  image:
+    name: Keycloak image on ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86-64
+            runner: ubuntu-24.04
+            platform: linux/amd64
+            jvm-arch: x86_64
+          - arch: ARM64
+            runner: ubuntu-24.04-arm
+            platform: linux/arm64
+            jvm-arch: aarch64
+    env:
+      IMAGE: everything-keycloak:pull-request
+      PLATFORM: ${{ matrix.platform }}
+      JVM_ARCH: ${{ matrix.jvm-arch }}
+      FIXED_JAVA: 21.0.13.1
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The base must be pinned by digest; its manifest for this platform is the one the build uses.
+      - name: Show the commit and the pinned base image
+        run: |
+          echo "Commit $(git rev-parse HEAD) (parents $(git log -1 --format=%P)), tree $(git rev-parse 'HEAD^{tree}')"
+          base=$(sed -n 's/^FROM \([^ ]*\) AS keycloak$/\1/p' services/keycloak/container/Dockerfile)
+          if [[ $base != *@sha256:* ]]; then
+            echo "::error::The Keycloak base image must be pinned by digest."
+            exit 1
+          fi
+          manifest=$(docker buildx imagetools inspect --raw "$base" |
+            jq -r --arg arch "${PLATFORM#linux/}" '.manifests[] | select(.platform.architecture == $arch) | .digest')
+          echo "Base $base, $PLATFORM manifest $manifest"
+      - name: Build the image
+        run: docker build --platform "$PLATFORM" -f services/keycloak/container/Dockerfile -t "$IMAGE" .
+      # Keycloak's launcher runs the java on PATH, as neither JAVA nor JAVA_HOME is set in the image.
+      - name: Check the image's Java runtime
+        run: |
+          fail() {
+            echo "::error::$1"
+            exit 1
+          }
+          config=$(docker image inspect "$IMAGE" \
+            --format '{{.Os}}/{{.Architecture}} {{.Config.User}} {{json .Config.Entrypoint}} {{json .Config.Cmd}}')
+          echo "Image $(docker image inspect "$IMAGE" --format '{{.Id}}'): $config"
+          [ "$config" = "$PLATFORM 1000:1000 [\"/opt/keycloak/bin/kc.sh\"] [\"start\",\"--optimized\",\"--import-realm\"]" ] ||
+            fail "The image's platform, user, entrypoint, or command changed."
+          docker run --rm --network none "$IMAGE" --version | tee "$RUNNER_TEMP/launcher"
+          docker run --rm --network none --entrypoint java "$IMAGE" -XshowSettings:properties -version 2> "$RUNNER_TEMP/properties"
+          property() { sed -n "s/^ *$1 = //p" "$RUNNER_TEMP/properties"; }
+          vendor=$(property java.vendor) runtime=$(property java.runtime.version) home=$(property java.home)
+          echo "java.vendor: $vendor, java.runtime.version: $runtime, java.home: $home"
+          version=${runtime%%[+-]*}
+          [ "$vendor" = "Red Hat, Inc." ] || fail "The image's Java runtime is not Red Hat's."
+          [ "${version%%.*}" = 21 ] || fail "The image's Java runtime is not OpenJDK 21."
+          [ "$(printf '%s\n' "$FIXED_JAVA" "$version" | sort -V | head -n 1)" = "$FIXED_JAVA" ] ||
+            fail "OpenJDK $version predates $FIXED_JAVA, which fixes CVE-2026-114938."
+          [[ $home == /usr/lib/jvm/java-21-openjdk-*.el9.$JVM_ARCH ]] || fail "Unexpected Java home $home."
+          grep -qF "JVM: $version (Red Hat, Inc." "$RUNNER_TEMP/launcher" || fail "Keycloak's launcher runs another JVM."
+      - name: Check the build options Everything sets
+        run: |
+          docker run --rm --network none "$IMAGE" show-config | tee "$RUNNER_TEMP/config" | grep -F "(Persisted)"
+          for option in "kc.db = +postgres" "kc.health-enabled = +true" "kc.http-relative-path = +/auth" \
+            "kc.http-management-relative-path = +/"; do
+            grep -qE "^\s*${option//./\\.} \(Persisted\)$" "$RUNNER_TEMP/config" || {
+              echo "::error::The image is missing the build option ${option/ = +/=}."
+              exit 1
+            }
+          done
