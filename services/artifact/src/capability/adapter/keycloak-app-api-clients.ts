@@ -7,6 +7,10 @@ import type {
   AppApiClient,
   AppApiClients,
 } from "../interface/app-api-clients.js";
+import {
+  sameProtocolMappers,
+  type ProtocolMapperDefinition,
+} from "./keycloak-protocol-mappers.js";
 
 /** Endpoints and audience supplied by the composition root. */
 export interface AppClientSettings {
@@ -57,10 +61,15 @@ export class KeycloakAppApiClients implements AppApiClients {
     }
     if (!client) throw new Error("The app client was not created");
     this.requireOwned(client, appId, ownerId);
+    const mappers = this.mappers(appId, ownerId);
+    await this.requireMappers(client.id, mappers);
+    // The update leaves out the mappers, which already match: Keycloak keeps a client's mappers when
+    // an update omits them, and since 26.8.2 lets only realm administrators change them.
     await this.request(`/${encodeURIComponent(client.id)}`, {
       method: "PUT",
-      body: JSON.stringify(this.definition(appId, ownerId)),
+      body: JSON.stringify(this.clientSettings(appId, ownerId)),
     });
+    await this.requireMappers(client.id, mappers);
     const secret = (await (
       await this.request(`/${encodeURIComponent(client.id)}/client-secret`)
     ).json()) as { value?: unknown };
@@ -112,8 +121,34 @@ export class KeycloakAppApiClients implements AppApiClients {
       throw new Error("The app client does not belong to this app and owner");
   }
 
+  /**
+   * Refuse a client whose mappers do not mean exactly this app's audience and signed app and owner
+   * claims, before changing it or releasing its secret. Read with the client's own representation.
+   */
+  private async requireMappers(
+    id: string,
+    expected: readonly ProtocolMapperDefinition[],
+  ): Promise<void> {
+    const client = (await (
+      await this.request(`/${encodeURIComponent(id)}`)
+    ).json()) as { protocolMappers?: unknown } | null;
+    if (!sameProtocolMappers(client?.protocolMappers, expected))
+      throw new Error("The app client's token claims do not match this app");
+  }
+
   /** Use only client credentials, with signed owner claims and the Everything API audience. */
   private definition(appId: string, ownerId: string): Record<string, unknown> {
+    return {
+      ...this.clientSettings(appId, ownerId),
+      protocolMappers: this.mappers(appId, ownerId),
+    };
+  }
+
+  /** Everything about the client except its mappers. */
+  private clientSettings(
+    appId: string,
+    ownerId: string,
+  ): Record<string, unknown> {
     return {
       clientId: everythingAppClientId(appId),
       name: `Everything app ${appId}`,
@@ -136,35 +171,39 @@ export class KeycloakAppApiClients implements AppApiClients {
         "access.token.lifespan": "300",
         "client_credentials.use_refresh_token": "false",
       },
-      protocolMappers: [
-        {
-          name: "Everything API audience",
-          protocol: "openid-connect",
-          protocolMapper: "oidc-audience-mapper",
-          config: {
-            "included.custom.audience": this.settings.audience,
-            "access.token.claim": "true",
-            "id.token.claim": "false",
-          },
-        },
-        ...Object.entries({
-          [everythingAppClaims.app]: appId,
-          [everythingAppClaims.owner]: ownerId,
-        }).map(([name, value]) => ({
-          name,
-          protocol: "openid-connect",
-          protocolMapper: "oidc-hardcoded-claim-mapper",
-          config: {
-            "claim.name": name,
-            "claim.value": value,
-            "jsonType.label": "String",
-            "access.token.claim": "true",
-            "id.token.claim": "false",
-            "userinfo.token.claim": "false",
-          },
-        })),
-      ],
     };
+  }
+
+  /** The Everything API audience, and the app and owner claims the provisioner signs into tokens. */
+  private mappers(appId: string, ownerId: string): ProtocolMapperDefinition[] {
+    return [
+      {
+        name: "Everything API audience",
+        protocol: "openid-connect",
+        protocolMapper: "oidc-audience-mapper",
+        config: {
+          "included.custom.audience": this.settings.audience,
+          "access.token.claim": "true",
+          "id.token.claim": "false",
+        },
+      },
+      ...Object.entries({
+        [everythingAppClaims.app]: appId,
+        [everythingAppClaims.owner]: ownerId,
+      }).map(([name, value]) => ({
+        name,
+        protocol: "openid-connect",
+        protocolMapper: "oidc-hardcoded-claim-mapper",
+        config: {
+          "claim.name": name,
+          "claim.value": value,
+          "jsonType.label": "String",
+          "access.token.claim": "true",
+          "id.token.claim": "false",
+          "userinfo.token.claim": "false",
+        },
+      })),
+    ];
   }
 
   /** Bound every request and report only HTTP status, never tokens, credentials, or provider bodies. */

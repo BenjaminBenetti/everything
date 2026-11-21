@@ -238,6 +238,9 @@ serviceDefaults:
   releaseAccess: false
   # `startup`, `readiness`, and `liveness` probe specifications.
   probes: {}
+  # The main container's `postStart` hook, run in the container each time it starts. The kubelet runs
+  # no probes until it finishes, and restarts the container when it fails.
+  lifecycle: {}
   resources: {}
   # Volume name to `mountPath` plus exactly one source. Omit `mountPath` for a volume only sidecars mount.
   #   persistentVolume: { size, accessModes?, storageClassName? }  claim <service>-<volume>, kept on uninstall
@@ -367,7 +370,8 @@ services:
         secretName: app-provisioner-auth
         key: client-secret
       EVERYTHING_REALM: "{{ .Values.global.realm }}"
-      # Temporary administrator created on first start.
+      # Temporary administrator created on first start; the installer and the postStart hook below
+      # sign in with it.
       KC_BOOTSTRAP_ADMIN_USERNAME: admin
       KC_BOOTSTRAP_ADMIN_PASSWORD:
         secretName: keycloak-credentials
@@ -394,6 +398,19 @@ services:
       liveness:
         httpGet: { path: /health/live, port: management }
         periodSeconds: 15
+    # Each time Keycloak starts, give the app provisioner Keycloak's built-in kc-admin-api client
+    # scope when it lacks it, so Keycloak accepts the artifact service's Admin REST API tokens in
+    # realms created before Keycloak 26.8.2 required it; new realms get it from the realm import.
+    # The hook waits for this server over loopback, signs in as the bootstrap administrator, and
+    # changes nothing else. It fails, restarting Keycloak, only when Keycloak is not ready within the
+    # startup probe's 5 minutes; any other problem is reported in Keycloak's log and leaves it running.
+    lifecycle:
+      postStart:
+        exec:
+          command:
+            - /opt/keycloak/bin/provision-app-client.sh
+            - --admin-api-scope
+            - --post-start
     resources:
       requests: { cpu: 250m, memory: 512Mi }
       limits: { cpu: "2", memory: 1Gi }
