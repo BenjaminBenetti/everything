@@ -430,6 +430,15 @@
         "probes": {
           "$ref": "#/definitions/probes"
         },
+        "lifecycle": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "postStart": {
+              "type": "object"
+            }
+          }
+        },
         "resources": {
           "type": "object"
         },

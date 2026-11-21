@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "test": "node --test \"src/**/*.test.ts\"",
     "build:image": "bash ../../deployment/script/build-image.sh services/keycloak everything-keycloak:foundation"
   }
 }
