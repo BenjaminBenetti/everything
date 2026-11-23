@@ -1,6 +1,9 @@
 # syntax=docker/dockerfile:1
+# Node.js 24.22.3 LTS on Debian bookworm, pinned by digest, in all three stages. Node 24.22.1 and later
+# fix CVE-2026-111497, an out-of-bounds write in Node's Brotli decoder.
+
 # Helm, which upgrade Jobs run. Each architecture's archive is checked against Helm's published SHA-256.
-FROM node:24.21.0-bookworm-slim AS helm
+FROM node:24.22.3-bookworm-slim@sha256:dc26ae92c9fb15cf6b1d63e20f0944b2efe0f115b20e00be48fb23fceb061c54 AS helm
 ARG TARGETARCH
 ARG HELM_VERSION=v4.3.0
 ADD https://get.helm.sh/helm-${HELM_VERSION}-linux-${TARGETARCH}.tar.gz /tmp/helm.tar.gz
@@ -13,7 +16,7 @@ RUN case "$TARGETARCH" in \
     tar -xzf /tmp/helm.tar.gz -C /tmp && \
     install -m 0755 "/tmp/linux-$TARGETARCH/helm" /usr/local/bin/helm
 
-FROM node:24.21.0-bookworm-slim AS build
+FROM node:24.22.3-bookworm-slim@sha256:dc26ae92c9fb15cf6b1d63e20f0944b2efe0f115b20e00be48fb23fceb061c54 AS build
 WORKDIR /app
 RUN corepack enable
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
@@ -35,7 +38,7 @@ RUN --mount=type=secret,id=proxy_ca \
     if [ -f /run/secrets/proxy_ca ]; then export NODE_EXTRA_CA_CERTS=/run/secrets/proxy_ca; fi; \
     pnpm --filter @everything/upgrader deploy --prod /output
 
-FROM node:24.21.0-bookworm-slim
+FROM node:24.22.3-bookworm-slim@sha256:dc26ae92c9fb15cf6b1d63e20f0944b2efe0f115b20e00be48fb23fceb061c54
 # Helm uses the system CA store to verify HTTPS chart registries.
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/*

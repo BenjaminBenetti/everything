@@ -2,7 +2,9 @@
 # The Docker CLI and Buildx, static builds that fleetd runs against the docker sidecar's engine.
 FROM docker:29.8.2-cli AS docker
 
-FROM node:24.21.0-bookworm-slim AS build
+# Node.js 24.22.3 LTS on Debian bookworm, pinned by digest, in both Node stages. Node 24.22.1 and later
+# fix CVE-2026-111497, an out-of-bounds write in Node's Brotli decoder.
+FROM node:24.22.3-bookworm-slim@sha256:dc26ae92c9fb15cf6b1d63e20f0944b2efe0f115b20e00be48fb23fceb061c54 AS build
 WORKDIR /app
 RUN corepack enable
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
@@ -46,7 +48,7 @@ RUN --mount=type=secret,id=proxy_ca \
     if [ -f /run/secrets/proxy_ca ]; then export NODE_EXTRA_CA_CERTS=/run/secrets/proxy_ca; fi; \
     pnpm --filter @everything/everything deploy --prod /output
 
-FROM node:24.21.0-bookworm-slim
+FROM node:24.22.3-bookworm-slim@sha256:dc26ae92c9fb15cf6b1d63e20f0944b2efe0f115b20e00be48fb23fceb061c54
 # fleetd runs in this container, downloaded at startup in the version the chart pins. It needs Git for
 # repository checkouts, Docker and the devcontainer CLI for image builds, and tmux for its terminal UI.
 RUN apt-get update && apt-get install -y --no-install-recommends \

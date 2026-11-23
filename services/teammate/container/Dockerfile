@@ -17,7 +17,9 @@ ADD --checksum=sha256:2b26debefc56582063c496030d379b2fd330003807ea23083e54ebc220
     https://github.com/BenjaminBenetti/fleet-man/releases/download/v3.2.0-beta/fleet-linux-arm64 /fleet
 FROM fleet-${TARGETARCH} AS fleet
 
-FROM node:24.21.0-trixie-slim AS build
+# Node.js 24.22.3 LTS on Debian trixie, pinned by digest, in both Node stages. Node 24.22.1 and later
+# fix CVE-2026-111497, an out-of-bounds write in Node's Brotli decoder.
+FROM node:24.22.3-trixie-slim@sha256:af02d57b57719b9657a45199a79264a9437940cd55b3c7b3fc99615654f124a0 AS build
 WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends gcc libc6-dev \
     && rm -rf /var/lib/apt/lists/*
@@ -39,7 +41,7 @@ RUN --mount=type=secret,id=proxy_ca \
     pnpm --filter @everything/teammate deploy --prod /output
 
 # The teammate's development environment, which also runs the workspace API.
-FROM node:24.21.0-trixie-slim
+FROM node:24.22.3-trixie-slim@sha256:af02d57b57719b9657a45199a79264a9437940cd55b3c7b3fc99615654f124a0
 RUN apt-get update && apt-get install -y --no-install-recommends \
       # Init that reaps commands' orphaned processes.
       tini \
