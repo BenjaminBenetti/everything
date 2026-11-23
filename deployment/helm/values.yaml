@@ -190,7 +190,7 @@ serviceDefaults:
   # Name of an image built here, combined with the global registry and tag.
   image: ""
   # Or a published image run unchanged, as a full reference such as
-  # docker.io/library/postgres:17.11-bookworm. Nodes pull it when missing, whatever the global pull
+  # docker.io/library/postgres:17.12-bookworm. Nodes pull it when missing, whatever the global pull
   # policy, and the deploy scripts and release workflow leave it to its publisher.
   upstreamImage: ""
   # Deployment for stateless services. StatefulSet for a single owner of state, such as a database or
@@ -295,7 +295,7 @@ services:
   postgres:
     workload: StatefulSet
     rolloutWave: 0
-    upstreamImage: docker.io/library/postgres:17.11-bookworm
+    upstreamImage: docker.io/library/postgres:17.12-bookworm@sha256:837bed18782820fe967067cb5328b02b0d9992c1be9a37ee0c9c492cfc03af3b
     podSecurityContext:
       runAsUser: 999
       runAsGroup: 999

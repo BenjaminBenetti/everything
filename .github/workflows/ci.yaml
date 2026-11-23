@@ -30,7 +30,7 @@ jobs:
     # jobs integration step below.
     services:
       postgres:
-        image: docker.io/library/postgres:17.11-bookworm
+        image: docker.io/library/postgres:17.12-bookworm@sha256:837bed18782820fe967067cb5328b02b0d9992c1be9a37ee0c9c492cfc03af3b
         env:
           POSTGRES_USER: jobs_test
           POSTGRES_PASSWORD: jobs_test
