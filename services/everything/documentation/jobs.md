@@ -93,6 +93,6 @@ The first is `create_job`; the second, `update_job`, pauses that job.
 
 ## Tests and screenshots
 
-- **CI coverage:** CI's Build and test job runs the jobs PostgreSQL test against a disposable `postgres:17.11-bookworm` (**Jobs PostgreSQL integration**: exactly one test, which must pass and must not skip). It also runs the desktop and phone browser harness (**Jobs browser harness**: both tests must pass on their only attempt).
+- **CI coverage:** CI's Build and test job runs the jobs PostgreSQL test against a disposable `postgres:17.12-bookworm` (**Jobs PostgreSQL integration**: exactly one test, which must pass and must not skip). It also runs the desktop and phone browser harness (**Jobs browser harness**: both tests must pass on their only attempt).
 - **Artifact:** the harness's screenshots and records are uploaded as `jobs-browser-proof-<run>-<attempt>`.
 - **Published screenshots:** unedited screenshots from a passing CI run, with what was real and what was synthetic, are in [`services/ui/documentation/assets/jobs/README.md`](../../ui/documentation/assets/jobs/README.md).

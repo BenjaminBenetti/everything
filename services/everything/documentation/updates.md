@@ -70,7 +70,7 @@ The unread feed refreshes every five seconds while visible, on return or reconne
 Run `pnpm --filter @everything/everything check`, `test`, and `build`, then `pnpm format:check`. To include the PostgreSQL integration test, point `UPDATES_TEST_DATABASE_URL` at a **test** server whose user can create databases. The test creates and removes a randomly named database. For example:
 
 ```sh
-docker run -d --rm --name updates-test-pg -e POSTGRES_USER=updates_test -e POSTGRES_PASSWORD=updates_test -p 55432:5432 postgres:17.11-bookworm
+docker run -d --rm --name updates-test-pg -e POSTGRES_USER=updates_test -e POSTGRES_PASSWORD=updates_test -p 55432:5432 postgres:17.12-bookworm
 UPDATES_TEST_DATABASE_URL=postgresql://updates_test:updates_test@127.0.0.1:55432/postgres pnpm --filter @everything/everything test
 docker stop updates-test-pg
 ```
