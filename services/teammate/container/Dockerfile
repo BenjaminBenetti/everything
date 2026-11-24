@@ -42,6 +42,7 @@ RUN --mount=type=secret,id=proxy_ca \
 
 # The teammate's development environment, which also runs the workspace API.
 FROM node:24.22.3-trixie-slim@sha256:af02d57b57719b9657a45199a79264a9437940cd55b3c7b3fc99615654f124a0
+# DSA-6653: allow newer Debian builds, but reject Chromium versions before the security fix.
 RUN apt-get update && apt-get install -y --no-install-recommends \
       # Init that reaps commands' orphaned processes.
       tini \
@@ -53,6 +54,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       chromium fonts-liberation \
       # Libraries the copied Python and Ruby builds link against that the base image lacks.
       libffi8 libgdbm6t64 libncursesw6 libreadline8t64 libtk8.6 libyaml-0-2 \
+    && chromium_version="$(dpkg-query -W -f='${Version}' chromium)" \
+    && printf 'Installed Debian Chromium package: %s\n' "$chromium_version" \
+    && dpkg --compare-versions "$chromium_version" ge '156.0.8078.108-1~deb13u1' \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=python /usr/local/ /usr/local/
 COPY --from=ruby /usr/local/ /usr/local/
